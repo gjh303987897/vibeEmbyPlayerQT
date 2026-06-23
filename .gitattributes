@@ -1,0 +1,23 @@
+# Keep generated GitHub source archives focused on release source code.
+# Do not expose local test fixtures, design notes, CI internals or build scripts
+# through Release "Source code" zip/tar assets.
+/AGENTS.md export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.github export-ignore
+/.github/** export-ignore
+/VIBEDOCS export-ignore
+/VIBEDOCS/** export-ignore
+/bugFix export-ignore
+/bugFix/** export-ignore
+/featDocs export-ignore
+/featDocs/** export-ignore
+/docs export-ignore
+/docs/** export-ignore
+/resources export-ignore
+/resources/** export-ignore
+/tests export-ignore
+/tests/** export-ignore
+/scripts export-ignore
+/scripts/** export-ignore
+/TODO.md export-ignore

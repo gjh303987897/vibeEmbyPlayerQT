@@ -1,0 +1,406 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  QT_VERSION: 6.7.3
+  MPV_WINBUILD_TAG: 2026-06-19-2d5dfb343a
+  MPV_WINBUILD_ASSET: mpv-dev-x86_64-20260619-git-2d5dfb343a.7z
+  MPV_WINBUILD_SHA256: efb530ca2b36a69c3f5be2d69fadbdf691274b48c0a3963ff771fbf7d9e0f1dd
+
+jobs:
+  build:
+    name: Build ${{ matrix.package-suffix }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package-suffix: windows-x86_64
+            os: windows-2022
+            qt-host: windows
+            qt-arch: win64_msvc2019_64
+            qt-dir: msvc2019_64
+          - package-suffix: macos-x86_64
+            os: macos-15-intel
+            qt-host: mac
+            qt-arch: clang_64
+            qt-dir: macos
+            cmake-osx-arch: x86_64
+          - package-suffix: macos-arm64
+            os: macos-15
+            qt-host: mac
+            qt-arch: clang_64
+            qt-dir: macos
+            cmake-osx-arch: arm64
+          - package-suffix: linux-x86_64
+            os: ubuntu-24.04
+            qt-host: linux
+            qt-arch: linux_gcc_64
+            qt-dir: gcc_64
+          - package-suffix: linux-arm64
+            os: ubuntu-24.04-arm
+            qt-host: linux_arm64
+            qt-arch: linux_gcc_arm64
+            qt-dir: gcc_arm64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Export package version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            package_version="$GITHUB_REF_NAME"
+          else
+            package_version="${GITHUB_SHA::7}"
+          fi
+          echo "PACKAGE_VERSION=$package_version" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install aqtinstall
+        run: python -m pip install --upgrade pip aqtinstall
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libgl1-mesa-dev \
+            libmpv-dev \
+            libxcb-cursor-dev \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xfixes0 \
+            libxcb-xinerama0 \
+            libxcb-xkb1 \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0 \
+            ninja-build \
+            p7zip-full \
+            patchelf \
+            pkg-config
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: brew install mpv ninja p7zip pkg-config
+
+      - name: Install Qt
+        shell: bash
+        run: |
+          python -m aqt install-qt \
+            "${{ matrix.qt-host }}" \
+            desktop \
+            "$QT_VERSION" \
+            "${{ matrix.qt-arch }}" \
+            -O "$RUNNER_TEMP/Qt"
+
+      - name: Export Qt paths
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          qt_root="$RUNNER_TEMP/Qt/$QT_VERSION/${{ matrix.qt-dir }}"
+          test -f "$qt_root/lib/cmake/Qt6/Qt6Config.cmake"
+          echo "QT_ROOT=$qt_root" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$qt_root" >> "$GITHUB_ENV"
+          echo "$qt_root/bin" >> "$GITHUB_PATH"
+
+      - name: Export Qt paths on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $qtRoot = Join-Path $env:RUNNER_TEMP "Qt\$($env:QT_VERSION)\${{ matrix.qt-dir }}"
+          if (!(Test-Path "$qtRoot\lib\cmake\Qt6\Qt6Config.cmake")) {
+            throw "Qt6Config.cmake not found under $qtRoot"
+          }
+          "QT_ROOT=$qtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CMAKE_PREFIX_PATH=$qtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$qtRoot\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Export Homebrew pkg-config path
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "PKG_CONFIG_PATH=$(brew --prefix mpv)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+
+      - name: Install Windows libmpv development package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/zhongfly/mpv-winbuild/releases/download/$env:MPV_WINBUILD_TAG/$env:MPV_WINBUILD_ASSET"
+          $archive = Join-Path $env:RUNNER_TEMP $env:MPV_WINBUILD_ASSET
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actualHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:MPV_WINBUILD_SHA256) {
+            throw "Unexpected libmpv package hash: $actualHash"
+          }
+          New-Item -ItemType Directory -Force third_party\mpv\dev | Out-Null
+          7z x $archive "-othird_party\mpv\dev" -y
+
+      - name: Configure CMake on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $clang = (Get-Command clang-cl).Source
+          $lldLink = (Get-Command lld-link).Source
+          $cmakeArgs = @(
+            "-S", ".",
+            "-B", "build",
+            "-G", "Ninja",
+            "-DCMAKE_BUILD_TYPE=$($env:BUILD_TYPE)",
+            "-DCMAKE_PREFIX_PATH=$($env:QT_ROOT)",
+            "-DCMAKE_C_COMPILER=$clang",
+            "-DCMAKE_CXX_COMPILER=$clang",
+            "-DCMAKE_LINKER=$lldLink"
+          )
+          cmake @cmakeArgs
+
+      - name: Configure CMake on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake_args=(
+            -S .
+            -B build
+            -G Ninja
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+            -DCMAKE_PREFIX_PATH="$QT_ROOT"
+          )
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            cmake_args+=(-DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake-osx-arch }}")
+          fi
+          cmake "${cmake_args[@]}"
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Run CTest
+        run: ctest --test-dir build --build-config ${{ env.BUILD_TYPE }} --output-on-failure
+
+      - name: Install deployable bundle on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:GITHUB_WORKSPACE "package"
+          "PACKAGE_DIR=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append
+          cmake --install build --config $env:BUILD_TYPE --prefix "$prefix"
+
+      - name: Install deployable bundle on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          prefix="$GITHUB_WORKSPACE/package"
+          echo "PACKAGE_DIR=$prefix" >> "$GITHUB_ENV"
+          cmake --install build --config "$BUILD_TYPE" --prefix "$prefix"
+
+      - name: Sign macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app="$PACKAGE_DIR/vibePlayerQT.app"
+          codesign --force --deep --sign - "$app"
+
+      - name: Add Linux launcher
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cat > "$PACKAGE_DIR/vibePlayerQT.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          exec "$app_dir/bin/vibePlayerQT" "$@"
+          EOF
+          sed -i 's/^          //' "$PACKAGE_DIR/vibePlayerQT.sh"
+          chmod +x "$PACKAGE_DIR/vibePlayerQT.sh"
+
+      - name: Validate Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:PACKAGE_DIR\bin\vibePlayerQT.exe")) { throw "Missing vibePlayerQT.exe" }
+          if (!(Test-Path "$env:PACKAGE_DIR\bin\libmpv-2.dll")) { throw "Missing libmpv-2.dll" }
+          Get-ChildItem -Recurse "$env:PACKAGE_DIR" | Select-Object FullName, Length
+
+      - name: Validate macOS package
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app="$PACKAGE_DIR/vibePlayerQT.app"
+          test -x "$app/Contents/MacOS/vibePlayerQT"
+          test -d "$app/Contents/Frameworks"
+          while IFS= read -r -d '' file_path; do
+            if file -L "$file_path" | grep -q 'Mach-O'; then
+              linked_libraries="$(otool -L "$file_path")"
+              echo "$linked_libraries"
+              if echo "$linked_libraries" | grep -E '/opt/homebrew|/usr/local'; then
+                echo "Found non-bundled Homebrew dependency in $file_path"
+                exit 1
+              fi
+            fi
+          done < <(find "$app" \( -type f -o -type l \) -print0)
+
+      - name: Validate Linux package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -x "$PACKAGE_DIR/bin/vibePlayerQT"
+          test -x "$PACKAGE_DIR/vibePlayerQT.sh"
+          ldd "$PACKAGE_DIR/bin/vibePlayerQT"
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive `
+            -Path "$env:PACKAGE_DIR\*" `
+            -DestinationPath "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}.zip" `
+            -Force
+
+      - name: Package macOS artifact
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p dist
+          (
+            cd "$PACKAGE_DIR"
+            ditto -c -k --sequesterRsrc --keepParent \
+              vibePlayerQT.app \
+              "../dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.zip"
+          )
+
+      - name: Package Linux artifact
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar -C "$PACKAGE_DIR" -czf "dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.tar.gz" .
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibePlayerQT-${{ matrix.package-suffix }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 20
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Guard generated source archive
+        run: |
+          set -euo pipefail
+          forbidden='(^|/)(\.git|\.github|AGENTS\.md|VIBEDOCS|bugFix|featDocs|docs|resources|tests|scripts|TODO\.md|local-data|fixtures|samples|cache)(/|$)'
+          git archive --format=tar HEAD > source-archive-check.tar
+          tar -tf source-archive-check.tar > source-archive-contents.txt
+          if grep -E "$forbidden" source-archive-contents.txt; then
+            echo "Generated source archive contains development or local test data"
+            exit 1
+          fi
+
+      - name: Guard release assets
+        run: |
+          set -euo pipefail
+          forbidden='(^|/)(\.git|\.github|AGENTS\.md|VIBEDOCS|bugFix|featDocs|docs|resources|tests|scripts|TODO\.md|local-data|fixtures|samples|cache)(/|$)'
+          shopt -s nullglob
+          for asset in release-assets/*; do
+            echo "Inspecting ${asset}"
+            case "$asset" in
+              *.zip)
+                zipinfo -1 "$asset" > asset-contents.txt
+                ;;
+              *.tar.gz)
+                tar -tzf "$asset" > asset-contents.txt
+                ;;
+              *)
+                echo "Unsupported release asset: ${asset}"
+                exit 1
+                ;;
+            esac
+            if grep -E "$forbidden" asset-contents.txt; then
+              echo "Release asset contains development or local test data: ${asset}"
+              exit 1
+            fi
+          done
+
+      - name: Write release notes
+        run: |
+          cat <<EOF > release-notes.md
+          vibePlayerQT ${GITHUB_REF_NAME}
+
+          Built from commit ${GITHUB_SHA}.
+
+          Assets:
+          - Windows x86_64
+          - macOS x86_64
+          - macOS arm64
+          - Linux x86_64
+          - Linux arm64
+          EOF
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          release_tag="${GITHUB_REF_NAME}"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release edit "$release_tag" \
+              --title "vibePlayerQT ${release_tag}" \
+              --notes-file release-notes.md
+            gh release view "$release_tag" --json assets --jq '.assets[].name' |
+              while IFS= read -r asset_name; do
+                gh release delete-asset "$release_tag" "$asset_name" --yes
+              done
+            gh release upload "$release_tag" release-assets/*
+          else
+            gh release create "$release_tag" \
+              release-assets/* \
+              --title "vibePlayerQT ${release_tag}" \
+              --notes-file release-notes.md
+          fi

@@ -1,0 +1,2916 @@
+#include "viewmodels/AppViewModel.h"
+
+#include "services/credentials/CredentialStore.h"
+#include "services/iptv/IptvParser.h"
+#include "utils/AppLogger.h"
+
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QHash>
+#include <QLocale>
+#include <QRegularExpression>
+#include <QStorageInfo>
+#include <QStandardPaths>
+#include <QtMath>
+#include <QStringList>
+#include <QStyleHints>
+#include <QUrl>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <memory>
+#include <utility>
+
+namespace {
+QString displayNetworkError(const NetworkError& error)
+{
+    if (!error.message.isEmpty()) {
+        return error.message;
+    }
+    switch (error.kind) {
+    case NetworkErrorKind::InvalidUrl:
+        return QStringLiteral("Invalid server URL");
+    case NetworkErrorKind::Timeout:
+        return QStringLiteral("Network request timed out");
+    case NetworkErrorKind::Ssl:
+        return QStringLiteral("TLS certificate error");
+    case NetworkErrorKind::Http:
+        return QStringLiteral("Server returned HTTP %1").arg(error.httpStatus);
+    case NetworkErrorKind::Parse:
+        return QStringLiteral("Unable to parse server response");
+    case NetworkErrorKind::CertificateRejected:
+        return QStringLiteral("Certificate rejected");
+    case NetworkErrorKind::Transport:
+        return QStringLiteral("Network request failed");
+    }
+    return QStringLiteral("Network request failed");
+}
+
+QString serverIdFor(const QString& baseUrl, ServiceType type)
+{
+    const auto source = serviceTypeToString(type).toUtf8() + ':' + baseUrl.trimmed().toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Sha256).toHex());
+}
+
+QString cardIdFor(const QString& baseUrl, ServiceType type, const QString& username)
+{
+    const auto source = serviceTypeToString(type).toUtf8() + ':' + baseUrl.trimmed().toUtf8() + ':' + username.trimmed().toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Sha256).toHex());
+}
+
+QString iptvServiceIdFor(const QString& sourcePath)
+{
+    const auto source = QByteArray("IPTV:") + sourcePath.trimmed().toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Sha256).toHex());
+}
+
+QString iptvPlaylistIdFor(const QString& serviceId)
+{
+    return QStringLiteral("iptv-playlist-%1").arg(serviceId);
+}
+
+QString iptvImportDirectory()
+{
+    const auto directory = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("iptv"));
+    QDir().mkpath(directory);
+    return directory;
+}
+
+QString safeFileName(QString value)
+{
+    value = value.trimmed();
+    if (value.isEmpty()) {
+        value = QStringLiteral("playlist");
+    }
+    value.replace(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|]+)")), QStringLiteral("_"));
+    return value.left(80);
+}
+
+QString defaultIptvGroup()
+{
+    return QStringLiteral("Default");
+}
+
+QString allIptvGroup()
+{
+    return QStringLiteral("All");
+}
+
+QUrl ensureDirectoryUrl(QUrl url)
+{
+    auto path = url.path();
+    if (!path.endsWith(QLatin1Char('/'))) {
+        path.append(QLatin1Char('/'));
+        url.setPath(path);
+    }
+    return url;
+}
+
+bool isVideoFileName(const QString& name)
+{
+    const auto suffix = name.section(QLatin1Char('.'), -1).toLower();
+    static const QSet<QString> extensions {
+        QStringLiteral("mp4"), QStringLiteral("mkv"), QStringLiteral("avi"), QStringLiteral("mov"),
+        QStringLiteral("webm"), QStringLiteral("ts"), QStringLiteral("m2ts"), QStringLiteral("flv"),
+        QStringLiteral("wmv"), QStringLiteral("mpg"), QStringLiteral("mpeg"), QStringLiteral("m4v"),
+        QStringLiteral("3gp"), QStringLiteral("ogv")
+    };
+    return extensions.contains(suffix);
+}
+
+QString sizeText(qint64 bytes)
+{
+    if (bytes < 0) {
+        return QStringLiteral("Unknown size");
+    }
+    double value = static_cast<double>(bytes);
+    QStringList units { QStringLiteral("B"), QStringLiteral("KB"), QStringLiteral("MB"), QStringLiteral("GB"), QStringLiteral("TB") };
+    int unit = 0;
+    while (value >= 1024.0 && unit < units.size() - 1) {
+        value /= 1024.0;
+        ++unit;
+    }
+    return unit == 0 ? QStringLiteral("%1 %2").arg(bytes).arg(units[unit])
+                     : QStringLiteral("%1 %2").arg(value, 0, 'f', 1).arg(units[unit]);
+}
+
+QString itemMeta(const MediaItem& item)
+{
+    QStringList parts;
+    if (!item.productionYear.isEmpty()) {
+        parts.push_back(item.productionYear);
+    }
+    if (!item.runTime.isEmpty()) {
+        parts.push_back(item.runTime);
+    }
+    if (!item.communityRating.isEmpty()) {
+        parts.push_back(QStringLiteral("Rating %1").arg(item.communityRating));
+    }
+    if (!item.officialRating.isEmpty()) {
+        parts.push_back(item.officialRating);
+    }
+    if (!item.genres.isEmpty()) {
+        parts.push_back(item.genres);
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
+QString normalizedNumberText(const QString& value)
+{
+    const auto trimmed = value.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    return trimmed;
+}
+
+bool isSeriesItem(const MediaItem& item)
+{
+    return item.itemType.compare(QStringLiteral("Series"), Qt::CaseInsensitive) == 0;
+}
+
+bool isEpisodeItem(const MediaItem& item)
+{
+    return item.itemType.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0;
+}
+
+bool hasSeriesEpisodes(const MediaItem& item)
+{
+    return isSeriesItem(item) || (isEpisodeItem(item) && !item.seriesId.isEmpty());
+}
+
+void applyMissingEpisodeContext(MediaItem& item, const MediaItem& context)
+{
+    if (!isEpisodeItem(item) && !isEpisodeItem(context)) {
+        return;
+    }
+    if (item.itemType.isEmpty()) {
+        item.itemType = context.itemType;
+    }
+    if (item.seriesId.isEmpty()) {
+        item.seriesId = context.seriesId;
+    }
+    if (item.seriesName.isEmpty()) {
+        item.seriesName = context.seriesName;
+    }
+    if (item.seriesImageTag.isEmpty()) {
+        item.seriesImageTag = context.seriesImageTag;
+    }
+    if (item.seriesImageUrl.isEmpty()) {
+        item.seriesImageUrl = context.seriesImageUrl;
+    }
+    if (item.parentId.isEmpty()) {
+        item.parentId = context.parentId;
+    }
+    if (item.parentIndexNumber.isEmpty()) {
+        item.parentIndexNumber = context.parentIndexNumber;
+    }
+    if (item.seasonName.isEmpty()) {
+        item.seasonName = context.seasonName;
+    }
+}
+
+MediaItem seriesContextFor(const MediaItem& item)
+{
+    auto context = item;
+    if (isSeriesItem(context)) {
+        context.seriesId = context.id;
+        context.seriesName = context.name;
+        context.seriesImageTag = context.imageTag;
+        context.seriesImageUrl = context.imageUrl;
+    }
+    context.parentId.clear();
+    context.parentIndexNumber.clear();
+    context.seasonName.clear();
+    return context;
+}
+
+QString normalizedLanguage(const QString& mode)
+{
+    if (mode == QStringLiteral("zh_CN") || mode == QStringLiteral("en_US") || mode == QStringLiteral("system")) {
+        return mode;
+    }
+    return QStringLiteral("system");
+}
+
+QString normalizedTheme(const QString& mode)
+{
+    if (mode == QStringLiteral("system") || mode == QStringLiteral("dark") || mode == QStringLiteral("light")) {
+        return mode;
+    }
+    return QStringLiteral("dark");
+}
+
+QString systemLanguage()
+{
+    const auto name = QLocale::system().name();
+    return name.startsWith(QStringLiteral("zh")) ? QStringLiteral("zh_CN") : QStringLiteral("en_US");
+}
+
+QString systemTheme()
+{
+    if (qApp && qApp->styleHints()->colorScheme() == Qt::ColorScheme::Light) {
+        return QStringLiteral("light");
+    }
+    return QStringLiteral("dark");
+}
+
+QString effectiveLanguage(const QString& mode)
+{
+    return mode == QStringLiteral("system") ? systemLanguage() : mode;
+}
+
+using TranslationEntry = std::pair<const char*, const char*>;
+
+const QHash<QString, QString>& englishTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
+        { QStringLiteral("nav.services"), QStringLiteral("Services") },
+        { QStringLiteral("nav.settings"), QStringLiteral("Settings") },
+        { QStringLiteral("nav.chooseSource"), QStringLiteral("Choose or add a media source") },
+        { QStringLiteral("action.add"), QStringLiteral("Add") },
+        { QStringLiteral("action.edit"), QStringLiteral("Edit") },
+        { QStringLiteral("action.done"), QStringLiteral("Done") },
+        { QStringLiteral("action.refresh"), QStringLiteral("Refresh") },
+        { QStringLiteral("action.backToServices"), QStringLiteral("Services") },
+        { QStringLiteral("action.dismiss"), QStringLiteral("Dismiss") },
+        { QStringLiteral("action.save"), QStringLiteral("Save") },
+        { QStringLiteral("action.cancel"), QStringLiteral("Cancel") },
+        { QStringLiteral("action.delete"), QStringLiteral("Delete") },
+        { QStringLiteral("action.upload"), QStringLiteral("Upload") },
+        { QStringLiteral("action.uploadFolder"), QStringLiteral("Upload folder") },
+        { QStringLiteral("action.download"), QStringLiteral("Download") },
+        { QStringLiteral("action.transfers"), QStringLiteral("Transfers") },
+        { QStringLiteral("action.choose"), QStringLiteral("Choose") },
+        { QStringLiteral("action.play"), QStringLiteral("Play") },
+        { QStringLiteral("action.continue"), QStringLiteral("Continue") },
+        { QStringLiteral("action.pause"), QStringLiteral("Pause") },
+        { QStringLiteral("action.resume"), QStringLiteral("Resume") },
+        { QStringLiteral("action.stop"), QStringLiteral("Stop") },
+        { QStringLiteral("action.exitPlayback"), QStringLiteral("Exit") },
+        { QStringLiteral("action.fullscreen"), QStringLiteral("Fullscreen") },
+        { QStringLiteral("action.exitFullscreen"), QStringLiteral("Exit Fullscreen") },
+        { QStringLiteral("action.forward15"), QStringLiteral("+15s") },
+        { QStringLiteral("action.rewind15"), QStringLiteral("-15s") },
+        { QStringLiteral("dialog.certificateTitle"), QStringLiteral("Certificate confirmation") },
+        { QStringLiteral("dialog.certificatePrefix"), QStringLiteral("The server certificate for ") },
+        { QStringLiteral("dialog.certificateSuffix"), QStringLiteral(" cannot be verified. Continue for this request?") },
+        { QStringLiteral("dialog.passwordTitle"), QStringLiteral("Password required") },
+        { QStringLiteral("dialog.serviceTitle"), QStringLiteral("Service") },
+        { QStringLiteral("dialog.deleteTitle"), QStringLiteral("Delete service") },
+        { QStringLiteral("dialog.deletePrompt"), QStringLiteral("Remove this service card?") },
+        { QStringLiteral("dialog.deleteLocalData"), QStringLiteral("Also delete local token and cached data") },
+        { QStringLiteral("dialog.exitPlaybackTitle"), QStringLiteral("Exit playback?") },
+        { QStringLiteral("dialog.exitPlaybackPrompt"), QStringLiteral("Playback will stop and you will return to the media details page.") },
+        { QStringLiteral("dialog.overviewTitle"), QStringLiteral("Overview") },
+        { QStringLiteral("form.serviceName"), QStringLiteral("Service name") },
+        { QStringLiteral("form.serverUrl"), QStringLiteral("https://server.example.com") },
+        { QStringLiteral("form.webDavEndpoint"), QStringLiteral("https://server.example.com/webdav/") },
+        { QStringLiteral("form.username"), QStringLiteral("Username") },
+        { QStringLiteral("form.password"), QStringLiteral("Password") },
+        { QStringLiteral("form.autoLogin"), QStringLiteral("Auto login") },
+        { QStringLiteral("form.selfSigned"), QStringLiteral("Allow self-signed certificate prompt") },
+        { QStringLiteral("iptv.selectFile"), QStringLiteral("Select IPTV playlist") },
+        { QStringLiteral("iptv.filePlaceholder"), QStringLiteral("M3U or M3U8 playlist file") },
+        { QStringLiteral("iptv.chooseFile"), QStringLiteral("Choose file") },
+        { QStringLiteral("iptv.playlist"), QStringLiteral("Playlist") },
+        { QStringLiteral("iptv.localFile"), QStringLiteral("Local file") },
+        { QStringLiteral("iptv.title"), QStringLiteral("IPTV Channels") },
+        { QStringLiteral("iptv.channels"), QStringLiteral("channels") },
+        { QStringLiteral("iptv.search"), QStringLiteral("Search channels") },
+        { QStringLiteral("iptv.allGroups"), QStringLiteral("All") },
+        { QStringLiteral("iptv.noChannels"), QStringLiteral("No channels found") },
+        { QStringLiteral("webdav.title"), QStringLiteral("WebDAV Files") },
+        { QStringLiteral("webdav.empty"), QStringLiteral("This folder is empty") },
+        { QStringLiteral("webdav.loadingFolder"), QStringLiteral("Loading folder...") },
+        { QStringLiteral("webdav.loadingHint"), QStringLiteral("Reading remote directory") },
+        { QStringLiteral("webdav.defaultDownload"), QStringLiteral("Default download folder") },
+        { QStringLiteral("webdav.noDownloadFolder"), QStringLiteral("Ask every time") },
+        { QStringLiteral("webdav.spaceWarningTitle"), QStringLiteral("Storage check") },
+        { QStringLiteral("webdav.spaceWarning"), QStringLiteral("Download size is %1, available disk space is %2. Continue anyway?") },
+        { QStringLiteral("webdav.unknownSizeWarning"), QStringLiteral("The total download size could not be confirmed. Continue anyway?") },
+        { QStringLiteral("transfers.title"), QStringLiteral("Transfers") },
+        { QStringLiteral("transfers.empty"), QStringLiteral("No transfer tasks") },
+        { QStringLiteral("status.autoLogin"), QStringLiteral("Auto login") },
+        { QStringLiteral("status.passwordRequired"), QStringLiteral("Password required") },
+        { QStringLiteral("status.ready"), QStringLiteral("Ready") },
+        { QStringLiteral("status.noSession"), QStringLiteral("No session") },
+        { QStringLiteral("empty.noServices"), QStringLiteral("No services yet") },
+        { QStringLiteral("empty.addService"), QStringLiteral("Add service") },
+        { QStringLiteral("section.continueWatching"), QStringLiteral("Continue Watching") },
+        { QStringLiteral("section.continueSubtitle"), QStringLiteral("Resume progress opens the media details page") },
+        { QStringLiteral("section.noProgress"), QStringLiteral("Nothing in progress") },
+        { QStringLiteral("section.libraries"), QStringLiteral("Libraries") },
+        { QStringLiteral("section.librariesSubtitle"), QStringLiteral("Browse server media categories") },
+        { QStringLiteral("details.noOverview"), QStringLiteral("No overview available.") },
+        { QStringLiteral("details.showOverview"), QStringLiteral("Show overview") },
+        { QStringLiteral("details.seasonsEpisodes"), QStringLiteral("Seasons & Episodes") },
+        { QStringLiteral("details.noSeasons"), QStringLiteral("No seasons available") },
+        { QStringLiteral("details.castCrew"), QStringLiteral("Cast & Crew") },
+        { QStringLiteral("details.noCast"), QStringLiteral("No cast information available") },
+        { QStringLiteral("player.subtitles"), QStringLiteral("Subtitles") },
+        { QStringLiteral("player.noSubtitles"), QStringLiteral("No subtitles") },
+        { QStringLiteral("player.subtitleOff"), QStringLiteral("Off") },
+        { QStringLiteral("player.audio"), QStringLiteral("Audio") },
+        { QStringLiteral("player.tracks"), QStringLiteral("tracks") },
+        { QStringLiteral("player.noAudioTracks"), QStringLiteral("No audio tracks") },
+        { QStringLiteral("player.speed"), QStringLiteral("Speed") },
+        { QStringLiteral("player.current"), QStringLiteral("Current") },
+        { QStringLiteral("player.currentSpeed"), QStringLiteral("Current speed") },
+        { QStringLiteral("player.volume"), QStringLiteral("Volume") },
+        { QStringLiteral("player.loading"), QStringLiteral("Loading video") },
+        { QStringLiteral("player.buffering"), QStringLiteral("Buffering") },
+        { QStringLiteral("player.seeking"), QStringLiteral("Seeking") },
+        { QStringLiteral("player.networkHint"), QStringLiteral("Waiting for the stream") },
+        { QStringLiteral("player.info"), QStringLiteral("Info") },
+        { QStringLiteral("player.videoInfo"), QStringLiteral("Video Info") },
+        { QStringLiteral("player.resolution"), QStringLiteral("Resolution") },
+        { QStringLiteral("player.codec"), QStringLiteral("Codec") },
+        { QStringLiteral("player.frameRate"), QStringLiteral("Frame rate") },
+        { QStringLiteral("player.bitrate"), QStringLiteral("Bitrate") },
+        { QStringLiteral("player.cacheDuration"), QStringLiteral("Cached") },
+        { QStringLiteral("player.cacheShort"), QStringLiteral("Cache") },
+        { QStringLiteral("player.infoHint"), QStringLiteral("Detected from mpv playback and cache state") },
+        { QStringLiteral("settings.title"), QStringLiteral("Settings") },
+        { QStringLiteral("settings.subtitle"), QStringLiteral("Appearance, language, and desktop behavior") },
+        { QStringLiteral("settings.appearance"), QStringLiteral("Appearance") },
+        { QStringLiteral("settings.theme"), QStringLiteral("Theme") },
+        { QStringLiteral("settings.language"), QStringLiteral("Language") },
+        { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
+        { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
+        { QStringLiteral("settings.minimizeToTray"), QStringLiteral("Minimize to tray") },
+        { QStringLiteral("option.system"), QStringLiteral("Follow system") },
+        { QStringLiteral("option.dark"), QStringLiteral("Dark") },
+        { QStringLiteral("option.light"), QStringLiteral("Light") },
+        { QStringLiteral("option.zh"), QStringLiteral("简体中文") },
+        { QStringLiteral("option.en"), QStringLiteral("English") },
+    };
+    return texts;
+}
+
+const QHash<QString, QString>& chineseTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("dialog.overviewTitle"), QStringLiteral("简介") },
+        { QStringLiteral("details.showOverview"), QStringLiteral("显示简介") },
+        { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
+        { QStringLiteral("nav.services"), QStringLiteral("服务") },
+        { QStringLiteral("nav.settings"), QStringLiteral("设置") },
+        { QStringLiteral("nav.chooseSource"), QStringLiteral("选择或添加媒体来源") },
+        { QStringLiteral("action.add"), QStringLiteral("添加") },
+        { QStringLiteral("action.edit"), QStringLiteral("编辑") },
+        { QStringLiteral("action.done"), QStringLiteral("完成") },
+        { QStringLiteral("action.refresh"), QStringLiteral("刷新") },
+        { QStringLiteral("action.backToServices"), QStringLiteral("服务") },
+        { QStringLiteral("action.dismiss"), QStringLiteral("关闭") },
+        { QStringLiteral("action.save"), QStringLiteral("保存") },
+        { QStringLiteral("action.cancel"), QStringLiteral("取消") },
+        { QStringLiteral("action.delete"), QStringLiteral("删除") },
+        { QStringLiteral("action.play"), QStringLiteral("播放") },
+        { QStringLiteral("action.continue"), QStringLiteral("继续播放") },
+        { QStringLiteral("action.pause"), QStringLiteral("暂停") },
+        { QStringLiteral("action.resume"), QStringLiteral("继续") },
+        { QStringLiteral("action.stop"), QStringLiteral("停止") },
+        { QStringLiteral("action.exitPlayback"), QStringLiteral("退出") },
+        { QStringLiteral("action.fullscreen"), QStringLiteral("全屏") },
+        { QStringLiteral("action.exitFullscreen"), QStringLiteral("退出全屏") },
+        { QStringLiteral("action.forward15"), QStringLiteral("+15 秒") },
+        { QStringLiteral("action.rewind15"), QStringLiteral("-15 秒") },
+        { QStringLiteral("dialog.certificateTitle"), QStringLiteral("证书确认") },
+        { QStringLiteral("dialog.certificatePrefix"), QStringLiteral("服务器 ") },
+        { QStringLiteral("dialog.certificateSuffix"), QStringLiteral(" 的证书无法验证。是否继续本次请求？") },
+        { QStringLiteral("dialog.passwordTitle"), QStringLiteral("需要密码") },
+        { QStringLiteral("dialog.serviceTitle"), QStringLiteral("服务") },
+        { QStringLiteral("dialog.deleteTitle"), QStringLiteral("删除服务") },
+        { QStringLiteral("dialog.deletePrompt"), QStringLiteral("移除此服务卡片？") },
+        { QStringLiteral("dialog.deleteLocalData"), QStringLiteral("同时删除本地 Token 和缓存数据") },
+        { QStringLiteral("dialog.exitPlaybackTitle"), QStringLiteral("退出播放？") },
+        { QStringLiteral("dialog.exitPlaybackPrompt"), QStringLiteral("播放将停止，并返回当前媒体详情页。") },
+        { QStringLiteral("form.serviceName"), QStringLiteral("服务名称") },
+        { QStringLiteral("form.serverUrl"), QStringLiteral("https://server.example.com") },
+        { QStringLiteral("form.username"), QStringLiteral("用户名") },
+        { QStringLiteral("form.password"), QStringLiteral("密码") },
+        { QStringLiteral("form.autoLogin"), QStringLiteral("自动登录") },
+        { QStringLiteral("form.selfSigned"), QStringLiteral("允许自签名证书确认") },
+        { QStringLiteral("status.autoLogin"), QStringLiteral("自动登录") },
+        { QStringLiteral("status.passwordRequired"), QStringLiteral("需要密码") },
+        { QStringLiteral("status.ready"), QStringLiteral("可用") },
+        { QStringLiteral("status.noSession"), QStringLiteral("无会话") },
+        { QStringLiteral("empty.noServices"), QStringLiteral("还没有服务") },
+        { QStringLiteral("empty.addService"), QStringLiteral("添加服务") },
+        { QStringLiteral("section.continueWatching"), QStringLiteral("继续观看") },
+        { QStringLiteral("section.continueSubtitle"), QStringLiteral("点击后进入媒体详情页") },
+        { QStringLiteral("section.noProgress"), QStringLiteral("暂无继续观看内容") },
+        { QStringLiteral("section.libraries"), QStringLiteral("媒体库") },
+        { QStringLiteral("section.librariesSubtitle"), QStringLiteral("浏览服务器媒体分类") },
+        { QStringLiteral("details.noOverview"), QStringLiteral("暂无简介。") },
+        { QStringLiteral("details.seasonsEpisodes"), QStringLiteral("季与剧集") },
+        { QStringLiteral("details.noSeasons"), QStringLiteral("暂无季集信息") },
+        { QStringLiteral("details.castCrew"), QStringLiteral("演职人员") },
+        { QStringLiteral("details.noCast"), QStringLiteral("暂无演职人员信息") },
+        { QStringLiteral("player.subtitles"), QStringLiteral("字幕") },
+        { QStringLiteral("player.noSubtitles"), QStringLiteral("无字幕") },
+        { QStringLiteral("player.subtitleOff"), QStringLiteral("关闭") },
+        { QStringLiteral("player.audio"), QStringLiteral("音轨") },
+        { QStringLiteral("player.tracks"), QStringLiteral("条轨道") },
+        { QStringLiteral("player.noAudioTracks"), QStringLiteral("无音轨") },
+        { QStringLiteral("player.speed"), QStringLiteral("倍速") },
+        { QStringLiteral("player.current"), QStringLiteral("当前") },
+        { QStringLiteral("player.currentSpeed"), QStringLiteral("当前倍速") },
+        { QStringLiteral("player.volume"), QStringLiteral("音量") },
+        { QStringLiteral("player.loading"), QStringLiteral("正在加载视频") },
+        { QStringLiteral("player.buffering"), QStringLiteral("正在缓冲") },
+        { QStringLiteral("player.seeking"), QStringLiteral("正在定位") },
+        { QStringLiteral("player.networkHint"), QStringLiteral("正在等待视频流") },
+        { QStringLiteral("settings.title"), QStringLiteral("设置") },
+        { QStringLiteral("settings.subtitle"), QStringLiteral("外观、语言和桌面行为") },
+        { QStringLiteral("settings.appearance"), QStringLiteral("外观") },
+        { QStringLiteral("settings.theme"), QStringLiteral("主题") },
+        { QStringLiteral("settings.language"), QStringLiteral("语言") },
+        { QStringLiteral("settings.desktop"), QStringLiteral("桌面") },
+        { QStringLiteral("settings.minimizeToTray"), QStringLiteral("最小化到托盘") },
+        { QStringLiteral("option.system"), QStringLiteral("跟随系统") },
+        { QStringLiteral("option.dark"), QStringLiteral("暗黑") },
+        { QStringLiteral("option.light"), QStringLiteral("白色") },
+        { QStringLiteral("option.zh"), QStringLiteral("简体中文") },
+        { QStringLiteral("option.en"), QStringLiteral("English") },
+        { QStringLiteral("player.info"), QStringLiteral("视频信息") },
+        { QStringLiteral("player.videoInfo"), QStringLiteral("视频信息") },
+        { QStringLiteral("player.resolution"), QStringLiteral("分辨率") },
+        { QStringLiteral("player.codec"), QStringLiteral("编码格式") },
+        { QStringLiteral("player.frameRate"), QStringLiteral("帧率") },
+        { QStringLiteral("player.bitrate"), QStringLiteral("码率") },
+        { QStringLiteral("player.cacheDuration"), QStringLiteral("已缓存") },
+        { QStringLiteral("player.cacheShort"), QStringLiteral("缓存") },
+        { QStringLiteral("player.infoHint"), QStringLiteral("根据 mpv 播放与缓存状态自动检测") },
+    };
+    return texts;
+}
+
+const QHash<QString, QString>& iptvChineseTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("iptv.selectFile"), QStringLiteral("选择 IPTV 播放列表") },
+        { QStringLiteral("iptv.filePlaceholder"), QStringLiteral("M3U 或 M3U8 播放列表文件") },
+        { QStringLiteral("iptv.chooseFile"), QStringLiteral("选择文件") },
+        { QStringLiteral("iptv.playlist"), QStringLiteral("播放列表") },
+        { QStringLiteral("iptv.localFile"), QStringLiteral("本地文件") },
+        { QStringLiteral("iptv.title"), QStringLiteral("IPTV 频道") },
+        { QStringLiteral("iptv.channels"), QStringLiteral("个频道") },
+        { QStringLiteral("iptv.search"), QStringLiteral("搜索频道") },
+        { QStringLiteral("iptv.allGroups"), QStringLiteral("全部") },
+        { QStringLiteral("iptv.noChannels"), QStringLiteral("没有找到频道") },
+    };
+    return texts;
+}
+}
+
+AppViewModel::AppViewModel(QObject* parent)
+    : QObject(parent)
+    , m_embyClient(m_embyNetworkClient, this)
+    , m_jellyfinClient(m_jellyfinNetworkClient, this)
+{
+    wireCertificatePrompt(m_embyClient);
+    wireCertificatePrompt(m_jellyfinClient);
+    wireWebDavCertificatePrompt();
+    connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
+    connect(&m_transferManager, &TransferManager::taskFinished, this, [this](const QString&, bool, const QString&) {
+        emit transferTasksChanged();
+        if (m_currentWebDavCard && m_currentView == QStringLiteral("webdav")) {
+            refreshWebDavDirectory();
+        }
+    });
+}
+
+QString AppViewModel::serverUrl() const
+{
+    return m_serverUrl;
+}
+
+void AppViewModel::setServerUrl(const QString& value)
+{
+    if (m_serverUrl == value) {
+        return;
+    }
+    m_serverUrl = value;
+    emit serverUrlChanged();
+}
+
+QString AppViewModel::serverName() const
+{
+    return m_serverName;
+}
+
+void AppViewModel::setServerName(const QString& value)
+{
+    if (m_serverName == value) {
+        return;
+    }
+    m_serverName = value;
+    emit serverNameChanged();
+}
+
+QString AppViewModel::username() const
+{
+    return m_username;
+}
+
+void AppViewModel::setUsername(const QString& value)
+{
+    if (m_username == value) {
+        return;
+    }
+    m_username = value;
+    emit usernameChanged();
+}
+
+QString AppViewModel::password() const
+{
+    return m_password;
+}
+
+void AppViewModel::setPassword(const QString& value)
+{
+    if (m_password == value) {
+        return;
+    }
+    m_password = value;
+    emit passwordChanged();
+}
+
+QString AppViewModel::serviceType() const
+{
+    return serviceTypeToString(m_serviceType);
+}
+
+void AppViewModel::setServiceType(const QString& value)
+{
+    const auto type = serviceTypeFromString(value);
+    if (m_serviceType == type) {
+        return;
+    }
+    m_serviceType = type;
+    emit serviceTypeChanged();
+}
+
+bool AppViewModel::trustSelfSignedCertificate() const
+{
+    return m_trustSelfSignedCertificate;
+}
+
+void AppViewModel::setTrustSelfSignedCertificate(bool value)
+{
+    if (m_trustSelfSignedCertificate == value) {
+        return;
+    }
+    m_trustSelfSignedCertificate = value;
+    emit trustSelfSignedCertificateChanged();
+}
+
+bool AppViewModel::autoLogin() const
+{
+    return m_autoLogin;
+}
+
+void AppViewModel::setAutoLogin(bool value)
+{
+    if (m_autoLogin == value) {
+        return;
+    }
+    m_autoLogin = value;
+    emit autoLoginChanged();
+}
+
+QString AppViewModel::iptvFilePath() const
+{
+    return m_iptvFilePath;
+}
+
+void AppViewModel::setIptvFilePath(const QString& value)
+{
+    const auto normalized = QUrl(value).isLocalFile() ? QUrl(value).toLocalFile() : value;
+    if (m_iptvFilePath == normalized) {
+        return;
+    }
+    m_iptvFilePath = normalized;
+    emit iptvFilePathChanged();
+}
+
+QString AppViewModel::iptvSearchText() const
+{
+    return m_iptvSearchText;
+}
+
+void AppViewModel::setIptvSearchText(const QString& value)
+{
+    if (m_iptvSearchText == value) {
+        return;
+    }
+    m_iptvSearchText = value;
+    emit iptvSearchTextChanged();
+    applyIptvFilters();
+}
+
+QString AppViewModel::iptvSelectedGroup() const
+{
+    return m_iptvSelectedGroup;
+}
+
+QStringList AppViewModel::iptvGroups() const
+{
+    return m_iptvGroups;
+}
+
+IptvChannelListModel* AppViewModel::iptvChannels()
+{
+    return &m_iptvChannels;
+}
+
+WebDavItemListModel* AppViewModel::webDavItems()
+{
+    return &m_webDavItems;
+}
+
+QString AppViewModel::webDavCurrentPath() const
+{
+    return m_webDavCurrentUrl.path(QUrl::FullyDecoded);
+}
+
+QString AppViewModel::defaultDownloadDirectory() const
+{
+    return m_defaultDownloadDirectory;
+}
+
+void AppViewModel::setDefaultDownloadDirectory(const QString& value)
+{
+    if (m_defaultDownloadDirectory == value) {
+        return;
+    }
+    m_defaultDownloadDirectory = value;
+    m_repository.setDefaultDownloadDirectory(value);
+    emit defaultDownloadDirectoryChanged();
+}
+
+TransferTaskListModel* AppViewModel::transferTasks()
+{
+    return m_transferManager.tasks();
+}
+
+int AppViewModel::activeTransferCount() const
+{
+    return m_transferManager.activeCount();
+}
+
+QString AppViewModel::playbackHttpUsername() const
+{
+    return m_playbackHttpUsername;
+}
+
+QString AppViewModel::playbackHttpPassword() const
+{
+    return m_playbackHttpPassword;
+}
+
+bool AppViewModel::playbackAllowInsecureTls() const
+{
+    return m_playbackAllowInsecureTls;
+}
+
+bool AppViewModel::editingServices() const
+{
+    return m_editingServices;
+}
+
+void AppViewModel::setEditingServices(bool value)
+{
+    if (m_editingServices == value) {
+        return;
+    }
+    m_editingServices = value;
+    emit editingServicesChanged();
+}
+
+bool AppViewModel::minimizeToTray() const
+{
+    return m_repository.minimizeToTray();
+}
+
+void AppViewModel::setMinimizeToTray(bool value)
+{
+    if (minimizeToTray() == value) {
+        return;
+    }
+    m_repository.setMinimizeToTray(value);
+    emit minimizeToTrayChanged();
+}
+
+QString AppViewModel::themeMode() const
+{
+    return m_themeMode;
+}
+
+void AppViewModel::setThemeMode(const QString& value)
+{
+    const auto normalized = normalizedTheme(value);
+    if (m_themeMode == normalized) {
+        return;
+    }
+    const auto previousEffective = effectiveTheme();
+    m_themeMode = normalized;
+    m_repository.setThemeMode(m_themeMode);
+    emit themeModeChanged();
+    if (effectiveTheme() != previousEffective) {
+        emit effectiveThemeChanged();
+    }
+}
+
+QString AppViewModel::effectiveTheme() const
+{
+    return m_themeMode == QStringLiteral("system") ? systemTheme() : m_themeMode;
+}
+
+QString AppViewModel::languageMode() const
+{
+    return m_languageMode;
+}
+
+void AppViewModel::setLanguageMode(const QString& value)
+{
+    const auto normalized = normalizedLanguage(value);
+    if (m_languageMode == normalized) {
+        return;
+    }
+    m_languageMode = normalized;
+    m_repository.setLanguageMode(m_languageMode);
+    ++m_translationRevision;
+    emit languageModeChanged();
+    emit translationsChanged();
+}
+
+int AppViewModel::translationRevision() const
+{
+    return m_translationRevision;
+}
+
+bool AppViewModel::loading() const
+{
+    return m_loading;
+}
+
+bool AppViewModel::loggedIn() const
+{
+    return m_session.has_value();
+}
+
+QString AppViewModel::currentUser() const
+{
+    return m_session ? m_session->username : m_currentIptvPlaylist ? QStringLiteral("IPTV") : QString {};
+}
+
+QString AppViewModel::currentServerName() const
+{
+    return m_session ? m_session->server.name
+        : m_currentIptvCard ? m_currentIptvCard->server.name
+        : m_currentWebDavCard ? m_currentWebDavCard->server.name
+        : QString {};
+}
+
+QString AppViewModel::currentLibraryName() const
+{
+    if (!m_currentMediaParentName.isEmpty()) {
+        return m_currentMediaParentName;
+    }
+    return m_currentLibrary ? m_currentLibrary->name : QString {};
+}
+
+QString AppViewModel::currentView() const
+{
+    return m_currentView;
+}
+
+QString AppViewModel::errorMessage() const
+{
+    return m_errorMessage;
+}
+
+QString AppViewModel::selectedItemName() const
+{
+    return m_selectedItem ? m_selectedItem->name : QString {};
+}
+
+QString AppViewModel::selectedItemType() const
+{
+    return m_selectedItem ? m_selectedItem->itemType : QString {};
+}
+
+QString AppViewModel::selectedItemOverview() const
+{
+    return m_selectedItem ? m_selectedItem->overview : QString {};
+}
+
+QString AppViewModel::selectedItemImageUrl() const
+{
+    return m_selectedItem ? m_selectedItem->imageUrl : QString {};
+}
+
+QString AppViewModel::selectedItemBackdropUrl() const
+{
+    return m_selectedItem ? m_selectedItem->backdropImageUrl : QString {};
+}
+
+QString AppViewModel::selectedItemMeta() const
+{
+    return m_selectedItem ? itemMeta(*m_selectedItem) : QString {};
+}
+
+QString AppViewModel::selectedItemSeasonEpisode() const
+{
+    return m_selectedItem ? formatSeasonEpisode(m_selectedItem->parentIndexNumber, m_selectedItem->indexNumber) : QString {};
+}
+
+QString AppViewModel::selectedItemPeople() const
+{
+    return m_selectedItem ? m_selectedItem->people : QString {};
+}
+
+PersonListModel* AppViewModel::selectedItemPeopleModel()
+{
+    return &m_selectedPeople;
+}
+
+double AppViewModel::selectedItemPlayedPercentage() const
+{
+    return m_selectedItem ? m_selectedItem->playedPercentage : 0.0;
+}
+
+bool AppViewModel::selectedItemIsSeries() const
+{
+    return m_selectedItem ? isSeriesItem(*m_selectedItem) : false;
+}
+
+bool AppViewModel::selectedItemHasSeriesEpisodes() const
+{
+    return m_selectedItem ? hasSeriesEpisodes(*m_selectedItem) : false;
+}
+
+QString AppViewModel::selectedSeasonId() const
+{
+    return m_selectedSeason ? m_selectedSeason->id : QString {};
+}
+
+QString AppViewModel::selectedSeasonName() const
+{
+    return m_selectedSeason ? m_selectedSeason->name : QString {};
+}
+
+QUrl AppViewModel::currentPlaybackUrl() const
+{
+    return m_currentPlaybackUrl;
+}
+
+double AppViewModel::currentPlaybackStartSeconds() const
+{
+    return m_currentPlaybackStartSeconds;
+}
+
+ServiceCardListModel* AppViewModel::services()
+{
+    return &m_services;
+}
+
+MediaLibraryListModel* AppViewModel::libraries()
+{
+    return &m_libraries;
+}
+
+MediaItemListModel* AppViewModel::continueItems()
+{
+    return &m_continueItems;
+}
+
+MediaItemListModel* AppViewModel::items()
+{
+    return &m_items;
+}
+
+MediaItemListModel* AppViewModel::seriesSeasons()
+{
+    return &m_seriesSeasons;
+}
+
+MediaItemListModel* AppViewModel::seriesEpisodes()
+{
+    return &m_seriesEpisodes;
+}
+
+void AppViewModel::initialize()
+{
+    if (auto initResult = m_repository.initialize(); !initResult) {
+        setError(initResult.error());
+        return;
+    }
+
+    m_themeMode = normalizedTheme(m_repository.themeMode());
+    m_languageMode = normalizedLanguage(m_repository.languageMode());
+    m_defaultDownloadDirectory = m_repository.defaultDownloadDirectory();
+    emit themeModeChanged();
+    emit effectiveThemeChanged();
+    emit languageModeChanged();
+    emit defaultDownloadDirectoryChanged();
+    emit translationsChanged();
+    refreshServiceCards();
+    setCurrentView(QStringLiteral("services"));
+}
+
+void AppViewModel::beginAddServiceCard()
+{
+    m_pendingServiceCard.reset();
+    setServerName(QString {});
+    setServerUrl(QString {});
+    setUsername(QString {});
+    setPassword(QString {});
+    setIptvFilePath(QString {});
+    setServiceType(QStringLiteral("Emby"));
+    setAutoLogin(true);
+    setTrustSelfSignedCertificate(true);
+}
+
+void AppViewModel::login()
+{
+    clearError();
+    const auto server = makeServerConfig();
+
+    if (server.baseUrl.isEmpty() || m_username.trimmed().isEmpty()) {
+        setError(QStringLiteral("Server URL and username are required"));
+        return;
+    }
+
+    startLogin(server, m_password);
+}
+
+void AppViewModel::saveServiceCard()
+{
+    clearError();
+    const auto server = makeServerConfig();
+    if (server.serviceType == ServiceType::IPTV) {
+        if (m_iptvFilePath.trimmed().isEmpty()) {
+            setError(QStringLiteral("Select an M3U or M3U8 playlist file"));
+            return;
+        }
+
+        auto channelsResult = IptvParser::parseFile(m_iptvFilePath);
+        if (!channelsResult) {
+            setError(channelsResult.error());
+            return;
+        }
+
+        auto channels = std::move(*channelsResult);
+        const auto playlistResult = importIptvPlaylistFile(server, channels);
+        if (!playlistResult) {
+            setError(playlistResult.error());
+            return;
+        }
+
+        if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id) {
+            m_repository.deleteServer(m_pendingServiceCard->server.id, false);
+        }
+        if (auto saveResult = m_repository.saveIptvPlaylist(server, *playlistResult, channels); !saveResult) {
+            setError(saveResult.error());
+            return;
+        }
+
+        m_pendingServiceCard.reset();
+        setIptvFilePath(QString {});
+        refreshServiceCards();
+        setCurrentView(QStringLiteral("services"));
+        return;
+    }
+
+    if (server.serviceType == ServiceType::WebDAV) {
+        if (server.baseUrl.isEmpty() || server.username.isEmpty()) {
+            setError(QStringLiteral("WebDAV endpoint and username are required"));
+            return;
+        }
+
+        if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id) {
+            CredentialStore::deletePassword(m_pendingServiceCard->server.id);
+            m_repository.deleteServer(m_pendingServiceCard->server.id, false);
+        }
+
+        if (!m_password.isEmpty()) {
+            saveWebDavCredentials(server, m_password);
+        }
+
+        if (auto saveResult = m_repository.saveServer(server); !saveResult) {
+            setError(saveResult.error());
+            return;
+        }
+        m_pendingServiceCard.reset();
+        setPassword(QString {});
+        refreshServiceCards();
+        setCurrentView(QStringLiteral("services"));
+        return;
+    }
+
+    if (server.baseUrl.isEmpty() || server.username.isEmpty()) {
+        setError(QStringLiteral("Server URL and username are required"));
+        return;
+    }
+
+    if (!m_password.isEmpty()) {
+        if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id) {
+            m_repository.deleteServer(m_pendingServiceCard->server.id, false);
+        }
+        startLogin(server, m_password);
+        return;
+    }
+
+    if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id) {
+        m_repository.deleteServer(m_pendingServiceCard->server.id, false);
+    }
+    if (auto saveResult = m_repository.saveServer(server); !saveResult) {
+        setError(saveResult.error());
+        return;
+    }
+    m_pendingServiceCard.reset();
+    refreshServiceCards();
+    setCurrentView(QStringLiteral("services"));
+}
+
+void AppViewModel::selectServiceCard(int row)
+{
+    clearError();
+    const auto card = m_services.cardAt(row);
+    if (!card) {
+        return;
+    }
+
+    m_pendingServiceCard = *card;
+    setServerUrl(card->server.baseUrl);
+    setServerName(card->server.name);
+    setUsername(card->server.username);
+    setServiceType(serviceTypeToString(card->server.serviceType));
+    setTrustSelfSignedCertificate(card->server.trustSelfSignedCertificate);
+    setAutoLogin(card->server.autoLogin);
+    setIptvFilePath(card->server.serviceType == ServiceType::IPTV ? card->server.baseUrl : QString {});
+
+    if (card->server.serviceType == ServiceType::IPTV) {
+        loadIptvService(*card);
+        return;
+    }
+    if (card->server.serviceType == ServiceType::WebDAV) {
+        const auto password = loadWebDavPassword(card->server);
+        if (card->server.autoLogin && password) {
+            loadWebDavService(*card, *password);
+            return;
+        }
+        emit passwordRequired(card->server.name, card->server.username);
+        return;
+    }
+
+    if (!card->server.autoLogin) {
+        emit passwordRequired(card->server.name, card->server.username);
+        return;
+    }
+
+    const auto sessionResult = m_repository.loadSession(card->server.id);
+    if (!sessionResult) {
+        setError(sessionResult.error());
+        return;
+    }
+
+    if (!sessionResult->has_value()) {
+        emit passwordRequired(card->server.name, card->server.username);
+        return;
+    }
+
+    setSession(**sessionResult);
+    loadServiceHome();
+}
+
+void AppViewModel::editServiceCard(int row)
+{
+    const auto card = m_services.cardAt(row);
+    if (!card) {
+        return;
+    }
+
+    m_pendingServiceCard = *card;
+    setServerUrl(card->server.baseUrl);
+    setServerName(card->server.name);
+    setUsername(card->server.username);
+    setServiceType(serviceTypeToString(card->server.serviceType));
+    setTrustSelfSignedCertificate(card->server.trustSelfSignedCertificate);
+    setAutoLogin(card->server.autoLogin);
+    setIptvFilePath(card->server.serviceType == ServiceType::IPTV ? card->server.baseUrl : QString {});
+}
+
+void AppViewModel::loginSelectedService(const QString& password)
+{
+    clearError();
+    if (!m_pendingServiceCard) {
+        setError(QStringLiteral("No service is selected"));
+        return;
+    }
+    if (m_pendingServiceCard->server.serviceType == ServiceType::IPTV) {
+        loadIptvService(*m_pendingServiceCard);
+        return;
+    }
+    if (m_pendingServiceCard->server.serviceType == ServiceType::WebDAV) {
+        if (m_pendingServiceCard->server.autoLogin && !password.isEmpty()) {
+            saveWebDavCredentials(m_pendingServiceCard->server, password);
+        }
+        loadWebDavService(*m_pendingServiceCard, password);
+        return;
+    }
+
+    startLogin(m_pendingServiceCard->server, password);
+}
+
+void AppViewModel::chooseIptvPlaylistFile()
+{
+    const auto selected = QFileDialog::getOpenFileName(nullptr,
+                                                       trText(QStringLiteral("iptv.selectFile")),
+                                                       m_iptvFilePath,
+                                                       QStringLiteral("IPTV playlists (*.m3u *.m3u8);;All files (*)"));
+    if (!selected.isEmpty()) {
+        setIptvFilePath(selected);
+        if (m_serverName.trimmed().isEmpty()) {
+            const QFileInfo fileInfo(selected);
+            setServerName(fileInfo.completeBaseName());
+        }
+    }
+}
+
+void AppViewModel::selectIptvGroup(const QString& groupName)
+{
+    const auto normalized = groupName.isEmpty() ? allIptvGroup() : groupName;
+    if (m_iptvSelectedGroup == normalized) {
+        return;
+    }
+    m_iptvSelectedGroup = normalized;
+    emit iptvSelectedGroupChanged();
+    applyIptvFilters();
+}
+
+void AppViewModel::playIptvChannel(int row)
+{
+    clearError();
+    const auto channel = m_iptvChannels.channelAt(row);
+    if (!channel) {
+        return;
+    }
+
+    const auto playbackUrl = QUrl(channel->streamUrl);
+    if (!playbackUrl.isValid() && !QFileInfo::exists(channel->streamUrl)) {
+        setError(QStringLiteral("IPTV channel URL is invalid"));
+        return;
+    }
+
+    m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(channel->streamUrl) : playbackUrl;
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_currentPlaybackStartSeconds = 0.0;
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = false;
+
+    MediaItem item;
+    item.id = channel->id;
+    item.name = channel->name;
+    item.itemType = QStringLiteral("IPTV");
+    item.imageUrl = channel->logoUrl;
+    item.genres = channel->groupName;
+    m_selectedItem = std::move(item);
+    clearSeriesDetails();
+    syncSelectedPeople();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("player"));
+    AppLogger::info(QStringLiteral("iptv"), QStringLiteral("Opening IPTV channel playback"));
+}
+
+void AppViewModel::openWebDavItem(int row)
+{
+    clearError();
+    const auto item = m_webDavItems.itemAt(row);
+    if (!item) {
+        return;
+    }
+    if (item->directory) {
+        m_webDavHistory.push_back(m_webDavCurrentUrl);
+        loadWebDavDirectory(ensureDirectoryUrl(item->url));
+        return;
+    }
+    if (!item->playable) {
+        return;
+    }
+
+    if (!m_webDavPlaybackStreamId.isEmpty()) {
+        m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
+        m_webDavPlaybackStreamId.clear();
+    }
+    const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(m_currentWebDavCard->server, m_webDavPassword, item->url);
+    m_currentPlaybackUrl = proxyUrl;
+    m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
+    m_playbackHttpUsername.clear();
+    m_playbackHttpPassword.clear();
+    m_playbackAllowInsecureTls = false;
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_currentPlaybackStartSeconds = 0.0;
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = false;
+
+    MediaItem media;
+    media.id = item->url.toString();
+    media.name = item->name;
+    media.itemType = QStringLiteral("WebDAV");
+    media.overview = item->contentType;
+    m_selectedItem = std::move(media);
+    clearSeriesDetails();
+    syncSelectedPeople();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("player"));
+}
+
+void AppViewModel::webDavBack()
+{
+    if (m_webDavHistory.empty()) {
+        backToServices();
+        return;
+    }
+    const auto url = m_webDavHistory.back();
+    m_webDavHistory.pop_back();
+    loadWebDavDirectory(url);
+}
+
+void AppViewModel::refreshWebDavDirectory()
+{
+    if (!m_webDavCurrentUrl.isEmpty()) {
+        loadWebDavDirectory(m_webDavCurrentUrl);
+    }
+}
+
+void AppViewModel::chooseWebDavUploadFiles()
+{
+    if (!m_currentWebDavCard) {
+        return;
+    }
+    const auto files = QFileDialog::getOpenFileNames(nullptr, trText(QStringLiteral("action.upload")));
+    for (const auto& file : files) {
+        const QFileInfo info(file);
+        if (!info.exists() || !info.isFile()) {
+            continue;
+        }
+        enqueueWebDavUploadFile(info.absoluteFilePath(), childWebDavUrl(info.fileName(), false));
+    }
+    openTransfers();
+}
+
+void AppViewModel::chooseWebDavUploadFolder()
+{
+    if (!m_currentWebDavCard) {
+        return;
+    }
+    const auto folder = QFileDialog::getExistingDirectory(nullptr, trText(QStringLiteral("action.uploadFolder")));
+    if (folder.isEmpty()) {
+        return;
+    }
+    const QFileInfo rootInfo(folder);
+    const auto rootRemote = childWebDavUrl(rootInfo.fileName(), true);
+    m_transferManager.enqueueCreateDirectory(m_currentWebDavCard->server, m_webDavPassword, rootRemote);
+
+    QDirIterator iterator(folder, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        iterator.next();
+        const QFileInfo info(iterator.fileInfo());
+        const auto relative = QDir(folder).relativeFilePath(info.absoluteFilePath()).replace(QLatin1Char('\\'), QLatin1Char('/'));
+        auto remoteUrl = rootRemote.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(relative))));
+        if (info.isDir()) {
+            remoteUrl = ensureDirectoryUrl(remoteUrl);
+            m_transferManager.enqueueCreateDirectory(m_currentWebDavCard->server, m_webDavPassword, remoteUrl);
+        } else if (info.isFile()) {
+            enqueueWebDavUploadFile(info.absoluteFilePath(), remoteUrl);
+        }
+    }
+    openTransfers();
+}
+
+void AppViewModel::downloadWebDavItem(int row)
+{
+    clearError();
+    const auto item = m_webDavItems.itemAt(row);
+    if (!item || !m_currentWebDavCard) {
+        return;
+    }
+
+    QString directory = m_defaultDownloadDirectory;
+    if (directory.isEmpty()) {
+        directory = QFileDialog::getExistingDirectory(nullptr, trText(QStringLiteral("webdav.defaultDownload")));
+    }
+    if (directory.isEmpty()) {
+        return;
+    }
+
+    const auto targetPath = uniqueLocalPath(directory, item->name);
+    const auto available = QStorageInfo(directory).bytesAvailable();
+    const auto continueDownload = [this, item = *item, targetPath]() {
+        enqueueWebDavDownload(item, targetPath);
+        openTransfers();
+    };
+
+    auto continueAfterEstimate = [this, continueDownload, available](qint64 bytes, bool complete) {
+        const auto shouldWarn = !complete || bytes < 0 || (available > 0 && bytes > available);
+        if (!shouldWarn) {
+            continueDownload();
+            return;
+        }
+        const auto title = trText(QStringLiteral("webdav.spaceWarningTitle"));
+        const auto message = (!complete || bytes < 0)
+            ? trText(QStringLiteral("webdav.unknownSizeWarning"))
+            : trText(QStringLiteral("webdav.spaceWarning")).arg(sizeText(bytes), sizeText(available));
+        m_pendingDownloadWarningReply = [continueDownload](bool accepted) {
+            if (accepted) {
+                continueDownload();
+            }
+        };
+        emit downloadSpaceWarningRequested(title, message);
+    };
+
+    if (item->directory) {
+        setLoading(true);
+        estimateWebDavDownloadSize(*item, [this, continueAfterEstimate](qint64 bytes, bool complete) {
+            setLoading(false);
+            continueAfterEstimate(bytes, complete);
+        });
+        return;
+    }
+    continueAfterEstimate(item->size, item->size >= 0);
+}
+
+void AppViewModel::chooseDefaultDownloadDirectory()
+{
+    const auto directory = QFileDialog::getExistingDirectory(nullptr,
+                                                            trText(QStringLiteral("webdav.defaultDownload")),
+                                                            m_defaultDownloadDirectory);
+    if (!directory.isEmpty()) {
+        setDefaultDownloadDirectory(directory);
+    }
+}
+
+void AppViewModel::openTransfers()
+{
+    setCurrentView(QStringLiteral("transfers"));
+}
+
+void AppViewModel::cancelTransfer(const QString& taskId)
+{
+    m_transferManager.cancelTask(taskId);
+}
+
+void AppViewModel::acceptPendingDownloadWarning(bool accepted)
+{
+    if (m_pendingDownloadWarningReply) {
+        auto reply = std::move(m_pendingDownloadWarningReply);
+        m_pendingDownloadWarningReply = {};
+        reply(accepted);
+    }
+}
+
+void AppViewModel::startPendingFolderDownload()
+{
+    if (m_pendingFolderDownload) {
+        auto action = std::move(m_pendingFolderDownload);
+        m_pendingFolderDownload = {};
+        action();
+    }
+}
+
+void AppViewModel::moveServiceCard(int row, int direction)
+{
+    clearError();
+    const auto card = m_services.cardAt(row);
+    if (!card) {
+        return;
+    }
+
+    if (auto result = m_repository.moveServer(card->server.id, direction); !result) {
+        setError(result.error());
+        return;
+    }
+    refreshServiceCards();
+}
+
+void AppViewModel::moveServiceCardTo(int fromRow, int toRow)
+{
+    clearError();
+    const auto card = m_services.cardAt(fromRow);
+    if (!card) {
+        return;
+    }
+
+    if (auto result = m_repository.moveServerTo(card->server.id, toRow); !result) {
+        setError(result.error());
+        return;
+    }
+    refreshServiceCards();
+}
+
+QString AppViewModel::trText(const QString& key) const
+{
+    const auto language = effectiveLanguage(m_languageMode);
+    if (language == QStringLiteral("zh_CN") && key.startsWith(QStringLiteral("iptv."))) {
+        const auto& iptvTable = iptvChineseTexts();
+        if (iptvTable.contains(key)) {
+            return iptvTable.value(key);
+        }
+    }
+    const auto& table = language == QStringLiteral("zh_CN") ? chineseTexts() : englishTexts();
+    if (table.contains(key)) {
+        return table.value(key);
+    }
+    return englishTexts().value(key, key);
+}
+
+QString AppViewModel::formatSeasonEpisode(const QString& season, const QString& episode) const
+{
+    const auto seasonText = normalizedNumberText(season);
+    const auto episodeText = normalizedNumberText(episode);
+    QStringList parts;
+
+    const auto language = effectiveLanguage(m_languageMode);
+    if (language == QStringLiteral("zh_CN")) {
+        if (!seasonText.isEmpty()) {
+            parts.push_back(QStringLiteral("第 %1 季").arg(seasonText));
+        }
+        if (!episodeText.isEmpty()) {
+            parts.push_back(QStringLiteral("第 %1 集").arg(episodeText));
+        }
+        return parts.join(QLatin1Char(' '));
+    }
+
+    if (!seasonText.isEmpty()) {
+        parts.push_back(QStringLiteral("Season %1").arg(seasonText));
+    }
+    if (!episodeText.isEmpty()) {
+        parts.push_back(QStringLiteral("Episode %1").arg(episodeText));
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+QString AppViewModel::formatContinueProgress(double percentage) const
+{
+    const auto value = qBound(0, qRound(percentage), 100);
+    const auto language = effectiveLanguage(m_languageMode);
+    if (language == QStringLiteral("zh_CN")) {
+        return QStringLiteral("观看到 %1%").arg(value);
+    }
+    return QStringLiteral("Watched %1%").arg(value);
+}
+
+void AppViewModel::deleteServiceCard(int row, bool deleteLocalData)
+{
+    clearError();
+    const auto card = m_services.cardAt(row);
+    if (!card) {
+        return;
+    }
+
+    if (auto result = m_repository.deleteServer(card->server.id, deleteLocalData); !result) {
+        setError(result.error());
+        return;
+    }
+    if (m_session && m_session->server.id == card->server.id) {
+        m_session.reset();
+        emit loggedInChanged();
+        emit currentUserChanged();
+        emit currentServerChanged();
+    }
+    if (m_currentIptvCard && m_currentIptvCard->server.id == card->server.id) {
+        clearIptvState();
+        if (m_currentView == QStringLiteral("iptv")) {
+            setCurrentView(QStringLiteral("services"));
+        }
+    }
+    if (card->server.serviceType == ServiceType::WebDAV && deleteLocalData) {
+        CredentialStore::deletePassword(card->server.id);
+    }
+    if (m_currentWebDavCard && m_currentWebDavCard->server.id == card->server.id) {
+        clearWebDavState();
+        if (m_currentView == QStringLiteral("webdav")) {
+            setCurrentView(QStringLiteral("services"));
+        }
+    }
+    refreshServiceCards();
+}
+
+void AppViewModel::logout()
+{
+    AppLogger::info(QStringLiteral("auth"), QStringLiteral("Logout requested"));
+    m_session.reset();
+    m_pendingServiceCard.reset();
+    clearIptvState();
+    clearWebDavState();
+    m_currentLibrary.reset();
+    clearMediaDirectoryState();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    m_libraries.clear();
+    m_continueItems.clear();
+    m_items.clear();
+    emit loggedInChanged();
+    emit currentUserChanged();
+    emit currentServerChanged();
+    emit currentLibraryChanged();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("services"));
+}
+
+void AppViewModel::backToServices()
+{
+    m_session.reset();
+    m_pendingServiceCard.reset();
+    clearIptvState();
+    clearWebDavState();
+    m_currentLibrary.reset();
+    clearMediaDirectoryState();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    m_libraries.clear();
+    m_continueItems.clear();
+    m_items.clear();
+    emit loggedInChanged();
+    emit currentUserChanged();
+    emit currentServerChanged();
+    emit currentLibraryChanged();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    refreshServiceCards();
+    setCurrentView(QStringLiteral("services"));
+}
+
+void AppViewModel::backToHome()
+{
+    if (m_currentWebDavCard) {
+        if (m_currentView == QStringLiteral("webdav")) {
+            backToServices();
+            return;
+        }
+        clearCurrentPlayback();
+        emit playbackChanged();
+        setCurrentView(QStringLiteral("webdav"));
+        return;
+    }
+    if (m_currentIptvCard) {
+        if (m_currentView == QStringLiteral("iptv")) {
+            backToServices();
+            return;
+        }
+        clearCurrentPlayback();
+        emit playbackChanged();
+        setCurrentView(QStringLiteral("iptv"));
+        return;
+    }
+
+    m_currentLibrary.reset();
+    clearMediaDirectoryState();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    m_items.clear();
+    emit currentLibraryChanged();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    if (m_session) {
+        setCurrentView(QStringLiteral("home"));
+    } else {
+        setCurrentView(QStringLiteral("services"));
+    }
+}
+
+void AppViewModel::mediaLibraryBack()
+{
+    if (!m_currentLibrary) {
+        backToServices();
+        return;
+    }
+
+    if (m_mediaParentHistory.empty()) {
+        backToServices();
+        return;
+    }
+
+    const auto previous = m_mediaParentHistory.back();
+    m_mediaParentHistory.pop_back();
+    resetMediaDirectory(previous.first, previous.second);
+    loadMediaDirectory(true);
+}
+
+void AppViewModel::openSettings()
+{
+    clearSeriesDetails();
+    clearCurrentPlayback();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("settings"));
+}
+
+void AppViewModel::refreshHome()
+{
+    if (!m_session) {
+        return;
+    }
+    refreshContinueWatching();
+    refreshLibraries();
+}
+
+void AppViewModel::refreshLibraries()
+{
+    if (!m_session) {
+        return;
+    }
+
+    clearError();
+    m_currentLibrary.reset();
+    clearMediaDirectoryState();
+    m_items.clear();
+    emit currentLibraryChanged();
+
+    auto* client = clientFor(m_session->server.serviceType);
+    setLoading(true);
+    AppLogger::info(QStringLiteral("library"),
+                    QStringLiteral("Fetching libraries from %1").arg(QUrl(m_session->server.baseUrl).host()));
+    client->fetchLibraries(*m_session, [this](LibraryResult result) {
+        setLoading(false);
+        if (!result) {
+            AppLogger::warning(QStringLiteral("library"), QStringLiteral("Fetch libraries failed: %1").arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+        AppLogger::info(QStringLiteral("library"), QStringLiteral("Fetched %1 libraries").arg(result->size()));
+        m_libraries.setLibraries(std::move(*result));
+    });
+}
+
+void AppViewModel::refreshContinueWatching()
+{
+    if (!m_session) {
+        return;
+    }
+
+    auto* client = clientFor(m_session->server.serviceType);
+    AppLogger::info(QStringLiteral("continue"), QStringLiteral("Fetching resume items from %1").arg(QUrl(m_session->server.baseUrl).host()));
+    client->fetchContinueWatching(*m_session, 24, [this](ItemResult result) {
+        if (!result) {
+            AppLogger::warning(QStringLiteral("continue"), QStringLiteral("Fetch resume items failed: %1").arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+        m_continueItems.setItems(std::move(*result));
+    });
+}
+
+void AppViewModel::resetMediaDirectory(const QString& id, const QString& name)
+{
+    const auto changed = m_currentMediaParentId != id || m_currentMediaParentName != name;
+    m_currentMediaParentId = id;
+    m_currentMediaParentName = name;
+    m_nextItemStartIndex = 0;
+    if (changed) {
+        emit currentLibraryChanged();
+    }
+}
+
+void AppViewModel::clearMediaDirectoryState()
+{
+    resetMediaDirectory({}, {});
+    m_mediaParentHistory.clear();
+}
+
+void AppViewModel::loadMediaDirectory(bool resetItems)
+{
+    if (!m_session || !m_currentLibrary || m_loading) {
+        return;
+    }
+
+    if (m_currentMediaParentId.isEmpty()) {
+        resetMediaDirectory(m_currentLibrary->id, m_currentLibrary->name);
+    }
+
+    if (resetItems) {
+        m_items.clear();
+        m_selectedItem.reset();
+        clearSeriesDetails();
+        syncSelectedPeople();
+        emit selectedItemChanged();
+    }
+
+    const auto requestParentId = m_currentMediaParentId;
+    auto* client = clientFor(m_session->server.serviceType);
+    setLoading(true);
+    AppLogger::info(QStringLiteral("items"),
+                    QStringLiteral("Fetching items for parent %1").arg(requestParentId));
+    client->fetchLibraryItems(*m_session, *m_currentLibrary, requestParentId, m_nextItemStartIndex, m_itemPageSize, [this, requestParentId](ItemResult result) {
+        setLoading(false);
+        if (requestParentId != m_currentMediaParentId) {
+            AppLogger::info(QStringLiteral("items"), QStringLiteral("Ignoring stale item page for parent %1").arg(requestParentId));
+            return;
+        }
+        if (!result) {
+            AppLogger::warning(QStringLiteral("items"), QStringLiteral("Fetch items failed: %1").arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+
+        const auto count = static_cast<int>(result->size());
+        m_nextItemStartIndex += count;
+        AppLogger::info(QStringLiteral("items"), QStringLiteral("Fetched %1 items").arg(count));
+        m_items.appendItems(std::move(*result));
+        setCurrentView(QStringLiteral("library"));
+    });
+}
+
+bool AppViewModel::isNavigableMediaFolder(const MediaItem& item) const
+{
+    return item.folder
+        || item.itemType.compare(QStringLiteral("Folder"), Qt::CaseInsensitive) == 0
+        || item.itemType.compare(QStringLiteral("BoxSet"), Qt::CaseInsensitive) == 0
+        || item.itemType.compare(QStringLiteral("CollectionFolder"), Qt::CaseInsensitive) == 0;
+}
+
+void AppViewModel::clearSeriesDetails()
+{
+    ++m_seriesRequestGeneration;
+    m_selectedSeason.reset();
+    m_seriesSeasons.clear();
+    m_seriesEpisodes.clear();
+    emit selectedSeasonChanged();
+}
+
+void AppViewModel::loadSeriesSeasons()
+{
+    if (!m_session || !m_selectedItem || !selectedItemHasSeriesEpisodes()) {
+        clearSeriesDetails();
+        return;
+    }
+
+    auto* client = clientFor(m_session->server.serviceType);
+    if (!client) {
+        clearSeriesDetails();
+        return;
+    }
+
+    const auto seriesId = m_selectedItem->seriesId.isEmpty() ? m_selectedItem->id : m_selectedItem->seriesId;
+    const auto currentSeasonId = isEpisodeItem(*m_selectedItem) ? m_selectedItem->parentId : QString {};
+    const auto currentSeasonNumber = isEpisodeItem(*m_selectedItem) ? m_selectedItem->parentIndexNumber : QString {};
+    const auto generation = ++m_seriesRequestGeneration;
+    m_selectedSeason.reset();
+    m_seriesSeasons.clear();
+    m_seriesEpisodes.clear();
+    emit selectedSeasonChanged();
+
+    AppLogger::info(QStringLiteral("series"), QStringLiteral("Fetching seasons for selected series"));
+    client->fetchSeriesSeasons(*m_session,
+                               seriesId,
+                               [this, generation, currentSeasonId, currentSeasonNumber](ItemResult result) {
+        if (generation != m_seriesRequestGeneration) {
+            return;
+        }
+        if (!result) {
+            AppLogger::warning(QStringLiteral("series"), QStringLiteral("Fetch seasons failed: %1").arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+
+        auto seasons = std::move(*result);
+        std::ranges::sort(seasons, [](const MediaItem& left, const MediaItem& right) {
+            const auto leftIndex = left.indexNumber.toInt();
+            const auto rightIndex = right.indexNumber.toInt();
+            if (leftIndex != rightIndex) {
+                return leftIndex < rightIndex;
+            }
+            return left.name.localeAwareCompare(right.name) < 0;
+        });
+        const auto count = static_cast<int>(seasons.size());
+        AppLogger::info(QStringLiteral("series"), QStringLiteral("Fetched %1 seasons").arg(count));
+        m_seriesSeasons.setItems(std::move(seasons));
+        if (count > 0) {
+            auto selectedRow = 0;
+            for (auto row = 0; row < m_seriesSeasons.count(); ++row) {
+                const auto season = m_seriesSeasons.itemAt(row);
+                if (!season) {
+                    continue;
+                }
+                const auto idMatches = !currentSeasonId.isEmpty() && season->id == currentSeasonId;
+                const auto numberMatches = !currentSeasonNumber.isEmpty() && season->indexNumber == currentSeasonNumber;
+                if (idMatches || numberMatches) {
+                    selectedRow = row;
+                    break;
+                }
+            }
+            selectSeason(selectedRow);
+        }
+    });
+}
+
+void AppViewModel::loadSeasonEpisodes(const MediaItem& season)
+{
+    if (!m_session || !m_selectedItem || !selectedItemHasSeriesEpisodes() || season.id.isEmpty()) {
+        m_seriesEpisodes.clear();
+        return;
+    }
+
+    auto* client = clientFor(m_session->server.serviceType);
+    if (!client) {
+        m_seriesEpisodes.clear();
+        return;
+    }
+
+    const auto seriesId = m_selectedItem->seriesId.isEmpty() ? m_selectedItem->id : m_selectedItem->seriesId;
+    const auto seasonId = season.id;
+    const auto generation = m_seriesRequestGeneration;
+
+    m_seriesEpisodes.clear();
+    AppLogger::info(QStringLiteral("series"), QStringLiteral("Fetching episodes for selected season"));
+    client->fetchSeasonEpisodes(*m_session, seriesId, seasonId, [this, generation](ItemResult result) {
+        if (generation != m_seriesRequestGeneration) {
+            return;
+        }
+        if (!result) {
+            AppLogger::warning(QStringLiteral("series"), QStringLiteral("Fetch episodes failed: %1").arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+
+        auto episodes = std::move(*result);
+        std::ranges::sort(episodes, [](const MediaItem& left, const MediaItem& right) {
+            const auto leftSeason = left.parentIndexNumber.toInt();
+            const auto rightSeason = right.parentIndexNumber.toInt();
+            if (leftSeason != rightSeason) {
+                return leftSeason < rightSeason;
+            }
+            const auto leftEpisode = left.indexNumber.toInt();
+            const auto rightEpisode = right.indexNumber.toInt();
+            if (leftEpisode != rightEpisode) {
+                return leftEpisode < rightEpisode;
+            }
+            return left.name.localeAwareCompare(right.name) < 0;
+        });
+        AppLogger::info(QStringLiteral("series"), QStringLiteral("Fetched %1 episodes").arg(static_cast<int>(episodes.size())));
+        m_seriesEpisodes.setItems(std::move(episodes));
+    });
+}
+
+void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
+{
+    if (stopPositionSeconds >= 0.0) {
+        reportPlaybackStopped(stopPositionSeconds);
+    }
+    m_currentPlaybackUrl = QUrl();
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_playbackHttpUsername.clear();
+    m_playbackHttpPassword.clear();
+    m_playbackAllowInsecureTls = false;
+    if (!m_webDavPlaybackStreamId.isEmpty()) {
+        m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
+        m_webDavPlaybackStreamId.clear();
+    }
+    m_currentPlaybackStartSeconds = 0.0;
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = false;
+}
+
+void AppViewModel::syncSelectedPeople()
+{
+    if (m_selectedItem) {
+        m_selectedPeople.setPeople(m_selectedItem->peopleList);
+    } else {
+        m_selectedPeople.clear();
+    }
+}
+
+void AppViewModel::openLibrary(int row)
+{
+    if (!m_session) {
+        return;
+    }
+
+    const auto library = m_libraries.libraryAt(row);
+    if (!library) {
+        return;
+    }
+
+    m_currentLibrary = *library;
+    clearMediaDirectoryState();
+    resetMediaDirectory(library->id, library->name);
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    m_items.clear();
+    m_nextItemStartIndex = 0;
+    emit currentLibraryChanged();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("library"));
+    loadMediaDirectory(false);
+}
+
+void AppViewModel::openContinueItem(int row)
+{
+    const auto item = m_continueItems.itemAt(row);
+    if (!item) {
+        return;
+    }
+
+    m_selectedItem = *item;
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("details"));
+
+    if (!m_session) {
+        return;
+    }
+    const auto resumePositionTicks = item->playbackPositionTicks;
+    const auto resumePlayedPercentage = item->playedPercentage;
+    auto* client = clientFor(m_session->server.serviceType);
+    setLoading(true);
+    client->fetchItemDetails(*m_session,
+                             item->id,
+                             [this, resumePositionTicks, resumePlayedPercentage](std::expected<MediaItem, NetworkError> result) {
+        setLoading(false);
+        if (!result) {
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+        if (result->playbackPositionTicks <= 0 && resumePositionTicks > 0) {
+            result->playbackPositionTicks = resumePositionTicks;
+        }
+        if (result->playedPercentage <= 0.0 && resumePlayedPercentage > 0.0) {
+            result->playedPercentage = resumePlayedPercentage;
+        }
+        m_selectedItem = std::move(*result);
+        syncSelectedPeople();
+        emit selectedItemChanged();
+        if (selectedItemHasSeriesEpisodes()) {
+            loadSeriesSeasons();
+        } else {
+            clearSeriesDetails();
+        }
+    });
+}
+
+void AppViewModel::openItem(int row)
+{
+    const auto item = m_items.itemAt(row);
+    if (!item) {
+        return;
+    }
+
+    if (isNavigableMediaFolder(*item)) {
+        m_mediaParentHistory.emplace_back(m_currentMediaParentId, m_currentMediaParentName);
+        resetMediaDirectory(item->id, item->name);
+        loadMediaDirectory(true);
+        return;
+    }
+
+    m_selectedItem = *item;
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("details"));
+
+    if (!m_session) {
+        return;
+    }
+    auto* client = clientFor(m_session->server.serviceType);
+    setLoading(true);
+    client->fetchItemDetails(*m_session, item->id, [this](std::expected<MediaItem, NetworkError> result) {
+        setLoading(false);
+        if (!result) {
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+        m_selectedItem = std::move(*result);
+        syncSelectedPeople();
+        emit selectedItemChanged();
+        if (selectedItemHasSeriesEpisodes()) {
+            loadSeriesSeasons();
+        } else {
+            clearSeriesDetails();
+        }
+    });
+}
+
+void AppViewModel::selectSeason(int row)
+{
+    const auto season = m_seriesSeasons.itemAt(row);
+    if (!season) {
+        return;
+    }
+
+    ++m_seriesRequestGeneration;
+    m_selectedSeason = *season;
+    emit selectedSeasonChanged();
+    loadSeasonEpisodes(*season);
+}
+
+void AppViewModel::openEpisode(int row)
+{
+    const auto item = m_seriesEpisodes.itemAt(row);
+    if (!item) {
+        return;
+    }
+
+    auto episodeContext = *item;
+    if (m_selectedItem) {
+        applyMissingEpisodeContext(episodeContext, seriesContextFor(*m_selectedItem));
+    }
+    if (m_selectedSeason) {
+        episodeContext.parentId = m_selectedSeason->id;
+        episodeContext.parentIndexNumber = m_selectedSeason->indexNumber;
+        episodeContext.seasonName = m_selectedSeason->name;
+    }
+
+    m_selectedItem = episodeContext;
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("details"));
+
+    if (!m_session) {
+        return;
+    }
+    auto* client = clientFor(m_session->server.serviceType);
+    setLoading(true);
+    client->fetchItemDetails(*m_session, episodeContext.id, [this, episodeContext](std::expected<MediaItem, NetworkError> result) {
+        setLoading(false);
+        if (!result) {
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+        auto detail = std::move(*result);
+        applyMissingEpisodeContext(detail, episodeContext);
+        m_selectedItem = std::move(detail);
+        syncSelectedPeople();
+        emit selectedItemChanged();
+        if (selectedItemHasSeriesEpisodes()) {
+            loadSeriesSeasons();
+        } else {
+            clearSeriesDetails();
+        }
+    });
+}
+
+void AppViewModel::playSelectedItem()
+{
+    if (!m_session || !m_selectedItem) {
+        setError(QStringLiteral("Select a playable media item first"));
+        return;
+    }
+    if (selectedItemIsSeries()) {
+        setError(QStringLiteral("Select an episode to play"));
+        return;
+    }
+
+    auto* client = clientFor(m_session->server.serviceType);
+    if (!client) {
+        setError(QStringLiteral("Unsupported server type"));
+        return;
+    }
+
+    clearError();
+    setLoading(true);
+    const auto itemName = m_selectedItem->name;
+    AppLogger::info(QStringLiteral("player"), QStringLiteral("Fetching playback info for selected media item"));
+    client->fetchPlaybackUrl(*m_session, *m_selectedItem, [this, itemName](PlaybackUrlResult result) {
+        setLoading(false);
+        if (!result) {
+            const auto message = displayNetworkError(result.error());
+            AppLogger::warning(QStringLiteral("player"), QStringLiteral("Fetch playback URL failed for %1: %2").arg(itemName, message));
+            setError(message);
+            return;
+        }
+
+        m_currentPlaybackUrl = result->url;
+        m_currentMediaSourceId = result->mediaSourceId;
+        m_currentPlaySessionId = result->playSessionId;
+        m_currentPlaybackStartSeconds = result->startSeconds;
+        m_lastPlaybackReportSeconds = -1.0;
+        m_playbackStartedReported = false;
+        AppLogger::info(QStringLiteral("player"), QStringLiteral("Opening player for selected media item"));
+        setCurrentView(QStringLiteral("player"));
+        emit playbackChanged();
+    });
+}
+
+void AppViewModel::reportPlaybackStarted()
+{
+    if (!m_session || !m_selectedItem || m_playbackStartedReported) {
+        return;
+    }
+    auto* client = clientFor(m_session->server.serviceType);
+    if (!client) {
+        return;
+    }
+
+    const PlaybackReport report {
+        .itemId = m_selectedItem->id,
+        .mediaSourceId = m_currentMediaSourceId,
+        .playSessionId = m_currentPlaySessionId,
+        .positionTicks = std::max<qint64>(0, m_selectedItem->playbackPositionTicks),
+        .paused = false,
+    };
+    client->reportPlaybackStart(*m_session, report);
+    m_playbackStartedReported = true;
+    AppLogger::info(QStringLiteral("player"), QStringLiteral("Reported playback start"));
+}
+
+void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
+{
+    if (!m_session || !m_selectedItem || !m_playbackStartedReported) {
+        return;
+    }
+    if (positionSeconds < 0 || (!paused && m_lastPlaybackReportSeconds >= 0 && std::abs(positionSeconds - m_lastPlaybackReportSeconds) < 10.0)) {
+        return;
+    }
+
+    auto* client = clientFor(m_session->server.serviceType);
+    if (!client) {
+        return;
+    }
+
+    const auto ticks = static_cast<qint64>(std::max(0.0, positionSeconds) * 10'000'000.0);
+    const PlaybackReport report {
+        .itemId = m_selectedItem->id,
+        .mediaSourceId = m_currentMediaSourceId,
+        .playSessionId = m_currentPlaySessionId,
+        .positionTicks = ticks,
+        .paused = paused,
+    };
+    client->reportPlaybackProgress(*m_session, report);
+    m_lastPlaybackReportSeconds = positionSeconds;
+}
+
+void AppViewModel::reportPlaybackStopped(double positionSeconds)
+{
+    if (!m_session || !m_selectedItem || !m_playbackStartedReported) {
+        return;
+    }
+
+    auto* client = clientFor(m_session->server.serviceType);
+    if (!client) {
+        return;
+    }
+
+    const auto ticks = static_cast<qint64>(std::max(0.0, positionSeconds) * 10'000'000.0);
+    const PlaybackReport report {
+        .itemId = m_selectedItem->id,
+        .mediaSourceId = m_currentMediaSourceId,
+        .playSessionId = m_currentPlaySessionId,
+        .positionTicks = ticks,
+        .paused = false,
+    };
+    client->reportPlaybackStopped(*m_session, report);
+    m_playbackStartedReported = false;
+    m_lastPlaybackReportSeconds = -1.0;
+    AppLogger::info(QStringLiteral("player"), QStringLiteral("Reported playback stop"));
+}
+
+void AppViewModel::reportPlaybackError(const QString& message)
+{
+    const auto normalized = message.trimmed();
+    if (normalized.isEmpty()) {
+        return;
+    }
+
+    AppLogger::warning(QStringLiteral("player"), normalized);
+    setError(normalized);
+}
+
+void AppViewModel::closePlayerToDetails()
+{
+    clearCurrentPlayback();
+    emit playbackChanged();
+    if (m_currentWebDavCard) {
+        setCurrentView(QStringLiteral("webdav"));
+        return;
+    }
+    if (m_currentIptvCard) {
+        setCurrentView(QStringLiteral("iptv"));
+        return;
+    }
+    setCurrentView(m_selectedItem ? QStringLiteral("details") : QStringLiteral("home"));
+}
+
+void AppViewModel::loadMoreItems()
+{
+    loadMediaDirectory(false);
+}
+
+void AppViewModel::clearError()
+{
+    if (m_errorMessage.isEmpty()) {
+        return;
+    }
+    m_errorMessage.clear();
+    emit errorMessageChanged();
+}
+
+void AppViewModel::acceptPendingCertificate(bool accepted)
+{
+    if (m_pendingCertificateReply) {
+        auto reply = std::move(m_pendingCertificateReply);
+        m_pendingCertificateReply = {};
+        reply(accepted);
+    }
+}
+
+void AppViewModel::openLocalPlaybackForVerification(const QUrl& url)
+{
+    if (url.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    m_currentPlaybackUrl = url;
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_currentPlaybackStartSeconds = 0.0;
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = true;
+
+    MediaItem item;
+    item.id = QStringLiteral("local-verification");
+    item.name = QStringLiteral("Local Playback Verification");
+    item.itemType = QStringLiteral("Video");
+    m_selectedItem = std::move(item);
+    clearSeriesDetails();
+    syncSelectedPeople();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("player"));
+    AppLogger::info(QStringLiteral("player"), QStringLiteral("Opening local playback verification media"));
+}
+
+MediaServiceClient* AppViewModel::clientFor(ServiceType type)
+{
+    switch (type) {
+    case ServiceType::Emby:
+        return &m_embyClient;
+    case ServiceType::Jellyfin:
+        return &m_jellyfinClient;
+    case ServiceType::IPTV:
+        return nullptr;
+    case ServiceType::WebDAV:
+        return nullptr;
+    }
+    return nullptr;
+}
+
+ServerConfig AppViewModel::makeServerConfig() const
+{
+    if (m_serviceType == ServiceType::IPTV) {
+        const QFileInfo fileInfo(m_iptvFilePath);
+        const auto sourcePath = fileInfo.exists() ? fileInfo.absoluteFilePath() : m_iptvFilePath.trimmed();
+        const auto name = m_serverName.trimmed().isEmpty()
+            ? (fileInfo.completeBaseName().isEmpty() ? QStringLiteral("IPTV") : fileInfo.completeBaseName())
+            : m_serverName.trimmed();
+        return ServerConfig {
+            .id = iptvServiceIdFor(sourcePath),
+            .name = name,
+            .baseUrl = sourcePath,
+            .username = QStringLiteral(""),
+            .serviceType = ServiceType::IPTV,
+            .trustSelfSignedCertificate = false,
+            .autoLogin = true,
+        };
+    }
+    if (m_serviceType == ServiceType::WebDAV) {
+        const auto endpoint = ensureDirectoryUrl(QUrl(m_serverUrl.trimmed())).toString();
+        const auto user = m_username.trimmed();
+        return ServerConfig {
+            .id = cardIdFor(endpoint, m_serviceType, user),
+            .name = m_serverName.trimmed().isEmpty() ? QUrl(endpoint).host() : m_serverName.trimmed(),
+            .baseUrl = endpoint,
+            .username = user,
+            .serviceType = m_serviceType,
+            .trustSelfSignedCertificate = m_trustSelfSignedCertificate,
+            .autoLogin = m_autoLogin,
+        };
+    }
+
+    const auto baseUrl = m_serverUrl.trimmed();
+    const auto user = m_username.trimmed();
+    return ServerConfig {
+        .id = cardIdFor(baseUrl, m_serviceType, user),
+        .name = m_serverName.trimmed().isEmpty() ? QUrl(baseUrl).host() : m_serverName.trimmed(),
+        .baseUrl = baseUrl,
+        .username = user,
+        .serviceType = m_serviceType,
+        .trustSelfSignedCertificate = m_trustSelfSignedCertificate,
+        .autoLogin = m_autoLogin,
+    };
+}
+
+void AppViewModel::refreshServiceCards()
+{
+    const auto cardsResult = m_repository.loadServiceCards();
+    if (!cardsResult) {
+        setError(cardsResult.error());
+        return;
+    }
+    m_services.setCards(*cardsResult);
+}
+
+void AppViewModel::startLogin(const ServerConfig& server, const QString& password)
+{
+    auto* client = clientFor(server.serviceType);
+    if (!client) {
+        setError(QStringLiteral("Unsupported server type"));
+        return;
+    }
+    if (password.isEmpty()) {
+        setError(QStringLiteral("Password is required"));
+        return;
+    }
+
+    setLoading(true);
+    AppLogger::info(QStringLiteral("auth"),
+                    QStringLiteral("Login requested for %1 server %2")
+                        .arg(serviceTypeToString(server.serviceType), QUrl(server.baseUrl).host()));
+    client->login(server, server.username, password, [this](LoginResult result) {
+        setLoading(false);
+        if (!result) {
+            AppLogger::warning(QStringLiteral("auth"), QStringLiteral("Login failed: %1").arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+
+        m_password.clear();
+        emit passwordChanged();
+        setSession(std::move(*result));
+        AppLogger::info(QStringLiteral("auth"),
+                        QStringLiteral("Login succeeded for %1 server %2")
+                            .arg(serviceTypeToString(m_session->server.serviceType), QUrl(m_session->server.baseUrl).host()));
+        saveSession();
+        refreshServiceCards();
+        loadServiceHome();
+    });
+}
+
+void AppViewModel::loadServiceHome()
+{
+    if (!m_session) {
+        setCurrentView(QStringLiteral("services"));
+        return;
+    }
+
+    clearIptvState();
+    m_currentLibrary.reset();
+    clearMediaDirectoryState();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    m_items.clear();
+    emit currentServerChanged();
+    emit currentLibraryChanged();
+    emit selectedItemChanged();
+    setCurrentView(QStringLiteral("home"));
+    refreshContinueWatching();
+    refreshLibraries();
+}
+
+void AppViewModel::loadIptvService(const ServiceCard& card)
+{
+    clearError();
+    m_session.reset();
+    m_currentIptvCard = card;
+    if (!m_iptvSearchText.isEmpty()) {
+        m_iptvSearchText.clear();
+        emit iptvSearchTextChanged();
+    }
+    m_currentLibrary.reset();
+    clearMediaDirectoryState();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    m_libraries.clear();
+    m_continueItems.clear();
+    m_items.clear();
+    emit loggedInChanged();
+    emit currentUserChanged();
+    emit currentServerChanged();
+    emit currentLibraryChanged();
+    emit selectedItemChanged();
+    emit playbackChanged();
+
+    const auto playlistResult = m_repository.loadIptvPlaylist(card.server.id);
+    if (!playlistResult) {
+        setError(playlistResult.error());
+        return;
+    }
+    if (!playlistResult->has_value()) {
+        setError(QStringLiteral("IPTV playlist data was not found"));
+        return;
+    }
+    m_currentIptvPlaylist = **playlistResult;
+    refreshIptvChannels();
+    setCurrentView(QStringLiteral("iptv"));
+}
+
+void AppViewModel::clearIptvState()
+{
+    if (!m_currentIptvCard && !m_currentIptvPlaylist && m_allIptvChannels.empty() && m_iptvGroups.isEmpty()) {
+        return;
+    }
+
+    m_currentIptvCard.reset();
+    m_currentIptvPlaylist.reset();
+    m_allIptvChannels.clear();
+    m_iptvChannels.clear();
+    m_iptvGroups.clear();
+    m_iptvSelectedGroup.clear();
+    emit currentUserChanged();
+    emit currentServerChanged();
+    emit iptvGroupsChanged();
+    emit iptvSelectedGroupChanged();
+}
+
+void AppViewModel::refreshIptvChannels()
+{
+    if (!m_currentIptvCard) {
+        m_allIptvChannels.clear();
+        m_iptvChannels.clear();
+        return;
+    }
+
+    const auto channelsResult = m_repository.loadIptvChannels(m_currentIptvCard->server.id);
+    if (!channelsResult) {
+        setError(channelsResult.error());
+        return;
+    }
+
+    m_allIptvChannels = *channelsResult;
+
+    QStringList groups { allIptvGroup() };
+    for (const auto& channel : m_allIptvChannels) {
+        const auto group = channel.groupName.isEmpty() ? defaultIptvGroup() : channel.groupName;
+        if (!groups.contains(group, Qt::CaseInsensitive)) {
+            groups.push_back(group);
+        }
+    }
+    std::sort(groups.begin() + 1, groups.end(), [](const QString& left, const QString& right) {
+        return left.localeAwareCompare(right) < 0;
+    });
+    m_iptvGroups = groups;
+    emit iptvGroupsChanged();
+
+    if (!m_iptvGroups.contains(m_iptvSelectedGroup, Qt::CaseInsensitive)) {
+        m_iptvSelectedGroup = allIptvGroup();
+        emit iptvSelectedGroupChanged();
+    }
+    applyIptvFilters();
+}
+
+void AppViewModel::applyIptvFilters()
+{
+    std::vector<IptvChannel> filtered;
+    const auto search = m_iptvSearchText.trimmed();
+    const auto selectedGroup = m_iptvSelectedGroup.isEmpty() ? allIptvGroup() : m_iptvSelectedGroup;
+
+    for (const auto& channel : m_allIptvChannels) {
+        const auto group = channel.groupName.isEmpty() ? defaultIptvGroup() : channel.groupName;
+        const auto groupMatches = selectedGroup == allIptvGroup() || group.compare(selectedGroup, Qt::CaseInsensitive) == 0;
+        const auto searchMatches = search.isEmpty()
+            || channel.name.contains(search, Qt::CaseInsensitive)
+            || group.contains(search, Qt::CaseInsensitive);
+        if (groupMatches && searchMatches) {
+            filtered.push_back(channel);
+        }
+    }
+
+    m_iptvChannels.setChannels(std::move(filtered));
+}
+
+std::expected<IptvPlaylist, QString> AppViewModel::importIptvPlaylistFile(const ServerConfig& server,
+                                                                         std::vector<IptvChannel>& channels) const
+{
+    const QFileInfo sourceInfo(m_iptvFilePath);
+    if (!sourceInfo.exists() || !sourceInfo.isFile()) {
+        return std::unexpected(QStringLiteral("Selected IPTV playlist file does not exist"));
+    }
+
+    const auto extension = sourceInfo.suffix().toLower();
+    if (extension != QStringLiteral("m3u") && extension != QStringLiteral("m3u8")) {
+        return std::unexpected(QStringLiteral("Select an M3U or M3U8 playlist file"));
+    }
+
+    const auto playlistId = iptvPlaylistIdFor(server.id);
+    const auto targetName = QStringLiteral("%1.%2").arg(safeFileName(server.id), extension);
+    const auto targetPath = QDir(iptvImportDirectory()).filePath(targetName);
+
+    if (QFileInfo(targetPath).exists() && !QFile::remove(targetPath)) {
+        return std::unexpected(QStringLiteral("Unable to replace previous IPTV playlist copy"));
+    }
+    if (!QFile::copy(sourceInfo.absoluteFilePath(), targetPath)) {
+        return std::unexpected(QStringLiteral("Unable to import IPTV playlist file"));
+    }
+
+    for (auto& channel : channels) {
+        channel.playlistId = playlistId;
+        if (channel.streamUrl == QUrl::fromLocalFile(sourceInfo.absoluteFilePath()).toString()) {
+            channel.streamUrl = QUrl::fromLocalFile(targetPath).toString();
+        }
+    }
+
+    return IptvPlaylist {
+        .id = playlistId,
+        .serviceId = server.id,
+        .name = server.name,
+        .sourceType = QStringLiteral("LocalFile"),
+        .sourcePath = sourceInfo.absoluteFilePath(),
+        .importedPath = targetPath,
+        .importedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate),
+    };
+}
+
+void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& password)
+{
+    clearError();
+    m_session.reset();
+    clearIptvState();
+    m_currentWebDavCard = card;
+    m_webDavPassword = password;
+    m_webDavHistory.clear();
+    m_currentLibrary.reset();
+    clearMediaDirectoryState();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    m_libraries.clear();
+    m_continueItems.clear();
+    m_items.clear();
+    emit loggedInChanged();
+    emit currentUserChanged();
+    emit currentServerChanged();
+    emit currentLibraryChanged();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    loadWebDavDirectory(ensureDirectoryUrl(QUrl(card.server.baseUrl)));
+}
+
+void AppViewModel::clearWebDavState()
+{
+    if (!m_currentWebDavCard && m_webDavCurrentUrl.isEmpty() && m_webDavItems.count() == 0) {
+        return;
+    }
+    m_currentWebDavCard.reset();
+    m_webDavPassword.clear();
+    m_webDavCurrentUrl = QUrl();
+    m_webDavHistory.clear();
+    m_webDavItems.clear();
+    emit currentServerChanged();
+    emit webDavCurrentPathChanged();
+}
+
+void AppViewModel::loadWebDavDirectory(const QUrl& url)
+{
+    if (!m_currentWebDavCard) {
+        return;
+    }
+    const auto directoryUrl = ensureDirectoryUrl(url);
+    setLoading(true);
+    m_webDavClient.listDirectory(m_currentWebDavCard->server, m_webDavPassword, directoryUrl, [this, directoryUrl](WebDavListResult result) {
+        setLoading(false);
+        if (!result) {
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+        m_webDavCurrentUrl = directoryUrl;
+        m_webDavItems.setItems(std::move(*result));
+        emit webDavCurrentPathChanged();
+        setCurrentView(QStringLiteral("webdav"));
+    });
+}
+
+void AppViewModel::saveWebDavCredentials(const ServerConfig& server, const QString& password)
+{
+    if (password.isEmpty() || !server.autoLogin) {
+        return;
+    }
+    if (!CredentialStore::isAvailable()) {
+        setError(QStringLiteral("System credential store is unavailable; WebDAV password will be requested when opening this service"));
+        return;
+    }
+    if (auto result = CredentialStore::savePassword(server.id, server.username, password); !result) {
+        setError(result.error());
+    }
+}
+
+std::optional<QString> AppViewModel::loadWebDavPassword(const ServerConfig& server)
+{
+    if (!CredentialStore::isAvailable()) {
+        return std::nullopt;
+    }
+    auto password = CredentialStore::loadPassword(server.id);
+    if (!password) {
+        setError(password.error());
+        return std::nullopt;
+    }
+    return *password;
+}
+
+QUrl AppViewModel::childWebDavUrl(const QString& name, bool directory) const
+{
+    auto encoded = QString::fromUtf8(QUrl::toPercentEncoding(name));
+    if (directory && !encoded.endsWith(QLatin1Char('/'))) {
+        encoded.append(QLatin1Char('/'));
+    }
+    return ensureDirectoryUrl(m_webDavCurrentUrl).resolved(QUrl(encoded));
+}
+
+QString AppViewModel::uniqueLocalPath(const QString& directory, const QString& name) const
+{
+    const QFileInfo original(QDir(directory).filePath(name));
+    if (!original.exists()) {
+        return original.absoluteFilePath();
+    }
+
+    const auto base = original.completeBaseName();
+    const auto suffix = original.suffix();
+    for (int index = 1; index < 10000; ++index) {
+        const auto candidateName = suffix.isEmpty()
+            ? QStringLiteral("%1 (%2)").arg(base).arg(index)
+            : QStringLiteral("%1 (%2).%3").arg(base).arg(index).arg(suffix);
+        const QFileInfo candidate(QDir(directory).filePath(candidateName));
+        if (!candidate.exists()) {
+            return candidate.absoluteFilePath();
+        }
+    }
+    return original.absoluteFilePath();
+}
+
+void AppViewModel::enqueueWebDavDownload(const WebDavItem& item, const QString& targetPath)
+{
+    if (!m_currentWebDavCard) {
+        return;
+    }
+    if (!item.directory) {
+        m_transferManager.enqueueDownload(m_currentWebDavCard->server, m_webDavPassword, item.url, targetPath, item.size);
+        return;
+    }
+
+    QDir().mkpath(targetPath);
+    m_webDavClient.listDirectory(m_currentWebDavCard->server, m_webDavPassword, ensureDirectoryUrl(item.url), [this, targetPath](WebDavListResult result) {
+        if (!result) {
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+        for (const auto& child : *result) {
+            const auto childTarget = QDir(targetPath).filePath(child.name);
+            enqueueWebDavDownload(child, childTarget);
+        }
+    });
+}
+
+void AppViewModel::estimateWebDavDownloadSize(const WebDavItem& item, std::function<void(qint64, bool)> callback)
+{
+    if (!m_currentWebDavCard) {
+        callback(-1, false);
+        return;
+    }
+    if (!item.directory) {
+        callback(item.size, item.size >= 0);
+        return;
+    }
+
+    struct EstimateState {
+        qint64 total { 0 };
+        bool complete { true };
+        int pending { 0 };
+        std::function<void(qint64, bool)> done;
+    };
+
+    auto state = std::make_shared<EstimateState>();
+    state->pending = 1;
+    state->done = std::move(callback);
+
+    auto finishOne = [state]() {
+        --state->pending;
+        if (state->pending == 0 && state->done) {
+            state->done(state->total, state->complete);
+        }
+    };
+
+    auto walk = std::make_shared<std::function<void(WebDavItem)>>();
+    *walk = [this, state, finishOne, walk](WebDavItem current) {
+        if (!current.directory) {
+            if (current.size >= 0) {
+                state->total += current.size;
+            } else {
+                state->complete = false;
+            }
+            finishOne();
+            return;
+        }
+
+        m_webDavClient.listDirectory(m_currentWebDavCard->server,
+                                     m_webDavPassword,
+                                     ensureDirectoryUrl(current.url),
+                                     [state, finishOne, walk](WebDavListResult result) {
+            if (!result) {
+                state->complete = false;
+                finishOne();
+                return;
+            }
+            if (result->empty()) {
+                finishOne();
+                return;
+            }
+            state->pending += static_cast<int>(result->size());
+            for (const auto& child : *result) {
+                (*walk)(child);
+            }
+            finishOne();
+        });
+    };
+
+    (*walk)(item);
+}
+
+void AppViewModel::enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl)
+{
+    if (!m_currentWebDavCard) {
+        return;
+    }
+    const QFileInfo info(localPath);
+    if (!info.exists() || !info.isFile()) {
+        return;
+    }
+    m_transferManager.enqueueUpload(m_currentWebDavCard->server,
+                                    m_webDavPassword,
+                                    info.absoluteFilePath(),
+                                    remoteUrl,
+                                    info.size());
+}
+
+void AppViewModel::wireWebDavCertificatePrompt()
+{
+    connect(&m_webDavClient,
+            &WebDavClient::certificateConfirmationRequired,
+            this,
+            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
+                QStringList details;
+                for (const auto& error : errors) {
+                    details.push_back(error.errorString());
+                }
+                m_pendingCertificateReply = std::move(reply);
+                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
+            });
+    connect(&m_transferManager,
+            &TransferManager::certificateConfirmationRequired,
+            this,
+            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
+                QStringList details;
+                for (const auto& error : errors) {
+                    details.push_back(error.errorString());
+                }
+                m_pendingCertificateReply = std::move(reply);
+                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
+            });
+    connect(&m_webDavPlaybackProxy,
+            &WebDavPlaybackProxy::certificateConfirmationRequired,
+            this,
+            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
+                QStringList details;
+                for (const auto& error : errors) {
+                    details.push_back(error.errorString());
+                }
+                m_pendingCertificateReply = std::move(reply);
+                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
+            });
+}
+
+void AppViewModel::setCurrentView(QString view)
+{
+    if (m_currentView == view) {
+        return;
+    }
+    m_currentView = std::move(view);
+    emit currentViewChanged();
+}
+
+void AppViewModel::setLoading(bool value)
+{
+    if (m_loading == value) {
+        return;
+    }
+    m_loading = value;
+    emit loadingChanged();
+}
+
+void AppViewModel::setError(QString message)
+{
+    if (m_errorMessage == message) {
+        return;
+    }
+    m_errorMessage = std::move(message);
+    emit errorMessageChanged();
+}
+
+void AppViewModel::setSession(UserSession session)
+{
+    m_session = std::move(session);
+    emit loggedInChanged();
+    emit currentUserChanged();
+}
+
+void AppViewModel::saveSession()
+{
+    if (!m_session) {
+        return;
+    }
+    if (auto saveResult = m_repository.saveSession(*m_session); !saveResult) {
+        setError(saveResult.error());
+    }
+}
+
+void AppViewModel::wireCertificatePrompt(MediaServiceClient& client)
+{
+    connect(&client,
+            &MediaServiceClient::certificateConfirmationRequired,
+            this,
+            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
+                QStringList details;
+                for (const auto& error : errors) {
+                    details.push_back(error.errorString());
+                }
+                m_pendingCertificateReply = std::move(reply);
+                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
+            });
+}

@@ -1,0 +1,52 @@
+# Build outputs
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+
+# IDE and editor files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Logs and local runtime data
+*.log
+aqtinstall.log
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+resources/
+tests/
+test-runtime/
+local-data/
+local-data*/
+fixtures/
+fixtures*/
+samples/
+samples*/
+downloads/
+cache/
+cache*/
+
+# Qt generated files
+.qt/
+qmlcache/
+*.qmlc
+*.jsc
+
+# Local third-party binary packages
+third_party/mpv/downloads/
+third_party/mpv/runtime/
+third_party/mpv/dev/libmpv-2.dll
+
+# OS files
+Thumbs.db
+.DS_Store
