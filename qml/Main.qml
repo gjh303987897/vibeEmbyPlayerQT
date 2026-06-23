@@ -981,13 +981,87 @@ ApplicationWindow {
             color: theme.text
             verticalAlignment: Text.AlignVCenter
             leftPadding: 12
-            rightPadding: 28
+            rightPadding: 36
             elide: Text.ElideRight
+        }
+        indicator: Label {
+            x: combo.width - width - 12
+            y: combo.topPadding + (combo.availableHeight - height) / 2
+            width: 18
+            height: 18
+            text: combo.popup.visible ? "^" : "v"
+            color: combo.enabled ? theme.muted : theme.subtle
+            font.pixelSize: 15
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
         }
         background: Rectangle {
             radius: 8
             color: theme.input
-            border.color: combo.activeFocus ? theme.primary : theme.border
+            border.color: combo.activeFocus || combo.popup.visible ? theme.primary : theme.border
+        }
+        delegate: ItemDelegate {
+            id: comboItem
+            width: combo.popup.width - 12
+            height: 38
+            leftPadding: 12
+            rightPadding: 12
+            required property int index
+            property bool current: combo.currentIndex === index
+
+            contentItem: RowLayout {
+                spacing: 10
+
+                Label {
+                    Layout.fillWidth: true
+                    text: combo.textAt(comboItem.index)
+                    color: comboItem.current ? "#ffffff" : theme.text
+                    font.pixelSize: 14
+                    font.bold: comboItem.current
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Rectangle {
+                    visible: comboItem.current
+                    Layout.preferredWidth: 8
+                    Layout.preferredHeight: 8
+                    radius: 4
+                    color: "#ffffff"
+                }
+            }
+
+            background: Rectangle {
+                radius: 8
+                color: comboItem.down ? theme.primary
+                    : comboItem.current ? theme.primary
+                    : comboItem.hovered ? theme.elevatedHover
+                    : "transparent"
+                border.color: comboItem.hovered && !comboItem.current ? theme.border : "transparent"
+            }
+        }
+        popup: Popup {
+            y: combo.height + 6
+            width: combo.width
+            implicitHeight: Math.min(contentItem.implicitHeight + 12, 252)
+            padding: 6
+
+            contentItem: ListView {
+                clip: true
+                implicitHeight: contentHeight
+                model: combo.delegateModel
+                currentIndex: combo.highlightedIndex
+                spacing: 4
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollIndicator.vertical: ScrollIndicator {}
+            }
+
+            background: Rectangle {
+                radius: 10
+                color: theme.elevated
+                border.color: combo.popup.visible ? theme.primary : theme.border
+            }
         }
     }
 
