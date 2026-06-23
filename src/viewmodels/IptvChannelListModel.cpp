@@ -52,6 +52,20 @@ QHash<int, QByteArray> IptvChannelListModel::roleNames() const
     };
 }
 
+int IptvChannelListModel::indexOfChannelId(const QString& channelId) const
+{
+    if (channelId.isEmpty()) {
+        return -1;
+    }
+
+    for (auto index = 0; index < rowCount(); ++index) {
+        if (m_channels[static_cast<size_t>(index)].id == channelId) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 void IptvChannelListModel::setChannels(std::vector<IptvChannel> channels)
 {
     beginResetModel();

@@ -2036,6 +2036,7 @@ ApplicationWindow {
         property bool playbackLoadingVisible: false
         property bool videoInfoVisible: false
         property bool trackMenuVisible: false
+        property bool iptvChannelListVisible: false
         property string trackMenuMode: "subtitle"
         property Item trackMenuAnchorItem: null
         property real trackMenuAnchorGlobalX: -1
@@ -2061,7 +2062,7 @@ ApplicationWindow {
         function revealControls() {
             controlsVisible = true
             Qt.callLater(raiseChromeWindows)
-            if (!exitConfirmVisible && !trackMenuVisible) {
+            if (!exitConfirmVisible && !trackMenuVisible && !iptvChannelListVisible) {
                 controlsHideTimer.restart()
             }
         }
@@ -2078,6 +2079,7 @@ ApplicationWindow {
 
         function requestExitPlayback() {
             closeTrackMenu(false)
+            closeIptvChannelList(false)
             revealControls()
             exitPositionSeconds = mpvVideo.position
             exitConfirmVisible = true
@@ -2090,6 +2092,7 @@ ApplicationWindow {
             exitConfirmVisible = false
             videoInfoVisible = false
             trackMenuVisible = false
+            iptvChannelListVisible = false
             appViewModel.closePlayerToDetails()
         }
 
@@ -2117,7 +2120,10 @@ ApplicationWindow {
         }
 
         function handlePlayerKey(event) {
-            if (event.key === Qt.Key_Escape && trackMenuVisible) {
+            if (event.key === Qt.Key_Escape && iptvChannelListVisible) {
+                closeIptvChannelList()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Escape && trackMenuVisible) {
                 closeTrackMenu()
                 event.accepted = true
             } else if (event.key === Qt.Key_Space) {
@@ -2172,6 +2178,10 @@ ApplicationWindow {
                 playerTrackMenuWindow.syncTrackMenuGeometry()
                 playerTrackMenuWindow.raise()
             }
+            if (playerIptvChannelWindow.visible) {
+                playerIptvChannelWindow.syncChannelListGeometry()
+                playerIptvChannelWindow.raise()
+            }
         }
 
         function playbackLoadingTitle() {
@@ -2208,6 +2218,7 @@ ApplicationWindow {
                 closeTrackMenu()
                 return
             }
+            closeIptvChannelList(false)
             trackMenuMode = mode
             trackMenuAnchorItem = anchorItem
             if (anchorItem) {
@@ -2233,6 +2244,44 @@ ApplicationWindow {
                 return
             }
             revealControls()
+        }
+
+        function openIptvChannelList() {
+            if (!appViewModel.iptvPlaybackActive) {
+                return
+            }
+            if (iptvChannelListVisible) {
+                closeIptvChannelList()
+                return
+            }
+            closeTrackMenu(false)
+            videoInfoVisible = false
+            iptvChannelListVisible = true
+            controlsVisible = true
+            controlsHideTimer.stop()
+            Qt.callLater(raiseChromeWindows)
+            Qt.callLater(positionCurrentIptvChannel)
+        }
+
+        function closeIptvChannelList(restoreControls) {
+            if (!iptvChannelListVisible) {
+                return
+            }
+            iptvChannelListVisible = false
+            if (restoreControls === false) {
+                return
+            }
+            revealControls()
+        }
+
+        function positionCurrentIptvChannel() {
+            if (!playerIptvChannelList || !appViewModel.iptvChannels) {
+                return
+            }
+            var currentIndex = appViewModel.iptvChannels.indexOfChannelId(appViewModel.currentIptvChannelId)
+            if (currentIndex >= 0) {
+                playerIptvChannelList.positionViewAtIndex(currentIndex, ListView.Center)
+            }
         }
 
         function trackMenuTitle() {
@@ -2295,6 +2344,7 @@ ApplicationWindow {
                     playerPage.seekLoadingActive = false
                     playerPage.videoInfoVisible = false
                     playerPage.trackMenuVisible = false
+                    playerPage.iptvChannelListVisible = false
                     playbackLoadingDelay.stop()
                     seekLoadingTimeout.stop()
                 }
@@ -2343,6 +2393,7 @@ ApplicationWindow {
             onPositionChanged: playerPage.revealControls()
             onClicked: {
                 playerPage.closeTrackMenu(false)
+                playerPage.closeIptvChannelList(false)
                 playerPage.revealControls()
             }
             onDoubleClicked: {
@@ -2358,7 +2409,7 @@ ApplicationWindow {
             id: controlsHideTimer
             interval: 2800
             repeat: false
-            onTriggered: if (!playerPage.exitConfirmVisible && !playerPage.trackMenuVisible) playerPage.controlsVisible = false
+            onTriggered: if (!playerPage.exitConfirmVisible && !playerPage.trackMenuVisible && !playerPage.iptvChannelListVisible) playerPage.controlsVisible = false
         }
 
         Timer {
@@ -2974,6 +3025,306 @@ ApplicationWindow {
         }
 
         Window {
+            id: playerIptvChannelWindow
+            color: "transparent"
+            flags: Qt.FramelessWindowHint | Qt.Tool
+            transientParent: root
+            visible: appViewModel.currentView === "player"
+                && root.visible
+                && playerPage.iptvChannelListVisible
+                && appViewModel.iptvPlaybackActive
+
+            function syncChannelListGeometry() {
+                if (playerPage.width <= 0 || playerPage.height <= 0) {
+                    return
+                }
+                var margin = 20
+                var maxWidth = Math.max(220, playerPage.width - margin * 2)
+                var panelWidth = Math.min(maxWidth, Math.min(430, Math.max(320, playerPage.width * 0.36)))
+                var availableHeight = playerPage.height - playerPage.topChromeHeight - playerPage.bottomChromeHeight - margin * 2
+                if (availableHeight < 220) {
+                    availableHeight = Math.max(160, playerPage.height - margin * 2)
+                }
+                var panelHeight = Math.min(620, availableHeight)
+                var playerOrigin = playerPage.mapToGlobal(0, 0)
+                var localX = Math.max(margin, playerPage.width - panelWidth - margin)
+                var preferredY = playerPage.topChromeHeight + margin
+                var maxY = playerPage.height - playerPage.bottomChromeHeight - panelHeight - margin
+                var localY = Math.max(margin, Math.min(preferredY, maxY))
+                x = Math.round(playerOrigin.x + localX)
+                y = Math.round(playerOrigin.y + localY)
+                width = Math.round(panelWidth)
+                height = Math.round(panelHeight)
+            }
+
+            onVisibleChanged: {
+                syncChannelListGeometry()
+                if (visible) {
+                    raise()
+                    playerIptvChannelRoot.forceActiveFocus()
+                    Qt.callLater(playerPage.positionCurrentIptvChannel)
+                }
+            }
+
+            Component.onCompleted: syncChannelListGeometry()
+
+            Connections {
+                target: root
+                function onXChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onYChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onWidthChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onHeightChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onVisibilityChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onPlayerImmersiveChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+            }
+
+            Connections {
+                target: playerPage
+                function onWidthChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onHeightChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onTopChromeHeightChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+                function onBottomChromeHeightChanged() { playerIptvChannelWindow.syncChannelListGeometry() }
+            }
+
+            Connections {
+                target: appViewModel
+                function onPlaybackChanged() {
+                    if (!appViewModel.iptvPlaybackActive) {
+                        playerPage.iptvChannelListVisible = false
+                        return
+                    }
+                    if (playerIptvChannelWindow.visible) {
+                        Qt.callLater(playerPage.positionCurrentIptvChannel)
+                    }
+                }
+                function onIptvSearchTextChanged() { Qt.callLater(playerPage.positionCurrentIptvChannel) }
+                function onIptvSelectedGroupChanged() { Qt.callLater(playerPage.positionCurrentIptvChannel) }
+            }
+
+            Rectangle {
+                id: playerIptvChannelRoot
+                anchors.fill: parent
+                focus: true
+                radius: 10
+                color: "#f20b0f16"
+                border.color: "#667c8796"
+                clip: true
+
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Escape) {
+                        playerPage.closeIptvChannelList()
+                        event.accepted = true
+                    } else {
+                        playerPage.handlePlayerKey(event)
+                    }
+                }
+
+                HoverHandler {
+                    onHoveredChanged: if (hovered) playerPage.revealControls()
+                }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 10
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("iptv.playerChannels")
+                                color: "#ffffff"
+                                font.pixelSize: 19
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: appViewModel.iptvChannels.count + " " + t("iptv.channels")
+                                color: "#aeb8c6"
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Button {
+                            id: closeIptvChannelsButton
+                            text: "X"
+                            implicitWidth: 34
+                            implicitHeight: 34
+                            leftPadding: 0
+                            rightPadding: 0
+                            contentItem: Label {
+                                text: closeIptvChannelsButton.text
+                                color: "#ffffff"
+                                font.pixelSize: 18
+                                font.bold: true
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                radius: 8
+                                color: closeIptvChannelsButton.down ? "#4f8cff" : closeIptvChannelsButton.hovered ? "#354253" : "#22313d"
+                                border.color: closeIptvChannelsButton.hovered ? "#6aa0ff" : "#405061"
+                            }
+                            onClicked: playerPage.closeIptvChannelList()
+                        }
+                    }
+
+                    ModernTextField {
+                        Layout.fillWidth: true
+                        placeholderText: t("iptv.search")
+                        text: appViewModel.iptvSearchText
+                        onTextChanged: appViewModel.iptvSearchText = text
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: appViewModel.iptvGroups.length > 0 ? 38 : 0
+                        visible: appViewModel.iptvGroups.length > 0
+                        clip: true
+                        orientation: ListView.Horizontal
+                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: 8
+                        model: appViewModel.iptvGroups
+
+                        delegate: SeasonPill {
+                            width: Math.min(160, Math.max(76, modelData.length * 8 + 32))
+                            height: 34
+                            title: modelData === "All" ? t("iptv.allGroups") : modelData
+                            selected: modelData === appViewModel.iptvSelectedGroup
+                            onActivated: appViewModel.selectIptvGroup(modelData)
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: "#334b5563"
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        ListView {
+                            id: playerIptvChannelList
+                            anchors.fill: parent
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            spacing: 6
+                            model: appViewModel.iptvChannels
+
+                            delegate: Button {
+                                id: iptvChannelItem
+                                width: playerIptvChannelList.width
+                                height: 58
+                                leftPadding: 10
+                                rightPadding: 10
+                                property bool selectedChannel: model.channelId === appViewModel.currentIptvChannelId
+                                property bool hasLogo: model.logoUrl && model.logoUrl.length > 0
+
+                                contentItem: RowLayout {
+                                    spacing: 10
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 38
+                                        Layout.preferredHeight: 38
+                                        radius: 19
+                                        color: iptvChannelItem.selectedChannel ? "#253857" : "#19232d"
+                                        border.color: iptvChannelItem.selectedChannel ? "#78aaff" : "#3b4857"
+                                        clip: true
+
+                                        Image {
+                                            anchors.fill: parent
+                                            anchors.margins: 5
+                                            source: iptvChannelItem.hasLogo ? model.logoUrl : ""
+                                            fillMode: Image.PreserveAspectFit
+                                            visible: iptvChannelItem.hasLogo
+                                        }
+
+                                        Label {
+                                            anchors.centerIn: parent
+                                            visible: !iptvChannelItem.hasLogo
+                                            text: model.name && model.name.length > 0 ? model.name.charAt(0).toUpperCase() : "I"
+                                            color: "#f4f7fb"
+                                            font.pixelSize: 15
+                                            font.bold: true
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: model.name
+                                            color: "#f4f7fb"
+                                            font.pixelSize: 14
+                                            font.bold: iptvChannelItem.selectedChannel
+                                            elide: Text.ElideRight
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+
+                                        MutedText {
+                                            Layout.fillWidth: true
+                                            text: model.groupName && model.groupName.length > 0 ? model.groupName : t("iptv.allGroups")
+                                            color: "#93a4b8"
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    Label {
+                                        visible: iptvChannelItem.selectedChannel
+                                        text: t("iptv.nowPlaying")
+                                        color: "#9fc5ff"
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    radius: 8
+                                    color: iptvChannelItem.down ? "#34465a"
+                                        : iptvChannelItem.hovered ? "#263341"
+                                        : iptvChannelItem.selectedChannel ? "#253857"
+                                        : "#141b24"
+                                    border.color: iptvChannelItem.selectedChannel ? "#5d8ff2"
+                                        : iptvChannelItem.hovered ? "#4d6175"
+                                        : "#25313d"
+                                }
+
+                                onClicked: {
+                                    if (!selectedChannel) {
+                                        appViewModel.playIptvChannel(index)
+                                    }
+                                    playerPage.revealControls()
+                                    Qt.callLater(playerPage.raiseChromeWindows)
+                                    Qt.callLater(playerPage.positionCurrentIptvChannel)
+                                }
+                            }
+                        }
+
+                        MutedText {
+                            anchors.centerIn: parent
+                            visible: appViewModel.iptvChannels.count === 0
+                            text: t("iptv.noChannels")
+                            color: "#aeb8c6"
+                        }
+                    }
+                }
+            }
+        }
+
+        Window {
             id: playerTopChromeWindow
             color: "transparent"
             flags: Qt.FramelessWindowHint | Qt.Tool
@@ -3221,6 +3572,15 @@ ApplicationWindow {
                     }
 
                     ModernButton {
+                        visible: appViewModel.iptvPlaybackActive
+                        text: t("iptv.playerChannels")
+                        onClicked: {
+                            playerPage.openIptvChannelList()
+                            playerPage.revealControls()
+                        }
+                    }
+
+                    ModernButton {
                         id: subtitleTrackButton
                         text: t("player.subtitles")
                         enabled: mpvVideo.subtitleTracks.count > 0
@@ -3252,6 +3612,7 @@ ApplicationWindow {
                     ModernButton {
                         text: t("player.info")
                         onClicked: {
+                            playerPage.closeIptvChannelList(false)
                             playerPage.videoInfoVisible = !playerPage.videoInfoVisible
                             playerPage.revealControls()
                             Qt.callLater(playerPage.raiseChromeWindows)
@@ -3261,6 +3622,7 @@ ApplicationWindow {
                     ModernButton {
                         text: t("player.cacheShort") + " " + playerPage.cacheDurationText(mpvVideo.cacheDurationSeconds)
                         onClicked: {
+                            playerPage.closeIptvChannelList(false)
                             playerPage.videoInfoVisible = true
                             playerPage.revealControls()
                             Qt.callLater(playerPage.raiseChromeWindows)

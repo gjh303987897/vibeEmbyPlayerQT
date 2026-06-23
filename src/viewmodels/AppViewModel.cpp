@@ -325,6 +325,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("iptv.localFile"), QStringLiteral("Local file") },
         { QStringLiteral("iptv.title"), QStringLiteral("IPTV Channels") },
         { QStringLiteral("iptv.channels"), QStringLiteral("channels") },
+        { QStringLiteral("iptv.playerChannels"), QStringLiteral("Channels") },
+        { QStringLiteral("iptv.nowPlaying"), QStringLiteral("On air") },
         { QStringLiteral("iptv.search"), QStringLiteral("Search channels") },
         { QStringLiteral("iptv.allGroups"), QStringLiteral("All") },
         { QStringLiteral("iptv.noChannels"), QStringLiteral("No channels found") },
@@ -505,6 +507,8 @@ const QHash<QString, QString>& iptvChineseTexts()
         { QStringLiteral("iptv.localFile"), QStringLiteral("本地文件") },
         { QStringLiteral("iptv.title"), QStringLiteral("IPTV 频道") },
         { QStringLiteral("iptv.channels"), QStringLiteral("个频道") },
+        { QStringLiteral("iptv.playerChannels"), QStringLiteral("频道") },
+        { QStringLiteral("iptv.nowPlaying"), QStringLiteral("播放中") },
         { QStringLiteral("iptv.search"), QStringLiteral("搜索频道") },
         { QStringLiteral("iptv.allGroups"), QStringLiteral("全部") },
         { QStringLiteral("iptv.noChannels"), QStringLiteral("没有找到频道") },
@@ -672,6 +676,16 @@ QStringList AppViewModel::iptvGroups() const
 IptvChannelListModel* AppViewModel::iptvChannels()
 {
     return &m_iptvChannels;
+}
+
+bool AppViewModel::iptvPlaybackActive() const
+{
+    return m_currentIptvCard.has_value() && !m_currentIptvChannelId.isEmpty();
+}
+
+QString AppViewModel::currentIptvChannelId() const
+{
+    return m_currentIptvChannelId;
 }
 
 WebDavItemListModel* AppViewModel::webDavItems()
@@ -1216,6 +1230,7 @@ void AppViewModel::playIptvChannel(int row)
     }
 
     m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(channel->streamUrl) : playbackUrl;
+    m_currentIptvChannelId = channel->id;
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
     m_currentPlaybackStartSeconds = 0.0;
@@ -1259,6 +1274,7 @@ void AppViewModel::openWebDavItem(int row)
     }
     const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(m_currentWebDavCard->server, m_webDavPassword, item->url);
     m_currentPlaybackUrl = proxyUrl;
+    m_currentIptvChannelId.clear();
     m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
     m_playbackHttpUsername.clear();
     m_playbackHttpPassword.clear();
@@ -1921,6 +1937,7 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
         reportPlaybackStopped(stopPositionSeconds);
     }
     m_currentPlaybackUrl = QUrl();
+    m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
     m_playbackHttpUsername.clear();
@@ -2155,6 +2172,7 @@ void AppViewModel::playSelectedItem()
         }
 
         m_currentPlaybackUrl = result->url;
+        m_currentIptvChannelId.clear();
         m_currentMediaSourceId = result->mediaSourceId;
         m_currentPlaySessionId = result->playSessionId;
         m_currentPlaybackStartSeconds = result->startSeconds;
@@ -2296,6 +2314,7 @@ void AppViewModel::openLocalPlaybackForVerification(const QUrl& url)
 
     clearError();
     m_currentPlaybackUrl = url;
+    m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
     m_currentPlaybackStartSeconds = 0.0;
@@ -2484,12 +2503,14 @@ void AppViewModel::loadIptvService(const ServiceCard& card)
 
 void AppViewModel::clearIptvState()
 {
-    if (!m_currentIptvCard && !m_currentIptvPlaylist && m_allIptvChannels.empty() && m_iptvGroups.isEmpty()) {
+    if (!m_currentIptvCard && !m_currentIptvPlaylist && m_allIptvChannels.empty() && m_iptvGroups.isEmpty() && m_currentIptvChannelId.isEmpty()) {
         return;
     }
 
+    const auto hadIptvPlayback = !m_currentIptvChannelId.isEmpty();
     m_currentIptvCard.reset();
     m_currentIptvPlaylist.reset();
+    m_currentIptvChannelId.clear();
     m_allIptvChannels.clear();
     m_iptvChannels.clear();
     m_iptvGroups.clear();
@@ -2498,6 +2519,9 @@ void AppViewModel::clearIptvState()
     emit currentServerChanged();
     emit iptvGroupsChanged();
     emit iptvSelectedGroupChanged();
+    if (hadIptvPlayback) {
+        emit playbackChanged();
+    }
 }
 
 void AppViewModel::refreshIptvChannels()

@@ -26,6 +26,7 @@ public:
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
+    Q_INVOKABLE int indexOfChannelId(const QString& channelId) const;
 
     void setChannels(std::vector<IptvChannel> channels);
     void clear();

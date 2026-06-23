@@ -40,6 +40,8 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString iptvSelectedGroup READ iptvSelectedGroup NOTIFY iptvSelectedGroupChanged)
     Q_PROPERTY(QStringList iptvGroups READ iptvGroups NOTIFY iptvGroupsChanged)
     Q_PROPERTY(IptvChannelListModel* iptvChannels READ iptvChannels CONSTANT)
+    Q_PROPERTY(bool iptvPlaybackActive READ iptvPlaybackActive NOTIFY playbackChanged)
+    Q_PROPERTY(QString currentIptvChannelId READ currentIptvChannelId NOTIFY playbackChanged)
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString defaultDownloadDirectory READ defaultDownloadDirectory WRITE setDefaultDownloadDirectory NOTIFY defaultDownloadDirectoryChanged)
@@ -115,6 +117,8 @@ public:
     QString iptvSelectedGroup() const;
     QStringList iptvGroups() const;
     IptvChannelListModel* iptvChannels();
+    bool iptvPlaybackActive() const;
+    QString currentIptvChannelId() const;
     WebDavItemListModel* webDavItems();
     QString webDavCurrentPath() const;
     QString defaultDownloadDirectory() const;
@@ -317,6 +321,7 @@ private:
     std::optional<ServiceCard> m_pendingServiceCard;
     std::optional<ServiceCard> m_currentIptvCard;
     std::optional<IptvPlaylist> m_currentIptvPlaylist;
+    QString m_currentIptvChannelId;
     std::optional<ServiceCard> m_currentWebDavCard;
     QUrl m_webDavCurrentUrl;
     std::vector<QUrl> m_webDavHistory;
