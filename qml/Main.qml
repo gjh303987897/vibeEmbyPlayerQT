@@ -65,6 +65,43 @@ ApplicationWindow {
         return appViewModel.trText(key)
     }
 
+    function formatDuration(seconds) {
+        if (!Number.isFinite(seconds) || seconds <= 0) {
+            return "0m"
+        }
+        var total = Math.floor(seconds)
+        var hours = Math.floor(total / 3600)
+        var minutes = Math.floor((total % 3600) / 60)
+        if (hours <= 0) {
+            return Math.max(1, minutes) + "m"
+        }
+        if (minutes <= 0) {
+            return hours + "h"
+        }
+        return hours + "h " + minutes + "m"
+    }
+
+    function formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) {
+            return "0 B"
+        }
+        var value = Number(bytes)
+        var units = ["B", "KB", "MB", "GB", "TB"]
+        var unit = 0
+        while (value >= 1024 && unit < units.length - 1) {
+            value = value / 1024
+            unit += 1
+        }
+        return unit === 0 ? Math.round(value) + " " + units[unit] : value.toFixed(value >= 10 ? 1 : 2) + " " + units[unit]
+    }
+
+    function formatHistoryDate(value) {
+        if (!value || value.length < 10) {
+            return value
+        }
+        return value.substring(5, 10)
+    }
+
     function enterPlayerFullscreen() {
         playerImmersive = true
         root.showFullScreen()
@@ -189,6 +226,107 @@ ApplicationWindow {
 
         onOpened: passwordField.forceActiveFocus()
         onAccepted: appViewModel.loginSelectedService(passwordDialog.password)
+    }
+
+    ModernDialog {
+        id: privacyPinDialog
+        property string pin: ""
+        title: t("privacy.pinTitle")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        width: Math.min(root.width - 64, 380)
+
+        PinEntryField {
+            id: privacyPinField
+            width: parent.width
+            placeholderText: t("privacy.pinPlaceholder")
+            text: privacyPinDialog.pin
+            onTextChanged: privacyPinDialog.pin = text
+            onAccepted: privacyPinDialog.accept()
+        }
+
+        onOpened: privacyPinField.forceActiveFocus()
+        onAccepted: {
+            appViewModel.unlockPrivacyMode(privacyPinDialog.pin)
+            privacyPinDialog.pin = ""
+        }
+        onRejected: privacyPinDialog.pin = ""
+    }
+
+    ModernDialog {
+        id: privacyCardsDialog
+        title: t("privacy.editorTitle")
+        standardButtons: Dialog.Ok
+        width: Math.min(root.width - 64, 620)
+        height: Math.min(root.height - 96, 560)
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+
+            MutedText {
+                Layout.fillWidth: true
+                text: t("privacy.editorHint")
+                wrapMode: Text.WordWrap
+            }
+
+            ListView {
+                id: privacyCardsList
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.max(120, Math.min(380, appViewModel.privacyCards.count * 62 + 6))
+                clip: true
+                spacing: 8
+                model: appViewModel.privacyCards
+
+                delegate: Rectangle {
+                    width: privacyCardsList.width
+                    height: 56
+                    radius: 10
+                    color: privacyRowMouse.containsMouse ? theme.elevatedHover : theme.elevated
+                    border.color: theme.border
+
+                    MouseArea {
+                        id: privacyRowMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: privacyCardCheck.checked = !privacyCardCheck.checked
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 12
+
+                        ModernCheckBox {
+                            id: privacyCardCheck
+                            checked: model.privateMode
+                            onToggled: appViewModel.setPrivacyCardPrivate(index, checked)
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: model.name
+                                color: theme.text
+                                font.pixelSize: 15
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: model.serviceType + " 路 " + (model.host.length > 0 ? model.host : model.baseUrl)
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        onOpened: appViewModel.refreshPrivacyCards()
     }
 
     ModernDialog {
@@ -491,7 +629,9 @@ ApplicationWindow {
                 visible: appViewModel.currentView !== "services" && appViewModel.currentView !== "settings"
                 font.pixelSize: 28
                 onClicked: {
-                    if (appViewModel.currentView === "webdav") {
+                    if (appViewModel.currentView === "history") {
+                        appViewModel.backToServices()
+                    } else if (appViewModel.currentView === "webdav") {
                         appViewModel.webDavBack()
                     } else if (appViewModel.currentView === "library") {
                         appViewModel.mediaLibraryBack()
@@ -510,6 +650,7 @@ ApplicationWindow {
                 Label {
                     Layout.fillWidth: true
                     text: appViewModel.currentView === "settings" ? t("settings.title")
+                        : appViewModel.currentView === "history" ? t("history.title")
                         : appViewModel.currentView === "services" ? t("nav.services")
                         : appViewModel.currentServerName
                     color: theme.text
@@ -521,6 +662,7 @@ ApplicationWindow {
                 MutedText {
                     Layout.fillWidth: true
                     text: appViewModel.currentView === "settings" ? t("settings.subtitle")
+                        : appViewModel.currentView === "history" ? (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
                         : appViewModel.currentView === "iptv" ? appViewModel.currentUser
                         : appViewModel.loggedIn ? appViewModel.currentUser
                         : t("nav.chooseSource")
@@ -533,6 +675,38 @@ ApplicationWindow {
                 visible: appViewModel.loading
                 implicitWidth: 28
                 implicitHeight: 28
+            }
+
+            IconButton {
+                text: appViewModel.privacyMode ? "\uD83D\uDD13" : "\uD83D\uDD12"
+                visible: appViewModel.currentView === "services"
+                ToolTip.visible: hovered
+                ToolTip.text: t("nav.privacy")
+                onClicked: {
+                    if (appViewModel.privacyMode) {
+                        appViewModel.exitPrivacyMode()
+                    } else if (appViewModel.privacyPinConfigured) {
+                        privacyPinDialog.open()
+                    } else {
+                        appViewModel.unlockPrivacyMode("")
+                        appViewModel.openSettings()
+                    }
+                }
+            }
+
+            ModernButton {
+                text: t("privacy.editCards")
+                visible: appViewModel.currentView === "services" && appViewModel.privacyMode
+                onClicked: {
+                    appViewModel.refreshPrivacyCards()
+                    privacyCardsDialog.open()
+                }
+            }
+
+            ModernButton {
+                text: t("nav.history")
+                visible: appViewModel.currentView === "services"
+                onClicked: appViewModel.openHistoryStats()
             }
 
             ModernButton {
@@ -621,7 +795,8 @@ ApplicationWindow {
                     : appViewModel.currentView === "iptv" ? 5
                     : appViewModel.currentView === "webdav" ? 6
                     : appViewModel.currentView === "transfers" ? 7
-                    : 8
+                    : appViewModel.currentView === "history" ? 8
+                    : 9
 
                 Item {
                     GridView {
@@ -673,17 +848,22 @@ ApplicationWindow {
                         visible: serviceGrid.count === 0
 
                         Label {
-                            text: t("empty.noServices")
+                            text: appViewModel.privacyMode ? t("privacy.noCards") : t("empty.noServices")
                             color: theme.text
                             font.pixelSize: 24
                             font.bold: true
                         }
 
                         ModernButton {
-                            text: t("empty.addService")
+                            text: appViewModel.privacyMode ? t("privacy.editCards") : t("empty.addService")
                             onClicked: {
-                                appViewModel.beginAddServiceCard()
-                                serviceDialog.open()
+                                if (appViewModel.privacyMode) {
+                                    appViewModel.refreshPrivacyCards()
+                                    privacyCardsDialog.open()
+                                } else {
+                                    appViewModel.beginAddServiceCard()
+                                    serviceDialog.open()
+                                }
                             }
                         }
                     }
@@ -837,6 +1017,8 @@ ApplicationWindow {
 
                 TransfersPage {}
 
+                HistoryPage {}
+
                 SettingsPage {}
             }
         }
@@ -969,6 +1151,66 @@ ApplicationWindow {
             radius: 8
             color: theme.input
             border.color: field.activeFocus ? theme.primary : theme.border
+        }
+    }
+
+    component PinEntryField: Rectangle {
+        id: pinEntry
+        property alias text: pinInput.text
+        property alias placeholderText: pinInput.placeholderText
+        signal accepted()
+
+        function forceActiveFocus() {
+            pinInput.forceActiveFocus()
+        }
+
+        implicitHeight: 52
+        radius: 10
+        color: theme.input
+        border.color: pinInput.activeFocus ? theme.primary : theme.border
+        border.width: pinInput.activeFocus ? 2 : 1
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 8
+            anchors.rightMargin: 12
+            spacing: 10
+
+            Rectangle {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                radius: 8
+                color: pinInput.activeFocus ? theme.primary : theme.elevated
+                border.color: pinInput.activeFocus ? theme.primary : theme.border
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "\uD83D\uDD12"
+                    color: pinInput.activeFocus ? "#ffffff" : theme.muted
+                    font.pixelSize: 17
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            TextField {
+                id: pinInput
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: theme.text
+                placeholderTextColor: theme.subtle
+                selectedTextColor: "#ffffff"
+                selectionColor: theme.primary
+                echoMode: TextInput.Password
+                inputMethodHints: Qt.ImhDigitsOnly
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font.pixelSize: 20
+                maximumLength: 12
+                validator: RegularExpressionValidator { regularExpression: /^[0-9]*$/ }
+                background: Item {}
+                onAccepted: pinEntry.accepted()
+            }
         }
     }
 
@@ -3984,11 +4226,388 @@ ApplicationWindow {
         }
     }
 
+    component HistorySummaryCard: Rectangle {
+        property string title: ""
+        property string value: ""
+        property string subtitle: ""
+        property color accentColor: theme.primary
+
+        Layout.fillWidth: true
+        Layout.preferredHeight: 116
+        radius: 10
+        color: theme.elevated
+        border.color: theme.border
+        clip: true
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 4
+            color: accentColor
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 18
+            anchors.rightMargin: 16
+            anchors.topMargin: 14
+            anchors.bottomMargin: 14
+            spacing: 6
+
+            MutedText {
+                Layout.fillWidth: true
+                text: title
+                elide: Text.ElideRight
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: value
+                color: theme.text
+                font.pixelSize: 27
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            Item { Layout.fillHeight: true }
+
+            MutedText {
+                Layout.fillWidth: true
+                text: subtitle
+                color: theme.subtle
+                elide: Text.ElideRight
+            }
+        }
+    }
+
+    component HistoryMetricBlock: ColumnLayout {
+        property string label: ""
+        property string value: ""
+        property color valueColor: theme.text
+
+        spacing: 2
+
+        MutedText {
+            Layout.fillWidth: true
+            text: label
+            color: theme.subtle
+            font.pixelSize: 11
+            elide: Text.ElideRight
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: value
+            color: valueColor
+            font.pixelSize: 14
+            font.bold: true
+            elide: Text.ElideRight
+        }
+    }
+
+    component HistoryStatRow: Rectangle {
+        property string date: ""
+        property string serviceName: ""
+        property string serviceType: ""
+        property real watchSeconds: 0
+        property real networkBytesIn: 0
+        property real networkBytesOut: 0
+        property bool privacyMode: false
+
+        width: parent ? parent.width : 0
+        implicitHeight: 92
+        radius: 10
+        color: rowMouse.containsMouse ? theme.elevatedHover : theme.elevated
+        border.color: rowMouse.containsMouse ? theme.primary : theme.border
+
+        MouseArea {
+            id: rowMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+        }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 14
+            spacing: 14
+
+            Rectangle {
+                Layout.preferredWidth: 76
+                Layout.preferredHeight: 50
+                radius: 8
+                color: theme.input
+                border.color: theme.border
+
+                Label {
+                    anchors.centerIn: parent
+                    text: root.formatHistoryDate(date)
+                    color: theme.text
+                    font.pixelSize: 15
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 160
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: serviceName.length > 0 ? serviceName : t("history.service")
+                        color: theme.text
+                        font.pixelSize: 16
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        Layout.preferredHeight: 24
+                        Layout.minimumWidth: 58
+                        Layout.maximumWidth: 96
+                        radius: 8
+                        color: theme.input
+                        border.color: theme.border
+
+                        Label {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            text: serviceType
+                            color: theme.muted
+                            font.pixelSize: 11
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    Rectangle {
+                        visible: privacyMode
+                        Layout.preferredHeight: 24
+                        Layout.minimumWidth: 76
+                        Layout.maximumWidth: 112
+                        radius: 8
+                        color: theme.primary
+                        border.color: theme.primary
+
+                        Label {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            text: t("history.privateBadge")
+                            color: "#ffffff"
+                            font.pixelSize: 11
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 14
+
+                    HistoryMetricBlock {
+                        Layout.fillWidth: true
+                        label: t("history.watch")
+                        value: root.formatDuration(watchSeconds)
+                        valueColor: theme.primary
+                    }
+
+                    HistoryMetricBlock {
+                        Layout.fillWidth: true
+                        label: t("history.download")
+                        value: root.formatBytes(networkBytesIn)
+                    }
+
+                    HistoryMetricBlock {
+                        Layout.fillWidth: true
+                        label: t("history.upload")
+                        value: root.formatBytes(networkBytesOut)
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.preferredWidth: 126
+                spacing: 3
+
+                MutedText {
+                    Layout.fillWidth: true
+                    text: t("history.traffic")
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.formatBytes(networkBytesIn + networkBytesOut)
+                    color: theme.text
+                    font.pixelSize: 16
+                    font.bold: true
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+            }
+        }
+    }
+
+    component HistoryPage: Flickable {
+        id: historyFlick
+        contentWidth: width
+        contentHeight: historyColumn.implicitHeight
+        clip: true
+
+        ColumnLayout {
+            id: historyColumn
+            width: historyFlick.width
+            spacing: 16
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                SectionHeader {
+                    Layout.fillWidth: true
+                    title: t("history.title")
+                    subtitle: t("history.retention")
+                }
+
+                ModernButton {
+                    text: t("action.refresh")
+                    enabled: !appViewModel.loading
+                    onClicked: appViewModel.refreshHistoryStats()
+                }
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: historyFlick.width < 760 ? 1 : 2
+                columnSpacing: 12
+                rowSpacing: 12
+
+                HistorySummaryCard {
+                    title: t("history.totalWatch")
+                    value: root.formatDuration(appViewModel.historyTotalWatchSeconds)
+                    subtitle: t("history.watch")
+                    accentColor: theme.primary
+                }
+
+                HistorySummaryCard {
+                    title: t("history.totalTraffic")
+                    value: root.formatBytes(appViewModel.historyTotalNetworkBytes)
+                    subtitle: t("history.traffic")
+                    accentColor: theme.success
+                }
+            }
+
+            SectionHeader {
+                Layout.fillWidth: true
+                title: t("history.dailyRecords")
+                subtitle: appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle")
+            }
+
+            ListView {
+                id: historyList
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.max(180, contentHeight + 4)
+                visible: appViewModel.usageStats.count > 0
+                interactive: false
+                spacing: 10
+                clip: false
+                model: appViewModel.usageStats
+                section.property: "date"
+                section.criteria: ViewSection.FullString
+                section.delegate: Item {
+                    required property string section
+                    width: historyList.width
+                    height: 34
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        text: root.formatHistoryDate(section)
+                        color: theme.muted
+                        font.pixelSize: 13
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                }
+                delegate: HistoryStatRow {
+                    width: historyList.width
+                    date: model.date
+                    serviceName: model.serviceName
+                    serviceType: model.serviceType
+                    watchSeconds: model.watchSeconds
+                    networkBytesIn: model.networkBytesIn
+                    networkBytesOut: model.networkBytesOut
+                    privacyMode: model.privacyMode
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 150
+                visible: appViewModel.usageStats.count === 0
+                radius: 10
+                color: theme.elevated
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 48, 420)
+                    spacing: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("history.empty")
+                        color: theme.text
+                        font.pixelSize: 17
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: t("history.retention")
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+        }
+    }
+
     component SettingsPage: Flickable {
         id: settingsFlick
+        property string oldPrivacyPin: ""
+        property string newPrivacyPin: ""
+        property string confirmPrivacyPin: ""
         contentWidth: width
         contentHeight: settingsColumn.implicitHeight
         clip: true
+
+        function savePrivacyPin() {
+            if (appViewModel.changePrivacyPin(settingsFlick.oldPrivacyPin, settingsFlick.newPrivacyPin, settingsFlick.confirmPrivacyPin)) {
+                settingsFlick.oldPrivacyPin = ""
+                settingsFlick.newPrivacyPin = ""
+                settingsFlick.confirmPrivacyPin = ""
+            }
+        }
 
         ColumnLayout {
             id: settingsColumn
@@ -4040,6 +4659,59 @@ ApplicationWindow {
                         checked: appViewModel.minimizeToTray
                         enabled: trayController.trayAvailable
                         onToggled: appViewModel.minimizeToTray = checked
+                    }
+                }
+            }
+
+            SettingsGroup {
+                title: t("settings.privacy")
+
+                SettingRow {
+                    label: t("settings.privacyPin")
+                    ColumnLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 8
+
+                        MutedText {
+                            Layout.fillWidth: true
+                            text: appViewModel.privacyPinConfigured ? t("privacy.pinConfigured") : t("privacy.pinMissing")
+                            elide: Text.ElideRight
+                        }
+
+                        ModernTextField {
+                            Layout.fillWidth: true
+                            visible: appViewModel.privacyPinConfigured
+                            placeholderText: t("privacy.oldPin")
+                            echoMode: TextInput.Password
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            text: settingsFlick.oldPrivacyPin
+                            onTextChanged: settingsFlick.oldPrivacyPin = text
+                        }
+
+                        ModernTextField {
+                            Layout.fillWidth: true
+                            placeholderText: t("privacy.newPin")
+                            echoMode: TextInput.Password
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            text: settingsFlick.newPrivacyPin
+                            onTextChanged: settingsFlick.newPrivacyPin = text
+                        }
+
+                        ModernTextField {
+                            Layout.fillWidth: true
+                            placeholderText: t("privacy.confirmPin")
+                            echoMode: TextInput.Password
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            text: settingsFlick.confirmPrivacyPin
+                            onTextChanged: settingsFlick.confirmPrivacyPin = text
+                            onAccepted: settingsFlick.savePrivacyPin()
+                        }
+
+                        ModernButton {
+                            id: privacyPinSaveButton
+                            text: appViewModel.privacyPinConfigured ? t("privacy.changePin") : t("privacy.setPin")
+                            onClicked: settingsFlick.savePrivacyPin()
+                        }
                     }
                 }
             }

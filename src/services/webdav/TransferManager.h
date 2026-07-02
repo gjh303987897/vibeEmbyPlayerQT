@@ -51,6 +51,11 @@ signals:
     void tasksChanged();
     void taskFinished(const QString& taskId, bool ok, const QString& message);
     void certificateConfirmationRequired(const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply);
+    void networkTrafficSample(const QString& serviceId,
+                              const QString& serviceName,
+                              const QString& serviceType,
+                              qint64 bytesReceived,
+                              qint64 bytesSent);
 
 private:
     struct QueuedTask {
@@ -60,6 +65,8 @@ private:
         QUrl remoteUrl;
         QString localPath;
         Direction direction { Direction::Download };
+        qint64 countedBytesReceived { 0 };
+        qint64 countedBytesSent { 0 };
     };
 
     void enqueue(QueuedTask task);

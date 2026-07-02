@@ -11,14 +11,18 @@
 #include "services/emby/EmbyClient.h"
 #include "services/jellyfin/JellyfinClient.h"
 #include "viewmodels/IptvChannelListModel.h"
+#include "viewmodels/DailyUsageStatsListModel.h"
 #include "viewmodels/MediaItemListModel.h"
 #include "viewmodels/MediaLibraryListModel.h"
 #include "viewmodels/PersonListModel.h"
 #include "viewmodels/ServiceCardListModel.h"
 #include "viewmodels/WebDavItemListModel.h"
 
+#include <QDateTime>
+#include <QHash>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 
 #include <functional>
@@ -80,11 +84,17 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QUrl currentPlaybackUrl READ currentPlaybackUrl NOTIFY playbackChanged)
     Q_PROPERTY(double currentPlaybackStartSeconds READ currentPlaybackStartSeconds NOTIFY playbackChanged)
     Q_PROPERTY(ServiceCardListModel* services READ services CONSTANT)
+    Q_PROPERTY(ServiceCardListModel* privacyCards READ privacyCards CONSTANT)
+    Q_PROPERTY(bool privacyMode READ privacyMode NOTIFY privacyModeChanged)
+    Q_PROPERTY(bool privacyPinConfigured READ privacyPinConfigured NOTIFY privacyPinChanged)
     Q_PROPERTY(MediaLibraryListModel* libraries READ libraries CONSTANT)
     Q_PROPERTY(MediaItemListModel* continueItems READ continueItems CONSTANT)
     Q_PROPERTY(MediaItemListModel* items READ items CONSTANT)
     Q_PROPERTY(MediaItemListModel* seriesSeasons READ seriesSeasons CONSTANT)
     Q_PROPERTY(MediaItemListModel* seriesEpisodes READ seriesEpisodes CONSTANT)
+    Q_PROPERTY(DailyUsageStatsListModel* usageStats READ usageStats CONSTANT)
+    Q_PROPERTY(qint64 historyTotalWatchSeconds READ historyTotalWatchSeconds NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyTotalNetworkBytes READ historyTotalNetworkBytes NOTIFY historyStatsChanged)
 
 public:
     explicit AppViewModel(QObject* parent = nullptr);
@@ -167,11 +177,17 @@ public:
     double currentPlaybackStartSeconds() const;
 
     ServiceCardListModel* services();
+    ServiceCardListModel* privacyCards();
+    bool privacyMode() const;
+    bool privacyPinConfigured() const;
     MediaLibraryListModel* libraries();
     MediaItemListModel* continueItems();
     MediaItemListModel* items();
     MediaItemListModel* seriesSeasons();
     MediaItemListModel* seriesEpisodes();
+    DailyUsageStatsListModel* usageStats();
+    qint64 historyTotalWatchSeconds() const;
+    qint64 historyTotalNetworkBytes() const;
 
     Q_INVOKABLE void initialize();
     Q_INVOKABLE void beginAddServiceCard();
@@ -192,6 +208,11 @@ public:
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
     Q_INVOKABLE void openTransfers();
     Q_INVOKABLE void cancelTransfer(const QString& taskId);
+    Q_INVOKABLE bool unlockPrivacyMode(const QString& pin);
+    Q_INVOKABLE void exitPrivacyMode();
+    Q_INVOKABLE void refreshPrivacyCards();
+    Q_INVOKABLE void setPrivacyCardPrivate(int row, bool privateMode);
+    Q_INVOKABLE bool changePrivacyPin(const QString& oldPin, const QString& newPin, const QString& confirmPin);
     Q_INVOKABLE void acceptPendingDownloadWarning(bool accepted);
     Q_INVOKABLE void startPendingFolderDownload();
     Q_INVOKABLE void deleteServiceCard(int row, bool deleteLocalData);
@@ -205,6 +226,8 @@ public:
     Q_INVOKABLE void backToHome();
     Q_INVOKABLE void mediaLibraryBack();
     Q_INVOKABLE void openSettings();
+    Q_INVOKABLE void openHistoryStats();
+    Q_INVOKABLE void refreshHistoryStats();
     Q_INVOKABLE void refreshHome();
     Q_INVOKABLE void refreshLibraries();
     Q_INVOKABLE void openLibrary(int row);
@@ -239,6 +262,8 @@ signals:
     void webDavCurrentPathChanged();
     void defaultDownloadDirectoryChanged();
     void transferTasksChanged();
+    void privacyModeChanged();
+    void privacyPinChanged();
     void editingServicesChanged();
     void minimizeToTrayChanged();
     void themeModeChanged();
@@ -255,11 +280,20 @@ signals:
     void selectedItemChanged();
     void selectedSeasonChanged();
     void playbackChanged();
+    void historyStatsChanged();
     void certificatePromptRequested(const QString& host, const QString& details);
     void passwordRequired(const QString& serviceName, const QString& username);
     void downloadSpaceWarningRequested(const QString& title, const QString& message);
 
 private:
+    struct PendingUsageStat {
+        ServerConfig server;
+        bool privacyMode { false };
+        qint64 watchSeconds { 0 };
+        qint64 networkBytesIn { 0 };
+        qint64 networkBytesOut { 0 };
+    };
+
     MediaServiceClient* clientFor(ServiceType type);
     ServerConfig makeServerConfig() const;
     void refreshServiceCards();
@@ -281,6 +315,17 @@ private:
     void estimateWebDavDownloadSize(const WebDavItem& item, std::function<void(qint64, bool)> callback);
     void enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl);
     void wireWebDavCertificatePrompt();
+    void wireUsageSignals();
+    bool accumulateUsage(const ServerConfig& server, bool privacyMode, qint64 watchSeconds, qint64 bytesReceived, qint64 bytesSent);
+    void flushPendingUsageStats(bool refreshAfterFlush);
+    void refreshUsageStats();
+    void recordNetworkUsage(const ServerConfig& server, qint64 bytesReceived, qint64 bytesSent);
+    void recordNetworkUsageForCurrentService(ServiceType type, qint64 bytesReceived, qint64 bytesSent);
+    std::optional<ServerConfig> currentServerForUsage(ServiceType type) const;
+    std::optional<ServerConfig> currentPlaybackServerForUsage() const;
+    void beginPlaybackUsageTracking();
+    void recordPlaybackUsageUntilNow();
+    void finishPlaybackUsageTracking();
     void refreshContinueWatching();
     void resetMediaDirectory(const QString& id, const QString& name);
     void clearMediaDirectoryState();
@@ -297,6 +342,9 @@ private:
     void setSession(UserSession session);
     void saveSession();
     void wireCertificatePrompt(MediaServiceClient& client);
+    bool verifyPrivacyPin(const QString& pin) const;
+    QString privacyPinHash(const QString& pin, const QString& salt) const;
+    bool pinLooksValid(const QString& pin) const;
 
     QString m_serverUrl;
     QString m_serverName;
@@ -312,6 +360,7 @@ private:
     bool m_trustSelfSignedCertificate { true };
     bool m_autoLogin { true };
     bool m_editingServices { false };
+    bool m_privacyMode { false };
     QString m_themeMode { QStringLiteral("dark") };
     QString m_languageMode { QStringLiteral("system") };
     int m_translationRevision { 0 };
@@ -341,6 +390,10 @@ private:
     double m_currentPlaybackStartSeconds { 0.0 };
     double m_lastPlaybackReportSeconds { -1.0 };
     bool m_playbackStartedReported { false };
+    bool m_playbackUsageActive { false };
+    bool m_playbackUsagePaused { false };
+    std::optional<ServerConfig> m_playbackUsageServer;
+    QDateTime m_playbackUsageLastWallClock;
     QString m_currentView { QStringLiteral("services") };
     int m_nextItemStartIndex { 0 };
     int m_itemPageSize { 80 };
@@ -355,6 +408,7 @@ private:
     TransferManager m_transferManager;
     SessionRepository m_repository;
     ServiceCardListModel m_services;
+    ServiceCardListModel m_privacyCards;
     MediaLibraryListModel m_libraries;
     MediaItemListModel m_continueItems;
     MediaItemListModel m_items;
@@ -362,6 +416,11 @@ private:
     MediaItemListModel m_seriesEpisodes;
     IptvChannelListModel m_iptvChannels;
     WebDavItemListModel m_webDavItems;
+    DailyUsageStatsListModel m_usageStats;
+    qint64 m_historyTotalWatchSeconds { 0 };
+    qint64 m_historyTotalNetworkBytes { 0 };
+    QHash<QString, PendingUsageStat> m_pendingUsageStats;
+    QTimer m_usageFlushTimer;
     std::vector<IptvChannel> m_allIptvChannels;
     PersonListModel m_selectedPeople;
     std::function<void(bool)> m_pendingCertificateReply;

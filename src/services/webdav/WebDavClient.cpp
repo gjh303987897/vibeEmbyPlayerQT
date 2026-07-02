@@ -218,8 +218,9 @@ void WebDavClient::listDirectory(const ServerConfig& server,
     reply->setProperty("webdavPassword", password);
     wireReply(reply, server);
 
-    connect(reply, &QNetworkReply::finished, reply, [reply, directoryUrl, callback = std::move(callback)]() mutable {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, server, directoryUrl, callback = std::move(callback)]() mutable {
         const auto body = reply->readAll();
+        emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), body.size(), propfindBody().size());
         if (reply->error() != QNetworkReply::NoError) {
             callback(std::unexpected(WebDavClient::replyError(reply)));
             reply->deleteLater();
@@ -255,8 +256,9 @@ void WebDavClient::statItem(const ServerConfig& server,
     reply->setProperty("webdavPassword", password);
     wireReply(reply, server);
 
-    connect(reply, &QNetworkReply::finished, reply, [reply, itemUrl, callback = std::move(callback)]() mutable {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, server, itemUrl, callback = std::move(callback)]() mutable {
         const auto body = reply->readAll();
+        emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), body.size(), propfindBody().size());
         if (reply->error() != QNetworkReply::NoError) {
             callback(std::unexpected(WebDavClient::replyError(reply)));
             reply->deleteLater();
@@ -289,7 +291,9 @@ void WebDavClient::createDirectory(const ServerConfig& server,
     reply->setProperty("webdavPassword", password);
     wireReply(reply, server);
 
-    connect(reply, &QNetworkReply::finished, reply, [reply, callback = std::move(callback)]() mutable {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, server, callback = std::move(callback)]() mutable {
+        const auto body = reply->readAll();
+        emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), body.size(), 0);
         const auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError && statusCode != 405) {
             callback(std::unexpected(WebDavClient::replyError(reply)));

@@ -12,4 +12,5 @@ struct ServerConfig {
     ServiceType serviceType { ServiceType::Emby };
     bool trustSelfSignedCertificate { false };
     bool autoLogin { true };
+    bool privateMode { false };
 };

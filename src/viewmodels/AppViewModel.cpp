@@ -4,6 +4,7 @@
 #include "services/iptv/IptvParser.h"
 #include "utils/AppLogger.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -21,6 +22,7 @@
 #include <QStringList>
 #include <QStyleHints>
 #include <QUrl>
+#include <QUuid>
 
 #include <algorithm>
 #include <array>
@@ -29,6 +31,10 @@
 #include <utility>
 
 namespace {
+constexpr qint64 usageNetworkFlushBytes = 1024 * 1024;
+constexpr qint64 usageWatchFlushSeconds = 15;
+constexpr int usageFlushIntervalMs = 15000;
+
 QString displayNetworkError(const NetworkError& error)
 {
     if (!error.message.isEmpty()) {
@@ -267,6 +273,12 @@ QString effectiveLanguage(const QString& mode)
     return mode == QStringLiteral("system") ? systemLanguage() : mode;
 }
 
+bool validPinText(const QString& pin)
+{
+    static const QRegularExpression pattern(QStringLiteral("^\\d{4,12}$"));
+    return pattern.match(pin).hasMatch();
+}
+
 using TranslationEntry = std::pair<const char*, const char*>;
 
 const QHash<QString, QString>& englishTexts()
@@ -275,6 +287,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
         { QStringLiteral("nav.services"), QStringLiteral("Services") },
         { QStringLiteral("nav.settings"), QStringLiteral("Settings") },
+        { QStringLiteral("nav.history"), QStringLiteral("History") },
+        { QStringLiteral("nav.privacy"), QStringLiteral("Privacy mode") },
         { QStringLiteral("nav.chooseSource"), QStringLiteral("Choose or add a media source") },
         { QStringLiteral("action.add"), QStringLiteral("Add") },
         { QStringLiteral("action.edit"), QStringLiteral("Edit") },
@@ -388,7 +402,42 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.language"), QStringLiteral("Language") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
+        { QStringLiteral("settings.privacy"), QStringLiteral("Privacy") },
+        { QStringLiteral("settings.privacyPin"), QStringLiteral("Privacy PIN") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("Minimize to tray") },
+        { QStringLiteral("history.title"), QStringLiteral("History Stats") },
+        { QStringLiteral("history.subtitle"), QStringLiteral("Viewing time and network usage from the last 30 days") },
+        { QStringLiteral("history.totalWatch"), QStringLiteral("Total watch time") },
+        { QStringLiteral("history.totalTraffic"), QStringLiteral("Network traffic") },
+        { QStringLiteral("history.dailyRecords"), QStringLiteral("Daily records") },
+        { QStringLiteral("history.empty"), QStringLiteral("No playback history yet") },
+        { QStringLiteral("history.service"), QStringLiteral("Service") },
+        { QStringLiteral("history.watch"), QStringLiteral("Watch time") },
+        { QStringLiteral("history.traffic"), QStringLiteral("Traffic") },
+        { QStringLiteral("history.download"), QStringLiteral("In") },
+        { QStringLiteral("history.upload"), QStringLiteral("Out") },
+        { QStringLiteral("history.retention"), QStringLiteral("Stats are kept for 30 days and old records are removed automatically.") },
+        { QStringLiteral("history.privateBadge"), QStringLiteral("Private") },
+        { QStringLiteral("history.subtitlePrivacy"), QStringLiteral("Privacy mode includes private records from the last 30 days") },
+        { QStringLiteral("privacy.editCards"), QStringLiteral("Privacy Cards") },
+        { QStringLiteral("privacy.noCards"), QStringLiteral("No private service cards") },
+        { QStringLiteral("privacy.pinTitle"), QStringLiteral("Enter privacy PIN") },
+        { QStringLiteral("privacy.pinPlaceholder"), QStringLiteral("PIN") },
+        { QStringLiteral("privacy.oldPin"), QStringLiteral("Old PIN") },
+        { QStringLiteral("privacy.newPin"), QStringLiteral("New PIN") },
+        { QStringLiteral("privacy.confirmPin"), QStringLiteral("Confirm PIN") },
+        { QStringLiteral("privacy.pinConfigured"), QStringLiteral("PIN configured") },
+        { QStringLiteral("privacy.pinMissing"), QStringLiteral("Set a PIN before entering privacy mode") },
+        { QStringLiteral("privacy.setPin"), QStringLiteral("Set PIN") },
+        { QStringLiteral("privacy.changePin"), QStringLiteral("Change PIN") },
+        { QStringLiteral("privacy.editorTitle"), QStringLiteral("Privacy card editor") },
+        { QStringLiteral("privacy.editorHint"), QStringLiteral("Select service cards that should only appear in privacy mode.") },
+        { QStringLiteral("privacy.pinMismatch"), QStringLiteral("The new PIN entries do not match") },
+        { QStringLiteral("privacy.pinInvalid"), QStringLiteral("PIN must be 4 to 12 digits") },
+        { QStringLiteral("privacy.pinWrong"), QStringLiteral("Incorrect PIN") },
+        { QStringLiteral("privacy.pinSaved"), QStringLiteral("Privacy PIN updated") },
+        { QStringLiteral("privacy.entered"), QStringLiteral("Privacy mode enabled") },
+        { QStringLiteral("privacy.exited"), QStringLiteral("Privacy mode disabled") },
         { QStringLiteral("option.system"), QStringLiteral("Follow system") },
         { QStringLiteral("option.dark"), QStringLiteral("Dark") },
         { QStringLiteral("option.light"), QStringLiteral("Light") },
@@ -515,6 +564,57 @@ const QHash<QString, QString>& iptvChineseTexts()
     };
     return texts;
 }
+
+const QHash<QString, QString>& historyChineseTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("nav.history"), QStringLiteral("历史统计") },
+        { QStringLiteral("history.title"), QStringLiteral("历史统计") },
+        { QStringLiteral("history.subtitle"), QStringLiteral("过去 30 天的观看时长与网络流量") },
+        { QStringLiteral("history.totalWatch"), QStringLiteral("总观看") },
+        { QStringLiteral("history.totalTraffic"), QStringLiteral("总流量") },
+        { QStringLiteral("history.dailyRecords"), QStringLiteral("每日记录") },
+        { QStringLiteral("history.empty"), QStringLiteral("暂无播放历史") },
+        { QStringLiteral("history.service"), QStringLiteral("服务") },
+        { QStringLiteral("history.watch"), QStringLiteral("观看时长") },
+        { QStringLiteral("history.traffic"), QStringLiteral("流量") },
+        { QStringLiteral("history.download"), QStringLiteral("入站") },
+        { QStringLiteral("history.upload"), QStringLiteral("出站") },
+        { QStringLiteral("history.retention"), QStringLiteral("统计数据保留 30 天，过期记录会自动删除。") },
+    };
+    return texts;
+}
+
+const QHash<QString, QString>& privacyChineseTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("nav.privacy"), QStringLiteral("隐私模式") },
+        { QStringLiteral("settings.privacy"), QStringLiteral("隐私") },
+        { QStringLiteral("settings.privacyPin"), QStringLiteral("隐私 PIN") },
+        { QStringLiteral("history.privateBadge"), QStringLiteral("隐私模式") },
+        { QStringLiteral("history.subtitlePrivacy"), QStringLiteral("隐私模式下会包含过去 30 天的隐私记录") },
+        { QStringLiteral("privacy.editCards"), QStringLiteral("隐私卡片编辑") },
+        { QStringLiteral("privacy.noCards"), QStringLiteral("暂无隐私服务卡片") },
+        { QStringLiteral("privacy.pinTitle"), QStringLiteral("输入隐私 PIN") },
+        { QStringLiteral("privacy.pinPlaceholder"), QStringLiteral("PIN") },
+        { QStringLiteral("privacy.oldPin"), QStringLiteral("旧 PIN") },
+        { QStringLiteral("privacy.newPin"), QStringLiteral("新 PIN") },
+        { QStringLiteral("privacy.confirmPin"), QStringLiteral("确认 PIN") },
+        { QStringLiteral("privacy.pinConfigured"), QStringLiteral("已设置 PIN") },
+        { QStringLiteral("privacy.pinMissing"), QStringLiteral("请先在设置中设置隐私 PIN") },
+        { QStringLiteral("privacy.setPin"), QStringLiteral("设置 PIN") },
+        { QStringLiteral("privacy.changePin"), QStringLiteral("更改 PIN") },
+        { QStringLiteral("privacy.editorTitle"), QStringLiteral("隐私卡片编辑") },
+        { QStringLiteral("privacy.editorHint"), QStringLiteral("选择只在隐私模式中显示的服务卡片。") },
+        { QStringLiteral("privacy.pinMismatch"), QStringLiteral("两次输入的新 PIN 不一致") },
+        { QStringLiteral("privacy.pinInvalid"), QStringLiteral("PIN 需要为 4 到 12 位数字") },
+        { QStringLiteral("privacy.pinWrong"), QStringLiteral("PIN 错误") },
+        { QStringLiteral("privacy.pinSaved"), QStringLiteral("隐私 PIN 已更新") },
+        { QStringLiteral("privacy.entered"), QStringLiteral("已进入隐私模式") },
+        { QStringLiteral("privacy.exited"), QStringLiteral("已退出隐私模式") },
+    };
+    return texts;
+}
 }
 
 AppViewModel::AppViewModel(QObject* parent)
@@ -525,6 +625,19 @@ AppViewModel::AppViewModel(QObject* parent)
     wireCertificatePrompt(m_embyClient);
     wireCertificatePrompt(m_jellyfinClient);
     wireWebDavCertificatePrompt();
+    wireUsageSignals();
+    m_usageFlushTimer.setInterval(usageFlushIntervalMs);
+    m_usageFlushTimer.setSingleShot(false);
+    connect(&m_usageFlushTimer, &QTimer::timeout, this, [this]() {
+        flushPendingUsageStats(m_currentView == QStringLiteral("history"));
+    });
+    m_usageFlushTimer.start();
+    if (auto* app = QCoreApplication::instance()) {
+        connect(app, &QCoreApplication::aboutToQuit, this, [this]() {
+            finishPlaybackUsageTracking();
+            flushPendingUsageStats(false);
+        });
+    }
     connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
     connect(&m_transferManager, &TransferManager::taskFinished, this, [this](const QString&, bool, const QString&) {
         emit transferTasksChanged();
@@ -940,6 +1053,21 @@ ServiceCardListModel* AppViewModel::services()
     return &m_services;
 }
 
+ServiceCardListModel* AppViewModel::privacyCards()
+{
+    return &m_privacyCards;
+}
+
+bool AppViewModel::privacyMode() const
+{
+    return m_privacyMode;
+}
+
+bool AppViewModel::privacyPinConfigured() const
+{
+    return m_repository.privacyPinConfigured();
+}
+
 MediaLibraryListModel* AppViewModel::libraries()
 {
     return &m_libraries;
@@ -965,6 +1093,21 @@ MediaItemListModel* AppViewModel::seriesEpisodes()
     return &m_seriesEpisodes;
 }
 
+DailyUsageStatsListModel* AppViewModel::usageStats()
+{
+    return &m_usageStats;
+}
+
+qint64 AppViewModel::historyTotalWatchSeconds() const
+{
+    return m_historyTotalWatchSeconds;
+}
+
+qint64 AppViewModel::historyTotalNetworkBytes() const
+{
+    return m_historyTotalNetworkBytes;
+}
+
 void AppViewModel::initialize()
 {
     if (auto initResult = m_repository.initialize(); !initResult) {
@@ -979,8 +1122,11 @@ void AppViewModel::initialize()
     emit effectiveThemeChanged();
     emit languageModeChanged();
     emit defaultDownloadDirectoryChanged();
+    emit privacyPinChanged();
     emit translationsChanged();
     refreshServiceCards();
+    refreshPrivacyCards();
+    refreshUsageStats();
     setCurrentView(QStringLiteral("services"));
 }
 
@@ -1433,6 +1579,96 @@ void AppViewModel::cancelTransfer(const QString& taskId)
     m_transferManager.cancelTask(taskId);
 }
 
+bool AppViewModel::unlockPrivacyMode(const QString& pin)
+{
+    clearError();
+    if (m_privacyMode) {
+        return true;
+    }
+    if (!m_repository.privacyPinConfigured()) {
+        setError(trText(QStringLiteral("privacy.pinMissing")));
+        return false;
+    }
+    if (!verifyPrivacyPin(pin)) {
+        setError(trText(QStringLiteral("privacy.pinWrong")));
+        return false;
+    }
+
+    m_privacyMode = true;
+    emit privacyModeChanged();
+    setEditingServices(false);
+    refreshServiceCards();
+    refreshPrivacyCards();
+    refreshUsageStats();
+    setCurrentView(QStringLiteral("services"));
+    AppLogger::info(QStringLiteral("privacy"), QStringLiteral("Privacy mode enabled"));
+    return true;
+}
+
+void AppViewModel::exitPrivacyMode()
+{
+    if (!m_privacyMode) {
+        return;
+    }
+
+    m_privacyMode = false;
+    emit privacyModeChanged();
+    setEditingServices(false);
+    backToServices();
+    refreshPrivacyCards();
+    refreshUsageStats();
+    AppLogger::info(QStringLiteral("privacy"), QStringLiteral("Privacy mode disabled"));
+}
+
+void AppViewModel::refreshPrivacyCards()
+{
+    const auto cardsResult = m_repository.loadAllServiceCards();
+    if (!cardsResult) {
+        setError(cardsResult.error());
+        return;
+    }
+    m_privacyCards.setCards(*cardsResult);
+}
+
+void AppViewModel::setPrivacyCardPrivate(int row, bool privateMode)
+{
+    clearError();
+    const auto card = m_privacyCards.cardAt(row);
+    if (!card) {
+        return;
+    }
+    if (auto result = m_repository.setServerPrivateMode(card->server.id, privateMode); !result) {
+        setError(result.error());
+        return;
+    }
+    refreshPrivacyCards();
+    refreshServiceCards();
+}
+
+bool AppViewModel::changePrivacyPin(const QString& oldPin, const QString& newPin, const QString& confirmPin)
+{
+    clearError();
+    const auto configured = m_repository.privacyPinConfigured();
+    if (configured && !verifyPrivacyPin(oldPin)) {
+        setError(trText(QStringLiteral("privacy.pinWrong")));
+        return false;
+    }
+    if (newPin != confirmPin) {
+        setError(trText(QStringLiteral("privacy.pinMismatch")));
+        return false;
+    }
+    if (!pinLooksValid(newPin)) {
+        setError(trText(QStringLiteral("privacy.pinInvalid")));
+        return false;
+    }
+
+    const auto salt = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_repository.setPrivacyPinHash(salt, privacyPinHash(newPin, salt));
+    emit privacyPinChanged();
+    AppLogger::info(QStringLiteral("privacy"), QStringLiteral("Privacy PIN updated"));
+    return true;
+}
+
 void AppViewModel::acceptPendingDownloadWarning(bool accepted)
 {
     if (m_pendingDownloadWarningReply) {
@@ -1459,7 +1695,7 @@ void AppViewModel::moveServiceCard(int row, int direction)
         return;
     }
 
-    if (auto result = m_repository.moveServer(card->server.id, direction); !result) {
+    if (auto result = m_repository.moveServer(card->server.id, direction, m_privacyMode); !result) {
         setError(result.error());
         return;
     }
@@ -1474,7 +1710,7 @@ void AppViewModel::moveServiceCardTo(int fromRow, int toRow)
         return;
     }
 
-    if (auto result = m_repository.moveServerTo(card->server.id, toRow); !result) {
+    if (auto result = m_repository.moveServerTo(card->server.id, toRow, m_privacyMode); !result) {
         setError(result.error());
         return;
     }
@@ -1488,6 +1724,18 @@ QString AppViewModel::trText(const QString& key) const
         const auto& iptvTable = iptvChineseTexts();
         if (iptvTable.contains(key)) {
             return iptvTable.value(key);
+        }
+    }
+    if (language == QStringLiteral("zh_CN") && (key == QStringLiteral("nav.history") || key.startsWith(QStringLiteral("history.")))) {
+        const auto& historyTable = historyChineseTexts();
+        if (historyTable.contains(key)) {
+            return historyTable.value(key);
+        }
+    }
+    if (language == QStringLiteral("zh_CN") && (key == QStringLiteral("nav.privacy") || key == QStringLiteral("settings.privacy") || key == QStringLiteral("settings.privacyPin") || key.startsWith(QStringLiteral("privacy.")))) {
+        const auto& privacyTable = privacyChineseTexts();
+        if (privacyTable.contains(key)) {
+            return privacyTable.value(key);
         }
     }
     const auto& table = language == QStringLiteral("zh_CN") ? chineseTexts() : englishTexts();
@@ -1683,6 +1931,22 @@ void AppViewModel::openSettings()
     clearCurrentPlayback();
     emit playbackChanged();
     setCurrentView(QStringLiteral("settings"));
+}
+
+void AppViewModel::openHistoryStats()
+{
+    clearSeriesDetails();
+    clearCurrentPlayback();
+    flushPendingUsageStats(false);
+    refreshUsageStats();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("history"));
+}
+
+void AppViewModel::refreshHistoryStats()
+{
+    flushPendingUsageStats(false);
+    refreshUsageStats();
 }
 
 void AppViewModel::refreshHome()
@@ -1935,6 +2199,8 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
 {
     if (stopPositionSeconds >= 0.0) {
         reportPlaybackStopped(stopPositionSeconds);
+    } else {
+        finishPlaybackUsageTracking();
     }
     m_currentPlaybackUrl = QUrl();
     m_currentIptvChannelId.clear();
@@ -2186,6 +2452,7 @@ void AppViewModel::playSelectedItem()
 
 void AppViewModel::reportPlaybackStarted()
 {
+    beginPlaybackUsageTracking();
     if (!m_session || !m_selectedItem || m_playbackStartedReported) {
         return;
     }
@@ -2208,6 +2475,14 @@ void AppViewModel::reportPlaybackStarted()
 
 void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
 {
+    if (!m_playbackUsageActive) {
+        beginPlaybackUsageTracking();
+    }
+    if (m_playbackUsageActive) {
+        recordPlaybackUsageUntilNow();
+        m_playbackUsagePaused = paused;
+    }
+
     if (!m_session || !m_selectedItem || !m_playbackStartedReported) {
         return;
     }
@@ -2234,6 +2509,7 @@ void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
 
 void AppViewModel::reportPlaybackStopped(double positionSeconds)
 {
+    finishPlaybackUsageTracking();
     if (!m_session || !m_selectedItem || !m_playbackStartedReported) {
         return;
     }
@@ -2351,6 +2627,7 @@ MediaServiceClient* AppViewModel::clientFor(ServiceType type)
 
 ServerConfig AppViewModel::makeServerConfig() const
 {
+    const auto privateMode = m_pendingServiceCard ? m_pendingServiceCard->server.privateMode : m_privacyMode;
     if (m_serviceType == ServiceType::IPTV) {
         const QFileInfo fileInfo(m_iptvFilePath);
         const auto sourcePath = fileInfo.exists() ? fileInfo.absoluteFilePath() : m_iptvFilePath.trimmed();
@@ -2365,6 +2642,7 @@ ServerConfig AppViewModel::makeServerConfig() const
             .serviceType = ServiceType::IPTV,
             .trustSelfSignedCertificate = false,
             .autoLogin = true,
+            .privateMode = privateMode,
         };
     }
     if (m_serviceType == ServiceType::WebDAV) {
@@ -2378,6 +2656,7 @@ ServerConfig AppViewModel::makeServerConfig() const
             .serviceType = m_serviceType,
             .trustSelfSignedCertificate = m_trustSelfSignedCertificate,
             .autoLogin = m_autoLogin,
+            .privateMode = privateMode,
         };
     }
 
@@ -2391,12 +2670,13 @@ ServerConfig AppViewModel::makeServerConfig() const
         .serviceType = m_serviceType,
         .trustSelfSignedCertificate = m_trustSelfSignedCertificate,
         .autoLogin = m_autoLogin,
+        .privateMode = privateMode,
     };
 }
 
 void AppViewModel::refreshServiceCards()
 {
-    const auto cardsResult = m_repository.loadServiceCards();
+    const auto cardsResult = m_repository.loadServiceCards(m_privacyMode);
     if (!cardsResult) {
         setError(cardsResult.error());
         return;
@@ -2880,6 +3160,216 @@ void AppViewModel::wireWebDavCertificatePrompt()
             });
 }
 
+void AppViewModel::wireUsageSignals()
+{
+    connect(&m_embyNetworkClient, &NetworkClient::networkTrafficSample, this, [this](qint64 bytesReceived, qint64 bytesSent) {
+        recordNetworkUsageForCurrentService(ServiceType::Emby, bytesReceived, bytesSent);
+    });
+    connect(&m_jellyfinNetworkClient, &NetworkClient::networkTrafficSample, this, [this](qint64 bytesReceived, qint64 bytesSent) {
+        recordNetworkUsageForCurrentService(ServiceType::Jellyfin, bytesReceived, bytesSent);
+    });
+
+    auto wireWebDavTraffic = [this](const QString& serviceId,
+                                    const QString& serviceName,
+                                    const QString& serviceType,
+                                    qint64 bytesReceived,
+                                    qint64 bytesSent) {
+        ServerConfig server;
+        server.id = serviceId;
+        server.name = serviceName;
+        server.serviceType = serviceTypeFromString(serviceType);
+        if (m_currentWebDavCard && m_currentWebDavCard->server.id == serviceId) {
+            server.privateMode = m_currentWebDavCard->server.privateMode;
+        }
+        recordNetworkUsage(server, bytesReceived, bytesSent);
+    };
+    connect(&m_webDavClient, &WebDavClient::networkTrafficSample, this, wireWebDavTraffic);
+    connect(&m_transferManager, &TransferManager::networkTrafficSample, this, wireWebDavTraffic);
+    connect(&m_webDavPlaybackProxy, &WebDavPlaybackProxy::networkTrafficSample, this, wireWebDavTraffic);
+}
+
+bool AppViewModel::accumulateUsage(const ServerConfig& server, bool privacyMode, qint64 watchSeconds, qint64 bytesReceived, qint64 bytesSent)
+{
+    if (server.id.isEmpty() || (watchSeconds <= 0 && bytesReceived <= 0 && bytesSent <= 0)) {
+        return false;
+    }
+
+    const auto key = QStringLiteral("%1:%2").arg(server.id, privacyMode ? QStringLiteral("private") : QStringLiteral("normal"));
+    auto& pending = m_pendingUsageStats[key];
+    pending.server = server;
+    pending.privacyMode = privacyMode;
+    pending.watchSeconds += std::max<qint64>(0, watchSeconds);
+    pending.networkBytesIn += std::max<qint64>(0, bytesReceived);
+    pending.networkBytesOut += std::max<qint64>(0, bytesSent);
+
+    return pending.watchSeconds >= usageWatchFlushSeconds ||
+           pending.networkBytesIn + pending.networkBytesOut >= usageNetworkFlushBytes;
+}
+
+void AppViewModel::flushPendingUsageStats(bool refreshAfterFlush)
+{
+    if (m_pendingUsageStats.isEmpty()) {
+        if (refreshAfterFlush) {
+            refreshUsageStats();
+        }
+        return;
+    }
+
+    auto pendingStats = std::exchange(m_pendingUsageStats, {});
+    bool wrote = false;
+    for (auto it = pendingStats.cbegin(); it != pendingStats.cend(); ++it) {
+        const auto& stat = it.value();
+        if (auto result = m_repository.addDailyUsage(stat.server,
+                                                     stat.privacyMode,
+                                                     stat.watchSeconds,
+                                                     stat.networkBytesIn,
+                                                     stat.networkBytesOut);
+            !result) {
+            AppLogger::warning(QStringLiteral("history"), QStringLiteral("Flush usage stats failed: %1").arg(result.error()));
+            auto& retry = m_pendingUsageStats[it.key()];
+            retry.server = stat.server;
+            retry.privacyMode = stat.privacyMode;
+            retry.watchSeconds += stat.watchSeconds;
+            retry.networkBytesIn += stat.networkBytesIn;
+            retry.networkBytesOut += stat.networkBytesOut;
+            continue;
+        }
+        wrote = true;
+    }
+
+    if (refreshAfterFlush && wrote) {
+        refreshUsageStats();
+    }
+}
+
+void AppViewModel::refreshUsageStats()
+{
+    const auto result = m_repository.loadDailyUsageStats(m_privacyMode);
+    if (!result) {
+        AppLogger::warning(QStringLiteral("history"), QStringLiteral("Load usage stats failed: %1").arg(result.error()));
+        return;
+    }
+
+    qint64 watchSeconds = 0;
+    qint64 networkBytes = 0;
+    for (const auto& stat : *result) {
+        watchSeconds += stat.watchSeconds;
+        networkBytes += stat.networkBytesIn + stat.networkBytesOut;
+    }
+
+    m_historyTotalWatchSeconds = watchSeconds;
+    m_historyTotalNetworkBytes = networkBytes;
+    m_usageStats.setStats(*result);
+    emit historyStatsChanged();
+}
+
+void AppViewModel::recordNetworkUsage(const ServerConfig& server, qint64 bytesReceived, qint64 bytesSent)
+{
+    const auto shouldFlush = accumulateUsage(server, m_privacyMode || server.privateMode, 0, bytesReceived, bytesSent);
+    const auto onHistoryPage = m_currentView == QStringLiteral("history");
+    if (shouldFlush || onHistoryPage) {
+        flushPendingUsageStats(onHistoryPage);
+    }
+}
+
+void AppViewModel::recordNetworkUsageForCurrentService(ServiceType type, qint64 bytesReceived, qint64 bytesSent)
+{
+    const auto server = currentServerForUsage(type);
+    if (!server) {
+        return;
+    }
+    recordNetworkUsage(*server, bytesReceived, bytesSent);
+}
+
+std::optional<ServerConfig> AppViewModel::currentServerForUsage(ServiceType type) const
+{
+    if (m_session && m_session->server.serviceType == type) {
+        return m_session->server;
+    }
+    if (m_currentIptvCard && m_currentIptvCard->server.serviceType == type) {
+        return m_currentIptvCard->server;
+    }
+    if (m_currentWebDavCard && m_currentWebDavCard->server.serviceType == type) {
+        return m_currentWebDavCard->server;
+    }
+    if (m_pendingServiceCard && m_pendingServiceCard->server.serviceType == type) {
+        return m_pendingServiceCard->server;
+    }
+    return std::nullopt;
+}
+
+std::optional<ServerConfig> AppViewModel::currentPlaybackServerForUsage() const
+{
+    if (m_session) {
+        return m_session->server;
+    }
+    if (m_currentIptvCard) {
+        return m_currentIptvCard->server;
+    }
+    if (m_currentWebDavCard) {
+        return m_currentWebDavCard->server;
+    }
+    return std::nullopt;
+}
+
+void AppViewModel::beginPlaybackUsageTracking()
+{
+    if (m_playbackUsageActive) {
+        return;
+    }
+    const auto server = currentPlaybackServerForUsage();
+    if (!server) {
+        return;
+    }
+
+    m_playbackUsageServer = *server;
+    m_playbackUsageLastWallClock = QDateTime::currentDateTimeUtc();
+    m_playbackUsagePaused = false;
+    m_playbackUsageActive = true;
+}
+
+void AppViewModel::recordPlaybackUsageUntilNow()
+{
+    if (!m_playbackUsageActive || !m_playbackUsageServer || !m_playbackUsageLastWallClock.isValid()) {
+        return;
+    }
+
+    const auto now = QDateTime::currentDateTimeUtc();
+    const auto elapsedMs = m_playbackUsageLastWallClock.msecsTo(now);
+    if (elapsedMs <= 0) {
+        return;
+    }
+    if (m_playbackUsagePaused) {
+        m_playbackUsageLastWallClock = now;
+        return;
+    }
+
+    const auto elapsedSeconds = elapsedMs / 1000;
+    if (elapsedSeconds <= 0) {
+        return;
+    }
+    m_playbackUsageLastWallClock = m_playbackUsageLastWallClock.addSecs(elapsedSeconds);
+
+    const auto shouldFlush = accumulateUsage(*m_playbackUsageServer, m_privacyMode || m_playbackUsageServer->privateMode, elapsedSeconds, 0, 0);
+    const auto onHistoryPage = m_currentView == QStringLiteral("history");
+    if (shouldFlush || onHistoryPage) {
+        flushPendingUsageStats(onHistoryPage);
+    }
+}
+
+void AppViewModel::finishPlaybackUsageTracking()
+{
+    if (!m_playbackUsageActive) {
+        return;
+    }
+    recordPlaybackUsageUntilNow();
+    m_playbackUsageActive = false;
+    m_playbackUsagePaused = false;
+    m_playbackUsageServer.reset();
+    m_playbackUsageLastWallClock = {};
+    flushPendingUsageStats(m_currentView == QStringLiteral("history"));
+}
+
 void AppViewModel::setCurrentView(QString view)
 {
     if (m_currentView == view) {
@@ -2922,6 +3412,26 @@ void AppViewModel::saveSession()
     if (auto saveResult = m_repository.saveSession(*m_session); !saveResult) {
         setError(saveResult.error());
     }
+}
+
+bool AppViewModel::verifyPrivacyPin(const QString& pin) const
+{
+    const auto salt = m_repository.privacyPinSalt();
+    const auto hash = m_repository.privacyPinHash();
+    if (salt.isEmpty() || hash.isEmpty()) {
+        return false;
+    }
+    return privacyPinHash(pin, salt) == hash;
+}
+
+QString AppViewModel::privacyPinHash(const QString& pin, const QString& salt) const
+{
+    return QString::fromLatin1(QCryptographicHash::hash((salt + QLatin1Char(':') + pin).toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+bool AppViewModel::pinLooksValid(const QString& pin) const
+{
+    return validPinText(pin);
 }
 
 void AppViewModel::wireCertificatePrompt(MediaServiceClient& client)

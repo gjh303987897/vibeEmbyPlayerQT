@@ -95,6 +95,8 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
         return;
     }
 
+    reply->setProperty("requestBodyBytes", body.size());
+
     auto* timeout = new QTimer(reply);
     timeout->setSingleShot(true);
     QObject::connect(timeout, &QTimer::timeout, reply, [reply]() {
@@ -121,9 +123,11 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
         }
     });
 
-    QObject::connect(reply, &QNetworkReply::finished, reply, [reply, callback = std::move(callback)]() mutable {
+    QObject::connect(reply, &QNetworkReply::finished, reply, [this, reply, callback = std::move(callback)]() mutable {
         const auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const auto body = reply->readAll();
+        const auto responseBody = reply->readAll();
+        const auto requestBytes = reply->property("requestBodyBytes").toLongLong();
+        emit networkTrafficSample(responseBody.size(), requestBytes);
 
         if (reply->error() != QNetworkReply::NoError) {
             const auto kind = reply->error() == QNetworkReply::OperationCanceledError
@@ -152,7 +156,7 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
 
         NetworkResponse response;
         response.statusCode = statusCode;
-        response.body = body;
+        response.body = responseBody;
 
         const auto rawHeaders = reply->rawHeaderPairs();
         for (const auto& header : rawHeaders) {

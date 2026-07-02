@@ -34,6 +34,7 @@ public:
 
 signals:
     void certificateConfirmationRequired(const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply);
+    void networkTrafficSample(qint64 bytesReceived, qint64 bytesSent);
 
 private:
     void send(QNetworkAccessManager::Operation operation,

@@ -164,6 +164,7 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
     reply->setProperty("webdavUsername", stream.server.username);
     reply->setProperty("webdavPassword", stream.password);
     wireReply(reply, stream.server);
+    const auto server = stream.server;
 
     auto* headersSent = new bool(false);
     auto sendHeaders = [this, socket, reply, headersSent]() {
@@ -187,17 +188,22 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
         socket->write("Connection: close\r\n\r\n");
     };
 
-    connect(reply, &QNetworkReply::readyRead, reply, [reply, socket, sendHeaders]() {
+    connect(reply, &QNetworkReply::readyRead, reply, [this, reply, socket, sendHeaders, server]() {
         sendHeaders();
         if (socket->state() != QAbstractSocket::UnconnectedState) {
-            socket->write(reply->readAll());
+            const auto chunk = reply->readAll();
+            if (!chunk.isEmpty()) {
+                emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
+                socket->write(chunk);
+            }
         }
     });
-    connect(reply, &QNetworkReply::finished, reply, [reply, socket, headersSent, sendHeaders]() {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, socket, headersSent, sendHeaders, server]() {
         sendHeaders();
         if (socket->state() != QAbstractSocket::UnconnectedState) {
             const auto rest = reply->readAll();
             if (!rest.isEmpty()) {
+                emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), rest.size(), 0);
                 socket->write(rest);
             }
             socket->disconnectFromHost();

@@ -15,6 +15,11 @@ int ServiceCardListModel::rowCount(const QModelIndex& parent) const
     return static_cast<int>(m_cards.size());
 }
 
+int ServiceCardListModel::count() const
+{
+    return rowCount();
+}
+
 QVariant ServiceCardListModel::data(const QModelIndex& index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) {
@@ -41,6 +46,8 @@ QVariant ServiceCardListModel::data(const QModelIndex& index, int role) const
         return card.hasSession;
     case LastUsedAtRole:
         return card.lastUsedAt;
+    case PrivateModeRole:
+        return card.server.privateMode;
     default:
         return {};
     }
@@ -58,6 +65,7 @@ QHash<int, QByteArray> ServiceCardListModel::roleNames() const
         { AutoLoginRole, "autoLogin" },
         { HasSessionRole, "hasSession" },
         { LastUsedAtRole, "lastUsedAt" },
+        { PrivateModeRole, "privateMode" },
     };
 }
 
@@ -66,6 +74,7 @@ void ServiceCardListModel::setCards(std::vector<ServiceCard> cards)
     beginResetModel();
     m_cards = std::move(cards);
     endResetModel();
+    emit countChanged();
 }
 
 void ServiceCardListModel::clear()

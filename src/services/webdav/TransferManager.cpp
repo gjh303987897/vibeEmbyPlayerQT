@@ -281,6 +281,30 @@ void TransferManager::refreshModel()
 
 void TransferManager::updateProgress(const QString& taskId, qint64 done, qint64 total)
 {
+    if (m_active && m_active->task.id == taskId) {
+        if (m_active->direction == Direction::Upload) {
+            const auto delta = done - m_active->countedBytesSent;
+            if (delta > 0) {
+                m_active->countedBytesSent = done;
+                emit networkTrafficSample(m_active->server.id,
+                                          m_active->server.name,
+                                          serviceTypeToString(m_active->server.serviceType),
+                                          0,
+                                          delta);
+            }
+        } else if (m_active->direction == Direction::Download) {
+            const auto delta = done - m_active->countedBytesReceived;
+            if (delta > 0) {
+                m_active->countedBytesReceived = done;
+                emit networkTrafficSample(m_active->server.id,
+                                          m_active->server.name,
+                                          serviceTypeToString(m_active->server.serviceType),
+                                          delta,
+                                          0);
+            }
+        }
+    }
+
     for (auto& task : m_tasks) {
         if (task.id == taskId) {
             task.bytesDone = done;

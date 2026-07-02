@@ -60,6 +60,7 @@ qt_add_executable(vibePlayerQT
     src/database/SessionRepository.h
     src/models/IptvChannel.h
     src/models/IptvPlaylist.h
+    src/models/DailyUsageStat.h
     src/models/MediaItem.h
     src/models/MediaLibrary.h
     src/models/MediaPerson.h
@@ -102,6 +103,8 @@ qt_add_executable(vibePlayerQT
     src/utils/JsonUtils.h
     src/viewmodels/AppViewModel.cpp
     src/viewmodels/AppViewModel.h
+    src/viewmodels/DailyUsageStatsListModel.cpp
+    src/viewmodels/DailyUsageStatsListModel.h
     src/viewmodels/IptvChannelListModel.cpp
     src/viewmodels/IptvChannelListModel.h
     src/viewmodels/MediaItemListModel.cpp

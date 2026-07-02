@@ -1,6 +1,7 @@
 #include "database/SessionRepository.h"
 
 #include <QDateTime>
+#include <QDate>
 #include <QDir>
 #include <QFile>
 #include <QSqlError>
@@ -34,8 +35,8 @@ std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerCo
 
     QSqlQuery serverQuery(database);
     serverQuery.prepare(QStringLiteral(
-        "INSERT INTO servers (id, name, base_url, username, service_type, trust_self_signed, auto_login, enabled, sort_order, last_used_at) "
-        "VALUES (:id, :name, :base_url, :username, :service_type, :trust_self_signed, :auto_login, 1, :sort_order, :last_used_at) "
+        "INSERT INTO servers (id, name, base_url, username, service_type, trust_self_signed, auto_login, private_mode, enabled, sort_order, last_used_at) "
+        "VALUES (:id, :name, :base_url, :username, :service_type, :trust_self_signed, :auto_login, :private_mode, 1, :sort_order, :last_used_at) "
         "ON CONFLICT(id) DO UPDATE SET "
         "name = excluded.name, "
         "base_url = excluded.base_url, "
@@ -43,6 +44,7 @@ std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerCo
         "service_type = excluded.service_type, "
         "trust_self_signed = excluded.trust_self_signed, "
         "auto_login = excluded.auto_login, "
+        "private_mode = excluded.private_mode, "
         "enabled = 1, "
         "last_used_at = excluded.last_used_at"));
     serverQuery.bindValue(QStringLiteral(":id"), server.id);
@@ -52,6 +54,7 @@ std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerCo
     serverQuery.bindValue(QStringLiteral(":service_type"), serviceTypeToString(server.serviceType));
     serverQuery.bindValue(QStringLiteral(":trust_self_signed"), server.trustSelfSignedCertificate ? 1 : 0);
     serverQuery.bindValue(QStringLiteral(":auto_login"), server.autoLogin ? 1 : 0);
+    serverQuery.bindValue(QStringLiteral(":private_mode"), server.privateMode ? 1 : 0);
     serverQuery.bindValue(QStringLiteral(":sort_order"), nextOrder);
     serverQuery.bindValue(QStringLiteral(":last_used_at"), now);
 
@@ -59,6 +62,27 @@ std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerCo
         return std::unexpected(sqlError(serverQuery));
     }
 
+    return {};
+}
+
+std::expected<void, QString> createDailyUsageStatsTable(QSqlDatabase& database)
+{
+    QSqlQuery usageQuery(database);
+    if (!usageQuery.exec(QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS daily_usage_stats ("
+            "stat_date TEXT NOT NULL,"
+            "service_id TEXT NOT NULL,"
+            "service_name TEXT NOT NULL,"
+            "service_type TEXT NOT NULL,"
+            "watch_seconds INTEGER NOT NULL DEFAULT 0,"
+            "network_bytes_in INTEGER NOT NULL DEFAULT 0,"
+            "network_bytes_out INTEGER NOT NULL DEFAULT 0,"
+            "privacy_mode INTEGER NOT NULL DEFAULT 0,"
+            "updated_at TEXT NOT NULL,"
+            "PRIMARY KEY(stat_date, service_id, privacy_mode)"
+            ")"))) {
+        return std::unexpected(sqlError(usageQuery));
+    }
     return {};
 }
 }
@@ -92,6 +116,7 @@ std::expected<void, QString> SessionRepository::initialize()
             "service_type TEXT NOT NULL,"
             "trust_self_signed INTEGER NOT NULL DEFAULT 0,"
             "auto_login INTEGER NOT NULL DEFAULT 1,"
+            "private_mode INTEGER NOT NULL DEFAULT 0,"
             "enabled INTEGER NOT NULL DEFAULT 1,"
             "sort_order INTEGER NOT NULL DEFAULT 0,"
             "last_used_at TEXT NOT NULL"
@@ -103,6 +128,9 @@ std::expected<void, QString> SessionRepository::initialize()
         return columnResult;
     }
     if (auto columnResult = ensureColumn(QStringLiteral("servers"), QStringLiteral("auto_login"), QStringLiteral("INTEGER NOT NULL DEFAULT 1")); !columnResult) {
+        return columnResult;
+    }
+    if (auto columnResult = ensureColumn(QStringLiteral("servers"), QStringLiteral("private_mode"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")); !columnResult) {
         return columnResult;
     }
     if (auto columnResult = ensureColumn(QStringLiteral("servers"), QStringLiteral("enabled"), QStringLiteral("INTEGER NOT NULL DEFAULT 1")); !columnResult) {
@@ -145,6 +173,14 @@ std::expected<void, QString> SessionRepository::initialize()
             "FOREIGN KEY(playlist_id) REFERENCES iptv_playlists(id) ON DELETE CASCADE"
             ")"))) {
         return std::unexpected(sqlError(channelQuery));
+    }
+
+    if (auto migrateUsageResult = migrateDailyUsageStatsTable(); !migrateUsageResult) {
+        return migrateUsageResult;
+    }
+
+    if (auto pruneResult = pruneOldDailyUsage(); !pruneResult) {
+        return pruneResult;
     }
 
     return {};
@@ -264,7 +300,148 @@ std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerCon
     return {};
 }
 
-std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceCards()
+std::expected<void, QString> SessionRepository::addDailyUsage(const ServerConfig& server,
+                                                              bool privacyMode,
+                                                              qint64 watchSeconds,
+                                                              qint64 networkBytesIn,
+                                                              qint64 networkBytesOut)
+{
+    if (server.id.isEmpty()) {
+        return {};
+    }
+    if (watchSeconds <= 0 && networkBytesIn <= 0 && networkBytesOut <= 0) {
+        return {};
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    const auto today = QDate::currentDate().toString(Qt::ISODate);
+    const auto now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "INSERT INTO daily_usage_stats "
+        "(stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, privacy_mode, updated_at) "
+        "VALUES (:stat_date, :service_id, :service_name, :service_type, :watch_seconds, :network_bytes_in, :network_bytes_out, :privacy_mode, :updated_at) "
+        "ON CONFLICT(stat_date, service_id, privacy_mode) DO UPDATE SET "
+        "service_name = excluded.service_name, "
+        "service_type = excluded.service_type, "
+        "watch_seconds = watch_seconds + excluded.watch_seconds, "
+        "network_bytes_in = network_bytes_in + excluded.network_bytes_in, "
+        "network_bytes_out = network_bytes_out + excluded.network_bytes_out, "
+        "updated_at = excluded.updated_at"));
+    query.bindValue(QStringLiteral(":stat_date"), today);
+    query.bindValue(QStringLiteral(":service_id"), server.id);
+    query.bindValue(QStringLiteral(":service_name"), server.name.isEmpty() ? serviceTypeToString(server.serviceType) : server.name);
+    query.bindValue(QStringLiteral(":service_type"), serviceTypeToString(server.serviceType));
+    query.bindValue(QStringLiteral(":watch_seconds"), std::max<qint64>(0, watchSeconds));
+    query.bindValue(QStringLiteral(":network_bytes_in"), std::max<qint64>(0, networkBytesIn));
+    query.bindValue(QStringLiteral(":network_bytes_out"), std::max<qint64>(0, networkBytesOut));
+    query.bindValue(QStringLiteral(":privacy_mode"), privacyMode ? 1 : 0);
+    query.bindValue(QStringLiteral(":updated_at"), now);
+
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<std::vector<DailyUsageStat>, QString> SessionRepository::loadDailyUsageStats(bool includePrivacyMode)
+{
+    if (auto pruneResult = pruneOldDailyUsage(); !pruneResult) {
+        return std::unexpected(pruneResult.error());
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    const auto cutoff = QDate::currentDate().addDays(-29).toString(Qt::ISODate);
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "SELECT stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, privacy_mode "
+        "FROM daily_usage_stats "
+        "WHERE stat_date >= :cutoff AND (:include_privacy = 1 OR privacy_mode = 0) "
+        "ORDER BY stat_date DESC, privacy_mode ASC, service_name COLLATE NOCASE ASC"));
+    query.bindValue(QStringLiteral(":cutoff"), cutoff);
+    query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+
+    std::vector<DailyUsageStat> stats;
+    while (query.next()) {
+        stats.push_back(DailyUsageStat {
+            .date = query.value(0).toString(),
+            .serviceId = query.value(1).toString(),
+            .serviceName = query.value(2).toString(),
+            .serviceType = query.value(3).toString(),
+            .watchSeconds = query.value(4).toLongLong(),
+            .networkBytesIn = query.value(5).toLongLong(),
+            .networkBytesOut = query.value(6).toLongLong(),
+            .privacyMode = query.value(7).toInt() == 1,
+        });
+    }
+    return stats;
+}
+
+std::expected<void, QString> SessionRepository::pruneOldDailyUsage()
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    const auto cutoff = QDate::currentDate().addDays(-29).toString(Qt::ISODate);
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral("DELETE FROM daily_usage_stats WHERE stat_date < :cutoff"));
+    query.bindValue(QStringLiteral(":cutoff"), cutoff);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceCards(bool privacyMode)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+            "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, "
+            "s.auto_login, s.last_used_at, s.private_mode, sess.access_token "
+            "FROM servers s "
+            "LEFT JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
+            "WHERE s.enabled = 1 AND s.private_mode = :private_mode "
+            "ORDER BY s.sort_order ASC, s.last_used_at DESC"));
+    query.bindValue(QStringLiteral(":private_mode"), privacyMode ? 1 : 0);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+
+    std::vector<ServiceCard> cards;
+    while (query.next()) {
+        ServerConfig server;
+        server.id = query.value(0).toString();
+        server.name = query.value(1).toString();
+        server.baseUrl = query.value(2).toString();
+        server.username = query.value(3).toString();
+        server.serviceType = serviceTypeFromString(query.value(4).toString());
+        server.trustSelfSignedCertificate = query.value(5).toInt() == 1;
+        server.autoLogin = query.value(6).toInt() == 1;
+        server.privateMode = query.value(8).toInt() == 1;
+
+        cards.push_back(ServiceCard {
+            .server = server,
+            .hasSession = server.serviceType == ServiceType::IPTV || !query.value(9).toString().isEmpty(),
+            .lastUsedAt = query.value(7).toString(),
+        });
+    }
+
+    return cards;
+}
+
+std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadAllServiceCards()
 {
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
@@ -273,7 +450,7 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceC
     QSqlQuery query(m_database);
     if (!query.exec(QStringLiteral(
             "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, "
-            "s.auto_login, s.last_used_at, sess.access_token "
+            "s.auto_login, s.last_used_at, s.private_mode, sess.access_token "
             "FROM servers s "
             "LEFT JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
             "WHERE s.enabled = 1 "
@@ -291,10 +468,11 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceC
         server.serviceType = serviceTypeFromString(query.value(4).toString());
         server.trustSelfSignedCertificate = query.value(5).toInt() == 1;
         server.autoLogin = query.value(6).toInt() == 1;
+        server.privateMode = query.value(8).toInt() == 1;
 
         cards.push_back(ServiceCard {
             .server = server,
-            .hasSession = server.serviceType == ServiceType::IPTV || !query.value(8).toString().isEmpty(),
+            .hasSession = server.serviceType == ServiceType::IPTV || !query.value(9).toString().isEmpty(),
             .lastUsedAt = query.value(7).toString(),
         });
     }
@@ -382,10 +560,11 @@ std::expected<std::optional<UserSession>, QString> SessionRepository::loadLastSe
 
     QSqlQuery query(m_database);
     if (!query.exec(QStringLiteral(
-            "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, s.auto_login, "
+            "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, s.auto_login, s.private_mode, "
             "sess.user_id, sess.username, sess.access_token, sess.created_at "
             "FROM servers s "
             "JOIN sessions sess ON sess.server_id = s.id "
+            "WHERE s.enabled = 1 AND s.private_mode = 0 "
             "ORDER BY s.last_used_at DESC "
             "LIMIT 1"))) {
         return std::unexpected(sqlError(query));
@@ -402,11 +581,11 @@ std::expected<std::optional<UserSession>, QString> SessionRepository::loadSessio
 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-        "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, s.auto_login, "
+        "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, s.auto_login, s.private_mode, "
         "sess.user_id, sess.username, sess.access_token, sess.created_at "
         "FROM servers s "
         "JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
-        "WHERE s.id = :server_id "
+        "WHERE s.id = :server_id AND s.enabled = 1 "
         "LIMIT 1"));
     query.bindValue(QStringLiteral(":server_id"), serverId);
     if (!query.exec()) {
@@ -463,13 +642,13 @@ std::expected<void, QString> SessionRepository::deleteServer(const QString& serv
     return {};
 }
 
-std::expected<void, QString> SessionRepository::moveServer(const QString& serverId, int direction)
+std::expected<void, QString> SessionRepository::moveServer(const QString& serverId, int direction, bool privacyMode)
 {
     if (auto openResult = ensureOpen(); !openResult) {
         return openResult;
     }
 
-    const auto cardsResult = loadServiceCards();
+    const auto cardsResult = loadServiceCards(privacyMode);
     if (!cardsResult) {
         return std::unexpected(cardsResult.error());
     }
@@ -512,13 +691,13 @@ std::expected<void, QString> SessionRepository::moveServer(const QString& server
     return {};
 }
 
-std::expected<void, QString> SessionRepository::moveServerTo(const QString& serverId, int targetIndex)
+std::expected<void, QString> SessionRepository::moveServerTo(const QString& serverId, int targetIndex, bool privacyMode)
 {
     if (auto openResult = ensureOpen(); !openResult) {
         return openResult;
     }
 
-    const auto cardsResult = loadServiceCards();
+    const auto cardsResult = loadServiceCards(privacyMode);
     if (!cardsResult) {
         return std::unexpected(cardsResult.error());
     }
@@ -563,6 +742,22 @@ std::expected<void, QString> SessionRepository::moveServerTo(const QString& serv
     return {};
 }
 
+std::expected<void, QString> SessionRepository::setServerPrivateMode(const QString& serverId, bool privateMode)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral("UPDATE servers SET private_mode = :private_mode WHERE id = :server_id AND enabled = 1"));
+    query.bindValue(QStringLiteral(":private_mode"), privateMode ? 1 : 0);
+    query.bindValue(QStringLiteral(":server_id"), serverId);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
 std::expected<void, QString> SessionRepository::clearSession()
 {
     if (auto openResult = ensureOpen(); !openResult) {
@@ -574,6 +769,27 @@ std::expected<void, QString> SessionRepository::clearSession()
         return std::unexpected(sqlError(query));
     }
     return {};
+}
+
+bool SessionRepository::privacyPinConfigured() const
+{
+    return !privacyPinSalt().isEmpty() && !privacyPinHash().isEmpty();
+}
+
+QString SessionRepository::privacyPinSalt() const
+{
+    return m_settings.value(QStringLiteral("privacy/pinSalt")).toString();
+}
+
+QString SessionRepository::privacyPinHash() const
+{
+    return m_settings.value(QStringLiteral("privacy/pinHash")).toString();
+}
+
+void SessionRepository::setPrivacyPinHash(const QString& salt, const QString& hash)
+{
+    m_settings.setValue(QStringLiteral("privacy/pinSalt"), salt);
+    m_settings.setValue(QStringLiteral("privacy/pinHash"), hash);
 }
 
 bool SessionRepository::minimizeToTray() const
@@ -755,6 +971,84 @@ std::expected<void, QString> SessionRepository::migrateSessionsTable()
     return {};
 }
 
+std::expected<void, QString> SessionRepository::migrateDailyUsageStatsTable()
+{
+    QSqlQuery info(m_database);
+    if (!info.exec(QStringLiteral("PRAGMA table_info(daily_usage_stats)"))) {
+        return std::unexpected(sqlError(info));
+    }
+
+    bool hasRows = false;
+    bool hasPrivacyModeColumn = false;
+    bool privacyModeInPrimaryKey = false;
+    while (info.next()) {
+        hasRows = true;
+        const auto name = info.value(QStringLiteral("name")).toString();
+        if (name == QStringLiteral("privacy_mode")) {
+            hasPrivacyModeColumn = true;
+            privacyModeInPrimaryKey = info.value(QStringLiteral("pk")).toInt() > 0;
+        }
+    }
+
+    if (!hasRows) {
+        return createDailyUsageStatsTable(m_database);
+    }
+    if (hasPrivacyModeColumn && privacyModeInPrimaryKey) {
+        return {};
+    }
+
+    QSqlQuery transaction(m_database);
+    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        return std::unexpected(sqlError(transaction));
+    }
+
+    QSqlQuery dropLegacy(m_database);
+    if (!dropLegacy.exec(QStringLiteral("DROP TABLE IF EXISTS daily_usage_stats_legacy"))) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(dropLegacy));
+    }
+
+    QSqlQuery rename(m_database);
+    if (!rename.exec(QStringLiteral("ALTER TABLE daily_usage_stats RENAME TO daily_usage_stats_legacy"))) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(rename));
+    }
+
+    if (auto createResult = createDailyUsageStatsTable(m_database); !createResult) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return createResult;
+    }
+
+    const auto copySql = hasPrivacyModeColumn
+        ? QStringLiteral(
+            "INSERT OR REPLACE INTO daily_usage_stats "
+            "(stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, privacy_mode, updated_at) "
+            "SELECT stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, "
+            "privacy_mode, updated_at FROM daily_usage_stats_legacy")
+        : QStringLiteral(
+            "INSERT OR REPLACE INTO daily_usage_stats "
+            "(stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, privacy_mode, updated_at) "
+            "SELECT stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, "
+            "0, updated_at FROM daily_usage_stats_legacy");
+    QSqlQuery copy(m_database);
+    if (!copy.exec(copySql)) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(copy));
+    }
+
+    QSqlQuery dropOld(m_database);
+    if (!dropOld.exec(QStringLiteral("DROP TABLE daily_usage_stats_legacy"))) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(dropOld));
+    }
+
+    QSqlQuery commit(m_database);
+    if (!commit.exec(QStringLiteral("COMMIT"))) {
+        return std::unexpected(sqlError(commit));
+    }
+    return {};
+}
+
 std::expected<std::optional<UserSession>, QString> SessionRepository::sessionFromQuery(QSqlQuery& query)
 {
     if (!query.next()) {
@@ -769,12 +1063,13 @@ std::expected<std::optional<UserSession>, QString> SessionRepository::sessionFro
     server.serviceType = serviceTypeFromString(query.value(4).toString());
     server.trustSelfSignedCertificate = query.value(5).toInt() == 1;
     server.autoLogin = query.value(6).toInt() == 1;
+    server.privateMode = query.value(7).toInt() == 1;
 
     UserSession session;
     session.server = server;
-    session.userId = query.value(7).toString();
-    session.username = query.value(8).toString();
-    session.accessToken = query.value(9).toString();
-    session.createdAt = QDateTime::fromString(query.value(10).toString(), Qt::ISODate);
+    session.userId = query.value(8).toString();
+    session.username = query.value(9).toString();
+    session.accessToken = query.value(10).toString();
+    session.createdAt = QDateTime::fromString(query.value(11).toString(), Qt::ISODate);
     return std::optional<UserSession> { session };
 }
