@@ -295,6 +295,13 @@ private:
         qint64 networkBytesOut { 0 };
     };
 
+    struct PlaybackProgressSnapshot {
+        qint64 positionTicks { 0 };
+        double playedPercentage { 0.0 };
+        bool played { false };
+        QDateTime reportedAt;
+    };
+
     MediaServiceClient* clientFor(ServiceType type);
     ServerConfig makeServerConfig() const;
     void refreshServiceCards();
@@ -327,6 +334,8 @@ private:
     void beginPlaybackUsageTracking();
     void recordPlaybackUsageUntilNow();
     void finishPlaybackUsageTracking();
+    void applyReportedPlaybackProgress(const QString& itemId, qint64 positionTicks);
+    void mergeRecentPlaybackProgress(std::vector<MediaItem>& items) const;
     void refreshContinueWatching();
     void resetMediaDirectory(const QString& id, const QString& name);
     void clearMediaDirectoryState();
@@ -421,6 +430,7 @@ private:
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
     QHash<QString, PendingUsageStat> m_pendingUsageStats;
+    QHash<QString, PlaybackProgressSnapshot> m_recentPlaybackProgress;
     QTimer m_usageFlushTimer;
     std::vector<IptvChannel> m_allIptvChannels;
     PersonListModel m_selectedPeople;

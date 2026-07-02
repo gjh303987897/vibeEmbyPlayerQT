@@ -34,6 +34,17 @@ namespace {
 constexpr qint64 usageNetworkFlushBytes = 1024 * 1024;
 constexpr qint64 usageWatchFlushSeconds = 15;
 constexpr int usageFlushIntervalMs = 15000;
+constexpr qint64 playbackTicksPerSecond = 10'000'000;
+constexpr int recentPlaybackProgressMergeMs = 30000;
+constexpr int continueRefreshAfterStopMs = 1500;
+
+double playbackPercentageForTicks(const MediaItem& item, qint64 positionTicks)
+{
+    if (item.runTimeTicks > 0) {
+        return std::clamp(static_cast<double>(std::max<qint64>(0, positionTicks)) * 100.0 / static_cast<double>(item.runTimeTicks), 0.0, 100.0);
+    }
+    return std::clamp(item.playedPercentage, 0.0, 100.0);
+}
 
 QString displayNetworkError(const NetworkError& error)
 {
@@ -2000,7 +2011,9 @@ void AppViewModel::refreshContinueWatching()
             setError(displayNetworkError(result.error()));
             return;
         }
-        m_continueItems.setItems(std::move(*result));
+        auto items = std::move(*result);
+        mergeRecentPlaybackProgress(items);
+        m_continueItems.setItems(std::move(items));
     });
 }
 
@@ -2495,7 +2508,7 @@ void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
         return;
     }
 
-    const auto ticks = static_cast<qint64>(std::max(0.0, positionSeconds) * 10'000'000.0);
+    const auto ticks = static_cast<qint64>(std::max(0.0, positionSeconds) * static_cast<double>(playbackTicksPerSecond));
     const PlaybackReport report {
         .itemId = m_selectedItem->id,
         .mediaSourceId = m_currentMediaSourceId,
@@ -2504,6 +2517,7 @@ void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
         .paused = paused,
     };
     client->reportPlaybackProgress(*m_session, report);
+    applyReportedPlaybackProgress(report.itemId, report.positionTicks);
     m_lastPlaybackReportSeconds = positionSeconds;
 }
 
@@ -2519,7 +2533,7 @@ void AppViewModel::reportPlaybackStopped(double positionSeconds)
         return;
     }
 
-    const auto ticks = static_cast<qint64>(std::max(0.0, positionSeconds) * 10'000'000.0);
+    const auto ticks = static_cast<qint64>(std::max(0.0, positionSeconds) * static_cast<double>(playbackTicksPerSecond));
     const PlaybackReport report {
         .itemId = m_selectedItem->id,
         .mediaSourceId = m_currentMediaSourceId,
@@ -2528,8 +2542,14 @@ void AppViewModel::reportPlaybackStopped(double positionSeconds)
         .paused = false,
     };
     client->reportPlaybackStopped(*m_session, report);
+    applyReportedPlaybackProgress(report.itemId, report.positionTicks);
     m_playbackStartedReported = false;
     m_lastPlaybackReportSeconds = -1.0;
+    QTimer::singleShot(continueRefreshAfterStopMs, this, [this] {
+        if (m_session) {
+            refreshContinueWatching();
+        }
+    });
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Reported playback stop"));
 }
 
@@ -3385,6 +3405,73 @@ void AppViewModel::finishPlaybackUsageTracking()
     m_playbackUsageServer.reset();
     m_playbackUsageLastWallClock = {};
     flushPendingUsageStats(m_currentView == QStringLiteral("history"));
+}
+
+void AppViewModel::applyReportedPlaybackProgress(const QString& itemId, qint64 positionTicks)
+{
+    if (itemId.isEmpty()) {
+        return;
+    }
+
+    const auto normalizedTicks = std::max<qint64>(0, positionTicks);
+    double playedPercentage = 0.0;
+    bool played = false;
+    bool selectedChanged = false;
+
+    if (m_selectedItem && m_selectedItem->id == itemId) {
+        playedPercentage = playbackPercentageForTicks(*m_selectedItem, normalizedTicks);
+        played = m_selectedItem->played || playedPercentage >= 99.5;
+        if (m_selectedItem->playbackPositionTicks != normalizedTicks) {
+            m_selectedItem->playbackPositionTicks = normalizedTicks;
+            selectedChanged = true;
+        }
+        if (std::abs(m_selectedItem->playedPercentage - playedPercentage) > 0.01) {
+            m_selectedItem->playedPercentage = playedPercentage;
+            selectedChanged = true;
+        }
+        if (m_selectedItem->played != played) {
+            m_selectedItem->played = played;
+            selectedChanged = true;
+        }
+    }
+
+    m_recentPlaybackProgress.insert(itemId,
+                                    PlaybackProgressSnapshot {
+                                        .positionTicks = normalizedTicks,
+                                        .playedPercentage = playedPercentage,
+                                        .played = played,
+                                        .reportedAt = QDateTime::currentDateTimeUtc(),
+                                    });
+
+    m_continueItems.updatePlaybackProgress(itemId, normalizedTicks, playedPercentage, played);
+    m_items.updatePlaybackProgress(itemId, normalizedTicks, playedPercentage, played);
+    m_seriesEpisodes.updatePlaybackProgress(itemId, normalizedTicks, playedPercentage, played);
+
+    if (selectedChanged) {
+        emit selectedItemChanged();
+    }
+}
+
+void AppViewModel::mergeRecentPlaybackProgress(std::vector<MediaItem>& items) const
+{
+    if (m_recentPlaybackProgress.isEmpty() || items.empty()) {
+        return;
+    }
+
+    const auto now = QDateTime::currentDateTimeUtc();
+    for (auto& item : items) {
+        const auto snapshot = m_recentPlaybackProgress.constFind(item.id);
+        if (snapshot == m_recentPlaybackProgress.cend() || !snapshot->reportedAt.isValid()) {
+            continue;
+        }
+        const auto ageMs = snapshot->reportedAt.msecsTo(now);
+        if (ageMs < 0 || ageMs > recentPlaybackProgressMergeMs) {
+            continue;
+        }
+        item.playbackPositionTicks = snapshot->positionTicks;
+        item.playedPercentage = snapshot->playedPercentage;
+        item.played = snapshot->played;
+    }
 }
 
 void AppViewModel::setCurrentView(QString view)

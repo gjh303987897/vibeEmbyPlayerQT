@@ -1,5 +1,7 @@
 #include "viewmodels/MediaItemListModel.h"
 
+#include <algorithm>
+#include <cmath>
 #include <iterator>
 
 MediaItemListModel::MediaItemListModel(QObject* parent)
@@ -72,6 +74,8 @@ QVariant MediaItemListModel::data(const QModelIndex& index, int role) const
         return item.playedPercentage;
     case PlayedRole:
         return item.played;
+    case PlaybackPositionTicksRole:
+        return item.playbackPositionTicks;
     default:
         return {};
     }
@@ -102,6 +106,7 @@ QHash<int, QByteArray> MediaItemListModel::roleNames() const
         { ParentIndexNumberRole, "parentIndexNumber" },
         { PlayedPercentageRole, "playedPercentage" },
         { PlayedRole, "played" },
+        { PlaybackPositionTicksRole, "playbackPositionTicks" },
     };
 }
 
@@ -125,6 +130,47 @@ void MediaItemListModel::appendItems(std::vector<MediaItem> items)
     m_items.insert(m_items.end(), std::make_move_iterator(items.begin()), std::make_move_iterator(items.end()));
     endInsertRows();
     emit countChanged();
+}
+
+bool MediaItemListModel::updatePlaybackProgress(const QString& itemId, qint64 playbackPositionTicks, double playedPercentage, bool played)
+{
+    if (itemId.isEmpty()) {
+        return false;
+    }
+
+    bool updated = false;
+    const auto normalizedTicks = std::max<qint64>(0, playbackPositionTicks);
+    const auto normalizedPercentage = std::isfinite(playedPercentage) ? std::clamp(playedPercentage, 0.0, 100.0) : -1.0;
+    for (int row = 0; row < rowCount(); ++row) {
+        auto& item = m_items[static_cast<size_t>(row)];
+        if (item.id != itemId) {
+            continue;
+        }
+
+        bool changed = false;
+        if (item.playbackPositionTicks != normalizedTicks) {
+            item.playbackPositionTicks = normalizedTicks;
+            changed = true;
+        }
+        if (normalizedPercentage >= 0.0 && std::abs(item.playedPercentage - normalizedPercentage) > 0.01) {
+            item.playedPercentage = normalizedPercentage;
+            changed = true;
+        }
+        if (item.played != played) {
+            item.played = played;
+            changed = true;
+        }
+        if (!changed) {
+            continue;
+        }
+
+        const auto modelIndex = index(row, 0);
+        emit dataChanged(modelIndex,
+                         modelIndex,
+                         { PlaybackPositionTicksRole, PlayedPercentageRole, PlayedRole });
+        updated = true;
+    }
+    return updated;
 }
 
 void MediaItemListModel::clear()

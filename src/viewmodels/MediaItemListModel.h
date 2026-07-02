@@ -34,7 +34,8 @@ public:
         IndexNumberRole,
         ParentIndexNumberRole,
         PlayedPercentageRole,
-        PlayedRole
+        PlayedRole,
+        PlaybackPositionTicksRole
     };
 
     explicit MediaItemListModel(QObject* parent = nullptr);
@@ -46,6 +47,7 @@ public:
 
     void setItems(std::vector<MediaItem> items);
     void appendItems(std::vector<MediaItem> items);
+    bool updatePlaybackProgress(const QString& itemId, qint64 playbackPositionTicks, double playedPercentage, bool played);
     void clear();
     std::optional<MediaItem> itemAt(int row) const;
 
