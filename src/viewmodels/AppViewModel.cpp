@@ -3281,6 +3281,23 @@ void AppViewModel::recordNetworkUsageForCurrentService(ServiceType type, qint64 
     recordNetworkUsage(*server, bytesReceived, bytesSent);
 }
 
+void AppViewModel::recordPlaybackNetworkBytes(qint64 bytesReceived)
+{
+    if (bytesReceived <= 0) {
+        return;
+    }
+
+    const auto server = currentPlaybackServerForUsage();
+    if (!server) {
+        return;
+    }
+    if (server->serviceType == ServiceType::WebDAV) {
+        return;
+    }
+
+    recordNetworkUsage(*server, bytesReceived, 0);
+}
+
 std::optional<ServerConfig> AppViewModel::currentServerForUsage(ServiceType type) const
 {
     if (m_session && m_session->server.serviceType == type) {

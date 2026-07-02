@@ -213,6 +213,7 @@ public:
     Q_INVOKABLE void refreshPrivacyCards();
     Q_INVOKABLE void setPrivacyCardPrivate(int row, bool privateMode);
     Q_INVOKABLE bool changePrivacyPin(const QString& oldPin, const QString& newPin, const QString& confirmPin);
+    Q_INVOKABLE void recordPlaybackNetworkBytes(qint64 bytesReceived);
     Q_INVOKABLE void acceptPendingDownloadWarning(bool accepted);
     Q_INVOKABLE void startPendingFolderDownload();
     Q_INVOKABLE void deleteServiceCard(int row, bool deleteLocalData);

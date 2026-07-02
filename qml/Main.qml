@@ -2682,6 +2682,9 @@ ApplicationWindow {
             onNativeWindowUpdated: {
                 Qt.callLater(playerPage.raiseChromeWindows)
             }
+            onPlaybackNetworkBytes: function(bytesReceived) {
+                appViewModel.recordPlaybackNetworkBytes(bytesReceived)
+            }
             onPlaybackRestarted: playerPage.finishSeekLoading()
             onPlaybackStateChanged: {
                 if (playerPage.rawPlaybackLoading && appViewModel.currentView === "player") {

@@ -111,6 +111,7 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
     connect(&m_controller, &PlayerController::tracksChanged, this, &MpvVideoItem::tracksChanged);
     connect(&m_controller, &PlayerController::videoOutputChanged, this, &MpvVideoItem::refreshNativeWindow);
     connect(&m_controller, &PlayerController::playbackRestarted, this, &MpvVideoItem::playbackRestarted);
+    connect(&m_controller, &PlayerController::playbackNetworkBytes, this, &MpvVideoItem::playbackNetworkBytes);
 }
 
 MpvVideoItem::~MpvVideoItem()

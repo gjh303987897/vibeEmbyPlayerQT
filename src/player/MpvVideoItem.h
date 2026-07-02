@@ -90,6 +90,7 @@ signals:
     void tracksChanged();
     void nativeWindowUpdated();
     void playbackRestarted();
+    void playbackNetworkBytes(qint64 bytesReceived);
 
 protected:
     void itemChange(ItemChange change, const ItemChangeData& value) override;

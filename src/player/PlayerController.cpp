@@ -195,6 +195,8 @@ PlayerController::PlayerController(QObject* parent)
 {
     m_eventTimer.setInterval(40);
     connect(&m_eventTimer, &QTimer::timeout, this, &PlayerController::processEvents);
+    m_networkStatsTimer.setInterval(1000);
+    connect(&m_networkStatsTimer, &QTimer::timeout, this, &PlayerController::sampleNetworkStats);
 }
 
 PlayerController::~PlayerController()
@@ -239,6 +241,7 @@ bool PlayerController::initialize(qintptr windowId)
 
     observeProperties();
     m_eventTimer.start();
+    m_networkStatsTimer.start();
     AppLogger::info(QStringLiteral("player"), QStringLiteral("libmpv initialized with window embedding"));
     return true;
 }
@@ -364,8 +367,12 @@ void PlayerController::playUrl(const QString& url,
         requested = command(args);
     }
     if (!requested) {
+        m_networkStatsActive = false;
         m_loading = false;
         emit playbackStateChanged();
+    } else {
+        m_networkStatsActive = true;
+        m_networkSampleElapsed.restart();
     }
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Playback requested"));
 }
@@ -404,12 +411,15 @@ void PlayerController::stop()
     }
     const char* args[] = { "stop", nullptr };
     command(args);
+    m_networkStatsActive = false;
     resetPlaybackState();
 }
 
 void PlayerController::shutdown()
 {
     m_eventTimer.stop();
+    m_networkStatsTimer.stop();
+    m_networkStatsActive = false;
     if (m_mpv) {
         mpv_command_string(m_mpv, "stop");
         mpv_terminate_destroy(m_mpv);
@@ -552,6 +562,7 @@ void PlayerController::processEvents()
                                     QStringLiteral("libmpv ended file, reason=%1").arg(reason));
                 }
             }
+            m_networkStatsActive = false;
             m_position = 0.0;
             m_loading = false;
             m_buffering = false;
@@ -573,6 +584,33 @@ void PlayerController::processEvents()
             }
             emit videoOutputChanged();
         }
+    }
+}
+
+void PlayerController::sampleNetworkStats()
+{
+    if (!m_mpv || !m_networkStatsActive) {
+        return;
+    }
+    if (!m_networkSampleElapsed.isValid()) {
+        m_networkSampleElapsed.start();
+        return;
+    }
+
+    const auto elapsedMs = m_networkSampleElapsed.restart();
+    if (elapsedMs <= 0) {
+        return;
+    }
+
+    int64_t bytesPerSecond = 0;
+    const auto status = mpv_get_property(m_mpv, "cache-speed", MPV_FORMAT_INT64, &bytesPerSecond);
+    if (status < 0 || bytesPerSecond <= 0) {
+        return;
+    }
+
+    const auto sampledBytes = static_cast<qint64>(std::llround(static_cast<double>(bytesPerSecond) * static_cast<double>(elapsedMs) / 1000.0));
+    if (sampledBytes > 0) {
+        emit playbackNetworkBytes(sampledBytes);
     }
 }
 

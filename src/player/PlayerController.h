@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -118,10 +119,12 @@ signals:
     void tracksChanged();
     void videoOutputChanged();
     void playbackRestarted();
+    void playbackNetworkBytes(qint64 bytesReceived);
 
 private:
     void observeProperties();
     void processEvents();
+    void sampleNetworkStats();
     void handlePropertyChange(const char* name, int format, void* data);
     void updateTracks();
     void updateVideoInfo(QString resolution, QString codec, QString frameRate, QString bitrate);
@@ -151,6 +154,9 @@ private:
     QString m_videoBitrate;
     double m_cacheDurationSeconds { -1.0 };
     QTimer m_eventTimer;
+    QTimer m_networkStatsTimer;
+    QElapsedTimer m_networkSampleElapsed;
+    bool m_networkStatsActive { false };
     TrackListModel m_subtitleTracks;
     TrackListModel m_audioTracks;
 };
