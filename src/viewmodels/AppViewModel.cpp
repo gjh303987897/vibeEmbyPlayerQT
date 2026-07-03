@@ -1921,12 +1921,12 @@ void AppViewModel::backToHome()
 void AppViewModel::mediaLibraryBack()
 {
     if (!m_currentLibrary) {
-        backToServices();
+        backToHome();
         return;
     }
 
     if (m_mediaParentHistory.empty()) {
-        backToServices();
+        backToHome();
         return;
     }
 
