@@ -230,6 +230,7 @@ public:
     Q_INVOKABLE void backToServices();
     Q_INVOKABLE void backToHome();
     Q_INVOKABLE void mediaLibraryBack();
+    Q_INVOKABLE void mediaDetailsBack();
     Q_INVOKABLE void openSettings();
     Q_INVOKABLE void openHistoryStats();
     Q_INVOKABLE void refreshHistoryStats();

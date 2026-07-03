@@ -635,6 +635,8 @@ ApplicationWindow {
                         appViewModel.webDavBack()
                     } else if (appViewModel.currentView === "library") {
                         appViewModel.mediaLibraryBack()
+                    } else if (appViewModel.currentView === "details") {
+                        appViewModel.mediaDetailsBack()
                     } else if (appViewModel.currentView === "home") {
                         appViewModel.backToServices()
                     } else {

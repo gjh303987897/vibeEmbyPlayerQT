@@ -1954,6 +1954,22 @@ void AppViewModel::mediaLibraryBack()
     loadMediaDirectory(true);
 }
 
+void AppViewModel::mediaDetailsBack()
+{
+    if (!m_currentLibrary) {
+        backToHome();
+        return;
+    }
+
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearCurrentPlayback();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("library"));
+}
+
 void AppViewModel::openSettings()
 {
     clearSeriesDetails();
