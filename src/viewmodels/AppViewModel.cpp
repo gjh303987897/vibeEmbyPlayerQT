@@ -377,6 +377,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("section.noProgress"), QStringLiteral("Nothing in progress") },
         { QStringLiteral("section.libraries"), QStringLiteral("Libraries") },
         { QStringLiteral("section.librariesSubtitle"), QStringLiteral("Browse server media categories") },
+        { QStringLiteral("loading.home"), QStringLiteral("Loading home") },
+        { QStringLiteral("loading.homeHint"), QStringLiteral("Fetching libraries and resume items") },
+        { QStringLiteral("loading.library"), QStringLiteral("Loading library") },
+        { QStringLiteral("loading.libraryHint"), QStringLiteral("Reading media items from the server") },
         { QStringLiteral("details.noOverview"), QStringLiteral("No overview available.") },
         { QStringLiteral("details.showOverview"), QStringLiteral("Show overview") },
         { QStringLiteral("details.seasonsEpisodes"), QStringLiteral("Seasons & Episodes") },
@@ -513,6 +517,10 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("section.noProgress"), QStringLiteral("暂无继续观看内容") },
         { QStringLiteral("section.libraries"), QStringLiteral("媒体库") },
         { QStringLiteral("section.librariesSubtitle"), QStringLiteral("浏览服务器媒体分类") },
+        { QStringLiteral("loading.home"), QStringLiteral("正在加载主页面") },
+        { QStringLiteral("loading.homeHint"), QStringLiteral("正在读取媒体库和继续观看") },
+        { QStringLiteral("loading.library"), QStringLiteral("正在加载媒体库") },
+        { QStringLiteral("loading.libraryHint"), QStringLiteral("正在从服务器读取媒体条目") },
         { QStringLiteral("details.noOverview"), QStringLiteral("暂无简介。") },
         { QStringLiteral("details.seasonsEpisodes"), QStringLiteral("季与剧集") },
         { QStringLiteral("details.noSeasons"), QStringLiteral("暂无季集信息") },
@@ -941,6 +949,16 @@ int AppViewModel::translationRevision() const
 bool AppViewModel::loading() const
 {
     return m_loading;
+}
+
+bool AppViewModel::homeLoading() const
+{
+    return m_homeLoadingRequests > 0;
+}
+
+bool AppViewModel::libraryItemsLoading() const
+{
+    return m_libraryItemsLoading;
 }
 
 bool AppViewModel::loggedIn() const
@@ -1982,10 +2000,12 @@ void AppViewModel::refreshLibraries()
     emit currentLibraryChanged();
 
     auto* client = clientFor(m_session->server.serviceType);
+    beginHomeLoading();
     setLoading(true);
     AppLogger::info(QStringLiteral("library"),
                     QStringLiteral("Fetching libraries from %1").arg(QUrl(m_session->server.baseUrl).host()));
     client->fetchLibraries(*m_session, [this](LibraryResult result) {
+        endHomeLoading();
         setLoading(false);
         if (!result) {
             AppLogger::warning(QStringLiteral("library"), QStringLiteral("Fetch libraries failed: %1").arg(displayNetworkError(result.error())));
@@ -2004,8 +2024,10 @@ void AppViewModel::refreshContinueWatching()
     }
 
     auto* client = clientFor(m_session->server.serviceType);
+    beginHomeLoading();
     AppLogger::info(QStringLiteral("continue"), QStringLiteral("Fetching resume items from %1").arg(QUrl(m_session->server.baseUrl).host()));
     client->fetchContinueWatching(*m_session, 24, [this](ItemResult result) {
+        endHomeLoading();
         if (!result) {
             AppLogger::warning(QStringLiteral("continue"), QStringLiteral("Fetch resume items failed: %1").arg(displayNetworkError(result.error())));
             setError(displayNetworkError(result.error()));
@@ -2054,10 +2076,12 @@ void AppViewModel::loadMediaDirectory(bool resetItems)
 
     const auto requestParentId = m_currentMediaParentId;
     auto* client = clientFor(m_session->server.serviceType);
+    setLibraryItemsLoading(true);
     setLoading(true);
     AppLogger::info(QStringLiteral("items"),
                     QStringLiteral("Fetching items for parent %1").arg(requestParentId));
     client->fetchLibraryItems(*m_session, *m_currentLibrary, requestParentId, m_nextItemStartIndex, m_itemPageSize, [this, requestParentId](ItemResult result) {
+        setLibraryItemsLoading(false);
         setLoading(false);
         if (requestParentId != m_currentMediaParentId) {
             AppLogger::info(QStringLiteral("items"), QStringLiteral("Ignoring stale item page for parent %1").arg(requestParentId));
@@ -3490,6 +3514,38 @@ void AppViewModel::setLoading(bool value)
     }
     m_loading = value;
     emit loadingChanged();
+}
+
+void AppViewModel::beginHomeLoading()
+{
+    const auto wasLoading = homeLoading();
+    ++m_homeLoadingRequests;
+    if (!wasLoading) {
+        emit homeLoadingChanged();
+    }
+}
+
+void AppViewModel::endHomeLoading()
+{
+    if (m_homeLoadingRequests <= 0) {
+        return;
+    }
+
+    const auto wasLoading = homeLoading();
+    --m_homeLoadingRequests;
+    if (wasLoading && !homeLoading()) {
+        emit homeLoadingChanged();
+    }
+}
+
+void AppViewModel::setLibraryItemsLoading(bool value)
+{
+    if (m_libraryItemsLoading == value) {
+        return;
+    }
+
+    m_libraryItemsLoading = value;
+    emit libraryItemsLoadingChanged();
 }
 
 void AppViewModel::setError(QString message)

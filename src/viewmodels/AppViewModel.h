@@ -61,6 +61,8 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString languageMode READ languageMode WRITE setLanguageMode NOTIFY languageModeChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(bool homeLoading READ homeLoading NOTIFY homeLoadingChanged)
+    Q_PROPERTY(bool libraryItemsLoading READ libraryItemsLoading NOTIFY libraryItemsLoadingChanged)
     Q_PROPERTY(bool loggedIn READ loggedIn NOTIFY loggedInChanged)
     Q_PROPERTY(QString currentUser READ currentUser NOTIFY currentUserChanged)
     Q_PROPERTY(QString currentServerName READ currentServerName NOTIFY currentServerChanged)
@@ -153,6 +155,8 @@ public:
     int translationRevision() const;
 
     bool loading() const;
+    bool homeLoading() const;
+    bool libraryItemsLoading() const;
     bool loggedIn() const;
     QString currentUser() const;
     QString currentServerName() const;
@@ -272,6 +276,8 @@ signals:
     void languageModeChanged();
     void translationsChanged();
     void loadingChanged();
+    void homeLoadingChanged();
+    void libraryItemsLoadingChanged();
     void loggedInChanged();
     void currentUserChanged();
     void currentServerChanged();
@@ -348,6 +354,9 @@ private:
     void syncSelectedPeople();
     void setCurrentView(QString view);
     void setLoading(bool value);
+    void beginHomeLoading();
+    void endHomeLoading();
+    void setLibraryItemsLoading(bool value);
     void setError(QString message);
     void setSession(UserSession session);
     void saveSession();
@@ -375,6 +384,8 @@ private:
     QString m_languageMode { QStringLiteral("system") };
     int m_translationRevision { 0 };
     bool m_loading { false };
+    int m_homeLoadingRequests { 0 };
+    bool m_libraryItemsLoading { false };
     QString m_errorMessage;
     std::optional<UserSession> m_session;
     std::optional<ServiceCard> m_pendingServiceCard;

@@ -869,141 +869,175 @@ ApplicationWindow {
                     }
                 }
 
-                Flickable {
-                    id: homeFlick
-                    contentWidth: width
-                    contentHeight: homeColumn.implicitHeight
-                    clip: true
+                Item {
+                    id: homePage
+                    property bool showInitialLoading: appViewModel.homeLoading
+                        && appViewModel.continueItems.count === 0
+                        && appViewModel.libraries.count === 0
 
-                    ColumnLayout {
-                        id: homeColumn
-                        width: homeFlick.width
-                        spacing: 28
+                    Flickable {
+                        id: homeFlick
+                        anchors.fill: parent
+                        contentWidth: width
+                        contentHeight: homeColumn.implicitHeight
+                        clip: true
+                        opacity: homePage.showInitialLoading ? 0.24 : 1
 
-                        SectionHeader {
-                            title: t("section.continueWatching")
-                            subtitle: t("section.continueSubtitle")
-                        }
+                        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-                        Item {
-                            id: continueRail
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: appViewModel.continueItems.count > 0 ? 316 : 72
+                        ColumnLayout {
+                            id: homeColumn
+                            width: homeFlick.width
+                            spacing: 28
 
-                            function maxContentX() {
-                                return Math.max(0, continueList.contentWidth - continueList.width)
+                            SectionHeader {
+                                title: t("section.continueWatching")
+                                subtitle: t("section.continueSubtitle")
                             }
 
-                            function scrollBy(delta) {
-                                continueList.contentX = Math.max(0, Math.min(maxContentX(), continueList.contentX + delta))
-                            }
+                            Item {
+                                id: continueRail
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: appViewModel.continueItems.count > 0 ? 316 : 72
 
-                            RowLayout {
-                                anchors.fill: parent
-                                visible: appViewModel.continueItems.count > 0
-                                spacing: 10
-
-                                IconButton {
-                                    text: "‹"
-                                    enabled: continueList.contentX > 1
-                                    onClicked: continueRail.scrollBy(-Math.max(360, continueList.width * 0.82))
+                                function maxContentX() {
+                                    return Math.max(0, continueList.contentWidth - continueList.width)
                                 }
 
-                                ListView {
-                                    id: continueList
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    clip: true
-                                    orientation: ListView.Horizontal
-                                    boundsBehavior: Flickable.StopAtBounds
-                                    spacing: 14
-                                    model: appViewModel.continueItems
+                                function scrollBy(delta) {
+                                    continueList.contentX = Math.max(0, Math.min(maxContentX(), continueList.contentX + delta))
+                                }
 
-                                    delegate: ContinueWatchingCard {
-                                        width: 172
-                                        height: 306
-                                        title: model.name.length > 0 ? model.name : model.seriesName
-                                        seasonEpisode: appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber)
-                                        progressText: appViewModel.formatContinueProgress(model.playedPercentage)
-                                        imageUrl: model.continueImageUrl
-                                        progress: model.playedPercentage
-                                        onActivated: appViewModel.openContinueItem(index)
+                                RowLayout {
+                                    anchors.fill: parent
+                                    visible: appViewModel.continueItems.count > 0
+                                    spacing: 10
+
+                                    IconButton {
+                                        text: "‹"
+                                        enabled: continueList.contentX > 1
+                                        onClicked: continueRail.scrollBy(-Math.max(360, continueList.width * 0.82))
                                     }
 
-                                    WheelHandler {
-                                        onWheel: function(event) {
-                                            var delta = event.angleDelta.y !== 0 ? -event.angleDelta.y : -event.angleDelta.x
-                                            if (delta !== 0) {
-                                                continueRail.scrollBy(delta)
-                                                event.accepted = true
+                                    ListView {
+                                        id: continueList
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        clip: true
+                                        orientation: ListView.Horizontal
+                                        boundsBehavior: Flickable.StopAtBounds
+                                        spacing: 14
+                                        model: appViewModel.continueItems
+
+                                        delegate: ContinueWatchingCard {
+                                            width: 172
+                                            height: 306
+                                            title: model.name.length > 0 ? model.name : model.seriesName
+                                            seasonEpisode: appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber)
+                                            progressText: appViewModel.formatContinueProgress(model.playedPercentage)
+                                            imageUrl: model.continueImageUrl
+                                            progress: model.playedPercentage
+                                            onActivated: appViewModel.openContinueItem(index)
+                                        }
+
+                                        WheelHandler {
+                                            onWheel: function(event) {
+                                                var delta = event.angleDelta.y !== 0 ? -event.angleDelta.y : -event.angleDelta.x
+                                                if (delta !== 0) {
+                                                    continueRail.scrollBy(delta)
+                                                    event.accepted = true
+                                                }
                                             }
                                         }
                                     }
+
+                                    IconButton {
+                                        text: "›"
+                                        enabled: continueList.contentX < continueRail.maxContentX() - 1
+                                        onClicked: continueRail.scrollBy(Math.max(360, continueList.width * 0.82))
+                                    }
                                 }
 
-                                IconButton {
-                                    text: "›"
-                                    enabled: continueList.contentX < continueRail.maxContentX() - 1
-                                    onClicked: continueRail.scrollBy(Math.max(360, continueList.width * 0.82))
+                                MutedText {
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    visible: appViewModel.continueItems.count === 0 && !homePage.showInitialLoading
+                                    text: t("section.noProgress")
                                 }
                             }
 
-                            MutedText {
-                                anchors.left: parent.left
-                                anchors.top: parent.top
-                                visible: appViewModel.continueItems.count === 0
-                                text: t("section.noProgress")
+                            SectionHeader {
+                                title: t("section.libraries")
+                                subtitle: t("section.librariesSubtitle")
+                            }
+
+                            GridView {
+                                id: libraryGrid
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Math.max(260, Math.ceil(count / Math.max(1, Math.floor(width / 214))) * 230)
+                                clip: true
+                                interactive: false
+                                model: appViewModel.libraries
+                                cellWidth: Math.max(190, width / Math.max(1, Math.floor(width / 214)))
+                                cellHeight: 230
+
+                                delegate: LibraryCard {
+                                    width: libraryGrid.cellWidth - 16
+                                    height: 210
+                                    name: model.name
+                                    subtitle: model.collectionType.length > 0 ? model.collectionType : model.itemType
+                                    imageUrl: model.imageUrl
+                                    onActivated: appViewModel.openLibrary(index)
+                                }
                             }
                         }
+                    }
 
-                        SectionHeader {
-                            title: t("section.libraries")
-                            subtitle: t("section.librariesSubtitle")
-                        }
-
-                        GridView {
-                            id: libraryGrid
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Math.max(260, Math.ceil(count / Math.max(1, Math.floor(width / 214))) * 230)
-                            clip: true
-                            interactive: false
-                            model: appViewModel.libraries
-                            cellWidth: Math.max(190, width / Math.max(1, Math.floor(width / 214)))
-                            cellHeight: 230
-
-                            delegate: LibraryCard {
-                                width: libraryGrid.cellWidth - 16
-                                height: 210
-                                name: model.name
-                                subtitle: model.collectionType.length > 0 ? model.collectionType : model.itemType
-                                imageUrl: model.imageUrl
-                                onActivated: appViewModel.openLibrary(index)
-                            }
-                        }
+                    PageLoadingPanel {
+                        anchors.centerIn: parent
+                        visible: homePage.showInitialLoading
+                        title: t("loading.home")
+                        subtitle: t("loading.homeHint")
                     }
                 }
 
-                GridView {
-                    id: itemGrid
-                    clip: true
-                    model: appViewModel.items
-                    cellWidth: Math.max(172, width / Math.max(1, Math.floor(width / 186)))
-                    cellHeight: 292
+                Item {
+                    id: libraryPage
+                    property bool showInitialLoading: appViewModel.libraryItemsLoading && appViewModel.items.count === 0
 
-                    onAtYEndChanged: {
-                        if (atYEnd && appViewModel.loggedIn && !appViewModel.loading) {
-                            appViewModel.loadMoreItems()
+                    GridView {
+                        id: itemGrid
+                        anchors.fill: parent
+                        clip: true
+                        model: appViewModel.items
+                        cellWidth: Math.max(172, width / Math.max(1, Math.floor(width / 186)))
+                        cellHeight: 292
+                        opacity: libraryPage.showInitialLoading ? 0.24 : 1
+
+                        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                        onAtYEndChanged: {
+                            if (atYEnd && appViewModel.loggedIn && !appViewModel.loading) {
+                                appViewModel.loadMoreItems()
+                            }
+                        }
+
+                        delegate: MediaPoster {
+                            width: itemGrid.cellWidth - 14
+                            height: 278
+                            title: model.name
+                            subtitle: model.productionYear.length > 0 ? model.productionYear + " · " + model.itemType : model.itemType
+                            imageUrl: model.imageUrl
+                            progress: model.playedPercentage
+                            onActivated: appViewModel.openItem(index)
                         }
                     }
 
-                    delegate: MediaPoster {
-                        width: itemGrid.cellWidth - 14
-                        height: 278
-                        title: model.name
-                        subtitle: model.productionYear.length > 0 ? model.productionYear + " · " + model.itemType : model.itemType
-                        imageUrl: model.imageUrl
-                        progress: model.playedPercentage
-                        onActivated: appViewModel.openItem(index)
+                    PageLoadingPanel {
+                        anchors.centerIn: parent
+                        visible: libraryPage.showInitialLoading
+                        title: t("loading.library")
+                        subtitle: t("loading.libraryHint")
                     }
                 }
 
@@ -1415,6 +1449,51 @@ ApplicationWindow {
                     color: loadingIcon.accentColor
                     opacity: 0.25 + index * 0.08
                 }
+            }
+        }
+    }
+
+    component PageLoadingPanel: Rectangle {
+        id: loadingPanel
+        property string title: ""
+        property string subtitle: ""
+
+        width: Math.min(360, Math.max(260, parent ? parent.width - 56 : 320))
+        height: 136
+        radius: 10
+        color: darkTheme ? "#e6171c22" : "#f7ffffff"
+        border.color: darkTheme ? "#4d6f7b89" : "#d8d8e0ea"
+        opacity: visible ? 1 : 0
+
+        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+        Column {
+            anchors.centerIn: parent
+            width: parent.width - 40
+            spacing: 10
+
+            BusyIndicator {
+                anchors.horizontalCenter: parent.horizontalCenter
+                running: loadingPanel.visible
+                implicitWidth: 36
+                implicitHeight: 36
+            }
+
+            Label {
+                width: parent.width
+                text: loadingPanel.title
+                color: theme.text
+                font.pixelSize: 17
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+            }
+
+            MutedText {
+                width: parent.width
+                text: loadingPanel.subtitle
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
             }
         }
     }
