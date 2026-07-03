@@ -1367,6 +1367,58 @@ ApplicationWindow {
         }
     }
 
+    component ThumbnailLoadingIcon: Item {
+        id: loadingIcon
+        property bool running: false
+        property int iconSize: 26
+        property color accentColor: theme.primary
+
+        width: iconSize
+        height: iconSize
+        visible: running
+        opacity: running ? 1 : 0
+
+        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: darkTheme ? "#b30f1217" : "#d9ffffff"
+            border.color: darkTheme ? "#4dffffff" : "#99d8e0ea"
+        }
+
+        Item {
+            id: spinnerDots
+            anchors.centerIn: parent
+            width: Math.max(12, loadingIcon.width - 10)
+            height: width
+
+            RotationAnimation on rotation {
+                running: loadingIcon.running
+                from: 0
+                to: 360
+                duration: 900
+                loops: Animation.Infinite
+                easing.type: Easing.Linear
+            }
+
+            Repeater {
+                model: 8
+
+                Rectangle {
+                    property real angle: (index * 45 - 90) * Math.PI / 180
+                    width: Math.max(2, Math.round(spinnerDots.width * 0.14))
+                    height: width
+                    radius: width / 2
+                    x: spinnerDots.width / 2 - width / 2 + Math.cos(angle) * spinnerDots.width * 0.38
+                    y: spinnerDots.height / 2 - height / 2 + Math.sin(angle) * spinnerDots.height * 0.38
+                    color: loadingIcon.accentColor
+                    opacity: 0.25 + index * 0.08
+                }
+            }
+        }
+    }
+
     component PosterImage: Rectangle {
         property string imageUrl: ""
         property string fallbackText: "?"
@@ -1376,10 +1428,17 @@ ApplicationWindow {
         clip: true
 
         Image {
+            id: posterImage
             anchors.fill: parent
             source: imageUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
+        }
+
+        ThumbnailLoadingIcon {
+            anchors.centerIn: parent
+            iconSize: Math.min(30, Math.max(20, Math.round(Math.min(parent.width, parent.height) * 0.18)))
+            running: imageUrl.length > 0 && posterImage.status === Image.Loading
         }
 
         Label {
@@ -1969,12 +2028,19 @@ ApplicationWindow {
                 clip: true
 
                 Image {
+                    id: channelLogoImage
                     anchors.fill: parent
                     anchors.margins: 12
                     source: channelCard.logoUrl
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     visible: channelCard.logoUrl.length > 0
+                }
+
+                ThumbnailLoadingIcon {
+                    anchors.centerIn: parent
+                    iconSize: 24
+                    running: channelCard.logoUrl.length > 0 && channelLogoImage.status === Image.Loading
                 }
 
                 Label {
@@ -3561,11 +3627,20 @@ ApplicationWindow {
                                         clip: true
 
                                         Image {
+                                            id: playerChannelLogoImage
                                             anchors.fill: parent
                                             anchors.margins: 5
                                             source: iptvChannelItem.hasLogo ? model.logoUrl : ""
                                             fillMode: Image.PreserveAspectFit
+                                            asynchronous: true
                                             visible: iptvChannelItem.hasLogo
+                                        }
+
+                                        ThumbnailLoadingIcon {
+                                            anchors.centerIn: parent
+                                            iconSize: 18
+                                            running: iptvChannelItem.hasLogo && playerChannelLogoImage.status === Image.Loading
+                                            accentColor: "#78aaff"
                                         }
 
                                         Label {
