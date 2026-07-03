@@ -311,6 +311,55 @@ jobs:
           mkdir -p dist
           tar -C "$PACKAGE_DIR" -czf "dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.tar.gz" .
 
+      - name: Package Linux AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          case "${{ matrix.package-suffix }}" in
+            linux-x86_64)
+              appimage_arch="x86_64"
+              ;;
+            linux-arm64)
+              appimage_arch="aarch64"
+              ;;
+            *)
+              echo "Unsupported AppImage package suffix: ${{ matrix.package-suffix }}"
+              exit 1
+              ;;
+          esac
+
+          appdir="$RUNNER_TEMP/vibePlayerQT.AppDir"
+          rm -rf "$appdir"
+          mkdir -p "$appdir"
+          cp -a "$PACKAGE_DIR/." "$appdir/"
+
+          cat > "$appdir/AppRun" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          export LD_LIBRARY_PATH="$app_dir/lib:${LD_LIBRARY_PATH:-}"
+          exec "$app_dir/bin/vibePlayerQT" "$@"
+          EOF
+          chmod +x "$appdir/AppRun"
+
+          cp "$appdir/share/applications/vibePlayerQT.desktop" "$appdir/vibePlayerQT.desktop"
+          sed -i 's/^Exec=.*/Exec=AppRun/' "$appdir/vibePlayerQT.desktop"
+          cp "$appdir/share/icons/hicolor/1024x1024/apps/vibePlayerQT.png" "$appdir/vibePlayerQT.png"
+          ln -sf vibePlayerQT.png "$appdir/.DirIcon"
+
+          appimagetool="$RUNNER_TEMP/appimagetool-${appimage_arch}.AppImage"
+          curl -L --retry 3 \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${appimage_arch}.AppImage" \
+            -o "$appimagetool"
+          chmod +x "$appimagetool"
+
+          output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.AppImage"
+          ARCH="$appimage_arch" APPIMAGE_EXTRACT_AND_RUN=1 "$appimagetool" "$appdir" "$output"
+          test -s "$output"
+          chmod +x "$output"
+
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
@@ -360,6 +409,10 @@ jobs:
               *.tar.gz)
                 tar -tzf "$asset" > asset-contents.txt
                 ;;
+              *.AppImage)
+                file "$asset" | grep -E 'ELF|AppImage'
+                continue
+                ;;
               *)
                 echo "Unsupported release asset: ${asset}"
                 exit 1
@@ -382,8 +435,8 @@ jobs:
           - Windows x86_64
           - macOS x86_64
           - macOS arm64
-          - Linux x86_64
-          - Linux arm64
+          - Linux x86_64 tar.gz and AppImage
+          - Linux arm64 tar.gz and AppImage
           EOF
 
       - name: Create or update GitHub release

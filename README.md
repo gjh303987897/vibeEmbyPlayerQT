@@ -132,8 +132,8 @@ The workflow at `.github/workflows/build-release.yml` builds every push to `main
 - Windows x86_64
 - macOS x86_64
 - macOS arm64
-- Linux x86_64
-- Linux arm64
+- Linux x86_64 tar.gz and AppImage
+- Linux arm64 tar.gz and AppImage
 
 ## Documentation
 
