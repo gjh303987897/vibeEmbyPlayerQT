@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=vibePlayerQT
+Comment=Cross-platform Qt Quick media center
+Exec=vibePlayerQT
+Icon=vibePlayerQT
+Terminal=false
+Categories=AudioVideo;Player;Video;

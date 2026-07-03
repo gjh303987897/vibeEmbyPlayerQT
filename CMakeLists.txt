@@ -128,6 +128,29 @@ qt_add_qml_module(vibePlayerQT
         qml/Main.qml
 )
 
+qt_add_resources(vibePlayerQT "app_icons"
+    PREFIX "/app/icons"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/icon"
+    FILES
+        icon/icon_black.png
+        icon/icon_white.png
+)
+
+if(WIN32)
+    target_sources(vibePlayerQT PRIVATE icon/app_icon.rc)
+    target_include_directories(vibePlayerQT PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/icon")
+endif()
+
+if(APPLE)
+    set_source_files_properties(icon/app_icon.icns PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources
+    )
+    target_sources(vibePlayerQT PRIVATE icon/app_icon.icns)
+    set_target_properties(vibePlayerQT PROPERTIES
+        MACOSX_BUNDLE_ICON_FILE app_icon.icns
+    )
+endif()
+
 target_include_directories(vibePlayerQT PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/player
@@ -183,6 +206,21 @@ install(TARGETS vibePlayerQT
 
 if(WIN32)
     install(FILES "${MPV_RUNTIME_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
+if(UNIX AND NOT APPLE)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/vibePlayerQT.desktop.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/vibePlayerQT.desktop"
+        @ONLY
+    )
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/vibePlayerQT.desktop"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
+    )
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/icon/icon_black.png"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/1024x1024/apps"
+        RENAME vibePlayerQT.png
+    )
 endif()
 
 set(VIBEPLAYER_DEPLOY_OPTIONS NO_TRANSLATIONS)

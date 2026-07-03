@@ -5,6 +5,7 @@
 #include <QSystemTrayIcon>
 
 class QAction;
+class QIcon;
 class QMenu;
 class QQuickWindow;
 
@@ -20,6 +21,7 @@ public:
     bool minimizeToTray() const;
     void setMinimizeToTray(bool value);
     bool trayAvailable() const;
+    void setIcon(const QIcon& icon);
 
     Q_INVOKABLE void attachWindow(QObject* window);
     Q_INVOKABLE void hideToTray();

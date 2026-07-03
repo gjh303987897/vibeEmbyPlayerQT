@@ -4,6 +4,8 @@
 #include "viewmodels/AppViewModel.h"
 
 #include <QApplication>
+#include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
@@ -11,6 +13,34 @@
 #include <QQuickStyle>
 #include <QTimer>
 #include <QUrl>
+#include <QWindow>
+
+namespace {
+QIcon iconForTheme(const QString& effectiveTheme)
+{
+    const auto path = effectiveTheme == QStringLiteral("light")
+        ? QStringLiteral(":/app/icons/icon_black.png")
+        : QStringLiteral(":/app/icons/icon_white.png");
+    return QIcon(path);
+}
+
+void applyApplicationIcon(const QString& effectiveTheme, TrayController& trayController)
+{
+    const auto icon = iconForTheme(effectiveTheme);
+    if (icon.isNull()) {
+        AppLogger::warning(QStringLiteral("app"), QStringLiteral("Application icon resource is missing"));
+        return;
+    }
+
+    QApplication::setWindowIcon(icon);
+    trayController.setIcon(icon);
+    for (auto* window : QGuiApplication::topLevelWindows()) {
+        if (window) {
+            window->setIcon(icon);
+        }
+    }
+}
+}
 
 int main(int argc, char* argv[])
 {
@@ -24,10 +54,14 @@ int main(int argc, char* argv[])
     AppViewModel appViewModel;
     TrayController trayController;
     WindowAppearanceController windowAppearanceController;
+    applyApplicationIcon(appViewModel.effectiveTheme(), trayController);
     trayController.setMinimizeToTray(appViewModel.minimizeToTray());
 
     QObject::connect(&appViewModel, &AppViewModel::minimizeToTrayChanged, &trayController, [&]() {
         trayController.setMinimizeToTray(appViewModel.minimizeToTray());
+    });
+    QObject::connect(&appViewModel, &AppViewModel::effectiveThemeChanged, &trayController, [&]() {
+        applyApplicationIcon(appViewModel.effectiveTheme(), trayController);
     });
 
     QQmlApplicationEngine engine;

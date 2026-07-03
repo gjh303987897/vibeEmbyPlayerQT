@@ -258,6 +258,8 @@ jobs:
         run: |
           app="$PACKAGE_DIR/vibePlayerQT.app"
           test -x "$app/Contents/MacOS/vibePlayerQT"
+          test -f "$app/Contents/Resources/app_icon.icns"
+          plutil -extract CFBundleIconFile raw -o - "$app/Contents/Info.plist" | grep -Fx 'app_icon.icns'
           test -d "$app/Contents/Frameworks"
           while IFS= read -r -d '' file_path; do
             if file -L "$file_path" | grep -q 'Mach-O'; then
@@ -276,6 +278,8 @@ jobs:
         run: |
           test -x "$PACKAGE_DIR/bin/vibePlayerQT"
           test -x "$PACKAGE_DIR/vibePlayerQT.sh"
+          test -f "$PACKAGE_DIR/share/applications/vibePlayerQT.desktop"
+          test -f "$PACKAGE_DIR/share/icons/hicolor/1024x1024/apps/vibePlayerQT.png"
           ldd "$PACKAGE_DIR/bin/vibePlayerQT"
 
       - name: Package Windows artifact

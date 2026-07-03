@@ -2,6 +2,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QIcon>
 #include <QMenu>
 #include <QQuickWindow>
 #include <QStyle>
@@ -22,8 +23,7 @@ TrayController::TrayController(QObject* parent)
         }
     });
 
-    const auto icon = QApplication::style()->standardIcon(QStyle::SP_MediaPlay);
-    m_trayIcon.setIcon(icon);
+    m_trayIcon.setIcon(QApplication::style()->standardIcon(QStyle::SP_MediaPlay));
     m_trayIcon.setToolTip(QStringLiteral("vibePlayerQT"));
     m_trayIcon.setContextMenu(m_menu);
     updateTrayVisibility();
@@ -42,6 +42,13 @@ bool TrayController::minimizeToTray() const
 bool TrayController::trayAvailable() const
 {
     return QSystemTrayIcon::isSystemTrayAvailable();
+}
+
+void TrayController::setIcon(const QIcon& icon)
+{
+    if (!icon.isNull()) {
+        m_trayIcon.setIcon(icon);
+    }
 }
 
 void TrayController::setMinimizeToTray(bool value)
