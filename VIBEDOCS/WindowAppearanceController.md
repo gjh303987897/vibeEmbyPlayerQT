@@ -9,7 +9,8 @@
 - QML 根窗口通过 `attachWindow(QObject*)` 传入 `ApplicationWindow`。
 - QML 在主题变化时调用 `applyTheme(QString)`。
 - Windows 平台使用 DWM API 设置标题栏深色模式、标题栏背景色、边框颜色和标题文字颜色。
-- 非 Windows 平台当前为 no-op。
+- Windows 主题切换后会触发一次非客户区激活状态刷新，使标题栏不需要等待 Alt+Tab 或真实焦点变化即可立即重绘。
+- 所有平台都会请求 Qt Quick 窗口和内容场景重绘；非 Windows 平台不调用原生标题栏 API。
 
 ## 设计边界
 

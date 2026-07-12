@@ -10,7 +10,7 @@ ApplicationWindow {
     height: 780
     minimumWidth: 980
     minimumHeight: 640
-    visible: true
+    visible: false
     title: qsTr("vibePlayerQT")
     color: theme.bg
 
@@ -118,6 +118,7 @@ ApplicationWindow {
         trayController.attachWindow(root)
         windowAppearanceController.attachWindow(root)
         windowAppearanceController.applyTheme(appViewModel.effectiveTheme)
+        root.visible = true
         appViewModel.initialize()
     }
 

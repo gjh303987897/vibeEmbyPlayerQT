@@ -17,6 +17,7 @@ public:
 
 private:
     void apply();
+    void scheduleApply();
 
     QPointer<QQuickWindow> m_window;
     QString m_effectiveTheme { QStringLiteral("dark") };
