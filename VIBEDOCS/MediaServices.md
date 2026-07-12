@@ -76,6 +76,13 @@ QML does not make network requests and does not parse JSON.
 - QML only renders the season selector and episode cards; Emby / Jellyfin season and episode requests stay inside the service layer.
 - People are parsed into `MediaPerson` entries with name, role / credited-as text, type and primary image URL. `AppViewModel` exposes them through `PersonListModel` so QML can render horizontal cast cards with a photo above the name and role.
 
+## Library Navigation And Pagination
+
+- Returning from item details reuses the current library model instead of reloading the directory.
+- QML requests the next page only after an actual grid movement ends at the bottom; showing the library page again does not count as a pagination action.
+- `AppViewModel` marks the directory exhausted when a response contains fewer rows than the requested page size, or when a page contains no new media IDs.
+- `MediaItemListModel::appendItems` filters duplicate non-empty media IDs so overlapping server pages cannot create repeated cards.
+
 ## Error Handling
 
 C++ service methods use `std::expected`:

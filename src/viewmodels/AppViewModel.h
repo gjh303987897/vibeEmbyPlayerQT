@@ -419,6 +419,7 @@ private:
     QString m_currentView { QStringLiteral("services") };
     int m_nextItemStartIndex { 0 };
     int m_itemPageSize { 80 };
+    bool m_hasMoreMediaItems { true };
     int m_seriesRequestGeneration { 0 };
 
     NetworkClient m_embyNetworkClient;

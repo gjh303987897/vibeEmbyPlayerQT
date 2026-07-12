@@ -1,5 +1,7 @@
 #include "viewmodels/MediaItemListModel.h"
 
+#include <QSet>
+
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -118,18 +120,44 @@ void MediaItemListModel::setItems(std::vector<MediaItem> items)
     emit countChanged();
 }
 
-void MediaItemListModel::appendItems(std::vector<MediaItem> items)
+int MediaItemListModel::appendItems(std::vector<MediaItem> items)
 {
     if (items.empty()) {
-        return;
+        return 0;
+    }
+
+    QSet<QString> existingIds;
+    existingIds.reserve(static_cast<qsizetype>(m_items.size() + items.size()));
+    for (const auto& item : m_items) {
+        if (!item.id.isEmpty()) {
+            existingIds.insert(item.id);
+        }
+    }
+
+    std::vector<MediaItem> uniqueItems;
+    uniqueItems.reserve(items.size());
+    for (auto& item : items) {
+        if (!item.id.isEmpty() && existingIds.contains(item.id)) {
+            continue;
+        }
+        if (!item.id.isEmpty()) {
+            existingIds.insert(item.id);
+        }
+        uniqueItems.push_back(std::move(item));
+    }
+
+    if (uniqueItems.empty()) {
+        return 0;
     }
 
     const auto first = rowCount();
-    const auto last = first + static_cast<int>(items.size()) - 1;
+    const auto appendedCount = static_cast<int>(uniqueItems.size());
+    const auto last = first + appendedCount - 1;
     beginInsertRows({}, first, last);
-    m_items.insert(m_items.end(), std::make_move_iterator(items.begin()), std::make_move_iterator(items.end()));
+    m_items.insert(m_items.end(), std::make_move_iterator(uniqueItems.begin()), std::make_move_iterator(uniqueItems.end()));
     endInsertRows();
     emit countChanged();
+    return appendedCount;
 }
 
 bool MediaItemListModel::updatePlaybackProgress(const QString& itemId, qint64 playbackPositionTicks, double playedPercentage, bool played)

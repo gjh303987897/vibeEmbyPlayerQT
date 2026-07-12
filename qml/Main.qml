@@ -1019,7 +1019,7 @@ ApplicationWindow {
 
                         Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-                        onAtYEndChanged: {
+                        onMovementEnded: {
                             if (atYEnd && appViewModel.loggedIn && !appViewModel.loading) {
                                 appViewModel.loadMoreItems()
                             }

@@ -2061,6 +2061,7 @@ void AppViewModel::resetMediaDirectory(const QString& id, const QString& name)
     m_currentMediaParentId = id;
     m_currentMediaParentName = name;
     m_nextItemStartIndex = 0;
+    m_hasMoreMediaItems = true;
     if (changed) {
         emit currentLibraryChanged();
     }
@@ -2083,11 +2084,15 @@ void AppViewModel::loadMediaDirectory(bool resetItems)
     }
 
     if (resetItems) {
+        m_nextItemStartIndex = 0;
+        m_hasMoreMediaItems = true;
         m_items.clear();
         m_selectedItem.reset();
         clearSeriesDetails();
         syncSelectedPeople();
         emit selectedItemChanged();
+    } else if (!m_hasMoreMediaItems) {
+        return;
     }
 
     const auto requestParentId = m_currentMediaParentId;
@@ -2111,8 +2116,10 @@ void AppViewModel::loadMediaDirectory(bool resetItems)
 
         const auto count = static_cast<int>(result->size());
         m_nextItemStartIndex += count;
-        AppLogger::info(QStringLiteral("items"), QStringLiteral("Fetched %1 items").arg(count));
-        m_items.appendItems(std::move(*result));
+        const auto appendedCount = m_items.appendItems(std::move(*result));
+        m_hasMoreMediaItems = count >= m_itemPageSize && appendedCount > 0;
+        AppLogger::info(QStringLiteral("items"),
+                        QStringLiteral("Fetched %1 items, appended %2 unique items").arg(count).arg(appendedCount));
         setCurrentView(QStringLiteral("library"));
     });
 }
