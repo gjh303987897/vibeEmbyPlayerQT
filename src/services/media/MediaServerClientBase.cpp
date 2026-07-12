@@ -32,9 +32,24 @@ QString stringListFromArray(const QJsonArray& array)
     return values.join(QStringLiteral(", "));
 }
 
+QString primaryImageTag(const QJsonObject& object)
+{
+    const auto directTag = jsonStringAny(object, {
+        QStringLiteral("PrimaryImageTag"),
+        QStringLiteral("primaryImageTag"),
+    });
+    if (!directTag.isEmpty()) {
+        return directTag;
+    }
+
+    const auto imageTags = object.value(QStringLiteral("ImageTags"))
+                               .toObject(object.value(QStringLiteral("imageTags")).toObject());
+    return jsonStringAny(imageTags, { QStringLiteral("Primary"), QStringLiteral("primary") });
+}
+
 QString imageUrlForItem(const QString& baseUrl, const QString& itemId, const QString& imageTag, const QString& token, int width)
 {
-    if (baseUrl.isEmpty() || itemId.isEmpty()) {
+    if (baseUrl.isEmpty() || itemId.isEmpty() || imageTag.isEmpty()) {
         return {};
     }
 
@@ -70,7 +85,7 @@ std::vector<MediaPerson> peopleListFromArray(const QJsonArray& array, const QStr
         person.name = jsonStringAny(object, { QStringLiteral("Name"), QStringLiteral("name") });
         person.role = jsonStringAny(object, { QStringLiteral("Role"), QStringLiteral("role") });
         person.type = jsonStringAny(object, { QStringLiteral("Type"), QStringLiteral("type") });
-        person.imageTag = jsonStringAny(object, { QStringLiteral("PrimaryImageTag"), QStringLiteral("primaryImageTag") });
+        person.imageTag = primaryImageTag(object);
         person.imageUrl = imageUrlForItem(baseUrl, person.id, person.imageTag, token, 320);
         if (person.name.isEmpty()) {
             continue;
@@ -184,7 +199,7 @@ MediaLibrary MediaServerClientBase::parseLibrary(const QJsonObject& object, cons
     library.name = jsonStringAny(object, { QStringLiteral("Name"), QStringLiteral("name") });
     library.collectionType = jsonStringAny(object, { QStringLiteral("CollectionType"), QStringLiteral("collectionType") });
     library.itemType = collectionTypeLabel(library.collectionType, jsonStringAny(object, { QStringLiteral("Type"), QStringLiteral("type") }));
-    library.imageTag = jsonStringAny(object, { QStringLiteral("PrimaryImageTag"), QStringLiteral("primaryImageTag") });
+    library.imageTag = primaryImageTag(object);
     library.childCount = jsonIntAny(object, { QStringLiteral("ChildCount"), QStringLiteral("childCount") });
     library.imageUrl = primaryImageUrl(baseUrl, library.id, library.imageTag, token, 420);
     return library;
@@ -207,7 +222,7 @@ MediaItem MediaServerClientBase::parseItem(const QJsonObject& object, const QStr
     item.seriesImageTag = jsonStringAny(object, { QStringLiteral("SeriesPrimaryImageTag"), QStringLiteral("seriesPrimaryImageTag") });
     item.childCount = jsonIntAny(object, { QStringLiteral("ChildCount"), QStringLiteral("childCount") });
     item.overview = jsonStringAny(object, { QStringLiteral("Overview"), QStringLiteral("overview") });
-    item.imageTag = jsonStringAny(object, { QStringLiteral("PrimaryImageTag"), QStringLiteral("primaryImageTag") });
+    item.imageTag = primaryImageTag(object);
     item.imageUrl = primaryImageUrl(baseUrl, item.id, item.imageTag, token, 460);
     item.seriesImageUrl = primaryImageUrl(baseUrl, item.seriesId, item.seriesImageTag, token, 460);
     item.backdropImageUrl = backdropImageUrl(baseUrl, item.id, firstBackdropTag(object), token, 1280);
@@ -286,7 +301,7 @@ QString MediaServerClientBase::primaryImageUrl(const QString& baseUrl,
                                                const QString& token,
                                                int width)
 {
-    if (baseUrl.isEmpty() || itemId.isEmpty()) {
+    if (baseUrl.isEmpty() || itemId.isEmpty() || imageTag.isEmpty()) {
         return {};
     }
 

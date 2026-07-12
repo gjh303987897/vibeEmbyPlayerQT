@@ -1525,7 +1525,7 @@ ApplicationWindow {
 
         Label {
             anchors.centerIn: parent
-            visible: imageUrl.length === 0
+            visible: imageUrl.length === 0 || posterImage.status === Image.Error
             text: fallbackText
             color: theme.subtle
             font.pixelSize: 38

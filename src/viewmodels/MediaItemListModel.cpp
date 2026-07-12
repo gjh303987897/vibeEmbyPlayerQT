@@ -53,7 +53,7 @@ QVariant MediaItemListModel::data(const QModelIndex& index, int role) const
     case OverviewRole:
         return item.overview;
     case ImageUrlRole:
-        return item.imageUrl;
+        return item.imageUrl.isEmpty() ? item.seriesImageUrl : item.imageUrl;
     case BackdropImageUrlRole:
         return item.backdropImageUrl;
     case CommunityRatingRole:

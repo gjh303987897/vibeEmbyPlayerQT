@@ -154,6 +154,8 @@ The current implementation adds:
 - `tag`
 - `api_key`
 
+Primary image availability is determined from `ImageTags.Primary`, with `PrimaryImageTag` retained as a compatibility fallback. The client does not create a primary-image URL when neither field contains a tag. Episodes without their own primary image use `SeriesPrimaryImageTag` and the series item id as a display fallback.
+
 This keeps QML image loading simple while still allowing the server to authorize image access.
 
 Note: because QML `Image` does not attach custom authorization headers, the current first version uses `api_key` in image URLs. A later image proxy/cache layer should remove token-bearing URLs from the QML surface.

@@ -70,10 +70,12 @@ QML does not make network requests and does not parse JSON.
 
 - Item details are fetched through the service layer, not QML.
 - Details currently expose title, poster, backdrop, overview, rating, runtime, genres, people cards and playback progress.
+- Primary image tags are read from both the legacy `PrimaryImageTag` field and the current `ImageTags.Primary` map. Image URLs are only created when the server reports a real image tag.
 - Episode details also expose season / episode text through the ViewModel.
 - Series details expose seasons and the selected season's episodes through `MediaItemListModel` instances owned by `AppViewModel`.
 - Episode details opened from continue-watching also expose the parent series seasons and selected season episodes when the server response includes `SeriesId`.
 - QML only renders the season selector and episode cards; Emby / Jellyfin season and episode requests stay inside the service layer.
+- Episode cards and episode details fall back to the parent series primary image when the episode has no primary image of its own. Failed image requests display the normal placeholder instead of an empty card.
 - People are parsed into `MediaPerson` entries with name, role / credited-as text, type and primary image URL. `AppViewModel` exposes them through `PersonListModel` so QML can render horizontal cast cards with a photo above the name and role.
 
 ## Library Navigation And Pagination

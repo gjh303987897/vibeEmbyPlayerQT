@@ -1014,7 +1014,10 @@ QString AppViewModel::selectedItemOverview() const
 
 QString AppViewModel::selectedItemImageUrl() const
 {
-    return m_selectedItem ? m_selectedItem->imageUrl : QString {};
+    if (!m_selectedItem) {
+        return {};
+    }
+    return m_selectedItem->imageUrl.isEmpty() ? m_selectedItem->seriesImageUrl : m_selectedItem->imageUrl;
 }
 
 QString AppViewModel::selectedItemBackdropUrl() const
