@@ -96,6 +96,10 @@ ApplicationWindow {
         return unit === 0 ? Math.round(value) + " " + units[unit] : value.toFixed(value >= 10 ? 1 : 2) + " " + units[unit]
     }
 
+    function withAlpha(value, alpha) {
+        return Qt.rgba(value.r, value.g, value.b, alpha)
+    }
+
     function formatHistoryDate(value) {
         if (!value || value.length < 10) {
             return value
@@ -2384,50 +2388,186 @@ ApplicationWindow {
         property string direction: ""
         property string status: ""
         property string detail: ""
+        property string target: ""
+        property real bytesDone: 0
+        property real bytesTotal: -1
+        property real bytesPerSecond: 0
         property real progress: 0
         property bool cancellable: false
+
+        function directionIcon() {
+            if (direction === "upload") {
+                return "\u2191"
+            }
+            if (direction === "mkdir") {
+                return "+"
+            }
+            return "\u2193"
+        }
+
+        function statusText() {
+            switch (status) {
+            case "queued": return t("transfers.statusQueued")
+            case "running":
+                if (direction === "upload") {
+                    return t("transfers.statusUploading")
+                }
+                if (direction === "mkdir") {
+                    return t("transfers.statusCreatingFolder")
+                }
+                return t("transfers.statusRunning")
+            case "done": return t("transfers.statusDone")
+            case "failed": return t("transfers.statusFailed")
+            case "canceled": return t("transfers.statusCanceled")
+            default: return status
+            }
+        }
+
+        function statusColor() {
+            switch (status) {
+            case "done": return theme.success
+            case "failed": return theme.danger
+            case "canceled": return theme.subtle
+            case "running": return theme.primary
+            default: return theme.warning
+            }
+        }
 
         radius: 8
         color: theme.elevated
         border.color: theme.border
-        implicitHeight: 84
+        implicitHeight: 116
+        height: implicitHeight
 
-        ColumnLayout {
+        RowLayout {
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
+            anchors.margins: 14
+            spacing: 14
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
+            Rectangle {
+                Layout.preferredWidth: 42
+                Layout.preferredHeight: 42
+                Layout.alignment: Qt.AlignTop
+                radius: 8
+                color: root.withAlpha(taskRow.statusColor(), darkTheme ? 0.18 : 0.11)
+                border.color: root.withAlpha(taskRow.statusColor(), 0.42)
+
                 Label {
-                    Layout.fillWidth: true
-                    text: taskRow.title
-                    color: theme.text
-                    font.pixelSize: 15
+                    anchors.centerIn: parent
+                    text: taskRow.directionIcon()
+                    color: taskRow.statusColor()
+                    font.pixelSize: 22
                     font.bold: true
-                    elide: Text.ElideRight
-                }
-                MutedText { text: taskRow.direction + " / " + taskRow.status }
-                ModernButton {
-                    visible: taskRow.cancellable && taskRow.status !== "done" && taskRow.status !== "failed" && taskRow.status !== "canceled"
-                    text: t("action.cancel")
-                    onClicked: appViewModel.cancelTransfer(taskRow.taskId)
                 }
             }
 
-            ProgressBar {
+            ColumnLayout {
                 Layout.fillWidth: true
-                from: 0
-                to: 1
-                value: taskRow.progress
+                Layout.fillHeight: true
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: taskRow.title
+                        color: theme.text
+                        font.pixelSize: 15
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: statusLabel.implicitWidth + 16
+                        Layout.preferredHeight: 24
+                        radius: 7
+                        color: root.withAlpha(taskRow.statusColor(), darkTheme ? 0.16 : 0.10)
+
+                        Label {
+                            id: statusLabel
+                            anchors.centerIn: parent
+                            text: taskRow.statusText()
+                            color: taskRow.statusColor()
+                            font.pixelSize: 12
+                            font.bold: true
+                        }
+                    }
+                }
+
+                MutedText {
+                    Layout.fillWidth: true
+                    text: taskRow.status === "failed" ? taskRow.detail : taskRow.target
+                    color: taskRow.status === "failed" ? theme.danger : theme.muted
+                    elide: Text.ElideMiddle
+                }
+
+                ProgressBar {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: taskRow.direction === "mkdir" ? 0 : 4
+                    visible: taskRow.direction !== "mkdir"
+                    from: 0
+                    to: 1
+                    value: taskRow.progress
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: taskRow.bytesTotal > 0
+                            ? root.formatBytes(taskRow.bytesDone) + " / " + root.formatBytes(taskRow.bytesTotal)
+                            : taskRow.detail
+                        elide: Text.ElideRight
+                    }
+
+                    MutedText {
+                        visible: taskRow.status === "running" && taskRow.bytesPerSecond > 0
+                        text: root.formatBytes(taskRow.bytesPerSecond) + "/s"
+                        color: theme.text
+                    }
+                }
             }
 
-            MutedText {
-                Layout.fillWidth: true
-                text: taskRow.detail
-                elide: Text.ElideRight
+            IconButton {
+                Layout.alignment: Qt.AlignTop
+                visible: taskRow.cancellable
+                    && taskRow.status !== "done"
+                    && taskRow.status !== "failed"
+                    && taskRow.status !== "canceled"
+                text: "\u00d7"
+                onClicked: appViewModel.cancelTransfer(taskRow.taskId)
+                ToolTip.visible: hovered
+                ToolTip.text: t("action.cancel")
             }
+        }
+    }
+
+    component TransferSummaryBlock: ColumnLayout {
+        property string label: ""
+        property string value: ""
+        property color valueColor: theme.text
+
+        Layout.fillWidth: true
+        spacing: 4
+
+        MutedText {
+            Layout.fillWidth: true
+            text: label
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: value
+            color: valueColor
+            font.pixelSize: 20
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
         }
     }
 
@@ -4499,16 +4639,10 @@ ApplicationWindow {
         }
     }
 
-    component TransfersPage: Flickable {
-        id: transfersFlick
-        contentWidth: width
-        contentHeight: transfersColumn.implicitHeight
-        clip: true
-
+    component TransfersPage: Item {
         ColumnLayout {
-            id: transfersColumn
-            width: transfersFlick.width
-            spacing: 14
+            anchors.fill: parent
+            spacing: 16
 
             RowLayout {
                 Layout.fillWidth: true
@@ -4516,7 +4650,12 @@ ApplicationWindow {
                 SectionHeader {
                     Layout.fillWidth: true
                     title: t("transfers.title")
-                    subtitle: appViewModel.transferTasks.count + " tasks"
+                    subtitle: t("transfers.subtitle")
+                }
+                ModernButton {
+                    visible: appViewModel.completedTransferCount + appViewModel.failedTransferCount > 0
+                    text: t("transfers.clearFinished")
+                    onClicked: appViewModel.clearFinishedTransfers()
                 }
                 ModernButton {
                     text: t("action.backToServices")
@@ -4524,28 +4663,95 @@ ApplicationWindow {
                 }
             }
 
-            ListView {
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.max(120, appViewModel.transferTasks.count * 94)
-                interactive: false
-                spacing: 10
-                model: appViewModel.transferTasks
-                delegate: TransferTaskRow {
-                    width: ListView.view.width
-                    taskId: model.taskId
-                    title: model.title
-                    direction: model.direction
-                    status: model.status
-                    detail: model.detail
-                    progress: model.progress
-                    cancellable: model.cancellable
+                Layout.preferredHeight: 58
+                spacing: 0
+
+                TransferSummaryBlock {
+                    label: t("transfers.pending")
+                    value: appViewModel.activeTransferCount.toString()
+                    valueColor: appViewModel.activeTransferCount > 0 ? theme.primary : theme.text
+                }
+                Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 40; color: theme.border }
+                TransferSummaryBlock {
+                    label: t("transfers.completed")
+                    value: appViewModel.completedTransferCount.toString()
+                    valueColor: appViewModel.completedTransferCount > 0 ? theme.success : theme.text
+                }
+                Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 40; color: theme.border }
+                TransferSummaryBlock {
+                    label: t("transfers.failed")
+                    value: appViewModel.failedTransferCount.toString()
+                    valueColor: appViewModel.failedTransferCount > 0 ? theme.danger : theme.text
+                }
+                Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 40; color: theme.border }
+                TransferSummaryBlock {
+                    label: t("transfers.speed")
+                    value: root.formatBytes(appViewModel.transferBytesPerSecond) + "/s"
+                    valueColor: appViewModel.transferBytesPerSecond > 0 ? theme.primary : theme.text
                 }
             }
 
-            MutedText {
+            Item {
                 Layout.fillWidth: true
-                visible: appViewModel.transferTasks.count === 0
-                text: t("transfers.empty")
+                Layout.fillHeight: true
+
+                ListView {
+                    id: transferList
+                    anchors.fill: parent
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    spacing: 10
+                    reuseItems: true
+                    cacheBuffer: 300
+                    model: appViewModel.transferTasks
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    delegate: TransferTaskRow {
+                        width: ListView.view.width
+                        taskId: model.taskId
+                        title: model.title
+                        direction: model.direction
+                        status: model.status
+                        detail: model.detail
+                        target: model.target
+                        bytesDone: model.bytesDone
+                        bytesTotal: model.bytesTotal
+                        bytesPerSecond: model.bytesPerSecond
+                        progress: model.progress
+                        cancellable: model.cancellable
+                    }
+                }
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 48, 360)
+                    visible: appViewModel.transferTasks.count === 0
+                    spacing: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: "\u2193"
+                        color: theme.subtle
+                        font.pixelSize: 34
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("transfers.empty")
+                        color: theme.text
+                        font.pixelSize: 16
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: t("transfers.emptyHint")
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+                }
             }
         }
     }

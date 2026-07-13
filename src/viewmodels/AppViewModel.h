@@ -7,6 +7,7 @@
 #include "network/NetworkClient.h"
 #include "services/webdav/TransferManager.h"
 #include "services/webdav/WebDavClient.h"
+#include "services/webdav/WebDavDownloadPlanner.h"
 #include "services/webdav/WebDavPlaybackProxy.h"
 #include "services/emby/EmbyClient.h"
 #include "services/jellyfin/JellyfinClient.h"
@@ -53,6 +54,9 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString defaultDownloadDirectory READ defaultDownloadDirectory WRITE setDefaultDownloadDirectory NOTIFY defaultDownloadDirectoryChanged)
     Q_PROPERTY(TransferTaskListModel* transferTasks READ transferTasks CONSTANT)
     Q_PROPERTY(int activeTransferCount READ activeTransferCount NOTIFY transferTasksChanged)
+    Q_PROPERTY(int completedTransferCount READ completedTransferCount NOTIFY transferTasksChanged)
+    Q_PROPERTY(int failedTransferCount READ failedTransferCount NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferBytesPerSecond READ transferBytesPerSecond NOTIFY transferTasksChanged)
     Q_PROPERTY(QString playbackHttpUsername READ playbackHttpUsername NOTIFY playbackChanged)
     Q_PROPERTY(QString playbackHttpPassword READ playbackHttpPassword NOTIFY playbackChanged)
     Q_PROPERTY(bool playbackAllowInsecureTls READ playbackAllowInsecureTls NOTIFY playbackChanged)
@@ -153,6 +157,9 @@ public:
     void setDefaultDownloadDirectory(const QString& value);
     TransferTaskListModel* transferTasks();
     int activeTransferCount() const;
+    int completedTransferCount() const;
+    int failedTransferCount() const;
+    qint64 transferBytesPerSecond() const;
     QString playbackHttpUsername() const;
     QString playbackHttpPassword() const;
     bool playbackAllowInsecureTls() const;
@@ -244,6 +251,7 @@ public:
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
     Q_INVOKABLE void openTransfers();
     Q_INVOKABLE void cancelTransfer(const QString& taskId);
+    Q_INVOKABLE void clearFinishedTransfers();
     Q_INVOKABLE bool unlockPrivacyMode(const QString& pin);
     Q_INVOKABLE void exitPrivacyMode();
     Q_INVOKABLE void refreshPrivacyCards();
@@ -371,8 +379,6 @@ private:
     std::optional<QString> loadWebDavPassword(const ServerConfig& server);
     QUrl childWebDavUrl(const QString& name, bool directory) const;
     QString uniqueLocalPath(const QString& directory, const QString& name) const;
-    void enqueueWebDavDownload(const WebDavItem& item, const QString& targetPath);
-    void estimateWebDavDownloadSize(const WebDavItem& item, std::function<void(qint64, bool)> callback);
     void enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl);
     void wireWebDavCertificatePrompt();
     void wireUsageSignals();
@@ -483,6 +489,7 @@ private:
     EmbyClient m_embyClient;
     JellyfinClient m_jellyfinClient;
     WebDavClient m_webDavClient;
+    WebDavDownloadPlanner m_webDavDownloadPlanner;
     WebDavPlaybackProxy m_webDavPlaybackProxy;
     TransferManager m_transferManager;
     SessionRepository m_repository;

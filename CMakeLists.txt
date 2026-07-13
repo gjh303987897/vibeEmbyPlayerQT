@@ -93,6 +93,8 @@ qt_add_executable(vibePlayerQT
     src/services/media/MediaServerClientBase.h
     src/services/scheduler/ScheduledPlaybackManager.cpp
     src/services/scheduler/ScheduledPlaybackManager.h
+    src/services/webdav/WebDavDownloadPlanner.cpp
+    src/services/webdav/WebDavDownloadPlanner.h
     src/services/webdav/TransferManager.cpp
     src/services/webdav/TransferManager.h
     src/services/webdav/WebDavClient.cpp
@@ -256,3 +258,31 @@ qt_generate_deploy_qml_app_script(
     ${VIBEPLAYER_DEPLOY_OPTIONS}
 )
 install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
+
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+    add_executable(webdav_download_planner_test
+        tests/WebDavDownloadPlannerTest.cpp
+        src/services/webdav/WebDavDownloadPlanner.cpp
+        src/services/webdav/WebDavDownloadPlanner.h
+        src/services/webdav/WebDavClient.cpp
+        src/services/webdav/WebDavClient.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+    )
+    target_include_directories(webdav_download_planner_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(webdav_download_planner_test PRIVATE
+        Qt6::Network
+        Qt6::Test
+        Qt6::Xml
+    )
+
+    add_test(NAME webdav_download_planner COMMAND webdav_download_planner_test)
+    set_tests_properties(webdav_download_planner PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+endif()

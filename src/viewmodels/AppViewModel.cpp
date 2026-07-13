@@ -365,7 +365,21 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.spaceWarning"), QStringLiteral("Download size is %1, available disk space is %2. Continue anyway?") },
         { QStringLiteral("webdav.unknownSizeWarning"), QStringLiteral("The total download size could not be confirmed. Continue anyway?") },
         { QStringLiteral("transfers.title"), QStringLiteral("Transfers") },
+        { QStringLiteral("transfers.subtitle"), QStringLiteral("Download queue and recent activity") },
         { QStringLiteral("transfers.empty"), QStringLiteral("No transfer tasks") },
+        { QStringLiteral("transfers.emptyHint"), QStringLiteral("Downloads and uploads will appear here") },
+        { QStringLiteral("transfers.pending"), QStringLiteral("Pending") },
+        { QStringLiteral("transfers.completed"), QStringLiteral("Completed") },
+        { QStringLiteral("transfers.failed"), QStringLiteral("Failed / canceled") },
+        { QStringLiteral("transfers.speed"), QStringLiteral("Current speed") },
+        { QStringLiteral("transfers.clearFinished"), QStringLiteral("Clear finished") },
+        { QStringLiteral("transfers.statusQueued"), QStringLiteral("Queued") },
+        { QStringLiteral("transfers.statusRunning"), QStringLiteral("Downloading") },
+        { QStringLiteral("transfers.statusUploading"), QStringLiteral("Uploading") },
+        { QStringLiteral("transfers.statusCreatingFolder"), QStringLiteral("Creating folder") },
+        { QStringLiteral("transfers.statusDone"), QStringLiteral("Completed") },
+        { QStringLiteral("transfers.statusFailed"), QStringLiteral("Failed") },
+        { QStringLiteral("transfers.statusCanceled"), QStringLiteral("Canceled") },
         { QStringLiteral("status.autoLogin"), QStringLiteral("Auto login") },
         { QStringLiteral("status.passwordRequired"), QStringLiteral("Password required") },
         { QStringLiteral("status.ready"), QStringLiteral("Ready") },
@@ -610,6 +624,29 @@ const QHash<QString, QString>& iptvChineseTexts()
     return texts;
 }
 
+const QHash<QString, QString>& transferChineseTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("transfers.title"), QStringLiteral("传输任务") },
+        { QStringLiteral("transfers.subtitle"), QStringLiteral("下载队列与最近传输记录") },
+        { QStringLiteral("transfers.empty"), QStringLiteral("暂无传输任务") },
+        { QStringLiteral("transfers.emptyHint"), QStringLiteral("下载和上传任务会显示在这里") },
+        { QStringLiteral("transfers.pending"), QStringLiteral("待完成") },
+        { QStringLiteral("transfers.completed"), QStringLiteral("已完成") },
+        { QStringLiteral("transfers.failed"), QStringLiteral("失败 / 已取消") },
+        { QStringLiteral("transfers.speed"), QStringLiteral("当前速度") },
+        { QStringLiteral("transfers.clearFinished"), QStringLiteral("清除已结束") },
+        { QStringLiteral("transfers.statusQueued"), QStringLiteral("等待中") },
+        { QStringLiteral("transfers.statusRunning"), QStringLiteral("传输中") },
+        { QStringLiteral("transfers.statusUploading"), QStringLiteral("上传中") },
+        { QStringLiteral("transfers.statusCreatingFolder"), QStringLiteral("创建文件夹") },
+        { QStringLiteral("transfers.statusDone"), QStringLiteral("已完成") },
+        { QStringLiteral("transfers.statusFailed"), QStringLiteral("失败") },
+        { QStringLiteral("transfers.statusCanceled"), QStringLiteral("已取消") },
+    };
+    return texts;
+}
+
 const QHash<QString, QString>& historyChineseTexts()
 {
     static const QHash<QString, QString> texts {
@@ -699,6 +736,7 @@ AppViewModel::AppViewModel(QObject* parent)
     : QObject(parent)
     , m_embyClient(m_embyNetworkClient, this)
     , m_jellyfinClient(m_jellyfinNetworkClient, this)
+    , m_webDavDownloadPlanner(m_webDavClient)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
     wireCertificatePrompt(m_embyClient);
@@ -720,7 +758,6 @@ AppViewModel::AppViewModel(QObject* parent)
     }
     connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
     connect(&m_transferManager, &TransferManager::taskFinished, this, [this](const QString&, bool, const QString&) {
-        emit transferTasksChanged();
         if (m_currentWebDavCard && m_currentView == QStringLiteral("webdav")) {
             refreshWebDavDirectory();
         }
@@ -927,6 +964,21 @@ TransferTaskListModel* AppViewModel::transferTasks()
 int AppViewModel::activeTransferCount() const
 {
     return m_transferManager.activeCount();
+}
+
+int AppViewModel::completedTransferCount() const
+{
+    return m_transferManager.completedCount();
+}
+
+int AppViewModel::failedTransferCount() const
+{
+    return m_transferManager.failedCount();
+}
+
+qint64 AppViewModel::transferBytesPerSecond() const
+{
+    return m_transferManager.bytesPerSecond();
 }
 
 QString AppViewModel::playbackHttpUsername() const
@@ -1724,38 +1776,66 @@ void AppViewModel::downloadWebDavItem(int row)
 
     const auto targetPath = uniqueLocalPath(directory, item->name);
     const auto available = QStorageInfo(directory).bytesAvailable();
-    const auto continueDownload = [this, item = *item, targetPath]() {
-        enqueueWebDavDownload(item, targetPath);
-        openTransfers();
-    };
+    const auto server = m_currentWebDavCard->server;
+    const auto password = m_webDavPassword;
+    const auto directoryDownload = item->directory;
+    if (directoryDownload) {
+        setLoading(true);
+    }
 
-    auto continueAfterEstimate = [this, continueDownload, available](qint64 bytes, bool complete) {
-        const auto shouldWarn = !complete || bytes < 0 || (available > 0 && bytes > available);
-        if (!shouldWarn) {
-            continueDownload();
+    m_webDavDownloadPlanner.buildPlan(server,
+                                      password,
+                                      *item,
+                                      targetPath,
+                                      [this, server, password, available, directoryDownload](WebDavDownloadPlanResult result) mutable {
+        if (directoryDownload) {
+            setLoading(false);
+        }
+        if (!result) {
+            setError(displayNetworkError(result.error()));
             return;
         }
+
+        auto launchDownload = [this, server, password](WebDavDownloadPlan plan) mutable {
+            for (const auto& localDirectory : plan.directories) {
+                if (!QDir().mkpath(localDirectory)) {
+                    setError(QStringLiteral("Unable to create local download directory"));
+                    return;
+                }
+            }
+
+            std::vector<TransferManager::DownloadRequest> requests;
+            requests.reserve(plan.files.size());
+            for (auto& file : plan.files) {
+                requests.push_back(TransferManager::DownloadRequest {
+                    .remoteUrl = std::move(file.remoteUrl),
+                    .localPath = std::move(file.localPath),
+                    .totalBytes = file.bytesTotal,
+                });
+            }
+            m_transferManager.enqueueDownloads(server, password, std::move(requests));
+            openTransfers();
+        };
+
+        auto plan = std::move(*result);
+        const auto shouldWarn = !plan.sizeComplete ||
+            (available > 0 && plan.bytesTotal > available);
+        if (!shouldWarn) {
+            launchDownload(std::move(plan));
+            return;
+        }
+
         const auto title = trText(QStringLiteral("webdav.spaceWarningTitle"));
-        const auto message = (!complete || bytes < 0)
+        const auto message = !plan.sizeComplete
             ? trText(QStringLiteral("webdav.unknownSizeWarning"))
-            : trText(QStringLiteral("webdav.spaceWarning")).arg(sizeText(bytes), sizeText(available));
-        m_pendingDownloadWarningReply = [continueDownload](bool accepted) {
+            : trText(QStringLiteral("webdav.spaceWarning")).arg(sizeText(plan.bytesTotal), sizeText(available));
+        m_pendingDownloadWarningReply = [launchDownload, plan = std::move(plan)](bool accepted) mutable {
             if (accepted) {
-                continueDownload();
+                launchDownload(std::move(plan));
             }
         };
         emit downloadSpaceWarningRequested(title, message);
-    };
-
-    if (item->directory) {
-        setLoading(true);
-        estimateWebDavDownloadSize(*item, [this, continueAfterEstimate](qint64 bytes, bool complete) {
-            setLoading(false);
-            continueAfterEstimate(bytes, complete);
-        });
-        return;
-    }
-    continueAfterEstimate(item->size, item->size >= 0);
+    });
 }
 
 void AppViewModel::chooseDefaultDownloadDirectory()
@@ -1776,6 +1856,11 @@ void AppViewModel::openTransfers()
 void AppViewModel::cancelTransfer(const QString& taskId)
 {
     m_transferManager.cancelTask(taskId);
+}
+
+void AppViewModel::clearFinishedTransfers()
+{
+    m_transferManager.clearFinished();
 }
 
 bool AppViewModel::unlockPrivacyMode(const QString& pin)
@@ -1926,6 +2011,12 @@ void AppViewModel::moveServiceCardTo(int fromRow, int toRow)
 QString AppViewModel::trText(const QString& key) const
 {
     const auto language = effectiveLanguage(m_languageMode);
+    if (language == QStringLiteral("zh_CN") && key.startsWith(QStringLiteral("transfers."))) {
+        const auto& transferTable = transferChineseTexts();
+        if (transferTable.contains(key)) {
+            return transferTable.value(key);
+        }
+    }
     if (language == QStringLiteral("zh_CN") &&
         (key == QStringLiteral("nav.scheduledTasks") || key.startsWith(QStringLiteral("schedule.")))) {
         const auto& scheduledPlaybackTable = scheduledPlaybackChineseTexts();
@@ -3439,94 +3530,6 @@ QString AppViewModel::uniqueLocalPath(const QString& directory, const QString& n
         }
     }
     return original.absoluteFilePath();
-}
-
-void AppViewModel::enqueueWebDavDownload(const WebDavItem& item, const QString& targetPath)
-{
-    if (!m_currentWebDavCard) {
-        return;
-    }
-    if (!item.directory) {
-        m_transferManager.enqueueDownload(m_currentWebDavCard->server, m_webDavPassword, item.url, targetPath, item.size);
-        return;
-    }
-
-    QDir().mkpath(targetPath);
-    m_webDavClient.listDirectory(m_currentWebDavCard->server, m_webDavPassword, ensureDirectoryUrl(item.url), [this, targetPath](WebDavListResult result) {
-        if (!result) {
-            setError(displayNetworkError(result.error()));
-            return;
-        }
-        for (const auto& child : *result) {
-            const auto childTarget = QDir(targetPath).filePath(child.name);
-            enqueueWebDavDownload(child, childTarget);
-        }
-    });
-}
-
-void AppViewModel::estimateWebDavDownloadSize(const WebDavItem& item, std::function<void(qint64, bool)> callback)
-{
-    if (!m_currentWebDavCard) {
-        callback(-1, false);
-        return;
-    }
-    if (!item.directory) {
-        callback(item.size, item.size >= 0);
-        return;
-    }
-
-    struct EstimateState {
-        qint64 total { 0 };
-        bool complete { true };
-        int pending { 0 };
-        std::function<void(qint64, bool)> done;
-    };
-
-    auto state = std::make_shared<EstimateState>();
-    state->pending = 1;
-    state->done = std::move(callback);
-
-    auto finishOne = [state]() {
-        --state->pending;
-        if (state->pending == 0 && state->done) {
-            state->done(state->total, state->complete);
-        }
-    };
-
-    auto walk = std::make_shared<std::function<void(WebDavItem)>>();
-    *walk = [this, state, finishOne, walk](WebDavItem current) {
-        if (!current.directory) {
-            if (current.size >= 0) {
-                state->total += current.size;
-            } else {
-                state->complete = false;
-            }
-            finishOne();
-            return;
-        }
-
-        m_webDavClient.listDirectory(m_currentWebDavCard->server,
-                                     m_webDavPassword,
-                                     ensureDirectoryUrl(current.url),
-                                     [state, finishOne, walk](WebDavListResult result) {
-            if (!result) {
-                state->complete = false;
-                finishOne();
-                return;
-            }
-            if (result->empty()) {
-                finishOne();
-                return;
-            }
-            state->pending += static_cast<int>(result->size());
-            for (const auto& child : *result) {
-                (*walk)(child);
-            }
-            finishOne();
-        });
-    };
-
-    (*walk)(item);
 }
 
 void AppViewModel::enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl)

@@ -21,6 +21,7 @@ public:
         TargetRole,
         BytesDoneRole,
         BytesTotalRole,
+        BytesPerSecondRole,
         ProgressRole,
         CancellableRole,
     };
@@ -33,6 +34,8 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void setTasks(std::vector<TransferTask> tasks);
+    void appendTasks(std::vector<TransferTask> tasks);
+    void updateTask(const TransferTask& task);
 
 signals:
     void countChanged();

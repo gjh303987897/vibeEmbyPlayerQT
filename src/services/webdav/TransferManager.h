@@ -5,6 +5,8 @@
 #include "viewmodels/TransferTaskListModel.h"
 
 #include <QFile>
+#include <QElapsedTimer>
+#include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QPointer>
@@ -13,13 +15,19 @@
 #include <QUrl>
 
 #include <functional>
-#include <optional>
+#include <memory>
 #include <vector>
 
 class TransferManager final : public QObject {
     Q_OBJECT
 
 public:
+    struct DownloadRequest {
+        QUrl remoteUrl;
+        QString localPath;
+        qint64 totalBytes { -1 };
+    };
+
     enum class Direction {
         Upload,
         Download,
@@ -30,6 +38,9 @@ public:
 
     TransferTaskListModel* tasks();
     int activeCount() const;
+    int completedCount() const;
+    int failedCount() const;
+    qint64 bytesPerSecond() const;
 
     QString enqueueUpload(const ServerConfig& server,
                           const QString& password,
@@ -41,11 +52,15 @@ public:
                             const QUrl& remoteUrl,
                             const QString& localPath,
                             qint64 totalBytes);
+    void enqueueDownloads(const ServerConfig& server,
+                          const QString& password,
+                          std::vector<DownloadRequest> requests);
     QString enqueueCreateDirectory(const ServerConfig& server,
                                    const QString& password,
                                    const QUrl& remoteUrl);
 
     Q_INVOKABLE void cancelTask(const QString& taskId);
+    Q_INVOKABLE void clearFinished();
 
 signals:
     void tasksChanged();
@@ -69,9 +84,20 @@ private:
         qint64 countedBytesSent { 0 };
     };
 
+    struct ActiveTask {
+        QueuedTask queued;
+        QPointer<QNetworkReply> reply;
+        QPointer<QFile> file;
+        QElapsedTimer elapsed;
+        qint64 speedSampleBytes { 0 };
+        qint64 speedSampleElapsedMs { 0 };
+        qint64 lastPublishedElapsedMs { 0 };
+    };
+
     void enqueue(QueuedTask task);
     void startNext();
-    void refreshModel();
+    void startTask(QueuedTask task);
+    void publishTask(const TransferTask& task);
     void updateProgress(const QString& taskId, qint64 done, qint64 total);
     void finishActive(const QString& taskId, bool ok, const QString& message);
     void wireReply(QNetworkReply* reply, const ServerConfig& server);
@@ -80,7 +106,5 @@ private:
     TransferTaskListModel m_model;
     std::vector<TransferTask> m_tasks;
     QQueue<QueuedTask> m_queue;
-    std::optional<QueuedTask> m_active;
-    QPointer<QNetworkReply> m_activeReply;
-    QPointer<QFile> m_activeFile;
+    QHash<QString, std::shared_ptr<ActiveTask>> m_active;
 };

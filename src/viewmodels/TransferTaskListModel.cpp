@@ -1,5 +1,7 @@
 #include "viewmodels/TransferTaskListModel.h"
 
+#include <iterator>
+
 TransferTaskListModel::TransferTaskListModel(QObject* parent)
     : QAbstractListModel(parent)
 {
@@ -41,6 +43,8 @@ QVariant TransferTaskListModel::data(const QModelIndex& index, int role) const
         return task.bytesDone;
     case BytesTotalRole:
         return task.bytesTotal;
+    case BytesPerSecondRole:
+        return task.bytesPerSecond;
     case ProgressRole:
         return task.progress;
     case CancellableRole:
@@ -62,6 +66,7 @@ QHash<int, QByteArray> TransferTaskListModel::roleNames() const
         { TargetRole, "target" },
         { BytesDoneRole, "bytesDone" },
         { BytesTotalRole, "bytesTotal" },
+        { BytesPerSecondRole, "bytesPerSecond" },
         { ProgressRole, "progress" },
         { CancellableRole, "cancellable" },
     };
@@ -73,4 +78,34 @@ void TransferTaskListModel::setTasks(std::vector<TransferTask> tasks)
     m_tasks = std::move(tasks);
     endResetModel();
     emit countChanged();
+}
+
+void TransferTaskListModel::appendTasks(std::vector<TransferTask> tasks)
+{
+    if (tasks.empty()) {
+        return;
+    }
+
+    const auto firstRow = rowCount();
+    const auto lastRow = firstRow + static_cast<int>(tasks.size()) - 1;
+    beginInsertRows({}, firstRow, lastRow);
+    m_tasks.insert(m_tasks.end(),
+                   std::make_move_iterator(tasks.begin()),
+                   std::make_move_iterator(tasks.end()));
+    endInsertRows();
+    emit countChanged();
+}
+
+void TransferTaskListModel::updateTask(const TransferTask& task)
+{
+    for (auto row = 0; row < rowCount(); ++row) {
+        auto& existing = m_tasks[static_cast<size_t>(row)];
+        if (existing.id != task.id) {
+            continue;
+        }
+        existing = task;
+        const auto modelIndex = index(row, 0);
+        emit dataChanged(modelIndex, modelIndex);
+        return;
+    }
 }
