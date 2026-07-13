@@ -99,6 +99,8 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(DailyUsageStatsListModel* usageStats READ usageStats CONSTANT)
     Q_PROPERTY(qint64 historyTotalWatchSeconds READ historyTotalWatchSeconds NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyTotalNetworkBytes READ historyTotalNetworkBytes NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyNormalNetworkBytes READ historyNormalNetworkBytes NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyKeepAliveNetworkBytes READ historyKeepAliveNetworkBytes NOTIFY historyStatsChanged)
     Q_PROPERTY(ScheduledPlaybackTaskListModel* scheduledPlaybackTasks READ scheduledPlaybackTasks CONSTANT)
     Q_PROPERTY(ServiceCardListModel* scheduledEmbySources READ scheduledEmbySources CONSTANT)
     Q_PROPERTY(QString scheduledPlaybackStatus READ scheduledPlaybackStatus NOTIFY scheduledPlaybackStatusChanged)
@@ -206,6 +208,8 @@ public:
     DailyUsageStatsListModel* usageStats();
     qint64 historyTotalWatchSeconds() const;
     qint64 historyTotalNetworkBytes() const;
+    qint64 historyNormalNetworkBytes() const;
+    qint64 historyKeepAliveNetworkBytes() const;
     ScheduledPlaybackTaskListModel* scheduledPlaybackTasks();
     ServiceCardListModel* scheduledEmbySources();
     QString scheduledPlaybackStatus() const;
@@ -339,6 +343,8 @@ private:
         qint64 watchSeconds { 0 };
         qint64 networkBytesIn { 0 };
         qint64 networkBytesOut { 0 };
+        qint64 keepAliveNetworkBytesIn { 0 };
+        qint64 keepAliveNetworkBytesOut { 0 };
     };
 
     struct PlaybackProgressSnapshot {
@@ -370,7 +376,12 @@ private:
     void enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl);
     void wireWebDavCertificatePrompt();
     void wireUsageSignals();
-    bool accumulateUsage(const ServerConfig& server, bool privacyMode, qint64 watchSeconds, qint64 bytesReceived, qint64 bytesSent);
+    bool accumulateUsage(const ServerConfig& server,
+                         bool privacyMode,
+                         qint64 watchSeconds,
+                         qint64 bytesReceived,
+                         qint64 bytesSent,
+                         NetworkTrafficCategory trafficCategory = NetworkTrafficCategory::Normal);
     void flushPendingUsageStats(bool refreshAfterFlush);
     void refreshUsageStats();
     void refreshScheduledPlaybackTasks();
@@ -490,6 +501,8 @@ private:
     DailyUsageStatsListModel m_usageStats;
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
+    qint64 m_historyNormalNetworkBytes { 0 };
+    qint64 m_historyKeepAliveNetworkBytes { 0 };
     QHash<QString, PendingUsageStat> m_pendingUsageStats;
     QHash<QString, PlaybackProgressSnapshot> m_recentPlaybackProgress;
     QTimer m_usageFlushTimer;

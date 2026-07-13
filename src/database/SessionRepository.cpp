@@ -77,6 +77,8 @@ std::expected<void, QString> createDailyUsageStatsTable(QSqlDatabase& database)
             "watch_seconds INTEGER NOT NULL DEFAULT 0,"
             "network_bytes_in INTEGER NOT NULL DEFAULT 0,"
             "network_bytes_out INTEGER NOT NULL DEFAULT 0,"
+            "keep_alive_network_bytes_in INTEGER NOT NULL DEFAULT 0,"
+            "keep_alive_network_bytes_out INTEGER NOT NULL DEFAULT 0,"
             "privacy_mode INTEGER NOT NULL DEFAULT 0,"
             "updated_at TEXT NOT NULL,"
             "PRIMARY KEY(stat_date, service_id, privacy_mode)"
@@ -177,6 +179,18 @@ std::expected<void, QString> SessionRepository::initialize()
 
     if (auto migrateUsageResult = migrateDailyUsageStatsTable(); !migrateUsageResult) {
         return migrateUsageResult;
+    }
+    if (auto columnResult = ensureColumn(QStringLiteral("daily_usage_stats"),
+                                         QStringLiteral("keep_alive_network_bytes_in"),
+                                         QStringLiteral("INTEGER NOT NULL DEFAULT 0"));
+        !columnResult) {
+        return columnResult;
+    }
+    if (auto columnResult = ensureColumn(QStringLiteral("daily_usage_stats"),
+                                         QStringLiteral("keep_alive_network_bytes_out"),
+                                         QStringLiteral("INTEGER NOT NULL DEFAULT 0"));
+        !columnResult) {
+        return columnResult;
     }
 
     QSqlQuery scheduledTaskQuery(m_database);
@@ -320,12 +334,15 @@ std::expected<void, QString> SessionRepository::addDailyUsage(const ServerConfig
                                                               bool privacyMode,
                                                               qint64 watchSeconds,
                                                               qint64 networkBytesIn,
-                                                              qint64 networkBytesOut)
+                                                              qint64 networkBytesOut,
+                                                              qint64 keepAliveNetworkBytesIn,
+                                                              qint64 keepAliveNetworkBytesOut)
 {
     if (server.id.isEmpty()) {
         return {};
     }
-    if (watchSeconds <= 0 && networkBytesIn <= 0 && networkBytesOut <= 0) {
+    if (watchSeconds <= 0 && networkBytesIn <= 0 && networkBytesOut <= 0 &&
+        keepAliveNetworkBytesIn <= 0 && keepAliveNetworkBytesOut <= 0) {
         return {};
     }
     if (auto openResult = ensureOpen(); !openResult) {
@@ -337,14 +354,18 @@ std::expected<void, QString> SessionRepository::addDailyUsage(const ServerConfig
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
         "INSERT INTO daily_usage_stats "
-        "(stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, privacy_mode, updated_at) "
-        "VALUES (:stat_date, :service_id, :service_name, :service_type, :watch_seconds, :network_bytes_in, :network_bytes_out, :privacy_mode, :updated_at) "
+        "(stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, "
+        "keep_alive_network_bytes_in, keep_alive_network_bytes_out, privacy_mode, updated_at) "
+        "VALUES (:stat_date, :service_id, :service_name, :service_type, :watch_seconds, :network_bytes_in, :network_bytes_out, "
+        ":keep_alive_network_bytes_in, :keep_alive_network_bytes_out, :privacy_mode, :updated_at) "
         "ON CONFLICT(stat_date, service_id, privacy_mode) DO UPDATE SET "
         "service_name = excluded.service_name, "
         "service_type = excluded.service_type, "
         "watch_seconds = watch_seconds + excluded.watch_seconds, "
         "network_bytes_in = network_bytes_in + excluded.network_bytes_in, "
         "network_bytes_out = network_bytes_out + excluded.network_bytes_out, "
+        "keep_alive_network_bytes_in = keep_alive_network_bytes_in + excluded.keep_alive_network_bytes_in, "
+        "keep_alive_network_bytes_out = keep_alive_network_bytes_out + excluded.keep_alive_network_bytes_out, "
         "updated_at = excluded.updated_at"));
     query.bindValue(QStringLiteral(":stat_date"), today);
     query.bindValue(QStringLiteral(":service_id"), server.id);
@@ -353,6 +374,8 @@ std::expected<void, QString> SessionRepository::addDailyUsage(const ServerConfig
     query.bindValue(QStringLiteral(":watch_seconds"), std::max<qint64>(0, watchSeconds));
     query.bindValue(QStringLiteral(":network_bytes_in"), std::max<qint64>(0, networkBytesIn));
     query.bindValue(QStringLiteral(":network_bytes_out"), std::max<qint64>(0, networkBytesOut));
+    query.bindValue(QStringLiteral(":keep_alive_network_bytes_in"), std::max<qint64>(0, keepAliveNetworkBytesIn));
+    query.bindValue(QStringLiteral(":keep_alive_network_bytes_out"), std::max<qint64>(0, keepAliveNetworkBytesOut));
     query.bindValue(QStringLiteral(":privacy_mode"), privacyMode ? 1 : 0);
     query.bindValue(QStringLiteral(":updated_at"), now);
 
@@ -374,10 +397,17 @@ std::expected<std::vector<DailyUsageStat>, QString> SessionRepository::loadDaily
     const auto cutoff = QDate::currentDate().addDays(-29).toString(Qt::ISODate);
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-        "SELECT stat_date, service_id, service_name, service_type, watch_seconds, network_bytes_in, network_bytes_out, privacy_mode "
-        "FROM daily_usage_stats "
-        "WHERE stat_date >= :cutoff AND (:include_privacy = 1 OR privacy_mode = 0) "
-        "ORDER BY stat_date DESC, privacy_mode ASC, service_name COLLATE NOCASE ASC"));
+        "SELECT stats.stat_date, stats.service_id, MAX(stats.service_name), MAX(stats.service_type), "
+        "SUM(stats.watch_seconds), SUM(stats.network_bytes_in), SUM(stats.network_bytes_out), "
+        "SUM(stats.keep_alive_network_bytes_in), SUM(stats.keep_alive_network_bytes_out), "
+        "COALESCE(servers.private_mode, stats.privacy_mode) "
+        "FROM daily_usage_stats stats "
+        "LEFT JOIN servers ON servers.id = stats.service_id "
+        "WHERE stats.stat_date >= :cutoff "
+        "AND (:include_privacy = 1 OR COALESCE(servers.private_mode, stats.privacy_mode) = 0) "
+        "GROUP BY stats.stat_date, stats.service_id, COALESCE(servers.private_mode, stats.privacy_mode) "
+        "ORDER BY stats.stat_date DESC, COALESCE(servers.private_mode, stats.privacy_mode) ASC, "
+        "MAX(stats.service_name) COLLATE NOCASE ASC"));
     query.bindValue(QStringLiteral(":cutoff"), cutoff);
     query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     if (!query.exec()) {
@@ -394,7 +424,9 @@ std::expected<std::vector<DailyUsageStat>, QString> SessionRepository::loadDaily
             .watchSeconds = query.value(4).toLongLong(),
             .networkBytesIn = query.value(5).toLongLong(),
             .networkBytesOut = query.value(6).toLongLong(),
-            .privacyMode = query.value(7).toInt() == 1,
+            .keepAliveNetworkBytesIn = query.value(7).toLongLong(),
+            .keepAliveNetworkBytesOut = query.value(8).toLongLong(),
+            .privacyMode = query.value(9).toInt() == 1,
         });
     }
     return stats;
@@ -568,19 +600,21 @@ std::expected<std::vector<IptvChannel>, QString> SessionRepository::loadIptvChan
     return channels;
 }
 
-std::expected<std::vector<ScheduledPlaybackTask>, QString> SessionRepository::loadScheduledPlaybackTasks()
+std::expected<std::vector<ScheduledPlaybackTask>, QString> SessionRepository::loadScheduledPlaybackTasks(bool privacyMode)
 {
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
 
     QSqlQuery query(m_database);
-    if (!query.exec(QStringLiteral(
+    query.prepare(QStringLiteral(
             "SELECT t.id, t.server_id, s.name, s.username, t.start_time, t.duration_minutes, t.enabled, t.last_run_date "
             "FROM scheduled_playback_tasks t "
             "JOIN servers s ON s.id = t.server_id "
-            "WHERE s.enabled = 1 AND s.service_type = 'Emby' "
-            "ORDER BY t.start_time ASC, s.name COLLATE NOCASE ASC"))) {
+            "WHERE s.enabled = 1 AND s.service_type = 'Emby' AND s.private_mode = :privacy_mode "
+            "ORDER BY t.start_time ASC, s.name COLLATE NOCASE ASC"));
+    query.bindValue(QStringLiteral(":privacy_mode"), privacyMode ? 1 : 0);
+    if (!query.exec()) {
         return std::unexpected(sqlError(query));
     }
 

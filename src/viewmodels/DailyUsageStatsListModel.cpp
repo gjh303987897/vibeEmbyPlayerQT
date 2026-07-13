@@ -37,8 +37,17 @@ QVariant DailyUsageStatsListModel::data(const QModelIndex& index, int role) cons
         return QVariant::fromValue(stat.networkBytesIn);
     case NetworkBytesOutRole:
         return QVariant::fromValue(stat.networkBytesOut);
-    case NetworkBytesTotalRole:
+    case NormalNetworkBytesTotalRole:
         return QVariant::fromValue(stat.networkBytesIn + stat.networkBytesOut);
+    case KeepAliveNetworkBytesInRole:
+        return QVariant::fromValue(stat.keepAliveNetworkBytesIn);
+    case KeepAliveNetworkBytesOutRole:
+        return QVariant::fromValue(stat.keepAliveNetworkBytesOut);
+    case KeepAliveNetworkBytesTotalRole:
+        return QVariant::fromValue(stat.keepAliveNetworkBytesIn + stat.keepAliveNetworkBytesOut);
+    case NetworkBytesTotalRole:
+        return QVariant::fromValue(stat.networkBytesIn + stat.networkBytesOut +
+                                   stat.keepAliveNetworkBytesIn + stat.keepAliveNetworkBytesOut);
     case PrivacyModeRole:
         return stat.privacyMode;
     default:
@@ -56,6 +65,10 @@ QHash<int, QByteArray> DailyUsageStatsListModel::roleNames() const
         { WatchSecondsRole, "watchSeconds" },
         { NetworkBytesInRole, "networkBytesIn" },
         { NetworkBytesOutRole, "networkBytesOut" },
+        { NormalNetworkBytesTotalRole, "normalNetworkBytesTotal" },
+        { KeepAliveNetworkBytesInRole, "keepAliveNetworkBytesIn" },
+        { KeepAliveNetworkBytesOutRole, "keepAliveNetworkBytesOut" },
+        { KeepAliveNetworkBytesTotalRole, "keepAliveNetworkBytesTotal" },
         { NetworkBytesTotalRole, "networkBytesTotal" },
         { PrivacyModeRole, "privacyMode" },
     };

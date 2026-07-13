@@ -29,6 +29,10 @@
 
 后台 `PlayerController::playbackNetworkBytes` 由 `ScheduledPlaybackManager` 连同对应的 `ServerConfig` 转发给 `AppViewModel`，复用前台统计的批量聚合和 `SessionRepository::addDailyUsage()` 写入路径。流量按 1 MB 阈值或 15 秒定时器落库；任务完成、失败或手动停止时会强制写入剩余流量，历史页面打开时会立即刷新。
 
+历史统计会区分正常流量和保号流量：`network_bytes_in/out` 仅保存正常请求及前台播放流量，`keep_alive_network_bytes_in/out` 仅保存后台保号播放器流量。每日记录和 30 天汇总会分别显示两类流量，并额外显示两者合计。数据库升级只为新字段补充零值；升级前已经混合写入正常字段的历史保号流量无法可靠反向识别，因此仍按正常流量保留。
+
+保号任务列表和播放源选择器必须遵守隐私模式边界。普通模式只加载 `servers.private_mode = 0` 的任务与 Emby 会话；用户通过 PIN 进入隐私模式后，只加载 `servers.private_mode = 1` 的任务与播放源。进入或退出隐私模式，以及修改服务的隐私属性时，都会停止当前后台任务并刷新模型，防止服务名称、任务状态或编辑上下文跨模式残留。
+
 ## Persistence
 
 SQLite 表 `scheduled_playback_tasks` 保存：

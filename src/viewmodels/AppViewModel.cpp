@@ -423,12 +423,14 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("history.title"), QStringLiteral("History Stats") },
         { QStringLiteral("history.subtitle"), QStringLiteral("Viewing time and network usage from the last 30 days") },
         { QStringLiteral("history.totalWatch"), QStringLiteral("Total watch time") },
-        { QStringLiteral("history.totalTraffic"), QStringLiteral("Network traffic") },
+        { QStringLiteral("history.totalTraffic"), QStringLiteral("Total traffic") },
         { QStringLiteral("history.dailyRecords"), QStringLiteral("Daily records") },
         { QStringLiteral("history.empty"), QStringLiteral("No playback history yet") },
         { QStringLiteral("history.service"), QStringLiteral("Service") },
         { QStringLiteral("history.watch"), QStringLiteral("Watch time") },
         { QStringLiteral("history.traffic"), QStringLiteral("Traffic") },
+        { QStringLiteral("history.normalTraffic"), QStringLiteral("Normal traffic") },
+        { QStringLiteral("history.keepAliveTraffic"), QStringLiteral("Keep-alive traffic") },
         { QStringLiteral("history.download"), QStringLiteral("In") },
         { QStringLiteral("history.upload"), QStringLiteral("Out") },
         { QStringLiteral("history.retention"), QStringLiteral("Stats are kept for 30 days and old records are removed automatically.") },
@@ -621,6 +623,8 @@ const QHash<QString, QString>& historyChineseTexts()
         { QStringLiteral("history.service"), QStringLiteral("服务") },
         { QStringLiteral("history.watch"), QStringLiteral("观看时长") },
         { QStringLiteral("history.traffic"), QStringLiteral("流量") },
+        { QStringLiteral("history.normalTraffic"), QStringLiteral("正常流量") },
+        { QStringLiteral("history.keepAliveTraffic"), QStringLiteral("保号流量") },
         { QStringLiteral("history.download"), QStringLiteral("入站") },
         { QStringLiteral("history.upload"), QStringLiteral("出站") },
         { QStringLiteral("history.retention"), QStringLiteral("统计数据保留 30 天，过期记录会自动删除。") },
@@ -1210,6 +1214,16 @@ qint64 AppViewModel::historyTotalNetworkBytes() const
     return m_historyTotalNetworkBytes;
 }
 
+qint64 AppViewModel::historyNormalNetworkBytes() const
+{
+    return m_historyNormalNetworkBytes;
+}
+
+qint64 AppViewModel::historyKeepAliveNetworkBytes() const
+{
+    return m_historyKeepAliveNetworkBytes;
+}
+
 ScheduledPlaybackTaskListModel* AppViewModel::scheduledPlaybackTasks()
 {
     return &m_scheduledPlaybackTasks;
@@ -1779,12 +1793,14 @@ bool AppViewModel::unlockPrivacyMode(const QString& pin)
         return false;
     }
 
+    m_scheduledPlaybackManager.stop();
     m_privacyMode = true;
     emit privacyModeChanged();
     setEditingServices(false);
     refreshServiceCards();
     refreshPrivacyCards();
     refreshUsageStats();
+    refreshScheduledPlaybackTasks();
     setCurrentView(QStringLiteral("services"));
     AppLogger::info(QStringLiteral("privacy"), QStringLiteral("Privacy mode enabled"));
     return true;
@@ -1796,12 +1812,14 @@ void AppViewModel::exitPrivacyMode()
         return;
     }
 
+    m_scheduledPlaybackManager.stop();
     m_privacyMode = false;
     emit privacyModeChanged();
     setEditingServices(false);
     backToServices();
     refreshPrivacyCards();
     refreshUsageStats();
+    refreshScheduledPlaybackTasks();
     AppLogger::info(QStringLiteral("privacy"), QStringLiteral("Privacy mode disabled"));
 }
 
@@ -1826,8 +1844,11 @@ void AppViewModel::setPrivacyCardPrivate(int row, bool privateMode)
         setError(result.error());
         return;
     }
+    m_scheduledPlaybackManager.stop();
     refreshPrivacyCards();
     refreshServiceCards();
+    refreshUsageStats();
+    refreshScheduledPlaybackTasks();
 }
 
 bool AppViewModel::changePrivacyPin(const QString& oldPin, const QString& newPin, const QString& confirmPin)
@@ -3050,7 +3071,7 @@ void AppViewModel::refreshServiceCards()
 
 void AppViewModel::refreshScheduledPlaybackTasks()
 {
-    const auto result = m_repository.loadScheduledPlaybackTasks();
+    const auto result = m_repository.loadScheduledPlaybackTasks(m_privacyMode);
     if (!result) {
         AppLogger::warning(QStringLiteral("scheduled-playback"),
                            QStringLiteral("Load scheduled tasks failed: %1").arg(result.error()));
@@ -3071,7 +3092,8 @@ void AppViewModel::refreshScheduledEmbySources()
 
     std::vector<ServiceCard> sources;
     for (const auto& card : *result) {
-        if (card.server.serviceType == ServiceType::Emby && card.hasSession && !card.server.privateMode) {
+        if (card.server.serviceType == ServiceType::Emby && card.hasSession &&
+            card.server.privateMode == m_privacyMode) {
             sources.push_back(card);
         }
     }
@@ -3568,7 +3590,12 @@ void AppViewModel::wireUsageSignals()
                 if (bytesReceived <= 0) {
                     return;
                 }
-                const auto shouldFlush = accumulateUsage(server, server.privateMode, 0, bytesReceived, 0);
+                const auto shouldFlush = accumulateUsage(server,
+                                                         server.privateMode,
+                                                         0,
+                                                         bytesReceived,
+                                                         0,
+                                                         NetworkTrafficCategory::KeepAlive);
                 const auto onHistoryPage = m_currentView == QStringLiteral("history");
                 if (shouldFlush || onHistoryPage) {
                     flushPendingUsageStats(onHistoryPage);
@@ -3600,7 +3627,12 @@ void AppViewModel::wireUsageSignals()
     connect(&m_webDavPlaybackProxy, &WebDavPlaybackProxy::networkTrafficSample, this, wireWebDavTraffic);
 }
 
-bool AppViewModel::accumulateUsage(const ServerConfig& server, bool privacyMode, qint64 watchSeconds, qint64 bytesReceived, qint64 bytesSent)
+bool AppViewModel::accumulateUsage(const ServerConfig& server,
+                                   bool privacyMode,
+                                   qint64 watchSeconds,
+                                   qint64 bytesReceived,
+                                   qint64 bytesSent,
+                                   NetworkTrafficCategory trafficCategory)
 {
     if (server.id.isEmpty() || (watchSeconds <= 0 && bytesReceived <= 0 && bytesSent <= 0)) {
         return false;
@@ -3611,11 +3643,17 @@ bool AppViewModel::accumulateUsage(const ServerConfig& server, bool privacyMode,
     pending.server = server;
     pending.privacyMode = privacyMode;
     pending.watchSeconds += std::max<qint64>(0, watchSeconds);
-    pending.networkBytesIn += std::max<qint64>(0, bytesReceived);
-    pending.networkBytesOut += std::max<qint64>(0, bytesSent);
+    if (trafficCategory == NetworkTrafficCategory::KeepAlive) {
+        pending.keepAliveNetworkBytesIn += std::max<qint64>(0, bytesReceived);
+        pending.keepAliveNetworkBytesOut += std::max<qint64>(0, bytesSent);
+    } else {
+        pending.networkBytesIn += std::max<qint64>(0, bytesReceived);
+        pending.networkBytesOut += std::max<qint64>(0, bytesSent);
+    }
 
     return pending.watchSeconds >= usageWatchFlushSeconds ||
-           pending.networkBytesIn + pending.networkBytesOut >= usageNetworkFlushBytes;
+           pending.networkBytesIn + pending.networkBytesOut +
+               pending.keepAliveNetworkBytesIn + pending.keepAliveNetworkBytesOut >= usageNetworkFlushBytes;
 }
 
 void AppViewModel::flushPendingUsageStats(bool refreshAfterFlush)
@@ -3635,7 +3673,9 @@ void AppViewModel::flushPendingUsageStats(bool refreshAfterFlush)
                                                      stat.privacyMode,
                                                      stat.watchSeconds,
                                                      stat.networkBytesIn,
-                                                     stat.networkBytesOut);
+                                                     stat.networkBytesOut,
+                                                     stat.keepAliveNetworkBytesIn,
+                                                     stat.keepAliveNetworkBytesOut);
             !result) {
             AppLogger::warning(QStringLiteral("history"), QStringLiteral("Flush usage stats failed: %1").arg(result.error()));
             auto& retry = m_pendingUsageStats[it.key()];
@@ -3644,6 +3684,8 @@ void AppViewModel::flushPendingUsageStats(bool refreshAfterFlush)
             retry.watchSeconds += stat.watchSeconds;
             retry.networkBytesIn += stat.networkBytesIn;
             retry.networkBytesOut += stat.networkBytesOut;
+            retry.keepAliveNetworkBytesIn += stat.keepAliveNetworkBytesIn;
+            retry.keepAliveNetworkBytesOut += stat.keepAliveNetworkBytesOut;
             continue;
         }
         wrote = true;
@@ -3663,14 +3705,18 @@ void AppViewModel::refreshUsageStats()
     }
 
     qint64 watchSeconds = 0;
-    qint64 networkBytes = 0;
+    qint64 normalNetworkBytes = 0;
+    qint64 keepAliveNetworkBytes = 0;
     for (const auto& stat : *result) {
         watchSeconds += stat.watchSeconds;
-        networkBytes += stat.networkBytesIn + stat.networkBytesOut;
+        normalNetworkBytes += stat.networkBytesIn + stat.networkBytesOut;
+        keepAliveNetworkBytes += stat.keepAliveNetworkBytesIn + stat.keepAliveNetworkBytesOut;
     }
 
     m_historyTotalWatchSeconds = watchSeconds;
-    m_historyTotalNetworkBytes = networkBytes;
+    m_historyNormalNetworkBytes = normalNetworkBytes;
+    m_historyKeepAliveNetworkBytes = keepAliveNetworkBytes;
+    m_historyTotalNetworkBytes = normalNetworkBytes + keepAliveNetworkBytes;
     m_usageStats.setStats(*result);
     emit historyStatsChanged();
 }

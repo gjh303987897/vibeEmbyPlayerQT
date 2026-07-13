@@ -20,6 +20,10 @@ public:
         WatchSecondsRole,
         NetworkBytesInRole,
         NetworkBytesOutRole,
+        NormalNetworkBytesTotalRole,
+        KeepAliveNetworkBytesInRole,
+        KeepAliveNetworkBytesOutRole,
+        KeepAliveNetworkBytesTotalRole,
         NetworkBytesTotalRole,
         PrivacyModeRole,
     };

@@ -110,6 +110,8 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
 - First-version poster URLs may contain `api_key` because QML `Image` cannot attach custom authorization headers.
 - Token is saved in SQLite for the first version as an accepted temporary decision.
 - Future migration target: Keychain on macOS, Credential Manager on Windows, Secret Service on Linux.
+- History statistics resolve privacy from the service's current `servers.private_mode` value. A service moved into privacy mode hides all of its retained history from normal mode, including prior watch records and keep-alive traffic; deleted services fall back to the privacy flag stored with each statistic.
+- Keep-alive task lists and source selectors are filtered to the current privacy context. Private tasks and sources are only loaded after the user unlocks privacy mode.
 
 ## Player Dependency Status
 
@@ -126,6 +128,6 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
 
 The service-card page exposes a keep-alive task view for saved Emby sessions. QML edits presentation state only; `AppViewModel` validates input and updates `ScheduledPlaybackTaskListModel`, while `ScheduledPlaybackManager` owns manual start and continuation logic. No automatic timer is active in the current version.
 
-`SessionRepository` stores tasks in `scheduled_playback_tasks`. `EmbyClient` supplies random playable items and existing playback-report APIs. The background task does not alter the selected foreground service or media library models. Headless-player network bytes are attributed to the configured Emby source and written through the existing daily usage statistics pipeline; keep-alive duration is not counted as user watch time.
+`SessionRepository` stores tasks in `scheduled_playback_tasks`. `EmbyClient` supplies random playable items and existing playback-report APIs. The background task does not alter the selected foreground service or media library models. Headless-player network bytes are attributed to the configured Emby source and written into dedicated keep-alive traffic columns in the daily usage statistics pipeline; normal traffic, keep-alive traffic, and their total are displayed separately. Keep-alive duration is not counted as user watch time.
 
 See `ScheduledPlayback.md` for detailed status, persistence, preemption, and failure rules.

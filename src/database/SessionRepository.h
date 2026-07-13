@@ -30,14 +30,16 @@ public:
                                                bool privacyMode,
                                                qint64 watchSeconds,
                                                qint64 networkBytesIn,
-                                               qint64 networkBytesOut);
+                                               qint64 networkBytesOut,
+                                               qint64 keepAliveNetworkBytesIn,
+                                               qint64 keepAliveNetworkBytesOut);
     std::expected<std::vector<DailyUsageStat>, QString> loadDailyUsageStats(bool includePrivacyMode);
     std::expected<void, QString> pruneOldDailyUsage();
     std::expected<std::vector<ServiceCard>, QString> loadServiceCards(bool privacyMode);
     std::expected<std::vector<ServiceCard>, QString> loadAllServiceCards();
     std::expected<std::optional<IptvPlaylist>, QString> loadIptvPlaylist(const QString& serviceId);
     std::expected<std::vector<IptvChannel>, QString> loadIptvChannels(const QString& serviceId);
-    std::expected<std::vector<ScheduledPlaybackTask>, QString> loadScheduledPlaybackTasks();
+    std::expected<std::vector<ScheduledPlaybackTask>, QString> loadScheduledPlaybackTasks(bool privacyMode);
     std::expected<void, QString> saveScheduledPlaybackTask(const ScheduledPlaybackTask& task);
     std::expected<void, QString> deleteScheduledPlaybackTask(const QString& taskId);
     std::expected<void, QString> setScheduledPlaybackTaskLastRun(const QString& taskId, const QString& date);

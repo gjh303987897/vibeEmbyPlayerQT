@@ -805,7 +805,7 @@ ApplicationWindow {
 
             ModernButton {
                 text: t("nav.scheduledTasks")
-                visible: appViewModel.currentView === "services" && !appViewModel.privacyMode
+                visible: appViewModel.currentView === "services"
                 onClicked: appViewModel.openScheduledPlaybackTasks()
             }
 
@@ -4577,8 +4577,9 @@ ApplicationWindow {
         property string serviceName: ""
         property string serviceType: ""
         property real watchSeconds: 0
-        property real networkBytesIn: 0
-        property real networkBytesOut: 0
+        property real normalNetworkBytesTotal: 0
+        property real keepAliveNetworkBytesTotal: 0
+        property real networkBytesTotal: 0
         property bool privacyMode: false
 
         width: parent ? parent.width : 0
@@ -4694,14 +4695,15 @@ ApplicationWindow {
 
                     HistoryMetricBlock {
                         Layout.fillWidth: true
-                        label: t("history.download")
-                        value: root.formatBytes(networkBytesIn)
+                        label: t("history.normalTraffic")
+                        value: root.formatBytes(normalNetworkBytesTotal)
                     }
 
                     HistoryMetricBlock {
                         Layout.fillWidth: true
-                        label: t("history.upload")
-                        value: root.formatBytes(networkBytesOut)
+                        label: t("history.keepAliveTraffic")
+                        value: root.formatBytes(keepAliveNetworkBytesTotal)
+                        valueColor: keepAliveNetworkBytesTotal > 0 ? theme.warning : theme.text
                     }
                 }
             }
@@ -4712,14 +4714,14 @@ ApplicationWindow {
 
                 MutedText {
                     Layout.fillWidth: true
-                    text: t("history.traffic")
+                    text: t("history.totalTraffic")
                     horizontalAlignment: Text.AlignRight
                     elide: Text.ElideRight
                 }
 
                 Label {
                     Layout.fillWidth: true
-                    text: root.formatBytes(networkBytesIn + networkBytesOut)
+                    text: root.formatBytes(networkBytesTotal)
                     color: theme.text
                     font.pixelSize: 16
                     font.bold: true
@@ -4760,7 +4762,7 @@ ApplicationWindow {
 
             GridLayout {
                 Layout.fillWidth: true
-                columns: historyFlick.width < 760 ? 1 : 2
+                columns: historyFlick.width < 760 ? 1 : historyFlick.width < 1180 ? 2 : 4
                 columnSpacing: 12
                 rowSpacing: 12
 
@@ -4772,10 +4774,24 @@ ApplicationWindow {
                 }
 
                 HistorySummaryCard {
+                    title: t("history.normalTraffic")
+                    value: root.formatBytes(appViewModel.historyNormalNetworkBytes)
+                    subtitle: t("history.traffic")
+                    accentColor: theme.success
+                }
+
+                HistorySummaryCard {
+                    title: t("history.keepAliveTraffic")
+                    value: root.formatBytes(appViewModel.historyKeepAliveNetworkBytes)
+                    subtitle: t("history.traffic")
+                    accentColor: theme.warning
+                }
+
+                HistorySummaryCard {
                     title: t("history.totalTraffic")
                     value: root.formatBytes(appViewModel.historyTotalNetworkBytes)
                     subtitle: t("history.traffic")
-                    accentColor: theme.success
+                    accentColor: theme.text
                 }
             }
 
@@ -4818,8 +4834,9 @@ ApplicationWindow {
                     serviceName: model.serviceName
                     serviceType: model.serviceType
                     watchSeconds: model.watchSeconds
-                    networkBytesIn: model.networkBytesIn
-                    networkBytesOut: model.networkBytesOut
+                    normalNetworkBytesTotal: model.normalNetworkBytesTotal
+                    keepAliveNetworkBytesTotal: model.keepAliveNetworkBytesTotal
+                    networkBytesTotal: model.networkBytesTotal
                     privacyMode: model.privacyMode
                 }
             }
