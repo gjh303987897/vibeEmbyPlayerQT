@@ -2239,6 +2239,7 @@ bool AppViewModel::saveAndRunScheduledPlaybackTask()
         .durationMinutes = std::clamp(m_scheduledTaskDurationMinutes, 5, 720),
         .enabled = true,
         .lastRunDate = QStringLiteral(""),
+        .privateMode = source->server.privateMode,
     };
     if (auto result = m_repository.saveScheduledPlaybackTask(task); !result) {
         setError(result.error());
@@ -3093,7 +3094,7 @@ void AppViewModel::refreshScheduledEmbySources()
     std::vector<ServiceCard> sources;
     for (const auto& card : *result) {
         if (card.server.serviceType == ServiceType::Emby && card.hasSession &&
-            card.server.privateMode == m_privacyMode) {
+            (m_privacyMode || !card.server.privateMode)) {
             sources.push_back(card);
         }
     }

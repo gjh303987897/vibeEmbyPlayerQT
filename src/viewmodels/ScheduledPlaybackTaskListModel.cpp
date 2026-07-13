@@ -41,6 +41,8 @@ QVariant ScheduledPlaybackTaskListModel::data(const QModelIndex& index, int role
         return task.enabled;
     case LastRunDateRole:
         return task.lastRunDate;
+    case PrivateModeRole:
+        return task.privateMode;
     default:
         return {};
     }
@@ -57,6 +59,7 @@ QHash<int, QByteArray> ScheduledPlaybackTaskListModel::roleNames() const
         { DurationMinutesRole, "durationMinutes" },
         { EnabledRole, "enabled" },
         { LastRunDateRole, "lastRunDate" },
+        { PrivateModeRole, "privateMode" },
     };
 }
 

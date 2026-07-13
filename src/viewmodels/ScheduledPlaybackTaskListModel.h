@@ -21,6 +21,7 @@ public:
         DurationMinutesRole,
         EnabledRole,
         LastRunDateRole,
+        PrivateModeRole,
     };
 
     explicit ScheduledPlaybackTaskListModel(QObject* parent = nullptr);

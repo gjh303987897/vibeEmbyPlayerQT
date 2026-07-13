@@ -460,9 +460,9 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceC
             "s.auto_login, s.last_used_at, s.private_mode, sess.access_token "
             "FROM servers s "
             "LEFT JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
-            "WHERE s.enabled = 1 AND s.private_mode = :private_mode "
+            "WHERE s.enabled = 1 AND (:include_private = 1 OR s.private_mode = 0) "
             "ORDER BY s.sort_order ASC, s.last_used_at DESC"));
-    query.bindValue(QStringLiteral(":private_mode"), privacyMode ? 1 : 0);
+    query.bindValue(QStringLiteral(":include_private"), privacyMode ? 1 : 0);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
     }
@@ -608,12 +608,13 @@ std::expected<std::vector<ScheduledPlaybackTask>, QString> SessionRepository::lo
 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-            "SELECT t.id, t.server_id, s.name, s.username, t.start_time, t.duration_minutes, t.enabled, t.last_run_date "
+            "SELECT t.id, t.server_id, s.name, s.username, t.start_time, t.duration_minutes, t.enabled, t.last_run_date, s.private_mode "
             "FROM scheduled_playback_tasks t "
             "JOIN servers s ON s.id = t.server_id "
-            "WHERE s.enabled = 1 AND s.service_type = 'Emby' AND s.private_mode = :privacy_mode "
+            "WHERE s.enabled = 1 AND s.service_type = 'Emby' "
+            "AND (:include_private = 1 OR s.private_mode = 0) "
             "ORDER BY t.start_time ASC, s.name COLLATE NOCASE ASC"));
-    query.bindValue(QStringLiteral(":privacy_mode"), privacyMode ? 1 : 0);
+    query.bindValue(QStringLiteral(":include_private"), privacyMode ? 1 : 0);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
     }
@@ -629,6 +630,7 @@ std::expected<std::vector<ScheduledPlaybackTask>, QString> SessionRepository::lo
             .durationMinutes = query.value(5).toInt(),
             .enabled = query.value(6).toInt() == 1,
             .lastRunDate = query.value(7).toString(),
+            .privateMode = query.value(8).toInt() == 1,
         });
     }
     return tasks;

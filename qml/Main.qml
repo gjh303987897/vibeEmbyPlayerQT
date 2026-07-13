@@ -927,6 +927,7 @@ ApplicationWindow {
                             host: model.host.length > 0 ? model.host : model.baseUrl
                             autoLogin: model.autoLogin
                             hasSession: model.hasSession
+                            privateMode: model.privateMode
                             dragIndex: index
                             onActivated: appViewModel.selectServiceCard(index)
                             onEditRequested: {
@@ -1654,6 +1655,7 @@ ApplicationWindow {
         property string host: ""
         property bool autoLogin: true
         property bool hasSession: false
+        property bool privateMode: false
         property int dragIndex: -1
         property real dragStartX: 0
         property real dragStartY: 0
@@ -1722,6 +1724,29 @@ ApplicationWindow {
                     font.pixelSize: 18
                     font.bold: true
                     elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    visible: privateMode
+                    Layout.preferredHeight: 24
+                    Layout.minimumWidth: 76
+                    Layout.maximumWidth: 112
+                    radius: 8
+                    color: theme.primary
+                    border.color: theme.primary
+
+                    Label {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        text: t("history.privateBadge")
+                        color: "#ffffff"
+                        font.pixelSize: 11
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
                 }
 
                 RowLayout {
@@ -5054,13 +5079,41 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             spacing: 5
 
-                            Label {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: model.serverName
-                                color: theme.text
-                                font.pixelSize: 17
-                                font.bold: true
-                                elide: Text.ElideRight
+                                spacing: 8
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: model.serverName
+                                    color: theme.text
+                                    font.pixelSize: 17
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Rectangle {
+                                    visible: model.privateMode
+                                    Layout.preferredHeight: 24
+                                    Layout.minimumWidth: 76
+                                    Layout.maximumWidth: 112
+                                    radius: 8
+                                    color: theme.primary
+                                    border.color: theme.primary
+
+                                    Label {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 8
+                                        anchors.rightMargin: 8
+                                        text: t("history.privateBadge")
+                                        color: "#ffffff"
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                }
                             }
 
                             MutedText {

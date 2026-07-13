@@ -111,7 +111,7 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
 - Token is saved in SQLite for the first version as an accepted temporary decision.
 - Future migration target: Keychain on macOS, Credential Manager on Windows, Secret Service on Linux.
 - History statistics resolve privacy from the service's current `servers.private_mode` value. A service moved into privacy mode hides all of its retained history from normal mode, including prior watch records and keep-alive traffic; deleted services fall back to the privacy flag stored with each statistic.
-- Keep-alive task lists and source selectors are filtered to the current privacy context. Private tasks and sources are only loaded after the user unlocks privacy mode.
+- In normal mode, service cards, keep-alive tasks, and Emby source selectors omit private services. After the user unlocks privacy mode, these views include both normal and private services; private service cards and tasks carry a visible `Private` label. History remains privacy-filtered so private records are only included after the unlock.
 
 ## Player Dependency Status
 

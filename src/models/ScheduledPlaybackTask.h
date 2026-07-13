@@ -11,4 +11,5 @@ struct ScheduledPlaybackTask {
     int durationMinutes { 90 };
     bool enabled { true };
     QString lastRunDate { QStringLiteral("") };
+    bool privateMode { false };
 };
