@@ -159,3 +159,15 @@ Primary image availability is determined from `ImageTags.Primary`, with `Primary
 This keeps QML image loading simple while still allowing the server to authorize image access.
 
 Note: because QML `Image` does not attach custom authorization headers, the current first version uses `api_key` in image URLs. A later image proxy/cache layer should remove token-bearing URLs from the QML surface.
+
+## Manual Keep-Alive Random Playback
+
+The Emby manual keep-alive module requests random playable candidates through the official user-items endpoint:
+
+- Endpoint: `GET /Users/{UserId}/Items`
+- Query: `Recursive=true`, `Filters=IsNotFolder`, `MediaTypes=Video`, `IncludeItemTypes=Movie,Episode`, `SortBy=Random`, `Limit`
+- Fields: `RunTimeTicks`, `SeriesPrimaryImageTag`, `ParentId`
+
+Official reference: `https://dev.emby.media/reference/RestAPI/ItemsService/getUsersByUseridItems.html`
+
+The selected item reuses the existing playback URL flow and the existing `/Sessions/Playing`, `/Sessions/Playing/Progress`, and `/Sessions/Playing/Stopped` reports. Keep-alive playback is intentionally Emby-only until Jellyfin's official OpenAPI behavior is reviewed separately. The current version starts only from an explicit user action and has no timer.

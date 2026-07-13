@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QUrlQuery>
 
+#include <algorithm>
 #include <expected>
 #include <utility>
 
@@ -154,6 +155,36 @@ void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, st
             return;
         }
 
+        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+    });
+}
+
+void EmbyClient::fetchRandomPlayableItems(const UserSession& session,
+                                          int limit,
+                                          std::function<void(ItemResult)> callback)
+{
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Items").arg(session.userId));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("Filters"), QStringLiteral("IsNotFolder"));
+    query.addQueryItem(QStringLiteral("MediaTypes"), QStringLiteral("Video"));
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Episode"));
+    query.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("Random"));
+    query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
+    query.addQueryItem(QStringLiteral("Fields"), QStringLiteral("RunTimeTicks,SeriesPrimaryImageTag,ParentId"));
+    query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("false"));
+    query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+        if (!result) {
+            callback(std::unexpected(result.error()));
+            return;
+        }
         callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
     });
 }

@@ -121,3 +121,11 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
 - `PlayerController` is the only module that calls libmpv APIs.
 - `MpvWidget` owns the native QWidget surface and initializes libmpv with the `wid` option for Window Embedding.
 - QML player-page integration and real playback-link flow are still pending.
+
+## Manual Keep-Alive Playback Integration
+
+The service-card page exposes a keep-alive task view for saved Emby sessions. QML edits presentation state only; `AppViewModel` validates input and updates `ScheduledPlaybackTaskListModel`, while `ScheduledPlaybackManager` owns manual start and continuation logic. No automatic timer is active in the current version.
+
+`SessionRepository` stores tasks in `scheduled_playback_tasks`. `EmbyClient` supplies random playable items and existing playback-report APIs. The background task does not alter the selected foreground service or media library models. Headless-player network bytes are attributed to the configured Emby source and written through the existing daily usage statistics pipeline; keep-alive duration is not counted as user watch time.
+
+See `ScheduledPlayback.md` for detailed status, persistence, preemption, and failure rules.

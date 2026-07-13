@@ -138,3 +138,11 @@ This is the minimum direct-play path. More advanced playback should later query 
 The playback URL currently contains an access token because libmpv receives a URL directly. Logs must not print full playback URLs.
 
 Future work should prefer passing authorization headers to libmpv when practical, or move playback URL construction behind a short-lived local proxy if needed for stricter token isolation.
+
+## Headless Keep-Alive Playback
+
+`PlayerController::initializeHeadless()` creates a separate libmpv handle for manually started Emby keep-alive playback. It does not set `wid` and uses `force-window=no`, `vo=null`, and `ao=null`, so no video surface or audio output is created.
+
+The headless player emits the same playback-ended position signal used to accumulate actual elapsed time across multiple media items. It remains owned by `ScheduledPlaybackManager`; no manager or QML code calls libmpv directly.
+
+Foreground playback always has priority. `AppViewModel` marks normal player, WebDAV, IPTV, and local verification playback as foreground activity. The scheduler stops and reports its current item, preserves elapsed seconds, waits, and selects another random item after foreground playback ends.

@@ -179,6 +179,22 @@ std::expected<void, QString> SessionRepository::initialize()
         return migrateUsageResult;
     }
 
+    QSqlQuery scheduledTaskQuery(m_database);
+    if (!scheduledTaskQuery.exec(QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS scheduled_playback_tasks ("
+            "id TEXT PRIMARY KEY,"
+            "server_id TEXT NOT NULL,"
+            "start_time TEXT NOT NULL,"
+            "duration_minutes INTEGER NOT NULL DEFAULT 90,"
+            "enabled INTEGER NOT NULL DEFAULT 1,"
+            "last_run_date TEXT NOT NULL DEFAULT '',"
+            "created_at TEXT NOT NULL,"
+            "updated_at TEXT NOT NULL,"
+            "FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE"
+            ")"))) {
+        return std::unexpected(sqlError(scheduledTaskQuery));
+    }
+
     if (auto pruneResult = pruneOldDailyUsage(); !pruneResult) {
         return pruneResult;
     }
@@ -550,6 +566,105 @@ std::expected<std::vector<IptvChannel>, QString> SessionRepository::loadIptvChan
         });
     }
     return channels;
+}
+
+std::expected<std::vector<ScheduledPlaybackTask>, QString> SessionRepository::loadScheduledPlaybackTasks()
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral(
+            "SELECT t.id, t.server_id, s.name, s.username, t.start_time, t.duration_minutes, t.enabled, t.last_run_date "
+            "FROM scheduled_playback_tasks t "
+            "JOIN servers s ON s.id = t.server_id "
+            "WHERE s.enabled = 1 AND s.service_type = 'Emby' "
+            "ORDER BY t.start_time ASC, s.name COLLATE NOCASE ASC"))) {
+        return std::unexpected(sqlError(query));
+    }
+
+    std::vector<ScheduledPlaybackTask> tasks;
+    while (query.next()) {
+        tasks.push_back(ScheduledPlaybackTask {
+            .id = query.value(0).toString(),
+            .serverId = query.value(1).toString(),
+            .serverName = query.value(2).toString(),
+            .username = query.value(3).toString(),
+            .startTime = query.value(4).toString(),
+            .durationMinutes = query.value(5).toInt(),
+            .enabled = query.value(6).toInt() == 1,
+            .lastRunDate = query.value(7).toString(),
+        });
+    }
+    return tasks;
+}
+
+std::expected<void, QString> SessionRepository::saveScheduledPlaybackTask(const ScheduledPlaybackTask& task)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    const auto now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "INSERT INTO scheduled_playback_tasks "
+        "(id, server_id, start_time, duration_minutes, enabled, last_run_date, created_at, updated_at) "
+        "VALUES (:id, :server_id, :start_time, :duration_minutes, :enabled, :last_run_date, :created_at, :updated_at) "
+        "ON CONFLICT(id) DO UPDATE SET "
+        "server_id = excluded.server_id, "
+        "start_time = excluded.start_time, "
+        "duration_minutes = excluded.duration_minutes, "
+        "enabled = excluded.enabled, "
+        "last_run_date = excluded.last_run_date, "
+        "updated_at = excluded.updated_at"));
+    query.bindValue(QStringLiteral(":id"), task.id);
+    query.bindValue(QStringLiteral(":server_id"), task.serverId);
+    query.bindValue(QStringLiteral(":start_time"), task.startTime);
+    query.bindValue(QStringLiteral(":duration_minutes"), task.durationMinutes);
+    query.bindValue(QStringLiteral(":enabled"), task.enabled ? 1 : 0);
+    query.bindValue(QStringLiteral(":last_run_date"),
+                    task.lastRunDate.isNull() ? QStringLiteral("") : task.lastRunDate);
+    query.bindValue(QStringLiteral(":created_at"), now);
+    query.bindValue(QStringLiteral(":updated_at"), now);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::deleteScheduledPlaybackTask(const QString& taskId)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral("DELETE FROM scheduled_playback_tasks WHERE id = :id"));
+    query.bindValue(QStringLiteral(":id"), taskId);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::setScheduledPlaybackTaskLastRun(const QString& taskId, const QString& date)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE scheduled_playback_tasks SET last_run_date = :date, updated_at = :updated_at WHERE id = :id"));
+    query.bindValue(QStringLiteral(":date"), date);
+    query.bindValue(QStringLiteral(":updated_at"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    query.bindValue(QStringLiteral(":id"), taskId);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
 }
 
 std::expected<std::optional<UserSession>, QString> SessionRepository::loadLastSession()

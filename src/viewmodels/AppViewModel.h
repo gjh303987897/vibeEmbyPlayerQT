@@ -10,12 +10,14 @@
 #include "services/webdav/WebDavPlaybackProxy.h"
 #include "services/emby/EmbyClient.h"
 #include "services/jellyfin/JellyfinClient.h"
+#include "services/scheduler/ScheduledPlaybackManager.h"
 #include "viewmodels/IptvChannelListModel.h"
 #include "viewmodels/DailyUsageStatsListModel.h"
 #include "viewmodels/MediaItemListModel.h"
 #include "viewmodels/MediaLibraryListModel.h"
 #include "viewmodels/PersonListModel.h"
 #include "viewmodels/ServiceCardListModel.h"
+#include "viewmodels/ScheduledPlaybackTaskListModel.h"
 #include "viewmodels/WebDavItemListModel.h"
 
 #include <QDateTime>
@@ -97,6 +99,18 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(DailyUsageStatsListModel* usageStats READ usageStats CONSTANT)
     Q_PROPERTY(qint64 historyTotalWatchSeconds READ historyTotalWatchSeconds NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyTotalNetworkBytes READ historyTotalNetworkBytes NOTIFY historyStatsChanged)
+    Q_PROPERTY(ScheduledPlaybackTaskListModel* scheduledPlaybackTasks READ scheduledPlaybackTasks CONSTANT)
+    Q_PROPERTY(ServiceCardListModel* scheduledEmbySources READ scheduledEmbySources CONSTANT)
+    Q_PROPERTY(QString scheduledPlaybackStatus READ scheduledPlaybackStatus NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(QString scheduledPlaybackServerName READ scheduledPlaybackServerName NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(QString scheduledPlaybackMediaName READ scheduledPlaybackMediaName NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(QString scheduledPlaybackError READ scheduledPlaybackError NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(qint64 scheduledPlaybackElapsedSeconds READ scheduledPlaybackElapsedSeconds NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(qint64 scheduledPlaybackTargetSeconds READ scheduledPlaybackTargetSeconds NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(bool scheduledPlaybackActive READ scheduledPlaybackActive NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(bool scheduledPlaybackWaiting READ scheduledPlaybackWaiting NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(int scheduledTaskSourceIndex READ scheduledTaskSourceIndex WRITE setScheduledTaskSourceIndex NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(int scheduledTaskDurationMinutes READ scheduledTaskDurationMinutes WRITE setScheduledTaskDurationMinutes NOTIFY scheduledTaskEditorChanged)
 
 public:
     explicit AppViewModel(QObject* parent = nullptr);
@@ -192,6 +206,20 @@ public:
     DailyUsageStatsListModel* usageStats();
     qint64 historyTotalWatchSeconds() const;
     qint64 historyTotalNetworkBytes() const;
+    ScheduledPlaybackTaskListModel* scheduledPlaybackTasks();
+    ServiceCardListModel* scheduledEmbySources();
+    QString scheduledPlaybackStatus() const;
+    QString scheduledPlaybackServerName() const;
+    QString scheduledPlaybackMediaName() const;
+    QString scheduledPlaybackError() const;
+    qint64 scheduledPlaybackElapsedSeconds() const;
+    qint64 scheduledPlaybackTargetSeconds() const;
+    bool scheduledPlaybackActive() const;
+    bool scheduledPlaybackWaiting() const;
+    int scheduledTaskSourceIndex() const;
+    void setScheduledTaskSourceIndex(int value);
+    int scheduledTaskDurationMinutes() const;
+    void setScheduledTaskDurationMinutes(int value);
 
     Q_INVOKABLE void initialize();
     Q_INVOKABLE void beginAddServiceCard();
@@ -234,6 +262,14 @@ public:
     Q_INVOKABLE void openSettings();
     Q_INVOKABLE void openHistoryStats();
     Q_INVOKABLE void refreshHistoryStats();
+    Q_INVOKABLE void openScheduledPlaybackTasks();
+    Q_INVOKABLE void beginAddScheduledPlaybackTask();
+    Q_INVOKABLE void editScheduledPlaybackTask(int row);
+    Q_INVOKABLE bool saveAndRunScheduledPlaybackTask();
+    Q_INVOKABLE void deleteScheduledPlaybackTask(int row);
+    Q_INVOKABLE void runScheduledPlaybackTaskNow(int row);
+    Q_INVOKABLE void stopScheduledPlayback();
+    Q_INVOKABLE QString formatDuration(qint64 seconds) const;
     Q_INVOKABLE void refreshHome();
     Q_INVOKABLE void refreshLibraries();
     Q_INVOKABLE void openLibrary(int row);
@@ -289,6 +325,9 @@ signals:
     void selectedSeasonChanged();
     void playbackChanged();
     void historyStatsChanged();
+    void scheduledPlaybackTasksChanged();
+    void scheduledPlaybackStatusChanged();
+    void scheduledTaskEditorChanged();
     void certificatePromptRequested(const QString& host, const QString& details);
     void passwordRequired(const QString& serviceName, const QString& username);
     void downloadSpaceWarningRequested(const QString& title, const QString& message);
@@ -334,6 +373,9 @@ private:
     bool accumulateUsage(const ServerConfig& server, bool privacyMode, qint64 watchSeconds, qint64 bytesReceived, qint64 bytesSent);
     void flushPendingUsageStats(bool refreshAfterFlush);
     void refreshUsageStats();
+    void refreshScheduledPlaybackTasks();
+    void refreshScheduledEmbySources();
+    void setForegroundPlaybackActive(bool active);
     void recordNetworkUsage(const ServerConfig& server, qint64 bytesReceived, qint64 bytesSent);
     void recordNetworkUsageForCurrentService(ServiceType type, qint64 bytesReceived, qint64 bytesSent);
     std::optional<ServerConfig> currentServerForUsage(ServiceType type) const;
@@ -421,6 +463,9 @@ private:
     int m_itemPageSize { 80 };
     bool m_hasMoreMediaItems { true };
     int m_seriesRequestGeneration { 0 };
+    QString m_scheduledTaskEditingId;
+    int m_scheduledTaskSourceIndex { -1 };
+    int m_scheduledTaskDurationMinutes { 90 };
 
     NetworkClient m_embyNetworkClient;
     NetworkClient m_jellyfinNetworkClient;
@@ -430,8 +475,11 @@ private:
     WebDavPlaybackProxy m_webDavPlaybackProxy;
     TransferManager m_transferManager;
     SessionRepository m_repository;
+    ScheduledPlaybackManager m_scheduledPlaybackManager;
     ServiceCardListModel m_services;
     ServiceCardListModel m_privacyCards;
+    ServiceCardListModel m_scheduledEmbySources;
+    ScheduledPlaybackTaskListModel m_scheduledPlaybackTasks;
     MediaLibraryListModel m_libraries;
     MediaItemListModel m_continueItems;
     MediaItemListModel m_items;

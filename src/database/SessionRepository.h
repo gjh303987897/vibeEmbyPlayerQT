@@ -3,6 +3,7 @@
 #include "models/DailyUsageStat.h"
 #include "models/IptvChannel.h"
 #include "models/IptvPlaylist.h"
+#include "models/ScheduledPlaybackTask.h"
 #include "models/ServiceCard.h"
 #include "models/UserSession.h"
 
@@ -36,6 +37,10 @@ public:
     std::expected<std::vector<ServiceCard>, QString> loadAllServiceCards();
     std::expected<std::optional<IptvPlaylist>, QString> loadIptvPlaylist(const QString& serviceId);
     std::expected<std::vector<IptvChannel>, QString> loadIptvChannels(const QString& serviceId);
+    std::expected<std::vector<ScheduledPlaybackTask>, QString> loadScheduledPlaybackTasks();
+    std::expected<void, QString> saveScheduledPlaybackTask(const ScheduledPlaybackTask& task);
+    std::expected<void, QString> deleteScheduledPlaybackTask(const QString& taskId);
+    std::expected<void, QString> setScheduledPlaybackTaskLastRun(const QString& taskId, const QString& date);
     std::expected<std::optional<UserSession>, QString> loadLastSession();
     std::expected<std::optional<UserSession>, QString> loadSession(const QString& serverId);
     std::expected<void, QString> deleteServer(const QString& serverId, bool deleteLocalData);

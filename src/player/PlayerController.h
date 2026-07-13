@@ -75,6 +75,7 @@ public:
     ~PlayerController() override;
 
     bool initialize(qintptr windowId);
+    bool initializeHeadless();
     bool paused() const;
     bool loading() const;
     bool buffering() const;
@@ -119,6 +120,7 @@ signals:
     void tracksChanged();
     void videoOutputChanged();
     void playbackRestarted();
+    void playbackEnded(double positionSeconds, bool failed);
     void playbackNetworkBytes(qint64 bytesReceived);
 
 private:
@@ -136,9 +138,11 @@ private:
     static double nodeDouble(const struct mpv_node& node, double fallback = 0.0);
     static bool nodeBool(const struct mpv_node& node, bool fallback = false);
     bool command(const char** args);
+    bool initializeInternal(qintptr windowId, bool headless);
 
     mpv_handle* m_mpv { nullptr };
     qintptr m_windowId { 0 };
+    bool m_headless { false };
     bool m_paused { false };
     bool m_loading { false };
     bool m_buffering { false };

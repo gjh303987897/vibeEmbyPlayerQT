@@ -15,6 +15,7 @@ ApplicationWindow {
     color: theme.bg
 
     property int pendingDeleteRow: -1
+    property int pendingScheduledDeleteRow: -1
     property int dragFromRow: -1
     property bool playerImmersive: false
     property string downloadWarningTitle: ""
@@ -462,6 +463,98 @@ ApplicationWindow {
         onRejected: root.pendingDeleteRow = -1
     }
 
+    ModernDialog {
+        id: scheduledTaskEditorDialog
+        property bool editing: false
+        title: editing ? t("schedule.edit") : t("schedule.add")
+        standardButtons: Dialog.Cancel
+        width: Math.min(root.width - 64, 520)
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 14
+
+            SettingRow {
+                label: t("schedule.source")
+                ModernComboBox {
+                    Layout.preferredWidth: 270
+                    model: appViewModel.scheduledEmbySources
+                    textRole: "name"
+                    currentIndex: appViewModel.scheduledTaskSourceIndex
+                    enabled: count > 0
+                    onActivated: appViewModel.scheduledTaskSourceIndex = index
+                }
+            }
+
+            SettingRow {
+                label: t("schedule.duration")
+                RowLayout {
+                    Layout.preferredWidth: 270
+                    spacing: 10
+                    ModernSpinBox {
+                        from: 5
+                        to: 720
+                        stepSize: 5
+                        value: appViewModel.scheduledTaskDurationMinutes
+                        onValueModified: appViewModel.scheduledTaskDurationMinutes = value
+                    }
+                    MutedText { text: t("schedule.minutes") }
+                    Item { Layout.fillWidth: true }
+                }
+            }
+
+            MutedText {
+                Layout.fillWidth: true
+                visible: appViewModel.scheduledEmbySources.count === 0
+                text: t("schedule.noSources")
+                color: theme.warning
+                wrapMode: Text.WordWrap
+            }
+
+            MutedText {
+                Layout.fillWidth: true
+                visible: appViewModel.scheduledEmbySources.count > 0
+                text: t("schedule.startHint")
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                ModernButton {
+                    text: t("schedule.runNow")
+                    enabled: appViewModel.scheduledEmbySources.count > 0
+                        && !appViewModel.scheduledPlaybackActive
+                        && !appViewModel.scheduledPlaybackWaiting
+                    onClicked: {
+                        if (appViewModel.saveAndRunScheduledPlaybackTask()) {
+                            scheduledTaskEditorDialog.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ModernDialog {
+        id: scheduledTaskDeleteDialog
+        title: t("schedule.deleteTitle")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        width: Math.min(root.width - 64, 440)
+
+        BodyText {
+            width: parent.width
+            text: t("schedule.deletePrompt")
+            wrapMode: Text.WordWrap
+        }
+
+        onAccepted: {
+            appViewModel.deleteScheduledPlaybackTask(root.pendingScheduledDeleteRow)
+            root.pendingScheduledDeleteRow = -1
+        }
+        onRejected: root.pendingScheduledDeleteRow = -1
+    }
+
     Dialog {
         id: overviewDialog
         modal: true
@@ -632,6 +725,8 @@ ApplicationWindow {
                 onClicked: {
                     if (appViewModel.currentView === "history") {
                         appViewModel.backToServices()
+                    } else if (appViewModel.currentView === "scheduledTasks") {
+                        appViewModel.backToServices()
                     } else if (appViewModel.currentView === "webdav") {
                         appViewModel.webDavBack()
                     } else if (appViewModel.currentView === "library") {
@@ -652,9 +747,10 @@ ApplicationWindow {
 
                 Label {
                     Layout.fillWidth: true
-                    text: appViewModel.currentView === "settings" ? t("settings.title")
-                        : appViewModel.currentView === "history" ? t("history.title")
-                        : appViewModel.currentView === "services" ? t("nav.services")
+                text: appViewModel.currentView === "settings" ? t("settings.title")
+                    : appViewModel.currentView === "history" ? t("history.title")
+                    : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
+                    : appViewModel.currentView === "services" ? t("nav.services")
                         : appViewModel.currentServerName
                     color: theme.text
                     font.pixelSize: 20
@@ -666,6 +762,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: appViewModel.currentView === "settings" ? t("settings.subtitle")
                         : appViewModel.currentView === "history" ? (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
+                        : appViewModel.currentView === "scheduledTasks" ? t("schedule.subtitle")
                         : appViewModel.currentView === "iptv" ? appViewModel.currentUser
                         : appViewModel.loggedIn ? appViewModel.currentUser
                         : t("nav.chooseSource")
@@ -704,6 +801,12 @@ ApplicationWindow {
                     appViewModel.refreshPrivacyCards()
                     privacyCardsDialog.open()
                 }
+            }
+
+            ModernButton {
+                text: t("nav.scheduledTasks")
+                visible: appViewModel.currentView === "services" && !appViewModel.privacyMode
+                onClicked: appViewModel.openScheduledPlaybackTasks()
             }
 
             ModernButton {
@@ -799,7 +902,8 @@ ApplicationWindow {
                     : appViewModel.currentView === "webdav" ? 6
                     : appViewModel.currentView === "transfers" ? 7
                     : appViewModel.currentView === "history" ? 8
-                    : 9
+                    : appViewModel.currentView === "scheduledTasks" ? 9
+                    : 10
 
                 Item {
                     GridView {
@@ -1055,6 +1159,8 @@ ApplicationWindow {
                 TransfersPage {}
 
                 HistoryPage {}
+
+                ScheduledTasksPage {}
 
                 SettingsPage {}
             }
@@ -4749,6 +4855,317 @@ ApplicationWindow {
                     }
                 }
             }
+        }
+    }
+
+    component ScheduledTasksPage: Flickable {
+        id: scheduledTasksFlick
+        contentWidth: width
+        contentHeight: scheduledTasksColumn.implicitHeight
+        clip: true
+
+        function statusTitle() {
+            switch (appViewModel.scheduledPlaybackStatus) {
+            case "waiting": return t("schedule.statusWaiting")
+            case "starting": return t("schedule.statusStarting")
+            case "playing": return t("schedule.statusPlaying")
+            case "completed": return t("schedule.statusCompleted")
+            case "error": return t("schedule.statusError")
+            default: return t("schedule.statusIdle")
+            }
+        }
+
+        function statusColor() {
+            switch (appViewModel.scheduledPlaybackStatus) {
+            case "playing": return theme.success
+            case "waiting": return theme.warning
+            case "starting": return theme.primary
+            case "error": return theme.danger
+            default: return theme.subtle
+            }
+        }
+
+        ColumnLayout {
+            id: scheduledTasksColumn
+            width: scheduledTasksFlick.width
+            spacing: 20
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: statusContent.implicitHeight + 30
+                radius: 8
+                color: theme.surface
+                border.color: scheduledTasksFlick.statusColor()
+
+                ColumnLayout {
+                    id: statusContent
+                    anchors.fill: parent
+                    anchors.margins: 15
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Rectangle {
+                            Layout.preferredWidth: 12
+                            Layout.preferredHeight: 12
+                            radius: 6
+                            color: scheduledTasksFlick.statusColor()
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 3
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: scheduledTasksFlick.statusTitle()
+                                color: theme.text
+                                font.pixelSize: 17
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: appViewModel.scheduledPlaybackStatus === "error"
+                                    ? appViewModel.scheduledPlaybackError
+                                    : appViewModel.scheduledPlaybackMediaName.length > 0
+                                        ? appViewModel.scheduledPlaybackServerName + " · " + appViewModel.scheduledPlaybackMediaName
+                                        : appViewModel.scheduledPlaybackServerName
+                                visible: text.length > 0
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        ModernButton {
+                            text: t("action.stop")
+                            danger: true
+                            visible: appViewModel.scheduledPlaybackActive || appViewModel.scheduledPlaybackWaiting
+                            onClicked: appViewModel.stopScheduledPlayback()
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        visible: appViewModel.scheduledPlaybackTargetSeconds > 0
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            MutedText { text: t("schedule.progress") }
+                            Item { Layout.fillWidth: true }
+                            MutedText {
+                                text: appViewModel.formatDuration(appViewModel.scheduledPlaybackElapsedSeconds)
+                                    + " / " + appViewModel.formatDuration(appViewModel.scheduledPlaybackTargetSeconds)
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 6
+                            radius: 3
+                            color: theme.border
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                radius: 3
+                                color: scheduledTasksFlick.statusColor()
+                                width: parent.width * Math.min(1, appViewModel.scheduledPlaybackElapsedSeconds
+                                    / Math.max(1, appViewModel.scheduledPlaybackTargetSeconds))
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                SectionHeader {
+                    Layout.fillWidth: true
+                    title: t("nav.scheduledTasks")
+                    subtitle: appViewModel.scheduledPlaybackTasks.count + " " + t("schedule.savedConfigs")
+                }
+
+                ModernButton {
+                    text: t("schedule.add")
+                    enabled: appViewModel.scheduledEmbySources.count > 0
+                    onClicked: {
+                        appViewModel.beginAddScheduledPlaybackTask()
+                        scheduledTaskEditorDialog.editing = false
+                        scheduledTaskEditorDialog.open()
+                    }
+                }
+            }
+
+            ListView {
+                id: scheduledTaskList
+                Layout.fillWidth: true
+                Layout.preferredHeight: count > 0 ? count * 126 : 0
+                visible: count > 0
+                interactive: false
+                spacing: 10
+                model: appViewModel.scheduledPlaybackTasks
+
+                delegate: Rectangle {
+                    width: scheduledTaskList.width
+                    height: 116
+                    radius: 8
+                    color: taskMouse.hovered ? theme.elevatedHover : theme.surface
+                    border.color: theme.border
+
+                    HoverHandler { id: taskMouse }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 16
+
+                        Rectangle {
+                            Layout.preferredWidth: 4
+                            Layout.fillHeight: true
+                            radius: 2
+                            color: theme.primary
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: model.serverName
+                                color: theme.text
+                                font.pixelSize: 17
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: model.username + " · " + t("schedule.manual")
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("schedule.duration") + " · "
+                                    + appViewModel.formatDuration(model.durationMinutes * 60)
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        ModernButton {
+                            text: t("schedule.runNow")
+                            enabled: !appViewModel.scheduledPlaybackActive && !appViewModel.scheduledPlaybackWaiting
+                            onClicked: appViewModel.runScheduledPlaybackTaskNow(index)
+                        }
+
+                        ModernButton {
+                            text: t("action.edit")
+                            onClicked: {
+                                appViewModel.editScheduledPlaybackTask(index)
+                                scheduledTaskEditorDialog.editing = true
+                                scheduledTaskEditorDialog.open()
+                            }
+                        }
+
+                        ModernButton {
+                            text: t("action.delete")
+                            danger: true
+                            onClicked: {
+                                root.pendingScheduledDeleteRow = index
+                                scheduledTaskDeleteDialog.open()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 150
+                visible: appViewModel.scheduledPlaybackTasks.count === 0
+                radius: 8
+                color: theme.surface
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 48, 460)
+                    spacing: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: appViewModel.scheduledEmbySources.count > 0 ? t("schedule.empty") : t("schedule.noSources")
+                        color: theme.text
+                        font.pixelSize: 17
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+        }
+    }
+
+    component ModernSpinBox: SpinBox {
+        id: spin
+        editable: true
+        implicitWidth: 148
+        implicitHeight: 40
+        font.pixelSize: 14
+
+        contentItem: TextInput {
+            z: 2
+            text: spin.textFromValue(spin.value, spin.locale)
+            color: theme.text
+            selectionColor: theme.primary
+            selectedTextColor: "#ffffff"
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            readOnly: !spin.editable
+            validator: spin.validator
+            inputMethodHints: Qt.ImhDigitsOnly
+        }
+
+        up.indicator: Rectangle {
+            x: spin.width - width
+            height: spin.height
+            implicitWidth: 38
+            color: spin.up.pressed ? theme.primary : spin.up.hovered ? theme.elevatedHover : "transparent"
+            Label {
+                anchors.centerIn: parent
+                text: "+"
+                color: theme.text
+                font.pixelSize: 18
+                font.bold: true
+            }
+        }
+
+        down.indicator: Rectangle {
+            x: 0
+            height: spin.height
+            implicitWidth: 38
+            color: spin.down.pressed ? theme.primary : spin.down.hovered ? theme.elevatedHover : "transparent"
+            Label {
+                anchors.centerIn: parent
+                text: "−"
+                color: theme.text
+                font.pixelSize: 18
+                font.bold: true
+            }
+        }
+
+        background: Rectangle {
+            radius: 8
+            color: theme.input
+            border.color: spin.activeFocus ? theme.primary : theme.border
         }
     }
 

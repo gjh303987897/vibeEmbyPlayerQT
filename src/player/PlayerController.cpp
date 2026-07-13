@@ -206,11 +206,22 @@ PlayerController::~PlayerController()
 
 bool PlayerController::initialize(qintptr windowId)
 {
+    return initializeInternal(windowId, false);
+}
+
+bool PlayerController::initializeHeadless()
+{
+    return initializeInternal(0, true);
+}
+
+bool PlayerController::initializeInternal(qintptr windowId, bool headless)
+{
     if (m_mpv) {
         return true;
     }
 
     m_windowId = windowId;
+    m_headless = headless;
     m_mpv = mpv_create();
     if (!m_mpv) {
         emit errorOccurred(QStringLiteral("Unable to create libmpv handle"));
@@ -218,18 +229,24 @@ bool PlayerController::initialize(qintptr windowId)
     }
 
     mpv_set_option_string(m_mpv, "terminal", "no");
-    mpv_set_option_string(m_mpv, "force-window", "yes");
+    mpv_set_option_string(m_mpv, "force-window", m_headless ? "no" : "yes");
     mpv_set_option_string(m_mpv, "idle", "yes");
-    mpv_set_option_string(m_mpv, "keep-open", "yes");
+    mpv_set_option_string(m_mpv, "keep-open", m_headless ? "no" : "yes");
     mpv_set_option_string(m_mpv, "input-default-bindings", "yes");
+    if (m_headless) {
+        mpv_set_option_string(m_mpv, "vo", "null");
+        mpv_set_option_string(m_mpv, "ao", "null");
+    }
     mpv_request_log_messages(m_mpv, "info");
 
-    auto wid = static_cast<int64_t>(m_windowId);
-    if (mpv_set_option(m_mpv, "wid", MPV_FORMAT_INT64, &wid) < 0) {
-        emit errorOccurred(QStringLiteral("Unable to attach libmpv to native window"));
-        mpv_terminate_destroy(m_mpv);
-        m_mpv = nullptr;
-        return false;
+    if (!m_headless) {
+        auto wid = static_cast<int64_t>(m_windowId);
+        if (mpv_set_option(m_mpv, "wid", MPV_FORMAT_INT64, &wid) < 0) {
+            emit errorOccurred(QStringLiteral("Unable to attach libmpv to native window"));
+            mpv_terminate_destroy(m_mpv);
+            m_mpv = nullptr;
+            return false;
+        }
     }
 
     if (mpv_initialize(m_mpv) < 0) {
@@ -242,7 +259,9 @@ bool PlayerController::initialize(qintptr windowId)
     observeProperties();
     m_eventTimer.start();
     m_networkStatsTimer.start();
-    AppLogger::info(QStringLiteral("player"), QStringLiteral("libmpv initialized with window embedding"));
+    AppLogger::info(QStringLiteral("player"),
+                    m_headless ? QStringLiteral("libmpv initialized for headless playback")
+                               : QStringLiteral("libmpv initialized with window embedding"));
     return true;
 }
 
@@ -349,6 +368,8 @@ void PlayerController::playUrl(const QString& url,
         mpv_set_option_string(m_mpv, "http-password", "");
     }
     mpv_set_option_string(m_mpv, "tls-verify", allowInsecureTls ? "no" : "yes");
+    int pauseFlag = 0;
+    mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag);
     const QByteArray encoded = url.toUtf8();
     updateVideoInfo({}, {}, {}, {});
     updateCacheDuration(-1.0);
@@ -550,9 +571,12 @@ void PlayerController::processEvents()
             }
         } else if (event->event_id == MPV_EVENT_END_FILE) {
             const auto* endFile = static_cast<mpv_event_end_file*>(event->data);
+            const auto finalPosition = m_position;
+            auto failed = false;
             if (endFile) {
                 const auto reason = endFileReasonName(endFile->reason);
                 if (endFile->reason == MPV_END_FILE_REASON_ERROR) {
+                    failed = true;
                     const auto error = QString::fromUtf8(mpv_error_string(endFile->error));
                     AppLogger::warning(QStringLiteral("player"),
                                        QStringLiteral("libmpv ended file with error: %1").arg(error));
@@ -570,6 +594,7 @@ void PlayerController::processEvents()
             m_bufferingProgress = 0;
             updateCacheDuration(-1.0);
             emit playbackStateChanged();
+            emit playbackEnded(finalPosition, failed);
         } else if (event->event_id == MPV_EVENT_FILE_LOADED ||
                    event->event_id == MPV_EVENT_VIDEO_RECONFIG ||
                    event->event_id == MPV_EVENT_PLAYBACK_RESTART) {

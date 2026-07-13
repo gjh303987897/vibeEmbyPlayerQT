@@ -458,6 +458,30 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("option.light"), QStringLiteral("Light") },
         { QStringLiteral("option.zh"), QStringLiteral("简体中文") },
         { QStringLiteral("option.en"), QStringLiteral("English") },
+        { QStringLiteral("nav.scheduledTasks"), QStringLiteral("Keep-Alive Tasks") },
+        { QStringLiteral("schedule.subtitle"), QStringLiteral("Manually start silent background playback for Emby sources") },
+        { QStringLiteral("schedule.add"), QStringLiteral("New Playback") },
+        { QStringLiteral("schedule.edit"), QStringLiteral("Edit Playback") },
+        { QStringLiteral("schedule.source"), QStringLiteral("Emby source") },
+        { QStringLiteral("schedule.duration"), QStringLiteral("Playback duration") },
+        { QStringLiteral("schedule.minutes"), QStringLiteral("minutes") },
+        { QStringLiteral("schedule.runNow"), QStringLiteral("Start Now") },
+        { QStringLiteral("schedule.startHint"), QStringLiteral("Playback starts immediately after saving. If normal playback is active, it waits in the background.") },
+        { QStringLiteral("schedule.empty"), QStringLiteral("No saved background playback configurations") },
+        { QStringLiteral("schedule.noSources"), QStringLiteral("Add and sign in to an Emby source first") },
+        { QStringLiteral("schedule.statusIdle"), QStringLiteral("Ready to start") },
+        { QStringLiteral("schedule.statusWaiting"), QStringLiteral("Waiting for foreground playback to finish") },
+        { QStringLiteral("schedule.statusStarting"), QStringLiteral("Preparing background playback") },
+        { QStringLiteral("schedule.statusPlaying"), QStringLiteral("Playing in background") },
+        { QStringLiteral("schedule.statusCompleted"), QStringLiteral("Playback duration completed") },
+        { QStringLiteral("schedule.statusError"), QStringLiteral("Task failed") },
+        { QStringLiteral("schedule.progress"), QStringLiteral("Progress") },
+        { QStringLiteral("schedule.manual"), QStringLiteral("Manual start") },
+        { QStringLiteral("schedule.savedConfigs"), QStringLiteral("saved configurations") },
+        { QStringLiteral("schedule.deleteTitle"), QStringLiteral("Delete playback configuration") },
+        { QStringLiteral("schedule.deletePrompt"), QStringLiteral("Delete this background playback configuration?") },
+        { QStringLiteral("schedule.errorSource"), QStringLiteral("Select an Emby source with a saved session") },
+        { QStringLiteral("schedule.errorBusy"), QStringLiteral("Another background playback task is already active") },
     };
     return texts;
 }
@@ -634,12 +658,44 @@ const QHash<QString, QString>& privacyChineseTexts()
     };
     return texts;
 }
+
+const QHash<QString, QString>& scheduledPlaybackChineseTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("nav.scheduledTasks"), QStringLiteral("保号任务") },
+        { QStringLiteral("schedule.subtitle"), QStringLiteral("手动启动 Emby 无声后台保号播放") },
+        { QStringLiteral("schedule.add"), QStringLiteral("新建播放") },
+        { QStringLiteral("schedule.edit"), QStringLiteral("编辑播放") },
+        { QStringLiteral("schedule.source"), QStringLiteral("Emby 播放源") },
+        { QStringLiteral("schedule.duration"), QStringLiteral("播放时长") },
+        { QStringLiteral("schedule.minutes"), QStringLiteral("分钟") },
+        { QStringLiteral("schedule.runNow"), QStringLiteral("立即开始") },
+        { QStringLiteral("schedule.startHint"), QStringLiteral("保存后立即开始；如果正在正常播放，将在后台等待播放结束。") },
+        { QStringLiteral("schedule.empty"), QStringLiteral("暂无后台播放配置") },
+        { QStringLiteral("schedule.noSources"), QStringLiteral("请先添加并登录 Emby 播放源") },
+        { QStringLiteral("schedule.statusIdle"), QStringLiteral("可以立即开始") },
+        { QStringLiteral("schedule.statusWaiting"), QStringLiteral("等待前台播放结束") },
+        { QStringLiteral("schedule.statusStarting"), QStringLiteral("正在准备后台播放") },
+        { QStringLiteral("schedule.statusPlaying"), QStringLiteral("正在后台播放") },
+        { QStringLiteral("schedule.statusCompleted"), QStringLiteral("本次播放时长已完成") },
+        { QStringLiteral("schedule.statusError"), QStringLiteral("任务执行失败") },
+        { QStringLiteral("schedule.progress"), QStringLiteral("播放进度") },
+        { QStringLiteral("schedule.manual"), QStringLiteral("手动启动") },
+        { QStringLiteral("schedule.savedConfigs"), QStringLiteral("个已保存配置") },
+        { QStringLiteral("schedule.deleteTitle"), QStringLiteral("删除播放配置") },
+        { QStringLiteral("schedule.deletePrompt"), QStringLiteral("确定删除这个后台播放配置吗？") },
+        { QStringLiteral("schedule.errorSource"), QStringLiteral("请选择已保存登录会话的 Emby 播放源") },
+        { QStringLiteral("schedule.errorBusy"), QStringLiteral("已有后台播放任务正在运行") },
+    };
+    return texts;
+}
 }
 
 AppViewModel::AppViewModel(QObject* parent)
     : QObject(parent)
     , m_embyClient(m_embyNetworkClient, this)
     , m_jellyfinClient(m_jellyfinNetworkClient, this)
+    , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
     wireCertificatePrompt(m_embyClient);
     wireCertificatePrompt(m_jellyfinClient);
@@ -653,6 +709,7 @@ AppViewModel::AppViewModel(QObject* parent)
     m_usageFlushTimer.start();
     if (auto* app = QCoreApplication::instance()) {
         connect(app, &QCoreApplication::aboutToQuit, this, [this]() {
+            m_scheduledPlaybackManager.stop();
             finishPlaybackUsageTracking();
             flushPendingUsageStats(false);
         });
@@ -664,6 +721,19 @@ AppViewModel::AppViewModel(QObject* parent)
             refreshWebDavDirectory();
         }
     });
+    connect(&m_scheduledPlaybackManager,
+            &ScheduledPlaybackManager::statusChanged,
+            this,
+            [this]() {
+                emit scheduledPlaybackStatusChanged();
+
+                const auto status = m_scheduledPlaybackManager.status();
+                if (status == QStringLiteral("completed") ||
+                    status == QStringLiteral("error") ||
+                    status == QStringLiteral("idle")) {
+                    flushPendingUsageStats(m_currentView == QStringLiteral("history"));
+                }
+            });
 }
 
 QString AppViewModel::serverUrl() const
@@ -1140,6 +1210,85 @@ qint64 AppViewModel::historyTotalNetworkBytes() const
     return m_historyTotalNetworkBytes;
 }
 
+ScheduledPlaybackTaskListModel* AppViewModel::scheduledPlaybackTasks()
+{
+    return &m_scheduledPlaybackTasks;
+}
+
+ServiceCardListModel* AppViewModel::scheduledEmbySources()
+{
+    return &m_scheduledEmbySources;
+}
+
+QString AppViewModel::scheduledPlaybackStatus() const
+{
+    return m_scheduledPlaybackManager.status();
+}
+
+QString AppViewModel::scheduledPlaybackServerName() const
+{
+    return m_scheduledPlaybackManager.currentServerName();
+}
+
+QString AppViewModel::scheduledPlaybackMediaName() const
+{
+    return m_scheduledPlaybackManager.currentMediaName();
+}
+
+QString AppViewModel::scheduledPlaybackError() const
+{
+    return m_scheduledPlaybackManager.errorMessage();
+}
+
+qint64 AppViewModel::scheduledPlaybackElapsedSeconds() const
+{
+    return m_scheduledPlaybackManager.elapsedSeconds();
+}
+
+qint64 AppViewModel::scheduledPlaybackTargetSeconds() const
+{
+    return m_scheduledPlaybackManager.targetSeconds();
+}
+
+bool AppViewModel::scheduledPlaybackActive() const
+{
+    return m_scheduledPlaybackManager.active();
+}
+
+bool AppViewModel::scheduledPlaybackWaiting() const
+{
+    return m_scheduledPlaybackManager.waiting();
+}
+
+int AppViewModel::scheduledTaskSourceIndex() const
+{
+    return m_scheduledTaskSourceIndex;
+}
+
+void AppViewModel::setScheduledTaskSourceIndex(int value)
+{
+    if (m_scheduledTaskSourceIndex == value) {
+        return;
+    }
+    m_scheduledTaskSourceIndex = value;
+    emit scheduledTaskEditorChanged();
+}
+
+int AppViewModel::scheduledTaskDurationMinutes() const
+{
+    return m_scheduledTaskDurationMinutes;
+}
+
+void AppViewModel::setScheduledTaskDurationMinutes(int value)
+{
+    const auto normalized = std::clamp(value, 5, 720);
+    if (m_scheduledTaskDurationMinutes == normalized) {
+        return;
+    }
+    m_scheduledTaskDurationMinutes = normalized;
+    emit scheduledTaskEditorChanged();
+}
+
 void AppViewModel::initialize()
 {
     if (auto initResult = m_repository.initialize(); !initResult) {
@@ -1159,6 +1308,8 @@ void AppViewModel::initialize()
     refreshServiceCards();
     refreshPrivacyCards();
     refreshUsageStats();
+    refreshScheduledEmbySources();
+    refreshScheduledPlaybackTasks();
     setCurrentView(QStringLiteral("services"));
 }
 
@@ -1407,6 +1558,7 @@ void AppViewModel::playIptvChannel(int row)
         return;
     }
 
+    setForegroundPlaybackActive(true);
     m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(channel->streamUrl) : playbackUrl;
     m_currentIptvChannelId = channel->id;
     m_currentMediaSourceId.clear();
@@ -1446,6 +1598,7 @@ void AppViewModel::openWebDavItem(int row)
         return;
     }
 
+    setForegroundPlaybackActive(true);
     if (!m_webDavPlaybackStreamId.isEmpty()) {
         m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
         m_webDavPlaybackStreamId.clear();
@@ -1752,6 +1905,13 @@ void AppViewModel::moveServiceCardTo(int fromRow, int toRow)
 QString AppViewModel::trText(const QString& key) const
 {
     const auto language = effectiveLanguage(m_languageMode);
+    if (language == QStringLiteral("zh_CN") &&
+        (key == QStringLiteral("nav.scheduledTasks") || key.startsWith(QStringLiteral("schedule.")))) {
+        const auto& scheduledPlaybackTable = scheduledPlaybackChineseTexts();
+        if (scheduledPlaybackTable.contains(key)) {
+            return scheduledPlaybackTable.value(key);
+        }
+    }
     if (language == QStringLiteral("zh_CN") && key.startsWith(QStringLiteral("iptv."))) {
         const auto& iptvTable = iptvChineseTexts();
         if (iptvTable.contains(key)) {
@@ -1995,6 +2155,135 @@ void AppViewModel::refreshHistoryStats()
 {
     flushPendingUsageStats(false);
     refreshUsageStats();
+}
+
+void AppViewModel::openScheduledPlaybackTasks()
+{
+    clearError();
+    refreshScheduledEmbySources();
+    refreshScheduledPlaybackTasks();
+    setCurrentView(QStringLiteral("scheduledTasks"));
+}
+
+void AppViewModel::beginAddScheduledPlaybackTask()
+{
+    m_scheduledTaskEditingId.clear();
+    setScheduledTaskSourceIndex(m_scheduledEmbySources.count() > 0 ? 0 : -1);
+    setScheduledTaskDurationMinutes(90);
+    emit scheduledTaskEditorChanged();
+}
+
+void AppViewModel::editScheduledPlaybackTask(int row)
+{
+    const auto task = m_scheduledPlaybackTasks.taskAt(row);
+    if (!task) {
+        return;
+    }
+
+    m_scheduledTaskEditingId = task->id;
+    auto sourceIndex = -1;
+    for (auto index = 0; index < m_scheduledEmbySources.count(); ++index) {
+        const auto card = m_scheduledEmbySources.cardAt(index);
+        if (card && card->server.id == task->serverId) {
+            sourceIndex = index;
+            break;
+        }
+    }
+    m_scheduledTaskSourceIndex = sourceIndex;
+    m_scheduledTaskDurationMinutes = task->durationMinutes;
+    emit scheduledTaskEditorChanged();
+}
+
+bool AppViewModel::saveAndRunScheduledPlaybackTask()
+{
+    clearError();
+    if (scheduledPlaybackActive() || scheduledPlaybackWaiting()) {
+        setError(trText(QStringLiteral("schedule.errorBusy")));
+        return false;
+    }
+    const auto source = m_scheduledEmbySources.cardAt(m_scheduledTaskSourceIndex);
+    if (!source || source->server.serviceType != ServiceType::Emby || !source->hasSession) {
+        setError(trText(QStringLiteral("schedule.errorSource")));
+        return false;
+    }
+
+    const ScheduledPlaybackTask task {
+        .id = m_scheduledTaskEditingId.isEmpty()
+            ? QUuid::createUuid().toString(QUuid::WithoutBraces)
+            : m_scheduledTaskEditingId,
+        .serverId = source->server.id,
+        .serverName = source->server.name,
+        .username = source->server.username,
+        .startTime = QStringLiteral("manual"),
+        .durationMinutes = std::clamp(m_scheduledTaskDurationMinutes, 5, 720),
+        .enabled = true,
+        .lastRunDate = QStringLiteral(""),
+    };
+    if (auto result = m_repository.saveScheduledPlaybackTask(task); !result) {
+        setError(result.error());
+        return false;
+    }
+
+    refreshScheduledPlaybackTasks();
+    m_scheduledPlaybackManager.runNow(task);
+    return true;
+}
+
+void AppViewModel::deleteScheduledPlaybackTask(int row)
+{
+    clearError();
+    const auto task = m_scheduledPlaybackTasks.taskAt(row);
+    if (!task) {
+        return;
+    }
+    if (scheduledPlaybackActive() || scheduledPlaybackWaiting()) {
+        m_scheduledPlaybackManager.stop();
+    }
+    if (auto result = m_repository.deleteScheduledPlaybackTask(task->id); !result) {
+        setError(result.error());
+        return;
+    }
+    refreshScheduledPlaybackTasks();
+}
+
+void AppViewModel::runScheduledPlaybackTaskNow(int row)
+{
+    clearError();
+    if (scheduledPlaybackActive() || scheduledPlaybackWaiting()) {
+        setError(trText(QStringLiteral("schedule.errorBusy")));
+        return;
+    }
+    const auto task = m_scheduledPlaybackTasks.taskAt(row);
+    if (!task) {
+        return;
+    }
+    m_scheduledPlaybackManager.runNow(*task);
+}
+
+void AppViewModel::stopScheduledPlayback()
+{
+    m_scheduledPlaybackManager.stop();
+}
+
+QString AppViewModel::formatDuration(qint64 seconds) const
+{
+    const auto normalized = std::max<qint64>(0, seconds);
+    const auto hours = normalized / 3600;
+    const auto minutes = (normalized % 3600) / 60;
+    const auto remainingSeconds = normalized % 60;
+    if (hours > 0) {
+        return effectiveLanguage(m_languageMode) == QStringLiteral("zh_CN")
+            ? QStringLiteral("%1 小时 %2 分钟").arg(hours).arg(minutes)
+            : QStringLiteral("%1h %2m").arg(hours).arg(minutes);
+    }
+    if (minutes > 0) {
+        return effectiveLanguage(m_languageMode) == QStringLiteral("zh_CN")
+            ? QStringLiteral("%1 分钟 %2 秒").arg(minutes).arg(remainingSeconds)
+            : QStringLiteral("%1m %2s").arg(minutes).arg(remainingSeconds);
+    }
+    return effectiveLanguage(m_languageMode) == QStringLiteral("zh_CN")
+        ? QStringLiteral("%1 秒").arg(remainingSeconds)
+        : QStringLiteral("%1s").arg(remainingSeconds);
 }
 
 void AppViewModel::refreshHome()
@@ -2279,6 +2568,7 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
     m_currentPlaybackStartSeconds = 0.0;
     m_lastPlaybackReportSeconds = -1.0;
     m_playbackStartedReported = false;
+    setForegroundPlaybackActive(false);
 }
 
 void AppViewModel::syncSelectedPeople()
@@ -2488,12 +2778,14 @@ void AppViewModel::playSelectedItem()
     }
 
     clearError();
+    setForegroundPlaybackActive(true);
     setLoading(true);
     const auto itemName = m_selectedItem->name;
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Fetching playback info for selected media item"));
     client->fetchPlaybackUrl(*m_session, *m_selectedItem, [this, itemName](PlaybackUrlResult result) {
         setLoading(false);
         if (!result) {
+            setForegroundPlaybackActive(false);
             const auto message = displayNetworkError(result.error());
             AppLogger::warning(QStringLiteral("player"), QStringLiteral("Fetch playback URL failed for %1: %2").arg(itemName, message));
             setError(message);
@@ -2659,6 +2951,7 @@ void AppViewModel::openLocalPlaybackForVerification(const QUrl& url)
     }
 
     clearError();
+    setForegroundPlaybackActive(true);
     m_currentPlaybackUrl = url;
     m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
@@ -2752,6 +3045,42 @@ void AppViewModel::refreshServiceCards()
         return;
     }
     m_services.setCards(*cardsResult);
+    refreshScheduledEmbySources();
+}
+
+void AppViewModel::refreshScheduledPlaybackTasks()
+{
+    const auto result = m_repository.loadScheduledPlaybackTasks();
+    if (!result) {
+        AppLogger::warning(QStringLiteral("scheduled-playback"),
+                           QStringLiteral("Load scheduled tasks failed: %1").arg(result.error()));
+        return;
+    }
+    m_scheduledPlaybackTasks.setTasks(*result);
+    emit scheduledPlaybackTasksChanged();
+}
+
+void AppViewModel::refreshScheduledEmbySources()
+{
+    const auto result = m_repository.loadAllServiceCards();
+    if (!result) {
+        AppLogger::warning(QStringLiteral("scheduled-playback"),
+                           QStringLiteral("Load Emby sources failed: %1").arg(result.error()));
+        return;
+    }
+
+    std::vector<ServiceCard> sources;
+    for (const auto& card : *result) {
+        if (card.server.serviceType == ServiceType::Emby && card.hasSession && !card.server.privateMode) {
+            sources.push_back(card);
+        }
+    }
+    m_scheduledEmbySources.setCards(std::move(sources));
+}
+
+void AppViewModel::setForegroundPlaybackActive(bool active)
+{
+    m_scheduledPlaybackManager.setForegroundPlaybackActive(active);
 }
 
 void AppViewModel::startLogin(const ServerConfig& server, const QString& password)
@@ -3232,6 +3561,19 @@ void AppViewModel::wireWebDavCertificatePrompt()
 
 void AppViewModel::wireUsageSignals()
 {
+    connect(&m_scheduledPlaybackManager,
+            &ScheduledPlaybackManager::networkTrafficSample,
+            this,
+            [this](const ServerConfig& server, qint64 bytesReceived) {
+                if (bytesReceived <= 0) {
+                    return;
+                }
+                const auto shouldFlush = accumulateUsage(server, server.privateMode, 0, bytesReceived, 0);
+                const auto onHistoryPage = m_currentView == QStringLiteral("history");
+                if (shouldFlush || onHistoryPage) {
+                    flushPendingUsageStats(onHistoryPage);
+                }
+            });
     connect(&m_embyNetworkClient, &NetworkClient::networkTrafficSample, this, [this](qint64 bytesReceived, qint64 bytesSent) {
         recordNetworkUsageForCurrentService(ServiceType::Emby, bytesReceived, bytesSent);
     });

@@ -64,6 +64,7 @@ qt_add_executable(vibePlayerQT
     src/models/MediaItem.h
     src/models/MediaLibrary.h
     src/models/MediaPerson.h
+    src/models/ScheduledPlaybackTask.h
     src/models/ServiceCard.h
     src/models/ServerConfig.h
     src/models/ServiceType.h
@@ -90,6 +91,8 @@ qt_add_executable(vibePlayerQT
     src/services/media/MediaServiceClient.h
     src/services/media/MediaServerClientBase.cpp
     src/services/media/MediaServerClientBase.h
+    src/services/scheduler/ScheduledPlaybackManager.cpp
+    src/services/scheduler/ScheduledPlaybackManager.h
     src/services/webdav/TransferManager.cpp
     src/services/webdav/TransferManager.h
     src/services/webdav/WebDavClient.cpp
@@ -115,6 +118,8 @@ qt_add_executable(vibePlayerQT
     src/viewmodels/PersonListModel.h
     src/viewmodels/ServiceCardListModel.cpp
     src/viewmodels/ServiceCardListModel.h
+    src/viewmodels/ScheduledPlaybackTaskListModel.cpp
+    src/viewmodels/ScheduledPlaybackTaskListModel.h
     src/viewmodels/TransferTaskListModel.cpp
     src/viewmodels/TransferTaskListModel.h
     src/viewmodels/WebDavItemListModel.cpp
