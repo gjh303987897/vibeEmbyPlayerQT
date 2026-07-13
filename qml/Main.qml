@@ -745,17 +745,50 @@ ApplicationWindow {
                 spacing: 0
                 Layout.fillWidth: true
 
-                Label {
+                RowLayout {
+                    id: pageTitleRow
                     Layout.fillWidth: true
-                text: appViewModel.currentView === "settings" ? t("settings.title")
-                    : appViewModel.currentView === "history" ? t("history.title")
-                    : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
-                    : appViewModel.currentView === "services" ? t("nav.services")
-                        : appViewModel.currentServerName
-                    color: theme.text
-                    font.pixelSize: 20
-                    font.bold: true
-                    elide: Text.ElideRight
+                    spacing: 8
+                    property real privacyBadgeWidth: 76
+
+                    Label {
+                        Layout.maximumWidth: Math.max(0, pageTitleRow.width
+                            - (privacyModeBadge.visible ? pageTitleRow.privacyBadgeWidth + pageTitleRow.spacing : 0))
+                        text: appViewModel.currentView === "settings" ? t("settings.title")
+                            : appViewModel.currentView === "history" ? t("history.title")
+                            : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
+                            : appViewModel.currentView === "services" ? t("nav.services")
+                                : appViewModel.currentServerName
+                        color: theme.text
+                        font.pixelSize: 20
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        id: privacyModeBadge
+                        visible: appViewModel.currentView === "services" && appViewModel.privacyMode
+                        Layout.preferredHeight: 24
+                        Layout.preferredWidth: pageTitleRow.privacyBadgeWidth
+                        radius: 8
+                        color: theme.primary
+                        border.color: theme.primary
+
+                        Label {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            text: t("history.privateBadge")
+                            color: "#ffffff"
+                            font.pixelSize: 11
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
                 }
 
                 MutedText {
