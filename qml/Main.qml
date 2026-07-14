@@ -2672,6 +2672,9 @@ ApplicationWindow {
         property color valueColor: theme.text
 
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        Layout.horizontalStretchFactor: 2
         spacing: 4
 
         MutedText {
@@ -2698,8 +2701,12 @@ ApplicationWindow {
         property real uploadRate: 0
 
         Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        Layout.horizontalStretchFactor: 3
         Layout.alignment: Qt.AlignVCenter
         spacing: 2
+        clip: true
 
         MutedText {
             Layout.fillWidth: true
