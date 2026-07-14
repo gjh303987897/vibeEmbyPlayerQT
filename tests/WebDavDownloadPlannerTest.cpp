@@ -89,9 +89,7 @@ public:
                     }
                     writeResponse(socket, 207, QByteArrayLiteral("Multi-Status"), body);
                 });
-                connect(socket, &QObject::destroyed, this, [this, socket]() {
-                    m_buffers.remove(socket);
-                });
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
             }
         });
     }
@@ -205,7 +203,10 @@ private slots:
         eventLoop.exec();
 
         QVERIFY2(result.has_value(), "Planner timed out");
-        QVERIFY2(result->has_value(), qPrintable(result->error().message));
+        if (!result->has_value()) {
+            const auto errorMessage = result->error().message.toUtf8();
+            QFAIL(errorMessage.constData());
+        }
         const auto& plan = result->value();
         QCOMPARE(plan.files.size(), size_t { 3 });
         QCOMPARE(plan.directories.size(), size_t { 3 });
