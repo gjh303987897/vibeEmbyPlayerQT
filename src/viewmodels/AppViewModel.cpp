@@ -366,12 +366,21 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.unknownSizeWarning"), QStringLiteral("The total download size could not be confirmed. Continue anyway?") },
         { QStringLiteral("transfers.title"), QStringLiteral("Transfers") },
         { QStringLiteral("transfers.subtitle"), QStringLiteral("Download queue and recent activity") },
+        { QStringLiteral("transfers.detailsSubtitle"), QStringLiteral("File progress for this download") },
         { QStringLiteral("transfers.empty"), QStringLiteral("No transfer tasks") },
         { QStringLiteral("transfers.emptyHint"), QStringLiteral("Downloads and uploads will appear here") },
+        { QStringLiteral("transfers.emptyDetails"), QStringLiteral("This download contains no file tasks") },
+        { QStringLiteral("transfers.files"), QStringLiteral("files") },
         { QStringLiteral("transfers.pending"), QStringLiteral("Pending") },
         { QStringLiteral("transfers.completed"), QStringLiteral("Completed") },
         { QStringLiteral("transfers.failed"), QStringLiteral("Failed / canceled") },
         { QStringLiteral("transfers.speed"), QStringLiteral("Current speed") },
+        { QStringLiteral("transfers.averageSpeed"), QStringLiteral("Average speed") },
+        { QStringLiteral("transfers.downloadRate"), QStringLiteral("Download") },
+        { QStringLiteral("transfers.uploadRate"), QStringLiteral("Upload") },
+        { QStringLiteral("transfers.remaining"), QStringLiteral("Remaining download") },
+        { QStringLiteral("transfers.unknown"), QStringLiteral("Calculating") },
+        { QStringLiteral("transfers.openDetails"), QStringLiteral("View file progress") },
         { QStringLiteral("transfers.clearFinished"), QStringLiteral("Clear finished") },
         { QStringLiteral("transfers.statusQueued"), QStringLiteral("Queued") },
         { QStringLiteral("transfers.statusRunning"), QStringLiteral("Downloading") },
@@ -624,17 +633,47 @@ const QHash<QString, QString>& iptvChineseTexts()
     return texts;
 }
 
+const QHash<QString, QString>& webDavChineseTexts()
+{
+    static const QHash<QString, QString> texts {
+        { QStringLiteral("action.upload"), QStringLiteral("上传") },
+        { QStringLiteral("action.uploadFolder"), QStringLiteral("上传文件夹") },
+        { QStringLiteral("action.download"), QStringLiteral("下载") },
+        { QStringLiteral("action.transfers"), QStringLiteral("下载任务") },
+        { QStringLiteral("action.choose"), QStringLiteral("选择") },
+        { QStringLiteral("webdav.title"), QStringLiteral("WebDAV 文件") },
+        { QStringLiteral("webdav.empty"), QStringLiteral("当前文件夹为空") },
+        { QStringLiteral("webdav.loadingFolder"), QStringLiteral("正在加载文件夹...") },
+        { QStringLiteral("webdav.loadingHint"), QStringLiteral("正在读取远程目录") },
+        { QStringLiteral("webdav.defaultDownload"), QStringLiteral("默认下载文件夹") },
+        { QStringLiteral("webdav.noDownloadFolder"), QStringLiteral("每次询问") },
+        { QStringLiteral("webdav.spaceWarningTitle"), QStringLiteral("存储空间检查") },
+        { QStringLiteral("webdav.spaceWarning"), QStringLiteral("下载大小为 %1，可用磁盘空间为 %2。仍要继续吗？") },
+        { QStringLiteral("webdav.unknownSizeWarning"), QStringLiteral("无法确认下载总大小。仍要继续吗？") },
+    };
+    return texts;
+}
+
 const QHash<QString, QString>& transferChineseTexts()
 {
     static const QHash<QString, QString> texts {
-        { QStringLiteral("transfers.title"), QStringLiteral("传输任务") },
+        { QStringLiteral("transfers.title"), QStringLiteral("下载任务") },
         { QStringLiteral("transfers.subtitle"), QStringLiteral("下载队列与最近传输记录") },
-        { QStringLiteral("transfers.empty"), QStringLiteral("暂无传输任务") },
+        { QStringLiteral("transfers.detailsSubtitle"), QStringLiteral("查看本次下载中每个文件的进度") },
+        { QStringLiteral("transfers.empty"), QStringLiteral("暂无下载任务") },
         { QStringLiteral("transfers.emptyHint"), QStringLiteral("下载和上传任务会显示在这里") },
+        { QStringLiteral("transfers.emptyDetails"), QStringLiteral("本次下载没有文件任务") },
+        { QStringLiteral("transfers.files"), QStringLiteral("个文件") },
         { QStringLiteral("transfers.pending"), QStringLiteral("待完成") },
         { QStringLiteral("transfers.completed"), QStringLiteral("已完成") },
         { QStringLiteral("transfers.failed"), QStringLiteral("失败 / 已取消") },
         { QStringLiteral("transfers.speed"), QStringLiteral("当前速度") },
+        { QStringLiteral("transfers.averageSpeed"), QStringLiteral("平均速度") },
+        { QStringLiteral("transfers.downloadRate"), QStringLiteral("下载") },
+        { QStringLiteral("transfers.uploadRate"), QStringLiteral("上传") },
+        { QStringLiteral("transfers.remaining"), QStringLiteral("剩余下载量") },
+        { QStringLiteral("transfers.unknown"), QStringLiteral("计算中") },
+        { QStringLiteral("transfers.openDetails"), QStringLiteral("查看文件进度") },
         { QStringLiteral("transfers.clearFinished"), QStringLiteral("清除已结束") },
         { QStringLiteral("transfers.statusQueued"), QStringLiteral("等待中") },
         { QStringLiteral("transfers.statusRunning"), QStringLiteral("传输中") },
@@ -757,6 +796,7 @@ AppViewModel::AppViewModel(QObject* parent)
         });
     }
     connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
+    connect(&m_transferManager, &TransferManager::selectionChanged, this, &AppViewModel::transferSelectionChanged);
     connect(&m_transferManager, &TransferManager::taskFinished, this, [this](const QString&, bool, const QString&) {
         if (m_currentWebDavCard && m_currentView == QStringLiteral("webdav")) {
             refreshWebDavDirectory();
@@ -961,6 +1001,21 @@ TransferTaskListModel* AppViewModel::transferTasks()
     return m_transferManager.tasks();
 }
 
+TransferTaskListModel* AppViewModel::transferDetailTasks()
+{
+    return m_transferManager.detailTasks();
+}
+
+QString AppViewModel::selectedTransferGroupId() const
+{
+    return m_transferManager.selectedGroupId();
+}
+
+QString AppViewModel::selectedTransferGroupTitle() const
+{
+    return m_transferManager.selectedGroupTitle();
+}
+
 int AppViewModel::activeTransferCount() const
 {
     return m_transferManager.activeCount();
@@ -979,6 +1034,36 @@ int AppViewModel::failedTransferCount() const
 qint64 AppViewModel::transferBytesPerSecond() const
 {
     return m_transferManager.bytesPerSecond();
+}
+
+qint64 AppViewModel::transferAverageBytesPerSecond() const
+{
+    return m_transferManager.averageBytesPerSecond();
+}
+
+qint64 AppViewModel::transferDownloadBytesPerSecond() const
+{
+    return m_transferManager.downloadBytesPerSecond();
+}
+
+qint64 AppViewModel::transferUploadBytesPerSecond() const
+{
+    return m_transferManager.uploadBytesPerSecond();
+}
+
+qint64 AppViewModel::transferAverageDownloadBytesPerSecond() const
+{
+    return m_transferManager.averageDownloadBytesPerSecond();
+}
+
+qint64 AppViewModel::transferAverageUploadBytesPerSecond() const
+{
+    return m_transferManager.averageUploadBytesPerSecond();
+}
+
+qint64 AppViewModel::transferRemainingBytes() const
+{
+    return m_transferManager.remainingBytes();
 }
 
 QString AppViewModel::playbackHttpUsername() const
@@ -1778,6 +1863,7 @@ void AppViewModel::downloadWebDavItem(int row)
     const auto available = QStorageInfo(directory).bytesAvailable();
     const auto server = m_currentWebDavCard->server;
     const auto password = m_webDavPassword;
+    const auto downloadTitle = item->name;
     const auto directoryDownload = item->directory;
     if (directoryDownload) {
         setLoading(true);
@@ -1787,7 +1873,7 @@ void AppViewModel::downloadWebDavItem(int row)
                                       password,
                                       *item,
                                       targetPath,
-                                      [this, server, password, available, directoryDownload](WebDavDownloadPlanResult result) mutable {
+                                      [this, server, password, available, directoryDownload, downloadTitle, targetPath](WebDavDownloadPlanResult result) mutable {
         if (directoryDownload) {
             setLoading(false);
         }
@@ -1796,7 +1882,7 @@ void AppViewModel::downloadWebDavItem(int row)
             return;
         }
 
-        auto launchDownload = [this, server, password](WebDavDownloadPlan plan) mutable {
+        auto launchDownload = [this, server, password, downloadTitle, targetPath](WebDavDownloadPlan plan) mutable {
             for (const auto& localDirectory : plan.directories) {
                 if (!QDir().mkpath(localDirectory)) {
                     setError(QStringLiteral("Unable to create local download directory"));
@@ -1813,7 +1899,11 @@ void AppViewModel::downloadWebDavItem(int row)
                     .totalBytes = file.bytesTotal,
                 });
             }
-            m_transferManager.enqueueDownloads(server, password, std::move(requests));
+            m_transferManager.enqueueDownloads(server,
+                                               password,
+                                               downloadTitle,
+                                               targetPath,
+                                               std::move(requests));
             openTransfers();
         };
 
@@ -1850,6 +1940,7 @@ void AppViewModel::chooseDefaultDownloadDirectory()
 
 void AppViewModel::openTransfers()
 {
+    m_transferManager.clearGroupSelection();
     setCurrentView(QStringLiteral("transfers"));
 }
 
@@ -1861,6 +1952,16 @@ void AppViewModel::cancelTransfer(const QString& taskId)
 void AppViewModel::clearFinishedTransfers()
 {
     m_transferManager.clearFinished();
+}
+
+void AppViewModel::openTransferGroup(const QString& groupId)
+{
+    m_transferManager.selectGroup(groupId);
+}
+
+void AppViewModel::closeTransferGroup()
+{
+    m_transferManager.clearGroupSelection();
 }
 
 bool AppViewModel::unlockPrivacyMode(const QString& pin)
@@ -2011,6 +2112,18 @@ void AppViewModel::moveServiceCardTo(int fromRow, int toRow)
 QString AppViewModel::trText(const QString& key) const
 {
     const auto language = effectiveLanguage(m_languageMode);
+    if (language == QStringLiteral("zh_CN") &&
+        (key.startsWith(QStringLiteral("webdav.")) ||
+         key == QStringLiteral("action.upload") ||
+         key == QStringLiteral("action.uploadFolder") ||
+         key == QStringLiteral("action.download") ||
+         key == QStringLiteral("action.transfers") ||
+         key == QStringLiteral("action.choose"))) {
+        const auto& webDavTable = webDavChineseTexts();
+        if (webDavTable.contains(key)) {
+            return webDavTable.value(key);
+        }
+    }
     if (language == QStringLiteral("zh_CN") && key.startsWith(QStringLiteral("transfers."))) {
         const auto& transferTable = transferChineseTexts();
         if (transferTable.contains(key)) {

@@ -37,10 +37,19 @@ public:
     explicit TransferManager(QObject* parent = nullptr);
 
     TransferTaskListModel* tasks();
+    TransferTaskListModel* detailTasks();
+    QString selectedGroupId() const;
+    QString selectedGroupTitle() const;
     int activeCount() const;
     int completedCount() const;
     int failedCount() const;
     qint64 bytesPerSecond() const;
+    qint64 averageBytesPerSecond() const;
+    qint64 downloadBytesPerSecond() const;
+    qint64 uploadBytesPerSecond() const;
+    qint64 averageDownloadBytesPerSecond() const;
+    qint64 averageUploadBytesPerSecond() const;
+    qint64 remainingBytes() const;
 
     QString enqueueUpload(const ServerConfig& server,
                           const QString& password,
@@ -52,18 +61,23 @@ public:
                             const QUrl& remoteUrl,
                             const QString& localPath,
                             qint64 totalBytes);
-    void enqueueDownloads(const ServerConfig& server,
-                          const QString& password,
-                          std::vector<DownloadRequest> requests);
+    QString enqueueDownloads(const ServerConfig& server,
+                             const QString& password,
+                             const QString& groupTitle,
+                             const QString& groupTarget,
+                             std::vector<DownloadRequest> requests);
     QString enqueueCreateDirectory(const ServerConfig& server,
                                    const QString& password,
                                    const QUrl& remoteUrl);
 
     Q_INVOKABLE void cancelTask(const QString& taskId);
     Q_INVOKABLE void clearFinished();
+    bool selectGroup(const QString& groupId);
+    void clearGroupSelection();
 
 signals:
     void tasksChanged();
+    void selectionChanged();
     void taskFinished(const QString& taskId, bool ok, const QString& message);
     void certificateConfirmationRequired(const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply);
     void networkTrafficSample(const QString& serviceId,
@@ -94,17 +108,31 @@ private:
         qint64 lastPublishedElapsedMs { 0 };
     };
 
+    struct DownloadGroupState {
+        QString id;
+        std::vector<QString> taskIds;
+        QElapsedTimer elapsed;
+        bool started { false };
+    };
+
     void enqueue(QueuedTask task);
+    void cancelDownloadGroup(const QString& groupId);
     void startNext();
     void startTask(QueuedTask task);
     void publishTask(const TransferTask& task);
+    void updateDownloadGroup(const QString& groupId);
     void updateProgress(const QString& taskId, qint64 done, qint64 total);
     void finishActive(const QString& taskId, bool ok, const QString& message);
     void wireReply(QNetworkReply* reply, const ServerConfig& server);
+    qint64 rateForDirection(const QString& direction, bool average) const;
 
     QNetworkAccessManager m_manager;
     TransferTaskListModel m_model;
+    TransferTaskListModel m_detailModel;
+    std::vector<TransferTask> m_topLevelTasks;
     std::vector<TransferTask> m_tasks;
     QQueue<QueuedTask> m_queue;
     QHash<QString, std::shared_ptr<ActiveTask>> m_active;
+    QHash<QString, std::shared_ptr<DownloadGroupState>> m_downloadGroups;
+    QString m_selectedGroupId;
 };

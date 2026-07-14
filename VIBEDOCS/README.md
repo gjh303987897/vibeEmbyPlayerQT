@@ -11,3 +11,4 @@
 - `DesktopLifecycle.md`：桌面端窗口生命周期、系统托盘和最小化到托盘行为。
 - `SettingsAppearance.md`：设置页、i18n、明暗主题和服务卡片拖拽排序设计。
 - `PlayerRuntime.md`：libmpv runtime、Window Embedding、QML 播放页和播放 URL 流程。
+- `WebDAV.md`：WebDAV 协议边界、下载规划、总任务/文件明细模型与传输统计口径。

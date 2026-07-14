@@ -1539,6 +1539,7 @@ ApplicationWindow {
             color: theme.text
             font.pixelSize: 22
             font.bold: true
+            elide: Text.ElideRight
         }
 
         MutedText {
@@ -2392,8 +2393,14 @@ ApplicationWindow {
         property real bytesDone: 0
         property real bytesTotal: -1
         property real bytesPerSecond: 0
+        property real averageBytesPerSecond: 0
+        property real bytesRemaining: -1
         property real progress: 0
+        property int fileCount: 0
+        property int completedFileCount: 0
+        property bool isGroup: false
         property bool cancellable: false
+        signal activated()
 
         function directionIcon() {
             if (direction === "upload") {
@@ -2434,10 +2441,24 @@ ApplicationWindow {
         }
 
         radius: 8
-        color: theme.elevated
-        border.color: theme.border
-        implicitHeight: 116
+        color: taskRow.isGroup && groupHover.hovered ? theme.elevatedHover : theme.elevated
+        border.color: taskRow.isGroup && groupHover.hovered ? theme.primary : theme.border
+        implicitHeight: taskRow.isGroup ? 154 : 116
         height: implicitHeight
+
+        Behavior on color { ColorAnimation { duration: 120 } }
+        Behavior on border.color { ColorAnimation { duration: 120 } }
+
+        HoverHandler {
+            id: groupHover
+            enabled: taskRow.isGroup
+            cursorShape: Qt.PointingHandCursor
+        }
+
+        TapHandler {
+            enabled: taskRow.isGroup
+            onTapped: taskRow.activated()
+        }
 
         RowLayout {
             anchors.fill: parent
@@ -2445,8 +2466,8 @@ ApplicationWindow {
             spacing: 14
 
             Rectangle {
-                Layout.preferredWidth: 42
-                Layout.preferredHeight: 42
+                Layout.preferredWidth: taskRow.isGroup ? 48 : 42
+                Layout.preferredHeight: taskRow.isGroup ? 48 : 42
                 Layout.alignment: Qt.AlignTop
                 radius: 8
                 color: root.withAlpha(taskRow.statusColor(), darkTheme ? 0.18 : 0.11)
@@ -2458,6 +2479,27 @@ ApplicationWindow {
                     color: taskRow.statusColor()
                     font.pixelSize: 22
                     font.bold: true
+                }
+
+                Rectangle {
+                    visible: taskRow.isGroup && taskRow.fileCount > 0
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.rightMargin: -5
+                    anchors.bottomMargin: -5
+                    width: Math.max(20, groupCountLabel.implicitWidth + 8)
+                    height: 20
+                    radius: 7
+                    color: theme.primary
+
+                    Label {
+                        id: groupCountLabel
+                        anchors.centerIn: parent
+                        text: taskRow.fileCount
+                        color: "#ffffff"
+                        font.pixelSize: 10
+                        font.bold: true
+                    }
                 }
             }
 
@@ -2517,30 +2559,109 @@ ApplicationWindow {
 
                     MutedText {
                         Layout.fillWidth: true
-                        text: taskRow.bytesTotal > 0
-                            ? root.formatBytes(taskRow.bytesDone) + " / " + root.formatBytes(taskRow.bytesTotal)
-                            : taskRow.detail
+                        text: taskRow.isGroup
+                            ? taskRow.completedFileCount + " / " + taskRow.fileCount + " " + t("transfers.files")
+                            : taskRow.bytesTotal > 0
+                                ? root.formatBytes(taskRow.bytesDone) + " / " + root.formatBytes(taskRow.bytesTotal)
+                                : taskRow.detail
                         elide: Text.ElideRight
                     }
 
                     MutedText {
-                        visible: taskRow.status === "running" && taskRow.bytesPerSecond > 0
-                        text: root.formatBytes(taskRow.bytesPerSecond) + "/s"
+                        visible: taskRow.isGroup
+                        text: taskRow.bytesTotal >= 0
+                            ? root.formatBytes(taskRow.bytesDone) + " / " + root.formatBytes(taskRow.bytesTotal)
+                            : t("transfers.unknown")
+                        elide: Text.ElideRight
+                    }
+
+                    MutedText {
+                        visible: !taskRow.isGroup
+                            && taskRow.status === "running"
+                            && taskRow.bytesPerSecond > 0
+                        text: "\u2193 " + root.formatBytes(taskRow.bytesPerSecond) + "/s"
                         color: theme.text
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: taskRow.isGroup
+                    spacing: 10
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("transfers.speed") + "  "
+                            + root.formatBytes(taskRow.bytesPerSecond) + "/s"
+                        color: taskRow.bytesPerSecond > 0 ? theme.primary : theme.muted
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 14
+                        color: theme.border
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("transfers.averageSpeed") + "  "
+                            + root.formatBytes(taskRow.averageBytesPerSecond) + "/s"
+                        color: taskRow.averageBytesPerSecond > 0 ? theme.success : theme.muted
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 14
+                        color: theme.border
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("transfers.remaining") + "  "
+                            + (taskRow.bytesRemaining >= 0
+                                ? root.formatBytes(taskRow.bytesRemaining)
+                                : t("transfers.unknown"))
+                        color: taskRow.bytesRemaining > 0 ? theme.warning : theme.muted
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignRight
+                        elide: Text.ElideRight
                     }
                 }
             }
 
-            IconButton {
-                Layout.alignment: Qt.AlignTop
-                visible: taskRow.cancellable
-                    && taskRow.status !== "done"
-                    && taskRow.status !== "failed"
-                    && taskRow.status !== "canceled"
-                text: "\u00d7"
-                onClicked: appViewModel.cancelTransfer(taskRow.taskId)
-                ToolTip.visible: hovered
-                ToolTip.text: t("action.cancel")
+            ColumnLayout {
+                Layout.fillHeight: true
+                spacing: 4
+
+                IconButton {
+                    Layout.alignment: Qt.AlignTop | Qt.AlignHCenter
+                    visible: taskRow.cancellable
+                        && taskRow.status !== "done"
+                        && taskRow.status !== "failed"
+                        && taskRow.status !== "canceled"
+                    text: "\u00d7"
+                    onClicked: appViewModel.cancelTransfer(taskRow.taskId)
+                    ToolTip.visible: hovered
+                    ToolTip.text: t("action.cancel")
+                }
+
+                Item { Layout.fillHeight: true }
+
+                Label {
+                    visible: taskRow.isGroup
+                    Layout.alignment: Qt.AlignHCenter | Qt.AlignBottom
+                    text: "\u203a"
+                    color: groupHover.hovered ? theme.primary : theme.muted
+                    font.pixelSize: 28
+                    font.bold: true
+                    ToolTip.visible: groupHover.hovered
+                    ToolTip.text: t("transfers.openDetails")
+                }
             }
         }
     }
@@ -2568,6 +2689,57 @@ ApplicationWindow {
             font.bold: true
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
+        }
+    }
+
+    component TransferRateSummaryBlock: ColumnLayout {
+        property string label: ""
+        property real downloadRate: 0
+        property real uploadRate: 0
+
+        Layout.fillWidth: true
+        Layout.alignment: Qt.AlignVCenter
+        spacing: 2
+
+        MutedText {
+            Layout.fillWidth: true
+            text: label
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
+
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: 5
+
+            Label {
+                text: "\u2193 " + t("transfers.downloadRate")
+                color: theme.muted
+                font.pixelSize: 11
+            }
+            Label {
+                text: root.formatBytes(downloadRate) + "/s"
+                color: downloadRate > 0 ? theme.primary : theme.text
+                font.pixelSize: 12
+                font.bold: true
+            }
+        }
+
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: 5
+
+            Label {
+                text: "\u2191 " + t("transfers.uploadRate")
+                color: theme.muted
+                font.pixelSize: 11
+            }
+            Label {
+                text: root.formatBytes(uploadRate) + "/s"
+                color: uploadRate > 0 ? theme.success : theme.text
+                font.pixelSize: 12
+                font.bold: true
+            }
         }
     }
 
@@ -4640,6 +4812,12 @@ ApplicationWindow {
     }
 
     component TransfersPage: Item {
+        id: transfersPage
+        property bool showingDetails: appViewModel.selectedTransferGroupId.length > 0
+        property var visibleModel: showingDetails
+            ? appViewModel.transferDetailTasks
+            : appViewModel.transferTasks
+
         ColumnLayout {
             anchors.fill: parent
             spacing: 16
@@ -4647,13 +4825,27 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 10
+
+                IconButton {
+                    visible: transfersPage.showingDetails
+                    text: "\u2039"
+                    onClicked: appViewModel.closeTransferGroup()
+                    ToolTip.visible: hovered
+                    ToolTip.text: t("transfers.title")
+                }
+
                 SectionHeader {
                     Layout.fillWidth: true
-                    title: t("transfers.title")
-                    subtitle: t("transfers.subtitle")
+                    title: transfersPage.showingDetails
+                        ? appViewModel.selectedTransferGroupTitle
+                        : t("transfers.title")
+                    subtitle: transfersPage.showingDetails
+                        ? t("transfers.detailsSubtitle")
+                        : t("transfers.subtitle")
                 }
                 ModernButton {
-                    visible: appViewModel.completedTransferCount + appViewModel.failedTransferCount > 0
+                    visible: !transfersPage.showingDetails
+                        && appViewModel.completedTransferCount + appViewModel.failedTransferCount > 0
                     text: t("transfers.clearFinished")
                     onClicked: appViewModel.clearFinishedTransfers()
                 }
@@ -4665,7 +4857,7 @@ ApplicationWindow {
 
             RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 58
+                Layout.preferredHeight: 76
                 spacing: 0
 
                 TransferSummaryBlock {
@@ -4686,10 +4878,24 @@ ApplicationWindow {
                     valueColor: appViewModel.failedTransferCount > 0 ? theme.danger : theme.text
                 }
                 Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 40; color: theme.border }
-                TransferSummaryBlock {
+                TransferRateSummaryBlock {
                     label: t("transfers.speed")
-                    value: root.formatBytes(appViewModel.transferBytesPerSecond) + "/s"
-                    valueColor: appViewModel.transferBytesPerSecond > 0 ? theme.primary : theme.text
+                    downloadRate: appViewModel.transferDownloadBytesPerSecond
+                    uploadRate: appViewModel.transferUploadBytesPerSecond
+                }
+                Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 54; color: theme.border }
+                TransferRateSummaryBlock {
+                    label: t("transfers.averageSpeed")
+                    downloadRate: appViewModel.transferAverageDownloadBytesPerSecond
+                    uploadRate: appViewModel.transferAverageUploadBytesPerSecond
+                }
+                Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 40; color: theme.border }
+                TransferSummaryBlock {
+                    label: t("transfers.remaining")
+                    value: appViewModel.transferRemainingBytes >= 0
+                        ? root.formatBytes(appViewModel.transferRemainingBytes)
+                        : t("transfers.unknown")
+                    valueColor: appViewModel.transferRemainingBytes > 0 ? theme.warning : theme.text
                 }
             }
 
@@ -4705,7 +4911,7 @@ ApplicationWindow {
                     spacing: 10
                     reuseItems: true
                     cacheBuffer: 300
-                    model: appViewModel.transferTasks
+                    model: transfersPage.visibleModel
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     delegate: TransferTaskRow {
@@ -4719,15 +4925,25 @@ ApplicationWindow {
                         bytesDone: model.bytesDone
                         bytesTotal: model.bytesTotal
                         bytesPerSecond: model.bytesPerSecond
+                        averageBytesPerSecond: model.averageBytesPerSecond
+                        bytesRemaining: model.bytesRemaining
                         progress: model.progress
+                        fileCount: model.fileCount
+                        completedFileCount: model.completedFileCount
+                        isGroup: model.isGroup
                         cancellable: model.cancellable
+                        onActivated: {
+                            if (model.isGroup) {
+                                appViewModel.openTransferGroup(model.taskId)
+                            }
+                        }
                     }
                 }
 
                 ColumnLayout {
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 48, 360)
-                    visible: appViewModel.transferTasks.count === 0
+                    visible: transfersPage.visibleModel.count === 0
                     spacing: 8
 
                     Label {
@@ -4739,7 +4955,9 @@ ApplicationWindow {
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: t("transfers.empty")
+                        text: transfersPage.showingDetails
+                            ? t("transfers.emptyDetails")
+                            : t("transfers.empty")
                         color: theme.text
                         font.pixelSize: 16
                         font.bold: true
@@ -4747,7 +4965,9 @@ ApplicationWindow {
                     }
                     MutedText {
                         Layout.fillWidth: true
-                        text: t("transfers.emptyHint")
+                        text: transfersPage.showingDetails
+                            ? t("transfers.detailsSubtitle")
+                            : t("transfers.emptyHint")
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                     }

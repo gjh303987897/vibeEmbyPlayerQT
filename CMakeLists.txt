@@ -285,4 +285,26 @@ if(BUILD_TESTING)
     set_tests_properties(webdav_download_planner PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
+
+    add_executable(transfer_manager_test
+        tests/TransferManagerTest.cpp
+        src/services/webdav/TransferManager.cpp
+        src/services/webdav/TransferManager.h
+        src/viewmodels/TransferTaskListModel.cpp
+        src/viewmodels/TransferTaskListModel.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+    )
+    target_include_directories(transfer_manager_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(transfer_manager_test PRIVATE
+        Qt6::Network
+        Qt6::Test
+    )
+
+    add_test(NAME transfer_manager COMMAND transfer_manager_test)
+    set_tests_properties(transfer_manager PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
 endif()

@@ -53,10 +53,19 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString defaultDownloadDirectory READ defaultDownloadDirectory WRITE setDefaultDownloadDirectory NOTIFY defaultDownloadDirectoryChanged)
     Q_PROPERTY(TransferTaskListModel* transferTasks READ transferTasks CONSTANT)
+    Q_PROPERTY(TransferTaskListModel* transferDetailTasks READ transferDetailTasks CONSTANT)
+    Q_PROPERTY(QString selectedTransferGroupId READ selectedTransferGroupId NOTIFY transferSelectionChanged)
+    Q_PROPERTY(QString selectedTransferGroupTitle READ selectedTransferGroupTitle NOTIFY transferSelectionChanged)
     Q_PROPERTY(int activeTransferCount READ activeTransferCount NOTIFY transferTasksChanged)
     Q_PROPERTY(int completedTransferCount READ completedTransferCount NOTIFY transferTasksChanged)
     Q_PROPERTY(int failedTransferCount READ failedTransferCount NOTIFY transferTasksChanged)
     Q_PROPERTY(qint64 transferBytesPerSecond READ transferBytesPerSecond NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferAverageBytesPerSecond READ transferAverageBytesPerSecond NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferDownloadBytesPerSecond READ transferDownloadBytesPerSecond NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferUploadBytesPerSecond READ transferUploadBytesPerSecond NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferAverageDownloadBytesPerSecond READ transferAverageDownloadBytesPerSecond NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferAverageUploadBytesPerSecond READ transferAverageUploadBytesPerSecond NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferRemainingBytes READ transferRemainingBytes NOTIFY transferTasksChanged)
     Q_PROPERTY(QString playbackHttpUsername READ playbackHttpUsername NOTIFY playbackChanged)
     Q_PROPERTY(QString playbackHttpPassword READ playbackHttpPassword NOTIFY playbackChanged)
     Q_PROPERTY(bool playbackAllowInsecureTls READ playbackAllowInsecureTls NOTIFY playbackChanged)
@@ -156,10 +165,19 @@ public:
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& value);
     TransferTaskListModel* transferTasks();
+    TransferTaskListModel* transferDetailTasks();
+    QString selectedTransferGroupId() const;
+    QString selectedTransferGroupTitle() const;
     int activeTransferCount() const;
     int completedTransferCount() const;
     int failedTransferCount() const;
     qint64 transferBytesPerSecond() const;
+    qint64 transferAverageBytesPerSecond() const;
+    qint64 transferDownloadBytesPerSecond() const;
+    qint64 transferUploadBytesPerSecond() const;
+    qint64 transferAverageDownloadBytesPerSecond() const;
+    qint64 transferAverageUploadBytesPerSecond() const;
+    qint64 transferRemainingBytes() const;
     QString playbackHttpUsername() const;
     QString playbackHttpPassword() const;
     bool playbackAllowInsecureTls() const;
@@ -252,6 +270,8 @@ public:
     Q_INVOKABLE void openTransfers();
     Q_INVOKABLE void cancelTransfer(const QString& taskId);
     Q_INVOKABLE void clearFinishedTransfers();
+    Q_INVOKABLE void openTransferGroup(const QString& groupId);
+    Q_INVOKABLE void closeTransferGroup();
     Q_INVOKABLE bool unlockPrivacyMode(const QString& pin);
     Q_INVOKABLE void exitPrivacyMode();
     Q_INVOKABLE void refreshPrivacyCards();
@@ -316,6 +336,7 @@ signals:
     void webDavCurrentPathChanged();
     void defaultDownloadDirectoryChanged();
     void transferTasksChanged();
+    void transferSelectionChanged();
     void privacyModeChanged();
     void privacyPinChanged();
     void editingServicesChanged();

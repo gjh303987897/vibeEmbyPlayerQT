@@ -13,6 +13,7 @@ class TransferTaskListModel final : public QAbstractListModel {
 public:
     enum Role {
         IdRole = Qt::UserRole + 1,
+        ParentIdRole,
         TitleRole,
         DirectionRole,
         StatusRole,
@@ -22,7 +23,12 @@ public:
         BytesDoneRole,
         BytesTotalRole,
         BytesPerSecondRole,
+        AverageBytesPerSecondRole,
+        BytesRemainingRole,
         ProgressRole,
+        FileCountRole,
+        CompletedFileCountRole,
+        IsGroupRole,
         CancellableRole,
     };
 

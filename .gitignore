@@ -24,7 +24,8 @@ aqtinstall.log
 *.sqlite3
 *.sqlite3-*
 resources/
-tests/
+tests/*
+!tests/TransferManagerTest.cpp
 test-runtime/
 local-data/
 local-data*/

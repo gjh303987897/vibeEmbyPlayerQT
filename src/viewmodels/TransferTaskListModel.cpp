@@ -27,6 +27,8 @@ QVariant TransferTaskListModel::data(const QModelIndex& index, int role) const
     switch (role) {
     case IdRole:
         return task.id;
+    case ParentIdRole:
+        return task.parentId;
     case TitleRole:
         return task.title;
     case DirectionRole:
@@ -45,8 +47,18 @@ QVariant TransferTaskListModel::data(const QModelIndex& index, int role) const
         return task.bytesTotal;
     case BytesPerSecondRole:
         return task.bytesPerSecond;
+    case AverageBytesPerSecondRole:
+        return task.averageBytesPerSecond;
+    case BytesRemainingRole:
+        return task.bytesRemaining;
     case ProgressRole:
         return task.progress;
+    case FileCountRole:
+        return task.fileCount;
+    case CompletedFileCountRole:
+        return task.completedFileCount;
+    case IsGroupRole:
+        return task.isGroup;
     case CancellableRole:
         return task.cancellable;
     default:
@@ -58,6 +70,7 @@ QHash<int, QByteArray> TransferTaskListModel::roleNames() const
 {
     return {
         { IdRole, "taskId" },
+        { ParentIdRole, "parentId" },
         { TitleRole, "title" },
         { DirectionRole, "direction" },
         { StatusRole, "status" },
@@ -67,7 +80,12 @@ QHash<int, QByteArray> TransferTaskListModel::roleNames() const
         { BytesDoneRole, "bytesDone" },
         { BytesTotalRole, "bytesTotal" },
         { BytesPerSecondRole, "bytesPerSecond" },
+        { AverageBytesPerSecondRole, "averageBytesPerSecond" },
+        { BytesRemainingRole, "bytesRemaining" },
         { ProgressRole, "progress" },
+        { FileCountRole, "fileCount" },
+        { CompletedFileCountRole, "completedFileCount" },
+        { IsGroupRole, "isGroup" },
         { CancellableRole, "cancellable" },
     };
 }
