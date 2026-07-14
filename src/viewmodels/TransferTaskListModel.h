@@ -30,6 +30,9 @@ public:
         CompletedFileCountRole,
         IsGroupRole,
         CancellableRole,
+        CanPauseRole,
+        CanResumeRole,
+        RetryableRole,
     };
 
     explicit TransferTaskListModel(QObject* parent = nullptr);

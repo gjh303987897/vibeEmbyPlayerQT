@@ -61,6 +61,12 @@ QVariant TransferTaskListModel::data(const QModelIndex& index, int role) const
         return task.isGroup;
     case CancellableRole:
         return task.cancellable;
+    case CanPauseRole:
+        return task.canPause;
+    case CanResumeRole:
+        return task.canResume;
+    case RetryableRole:
+        return task.retryable;
     default:
         return {};
     }
@@ -87,6 +93,9 @@ QHash<int, QByteArray> TransferTaskListModel::roleNames() const
         { CompletedFileCountRole, "completedFileCount" },
         { IsGroupRole, "isGroup" },
         { CancellableRole, "cancellable" },
+        { CanPauseRole, "canPause" },
+        { CanResumeRole, "canResume" },
+        { RetryableRole, "retryable" },
     };
 }
 

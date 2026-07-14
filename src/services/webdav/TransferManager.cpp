@@ -3,6 +3,7 @@
 #include "utils/AppLogger.h"
 
 #include <QAuthenticator>
+#include <QDir>
 #include <QFileInfo>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -86,6 +87,11 @@ QString statusQueued()
 QString statusRunning()
 {
     return QStringLiteral("running");
+}
+
+QString statusPaused()
+{
+    return QStringLiteral("paused");
 }
 
 QString statusDone()
@@ -200,7 +206,9 @@ qint64 TransferManager::rateForDirection(const QString& direction, bool average)
 {
     qint64 total = 0;
     for (const auto& task : m_topLevelTasks) {
-        const auto included = average ? !finishedStatus(task.status) : task.status == statusRunning();
+        const auto included = average
+            ? task.status == statusQueued() || task.status == statusRunning()
+            : task.status == statusRunning();
         if (included && task.direction == direction) {
             saturatingAddBytes(total, average ? task.averageBytesPerSecond : task.bytesPerSecond);
         }
@@ -246,6 +254,7 @@ QString TransferManager::enqueueUpload(const ServerConfig& server,
         .source = localPath,
         .target = remoteUrl.toString(),
         .bytesTotal = totalBytes,
+        .canPause = false,
     };
     const auto id = queued.task.id;
     enqueue(std::move(queued));
@@ -280,7 +289,9 @@ QString TransferManager::enqueueDownloads(const ServerConfig& server,
     const auto groupId = makeGroupId();
     auto group = std::make_shared<DownloadGroupState>();
     group->id = groupId;
+    group->targetPath = groupTarget;
     group->taskIds.reserve(requests.size());
+    group->targetIsDirectory = requests.size() != 1 || requests.front().localPath != groupTarget;
 
     qint64 totalBytes = 0;
     auto completeSize = true;
@@ -303,6 +314,7 @@ QString TransferManager::enqueueDownloads(const ServerConfig& server,
         .fileCount = static_cast<int>(requests.size()),
         .isGroup = true,
         .cancellable = !requests.empty(),
+        .canPause = !requests.empty(),
     };
 
     for (auto& request : requests) {
@@ -323,9 +335,11 @@ QString TransferManager::enqueueDownloads(const ServerConfig& server,
             .target = queued.localPath,
             .bytesTotal = request.totalBytes,
             .bytesRemaining = request.totalBytes,
+            .canPause = true,
         };
         group->taskIds.push_back(queued.task.id);
         m_tasks.push_back(queued.task);
+        m_taskDefinitions.insert(queued.task.id, queued);
         m_queue.enqueue(std::move(queued));
     }
 
@@ -356,6 +370,7 @@ QString TransferManager::enqueueCreateDirectory(const ServerConfig& server,
         .target = remoteUrl.toString(),
         .bytesTotal = 0,
         .progress = 0.0,
+        .canPause = false,
     };
     const auto id = queued.task.id;
     enqueue(std::move(queued));
@@ -370,6 +385,17 @@ void TransferManager::cancelTask(const QString& taskId)
     }
 
     if (const auto active = m_active.value(taskId)) {
+        active->requestedStop = RequestedStop::Cancel;
+        for (auto& task : m_tasks) {
+            if (task.id == taskId) {
+                task.canPause = false;
+                task.canResume = false;
+                task.retryable = false;
+                task.cancellable = false;
+                publishTask(task);
+                break;
+            }
+        }
         if (active->reply) {
             active->reply->abort();
         } else {
@@ -387,12 +413,50 @@ void TransferManager::cancelTask(const QString& taskId)
             if (task.id == queued.task.id) {
                 task.status = statusCanceled();
                 task.detail = QStringLiteral("Canceled");
+                if (queued.direction == Direction::Download) {
+                    QFile::remove(queued.localPath);
+                    task.bytesDone = 0;
+                    task.bytesPerSecond = 0;
+                    task.averageBytesPerSecond = 0;
+                    task.bytesRemaining = task.bytesTotal;
+                    task.progress = 0.0;
+                }
                 task.cancellable = false;
+                task.canPause = false;
+                task.canResume = false;
+                task.retryable = false;
                 publishTask(task);
                 break;
             }
         }
         emit taskFinished(queued.task.id, false, QStringLiteral("Canceled"));
+        m_taskDefinitions.remove(queued.task.id);
+        startNext();
+        return;
+    }
+
+    for (auto& task : m_tasks) {
+        if (task.id != taskId || task.status != statusPaused()) {
+            continue;
+        }
+        const auto definition = m_taskDefinitions.value(taskId);
+        if (definition.direction == Direction::Download) {
+            QFile::remove(definition.localPath);
+            task.bytesDone = 0;
+            task.bytesPerSecond = 0;
+            task.averageBytesPerSecond = 0;
+            task.bytesRemaining = task.bytesTotal;
+            task.progress = 0.0;
+        }
+        task.status = statusCanceled();
+        task.detail = QStringLiteral("Canceled");
+        task.cancellable = false;
+        task.canPause = false;
+        task.canResume = false;
+        task.retryable = false;
+        publishTask(task);
+        emit taskFinished(task.id, false, QStringLiteral("Canceled"));
+        m_taskDefinitions.remove(task.id);
         startNext();
         return;
     }
@@ -401,9 +465,12 @@ void TransferManager::cancelTask(const QString& taskId)
 void TransferManager::cancelDownloadGroup(const QString& groupId)
 {
     const auto group = m_downloadGroups.value(groupId);
-    if (!group) {
+    if (!group || group->cancelRequested) {
         return;
     }
+    group->cancelRequested = true;
+    group->pauseRequested = false;
+    stopDownloadGroupTimer(group);
 
     const QSet<QString> taskIds(group->taskIds.begin(), group->taskIds.end());
     for (auto index = m_queue.size() - 1; index >= 0; --index) {
@@ -417,7 +484,16 @@ void TransferManager::cancelDownloadGroup(const QString& groupId)
             }
             task.status = statusCanceled();
             task.detail = QStringLiteral("Canceled");
+            QFile::remove(queued.localPath);
+            task.bytesDone = 0;
+            task.bytesPerSecond = 0;
+            task.averageBytesPerSecond = 0;
+            task.bytesRemaining = task.bytesTotal;
+            task.progress = 0.0;
             task.cancellable = false;
+            task.canPause = false;
+            task.canResume = false;
+            task.retryable = false;
             publishTask(task);
             break;
         }
@@ -429,14 +505,243 @@ void TransferManager::cancelDownloadGroup(const QString& groupId)
         if (!active) {
             continue;
         }
+        active->requestedStop = RequestedStop::Cancel;
+        for (auto& task : m_tasks) {
+            if (task.id == taskId) {
+                task.cancellable = false;
+                task.canPause = false;
+                task.canResume = false;
+                task.retryable = false;
+                publishTask(task);
+                break;
+            }
+        }
         if (active->reply) {
             active->reply->abort();
         } else {
             finishActive(taskId, false, QStringLiteral("Canceled"));
         }
     }
+
+    for (auto& task : m_tasks) {
+        if (task.parentId != groupId || m_active.contains(task.id) || task.status == statusCanceled()) {
+            continue;
+        }
+        const auto wasFinished = finishedStatus(task.status);
+        const auto definition = m_taskDefinitions.value(task.id);
+        QFile::remove(definition.localPath);
+        task.status = statusCanceled();
+        task.detail = QStringLiteral("Canceled");
+        task.bytesDone = 0;
+        task.bytesPerSecond = 0;
+        task.averageBytesPerSecond = 0;
+        task.bytesRemaining = task.bytesTotal;
+        task.progress = 0.0;
+        task.cancellable = false;
+        task.canPause = false;
+        task.canResume = false;
+        task.retryable = false;
+        publishTask(task);
+        if (!wasFinished) {
+            emit taskFinished(task.id, false, QStringLiteral("Canceled"));
+        }
+    }
+
     updateDownloadGroup(groupId);
+    cleanupDownloadGroupFiles(groupId);
     emit tasksChanged();
+    startNext();
+}
+
+void TransferManager::pauseTask(const QString& taskId)
+{
+    if (m_downloadGroups.contains(taskId)) {
+        pauseDownloadGroup(taskId);
+        return;
+    }
+
+    if (const auto active = m_active.value(taskId)) {
+        if (active->queued.direction != Direction::Download || active->requestedStop != RequestedStop::None) {
+            return;
+        }
+        active->requestedStop = RequestedStop::Pause;
+        for (auto& task : m_tasks) {
+            if (task.id == taskId) {
+                task.canPause = false;
+                task.cancellable = false;
+                publishTask(task);
+                break;
+            }
+        }
+        if (active->reply) {
+            active->reply->abort();
+        } else {
+            finishPaused(taskId);
+        }
+        return;
+    }
+
+    for (auto index = 0; index < m_queue.size(); ++index) {
+        if (m_queue.at(index).task.id != taskId || m_queue.at(index).direction != Direction::Download) {
+            continue;
+        }
+        m_queue.takeAt(index);
+        for (auto& task : m_tasks) {
+            if (task.id != taskId) {
+                continue;
+            }
+            task.status = statusPaused();
+            task.detail = QStringLiteral("Paused");
+            task.bytesPerSecond = 0;
+            task.averageBytesPerSecond = 0;
+            task.canPause = false;
+            task.canResume = true;
+            task.retryable = false;
+            task.cancellable = true;
+            publishTask(task);
+            break;
+        }
+        startNext();
+        return;
+    }
+}
+
+void TransferManager::resumeTask(const QString& taskId)
+{
+    if (m_downloadGroups.contains(taskId)) {
+        resumeDownloadGroup(taskId);
+        return;
+    }
+    const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
+        return existing.id == taskId;
+    });
+    if (task == m_tasks.end() || task->status != statusPaused() || !requeueTask(taskId)) {
+        return;
+    }
+    startNext();
+}
+
+void TransferManager::retryTask(const QString& taskId)
+{
+    if (m_downloadGroups.contains(taskId)) {
+        retryDownloadGroup(taskId);
+        return;
+    }
+    const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
+        return existing.id == taskId;
+    });
+    if (task == m_tasks.end() || task->status != statusFailed() || !requeueTask(taskId)) {
+        return;
+    }
+    startNext();
+}
+
+void TransferManager::pauseDownloadGroup(const QString& groupId)
+{
+    const auto group = m_downloadGroups.value(groupId);
+    if (!group || group->pauseRequested || group->cancelRequested) {
+        return;
+    }
+    group->pauseRequested = true;
+    stopDownloadGroupTimer(group);
+
+    const QSet<QString> taskIds(group->taskIds.begin(), group->taskIds.end());
+    for (auto index = m_queue.size() - 1; index >= 0; --index) {
+        if (!taskIds.contains(m_queue.at(index).task.id)) {
+            continue;
+        }
+        const auto queued = m_queue.takeAt(index);
+        for (auto& task : m_tasks) {
+            if (task.id != queued.task.id) {
+                continue;
+            }
+            task.status = statusPaused();
+            task.detail = QStringLiteral("Paused");
+            task.bytesPerSecond = 0;
+            task.averageBytesPerSecond = 0;
+            task.canPause = false;
+            task.canResume = true;
+            task.retryable = false;
+            task.cancellable = true;
+            publishTask(task);
+            break;
+        }
+    }
+
+    for (const auto& taskId : group->taskIds) {
+        const auto active = m_active.value(taskId);
+        if (!active || active->requestedStop != RequestedStop::None) {
+            continue;
+        }
+        active->requestedStop = RequestedStop::Pause;
+        for (auto& task : m_tasks) {
+            if (task.id == taskId) {
+                task.canPause = false;
+                task.cancellable = false;
+                publishTask(task);
+                break;
+            }
+        }
+        if (active->reply) {
+            active->reply->abort();
+        } else {
+            finishPaused(taskId);
+        }
+    }
+
+    updateDownloadGroup(groupId);
+    startNext();
+}
+
+void TransferManager::resumeDownloadGroup(const QString& groupId)
+{
+    const auto group = m_downloadGroups.value(groupId);
+    if (!group || group->cancelRequested) {
+        return;
+    }
+    if (std::ranges::any_of(group->taskIds, [this](const QString& taskId) {
+            return m_active.contains(taskId);
+        })) {
+        return;
+    }
+
+    group->pauseRequested = false;
+    auto resumed = false;
+    for (const auto& taskId : group->taskIds) {
+        const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
+            return existing.id == taskId;
+        });
+        if (task != m_tasks.end() && task->status == statusPaused()) {
+            resumed = requeueTask(taskId) || resumed;
+        }
+    }
+    if (!resumed) {
+        return;
+    }
+    updateDownloadGroup(groupId);
+    startNext();
+}
+
+void TransferManager::retryDownloadGroup(const QString& groupId)
+{
+    const auto group = m_downloadGroups.value(groupId);
+    if (!group || group->cancelRequested) {
+        return;
+    }
+
+    auto retried = false;
+    for (const auto& taskId : group->taskIds) {
+        const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
+            return existing.id == taskId;
+        });
+        if (task != m_tasks.end() && task->status == statusFailed()) {
+            retried = requeueTask(taskId) || retried;
+        }
+    }
+    if (!retried) {
+        return;
+    }
+    updateDownloadGroup(groupId);
     startNext();
 }
 
@@ -455,6 +760,11 @@ void TransferManager::clearFinished()
     std::erase_if(m_topLevelTasks, [&removedIds](const TransferTask& task) {
         return removedIds.contains(task.id);
     });
+    for (const auto& task : m_tasks) {
+        if (removedIds.contains(task.id) || removedIds.contains(task.parentId)) {
+            m_taskDefinitions.remove(task.id);
+        }
+    }
     std::erase_if(m_tasks, [&removedIds](const TransferTask& task) {
         return removedIds.contains(task.id) || removedIds.contains(task.parentId);
     });
@@ -506,6 +816,7 @@ void TransferManager::enqueue(QueuedTask task)
     std::vector<TransferTask> appendedTasks { task.task };
     m_tasks.push_back(task.task);
     m_topLevelTasks.push_back(task.task);
+    m_taskDefinitions.insert(task.task.id, task);
     m_queue.enqueue(std::move(task));
     m_model.appendTasks(std::move(appendedTasks));
     emit tasksChanged();
@@ -553,9 +864,8 @@ void TransferManager::startTask(QueuedTask task)
 
     if (!active->queued.task.parentId.isEmpty()) {
         const auto group = m_downloadGroups.value(active->queued.task.parentId);
-        if (group && !group->started) {
-            group->elapsed.start();
-            group->started = true;
+        if (group) {
+            startDownloadGroupTimer(group);
         }
     }
 
@@ -563,6 +873,10 @@ void TransferManager::startTask(QueuedTask task)
         if (existing.id == taskId) {
             existing.status = statusRunning();
             existing.detail = QStringLiteral("Running");
+            existing.canPause = active->queued.direction == Direction::Download;
+            existing.canResume = false;
+            existing.retryable = false;
+            existing.cancellable = true;
             publishTask(existing);
             break;
         }
@@ -623,6 +937,18 @@ void TransferManager::startTask(QueuedTask task)
 
     const auto direction = active->queued.direction;
     connect(reply, &QNetworkReply::finished, reply, [this, reply, taskId, direction]() {
+        const auto active = m_active.value(taskId);
+        if (active && active->requestedStop == RequestedStop::Pause) {
+            finishPaused(taskId);
+            reply->deleteLater();
+            return;
+        }
+        if (active && active->requestedStop == RequestedStop::Cancel) {
+            finishActive(taskId, false, QStringLiteral("Canceled"));
+            reply->deleteLater();
+            return;
+        }
+
         const auto writeError = reply->property("transferWriteError").toString();
         const auto timedOut = reply->property("transferTimedOut").toBool();
         const auto canceled = reply->error() == QNetworkReply::OperationCanceledError && !timedOut && writeError.isEmpty();
@@ -686,7 +1012,10 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
     auto failedFiles = 0;
     auto canceledFiles = 0;
     auto runningFiles = 0;
-    auto cancellable = false;
+    auto queuedFiles = 0;
+    auto pausedFiles = 0;
+    auto hasPausableTask = false;
+    auto hasResumableTask = false;
 
     for (const auto& task : m_tasks) {
         if (task.parentId != groupId) {
@@ -711,8 +1040,18 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
             ++finishedFiles;
         } else if (task.status == statusRunning()) {
             ++runningFiles;
+        } else if (task.status == statusQueued()) {
+            ++queuedFiles;
+        } else if (task.status == statusPaused()) {
+            ++pausedFiles;
         }
-        cancellable = cancellable || task.cancellable;
+        hasPausableTask = hasPausableTask || task.canPause;
+        hasResumableTask = hasResumableTask || task.canResume;
+    }
+
+    if (finishedFiles == summary->fileCount ||
+        (runningFiles == 0 && queuedFiles == 0 && pausedFiles > 0)) {
+        stopDownloadGroupTimer(group);
     }
 
     summary->bytesDone = bytesDone;
@@ -721,34 +1060,63 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
     summary->bytesRemaining = byteProgressKnown ? std::max<qint64>(0, bytesTotal - bytesDone) : -1;
     summary->bytesPerSecond = currentSpeed;
     summary->averageBytesPerSecond = group->started
-        ? averageRate(bytesDone, group->elapsed.elapsed())
+        ? averageRate(bytesDone, downloadGroupElapsedMs(group))
         : 0;
     summary->completedFileCount = completedFiles;
     summary->fileCount = static_cast<int>(group->taskIds.size());
     summary->detail = QStringLiteral("%1 / %2 files")
                           .arg(completedFiles)
                           .arg(summary->fileCount);
-    summary->cancellable = cancellable;
 
     if (summary->fileCount == 0) {
         summary->status = statusDone();
         summary->progress = 1.0;
-        summary->cancellable = false;
     } else if (finishedFiles == summary->fileCount) {
         summary->status = failedFiles > 0
             ? statusFailed()
             : canceledFiles > 0 ? statusCanceled() : statusDone();
-        summary->progress = byteProgressKnown && bytesTotal > 0
+        summary->progress = summary->status == statusCanceled()
+            ? 0.0
+            : byteProgressKnown && bytesTotal > 0
             ? std::clamp(static_cast<double>(bytesDone) / static_cast<double>(bytesTotal), 0.0, 1.0)
             : 1.0;
+    } else if (runningFiles > 0) {
+        summary->status = statusRunning();
+        summary->progress = byteProgressKnown && bytesTotal > 0
+            ? std::clamp(static_cast<double>(bytesDone) / static_cast<double>(bytesTotal), 0.0, 1.0)
+            : static_cast<double>(finishedFiles) / static_cast<double>(summary->fileCount);
+    } else if (queuedFiles > 0) {
+        summary->status = statusQueued();
+        summary->progress = byteProgressKnown && bytesTotal > 0
+            ? std::clamp(static_cast<double>(bytesDone) / static_cast<double>(bytesTotal), 0.0, 1.0)
+            : static_cast<double>(finishedFiles) / static_cast<double>(summary->fileCount);
+    } else if (pausedFiles > 0) {
+        summary->status = statusPaused();
+        summary->progress = byteProgressKnown && bytesTotal > 0
+            ? std::clamp(static_cast<double>(bytesDone) / static_cast<double>(bytesTotal), 0.0, 1.0)
+            : static_cast<double>(finishedFiles) / static_cast<double>(summary->fileCount);
     } else {
-        summary->status = runningFiles > 0 || group->started ? statusRunning() : statusQueued();
+        summary->status = statusQueued();
         summary->progress = byteProgressKnown && bytesTotal > 0
             ? std::clamp(static_cast<double>(bytesDone) / static_cast<double>(bytesTotal), 0.0, 1.0)
             : static_cast<double>(finishedFiles) / static_cast<double>(summary->fileCount);
     }
 
+    summary->canPause = !group->pauseRequested && !group->cancelRequested && hasPausableTask;
+    summary->canResume = !group->cancelRequested && !summary->canPause &&
+        runningFiles == 0 && queuedFiles == 0 && hasResumableTask;
+    summary->retryable = !group->cancelRequested && summary->status == statusFailed();
+    summary->cancellable = !group->cancelRequested && summary->fileCount > 0 &&
+        summary->status != statusDone() && summary->status != statusCanceled();
+
     m_model.updateTask(*summary);
+    if (group->cancelRequested) {
+        cleanupDownloadGroupFiles(groupId);
+    } else if (summary->status == statusDone()) {
+        for (const auto& taskId : group->taskIds) {
+            m_taskDefinitions.remove(taskId);
+        }
+    }
 }
 
 void TransferManager::updateProgress(const QString& taskId, qint64 done, qint64 total)
@@ -840,6 +1208,9 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
         task.progress = ok ? 1.0 : task.progress;
         if (ok && task.bytesTotal > 0) {
             task.bytesDone = task.bytesTotal;
+        } else if (!ok && active->queued.direction == Direction::Download) {
+            task.bytesDone = 0;
+            task.progress = 0.0;
         }
         task.bytesPerSecond = 0;
         task.averageBytesPerSecond = averageRate(task.bytesDone, active->elapsed.elapsed());
@@ -847,6 +1218,9 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
             ? std::max<qint64>(0, task.bytesTotal - task.bytesDone)
             : -1;
         task.cancellable = false;
+        task.canPause = false;
+        task.canResume = false;
+        task.retryable = status == statusFailed();
         publishTask(task);
         break;
     }
@@ -862,9 +1236,162 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
     }
 
     emit taskFinished(taskId, ok, message);
+    if (status == statusCanceled() && active->queued.task.parentId.isEmpty()) {
+        m_taskDefinitions.remove(taskId);
+    }
     QTimer::singleShot(0, this, [this]() {
         startNext();
     });
+}
+
+void TransferManager::finishPaused(const QString& taskId)
+{
+    const auto active = m_active.value(taskId);
+    if (!active) {
+        return;
+    }
+
+    if (active->file) {
+        active->file->close();
+    }
+    if (active->queued.direction == Direction::Download) {
+        QFile::remove(active->queued.localPath);
+    }
+    m_active.remove(taskId);
+
+    for (auto& task : m_tasks) {
+        if (task.id != taskId) {
+            continue;
+        }
+        task.status = statusPaused();
+        task.detail = QStringLiteral("Paused");
+        task.bytesDone = 0;
+        task.bytesPerSecond = 0;
+        task.averageBytesPerSecond = 0;
+        task.bytesRemaining = task.bytesTotal;
+        task.progress = 0.0;
+        task.cancellable = true;
+        task.canPause = false;
+        task.canResume = true;
+        task.retryable = false;
+        publishTask(task);
+        break;
+    }
+
+    AppLogger::info(QStringLiteral("webdav-transfer"),
+                    QStringLiteral("Paused download task: %1").arg(active->queued.task.title));
+    QTimer::singleShot(0, this, [this]() {
+        startNext();
+    });
+}
+
+bool TransferManager::requeueTask(const QString& taskId)
+{
+    const auto definition = m_taskDefinitions.constFind(taskId);
+    if (definition == m_taskDefinitions.cend()) {
+        return false;
+    }
+    const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
+        return existing.id == taskId;
+    });
+    if (task == m_tasks.end() || m_active.contains(taskId)) {
+        return false;
+    }
+    if (std::ranges::any_of(m_queue, [&taskId](const QueuedTask& queued) {
+            return queued.task.id == taskId;
+        })) {
+        return false;
+    }
+
+    if (definition->direction == Direction::Download) {
+        QFile::remove(definition->localPath);
+    }
+    task->status = statusQueued();
+    task->detail = QStringLiteral("Waiting");
+    task->bytesDone = 0;
+    task->bytesPerSecond = 0;
+    task->averageBytesPerSecond = 0;
+    task->bytesRemaining = task->bytesTotal;
+    task->progress = 0.0;
+    task->cancellable = true;
+    task->canPause = definition->direction == Direction::Download;
+    task->canResume = false;
+    task->retryable = false;
+
+    auto queued = *definition;
+    queued.task = *task;
+    queued.countedBytesReceived = 0;
+    queued.countedBytesSent = 0;
+    m_queue.enqueue(std::move(queued));
+    publishTask(*task);
+    return true;
+}
+
+void TransferManager::cleanupDownloadGroupFiles(const QString& groupId)
+{
+    const auto group = m_downloadGroups.value(groupId);
+    if (!group || !group->cancelRequested || group->cleanupCompleted) {
+        return;
+    }
+    if (std::ranges::any_of(group->taskIds, [this](const QString& taskId) {
+            return m_active.contains(taskId);
+        })) {
+        return;
+    }
+
+    auto cleanupOk = true;
+    for (const auto& taskId : group->taskIds) {
+        const auto definition = m_taskDefinitions.constFind(taskId);
+        if (definition == m_taskDefinitions.cend() || !QFileInfo::exists(definition->localPath)) {
+            continue;
+        }
+        cleanupOk = QFile::remove(definition->localPath) && cleanupOk;
+    }
+
+    if (group->targetIsDirectory) {
+        QDir targetDirectory(group->targetPath);
+        if (targetDirectory.exists()) {
+            cleanupOk = targetDirectory.removeRecursively() && cleanupOk;
+        }
+    } else if (QFileInfo::exists(group->targetPath)) {
+        cleanupOk = QFile::remove(group->targetPath) && cleanupOk;
+    }
+
+    group->cleanupCompleted = true;
+    if (!cleanupOk) {
+        AppLogger::warning(QStringLiteral("webdav-transfer"),
+                           QStringLiteral("Canceled download task left files that could not be removed"));
+    }
+    for (const auto& taskId : group->taskIds) {
+        m_taskDefinitions.remove(taskId);
+    }
+}
+
+void TransferManager::startDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group)
+{
+    if (!group || group->timerRunning) {
+        return;
+    }
+    group->elapsed.start();
+    group->started = true;
+    group->timerRunning = true;
+}
+
+void TransferManager::stopDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group)
+{
+    if (!group || !group->timerRunning) {
+        return;
+    }
+    group->elapsedBeforeCurrentSegmentMs += group->elapsed.elapsed();
+    group->timerRunning = false;
+}
+
+qint64 TransferManager::downloadGroupElapsedMs(const std::shared_ptr<DownloadGroupState>& group) const
+{
+    if (!group) {
+        return 0;
+    }
+    return group->elapsedBeforeCurrentSegmentMs + (group->timerRunning ? group->elapsed.elapsed() : 0);
 }
 
 void TransferManager::wireReply(QNetworkReply* reply, const ServerConfig& server)

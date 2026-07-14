@@ -21,4 +21,7 @@ struct TransferTask {
     int completedFileCount { 0 };
     bool isGroup { false };
     bool cancellable { true };
+    bool canPause { false };
+    bool canResume { false };
+    bool retryable { false };
 };

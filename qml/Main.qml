@@ -2400,6 +2400,9 @@ ApplicationWindow {
         property int completedFileCount: 0
         property bool isGroup: false
         property bool cancellable: false
+        property bool canPause: false
+        property bool canResume: false
+        property bool retryable: false
         signal activated()
 
         function directionIcon() {
@@ -2423,6 +2426,7 @@ ApplicationWindow {
                     return t("transfers.statusCreatingFolder")
                 }
                 return t("transfers.statusRunning")
+            case "paused": return t("transfers.statusPaused")
             case "done": return t("transfers.statusDone")
             case "failed": return t("transfers.statusFailed")
             case "canceled": return t("transfers.statusCanceled")
@@ -2435,6 +2439,7 @@ ApplicationWindow {
             case "done": return theme.success
             case "failed": return theme.danger
             case "canceled": return theme.subtle
+            case "paused": return theme.warning
             case "running": return theme.primary
             default: return theme.warning
             }
@@ -2638,16 +2643,48 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 spacing: 4
 
-                IconButton {
-                    Layout.alignment: Qt.AlignTop | Qt.AlignHCenter
-                    visible: taskRow.cancellable
-                        && taskRow.status !== "done"
-                        && taskRow.status !== "failed"
-                        && taskRow.status !== "canceled"
-                    text: "\u00d7"
-                    onClicked: appViewModel.cancelTransfer(taskRow.taskId)
-                    ToolTip.visible: hovered
-                    ToolTip.text: t("action.cancel")
+                RowLayout {
+                    Layout.alignment: Qt.AlignTop | Qt.AlignRight
+                    spacing: 4
+
+                    IconButton {
+                        visible: taskRow.retryable
+                        text: "\u21bb"
+                        onClicked: appViewModel.retryTransfer(taskRow.taskId)
+                        ToolTip.visible: hovered
+                        ToolTip.text: taskRow.isGroup
+                            ? t("transfers.retryTask")
+                            : t("transfers.retryFile")
+                    }
+
+                    IconButton {
+                        visible: taskRow.canPause || taskRow.canResume
+                        text: taskRow.canResume ? "\u25b6" : "\u2016"
+                        onClicked: {
+                            if (taskRow.canResume) {
+                                appViewModel.resumeTransfer(taskRow.taskId)
+                            } else {
+                                appViewModel.pauseTransfer(taskRow.taskId)
+                            }
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: taskRow.canResume
+                            ? t("transfers.resume")
+                            : t("transfers.pause")
+                    }
+
+                    IconButton {
+                        visible: taskRow.cancellable
+                            && taskRow.status !== "done"
+                            && taskRow.status !== "canceled"
+                        text: "\u00d7"
+                        danger: taskRow.isGroup
+                        onClicked: appViewModel.cancelTransfer(taskRow.taskId)
+                        ToolTip.visible: hovered
+                        ToolTip.text: taskRow.isGroup
+                            ? t("transfers.cancelTask")
+                            : t("transfers.cancelFile")
+                    }
                 }
 
                 Item { Layout.fillHeight: true }
@@ -4939,6 +4976,9 @@ ApplicationWindow {
                         completedFileCount: model.completedFileCount
                         isGroup: model.isGroup
                         cancellable: model.cancellable
+                        canPause: model.canPause
+                        canResume: model.canResume
+                        retryable: model.retryable
                         onActivated: {
                             if (model.isGroup) {
                                 appViewModel.openTransferGroup(model.taskId)

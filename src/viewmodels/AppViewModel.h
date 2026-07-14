@@ -269,6 +269,9 @@ public:
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
     Q_INVOKABLE void openTransfers();
     Q_INVOKABLE void cancelTransfer(const QString& taskId);
+    Q_INVOKABLE void pauseTransfer(const QString& taskId);
+    Q_INVOKABLE void resumeTransfer(const QString& taskId);
+    Q_INVOKABLE void retryTransfer(const QString& taskId);
     Q_INVOKABLE void clearFinishedTransfers();
     Q_INVOKABLE void openTransferGroup(const QString& groupId);
     Q_INVOKABLE void closeTransferGroup();

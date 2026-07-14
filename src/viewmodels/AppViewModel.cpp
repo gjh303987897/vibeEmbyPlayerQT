@@ -386,9 +386,16 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("transfers.statusRunning"), QStringLiteral("Downloading") },
         { QStringLiteral("transfers.statusUploading"), QStringLiteral("Uploading") },
         { QStringLiteral("transfers.statusCreatingFolder"), QStringLiteral("Creating folder") },
+        { QStringLiteral("transfers.statusPaused"), QStringLiteral("Paused") },
         { QStringLiteral("transfers.statusDone"), QStringLiteral("Completed") },
         { QStringLiteral("transfers.statusFailed"), QStringLiteral("Failed") },
         { QStringLiteral("transfers.statusCanceled"), QStringLiteral("Canceled") },
+        { QStringLiteral("transfers.pause"), QStringLiteral("Pause") },
+        { QStringLiteral("transfers.resume"), QStringLiteral("Resume") },
+        { QStringLiteral("transfers.retryTask"), QStringLiteral("Retry all failed files") },
+        { QStringLiteral("transfers.retryFile"), QStringLiteral("Retry this file") },
+        { QStringLiteral("transfers.cancelTask"), QStringLiteral("Cancel task and delete local files") },
+        { QStringLiteral("transfers.cancelFile"), QStringLiteral("Cancel file") },
         { QStringLiteral("status.autoLogin"), QStringLiteral("Auto login") },
         { QStringLiteral("status.passwordRequired"), QStringLiteral("Password required") },
         { QStringLiteral("status.ready"), QStringLiteral("Ready") },
@@ -679,9 +686,16 @@ const QHash<QString, QString>& transferChineseTexts()
         { QStringLiteral("transfers.statusRunning"), QStringLiteral("传输中") },
         { QStringLiteral("transfers.statusUploading"), QStringLiteral("上传中") },
         { QStringLiteral("transfers.statusCreatingFolder"), QStringLiteral("创建文件夹") },
+        { QStringLiteral("transfers.statusPaused"), QStringLiteral("已暂停") },
         { QStringLiteral("transfers.statusDone"), QStringLiteral("已完成") },
         { QStringLiteral("transfers.statusFailed"), QStringLiteral("失败") },
         { QStringLiteral("transfers.statusCanceled"), QStringLiteral("已取消") },
+        { QStringLiteral("transfers.pause"), QStringLiteral("暂停") },
+        { QStringLiteral("transfers.resume"), QStringLiteral("继续") },
+        { QStringLiteral("transfers.retryTask"), QStringLiteral("重试所有失败文件") },
+        { QStringLiteral("transfers.retryFile"), QStringLiteral("重试此文件") },
+        { QStringLiteral("transfers.cancelTask"), QStringLiteral("取消任务并删除本地文件") },
+        { QStringLiteral("transfers.cancelFile"), QStringLiteral("取消此文件") },
     };
     return texts;
 }
@@ -1947,6 +1961,21 @@ void AppViewModel::openTransfers()
 void AppViewModel::cancelTransfer(const QString& taskId)
 {
     m_transferManager.cancelTask(taskId);
+}
+
+void AppViewModel::pauseTransfer(const QString& taskId)
+{
+    m_transferManager.pauseTask(taskId);
+}
+
+void AppViewModel::resumeTransfer(const QString& taskId)
+{
+    m_transferManager.resumeTask(taskId);
+}
+
+void AppViewModel::retryTransfer(const QString& taskId)
+{
+    m_transferManager.retryTask(taskId);
 }
 
 void AppViewModel::clearFinishedTransfers()

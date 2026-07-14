@@ -71,6 +71,9 @@ public:
                                    const QUrl& remoteUrl);
 
     Q_INVOKABLE void cancelTask(const QString& taskId);
+    Q_INVOKABLE void pauseTask(const QString& taskId);
+    Q_INVOKABLE void resumeTask(const QString& taskId);
+    Q_INVOKABLE void retryTask(const QString& taskId);
     Q_INVOKABLE void clearFinished();
     bool selectGroup(const QString& groupId);
     void clearGroupSelection();
@@ -98,6 +101,12 @@ private:
         qint64 countedBytesSent { 0 };
     };
 
+    enum class RequestedStop {
+        None,
+        Pause,
+        Cancel,
+    };
+
     struct ActiveTask {
         QueuedTask queued;
         QPointer<QNetworkReply> reply;
@@ -106,24 +115,41 @@ private:
         qint64 speedSampleBytes { 0 };
         qint64 speedSampleElapsedMs { 0 };
         qint64 lastPublishedElapsedMs { 0 };
+        RequestedStop requestedStop { RequestedStop::None };
     };
 
     struct DownloadGroupState {
         QString id;
+        QString targetPath;
         std::vector<QString> taskIds;
         QElapsedTimer elapsed;
+        qint64 elapsedBeforeCurrentSegmentMs { 0 };
         bool started { false };
+        bool timerRunning { false };
+        bool pauseRequested { false };
+        bool cancelRequested { false };
+        bool targetIsDirectory { false };
+        bool cleanupCompleted { false };
     };
 
     void enqueue(QueuedTask task);
     void cancelDownloadGroup(const QString& groupId);
+    void pauseDownloadGroup(const QString& groupId);
+    void resumeDownloadGroup(const QString& groupId);
+    void retryDownloadGroup(const QString& groupId);
     void startNext();
     void startTask(QueuedTask task);
     void publishTask(const TransferTask& task);
     void updateDownloadGroup(const QString& groupId);
     void updateProgress(const QString& taskId, qint64 done, qint64 total);
     void finishActive(const QString& taskId, bool ok, const QString& message);
+    void finishPaused(const QString& taskId);
     void wireReply(QNetworkReply* reply, const ServerConfig& server);
+    bool requeueTask(const QString& taskId);
+    void cleanupDownloadGroupFiles(const QString& groupId);
+    void startDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group);
+    void stopDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group);
+    qint64 downloadGroupElapsedMs(const std::shared_ptr<DownloadGroupState>& group) const;
     qint64 rateForDirection(const QString& direction, bool average) const;
 
     QNetworkAccessManager m_manager;
@@ -133,6 +159,7 @@ private:
     std::vector<TransferTask> m_tasks;
     QQueue<QueuedTask> m_queue;
     QHash<QString, std::shared_ptr<ActiveTask>> m_active;
+    QHash<QString, QueuedTask> m_taskDefinitions;
     QHash<QString, std::shared_ptr<DownloadGroupState>> m_downloadGroups;
     QString m_selectedGroupId;
 };
