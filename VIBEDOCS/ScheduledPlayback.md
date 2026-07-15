@@ -86,6 +86,8 @@ SQLite 表 `scheduled_playback_tasks` 保存：
 - 每月策略保存日期 `1..31`。
 - 每日和手动策略保持为空。
 
+Repository 在写入 `schedule_days` 等允许为空的文本字段前，会将 Qt 的 null 字符串规范化为非 null 空字符串。手动和每日策略因此向 `schedule_days` 写入 `''`，不会触发数据库的 `NOT NULL` 约束。
+
 旧数据库通过 `ALTER TABLE` 增加 `schedule_type` 和 `schedule_days`，默认值为 `manual` 和空字符串，因此旧的手动配置保持兼容。手动策略继续把 `start_time` 保存为 `manual`。
 
 `last_run_date` 是本地 ISO 日期 `yyyy-MM-dd`。只有自动触发会更新它；用户点击“立即开始”不会占用当天的自动运行机会。

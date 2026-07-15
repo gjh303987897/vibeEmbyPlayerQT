@@ -104,6 +104,21 @@ ApplicationWindow {
         return Qt.rgba(value.r, value.g, value.b, alpha)
     }
 
+    function serviceAccentColor(serviceType) {
+        switch (String(serviceType).toLowerCase()) {
+        case "emby":
+            return Qt.rgba(0.322, 0.710, 0.294, 1.0)
+        case "jellyfin":
+            return Qt.rgba(0.608, 0.427, 1.0, 1.0)
+        case "webdav":
+            return Qt.rgba(0.184, 0.561, 1.0, 1.0)
+        case "iptv":
+            return Qt.rgba(1.0, 0.478, 0.239, 1.0)
+        default:
+            return Qt.rgba(0.392, 0.455, 0.545, 1.0)
+        }
+    }
+
     function formatHistoryDate(value) {
         if (!value || value.length < 10) {
             return value
@@ -2095,6 +2110,213 @@ ApplicationWindow {
         }
     }
 
+    component ServiceTypeIcon: Item {
+        id: serviceIcon
+        property string serviceType: ""
+        readonly property string normalizedType: serviceType.toLowerCase()
+        readonly property color accentColor: root.serviceAccentColor(serviceType)
+
+        implicitWidth: 54
+        implicitHeight: 54
+
+        Rectangle {
+            x: 5
+            y: 7
+            width: parent.width - 10
+            height: parent.height - 9
+            radius: 14
+            color: root.withAlpha(serviceIcon.accentColor, darkTheme ? 0.30 : 0.18)
+        }
+
+        Rectangle {
+            id: serviceIconPlate
+            anchors.fill: parent
+            anchors.margins: 3
+            radius: 14
+            color: serviceIcon.accentColor
+            clip: true
+
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "transparent"
+                gradient: Gradient {
+                    orientation: Gradient.Vertical
+                    GradientStop { position: 0.0; color: "#38ffffff" }
+                    GradientStop { position: 0.55; color: "#08ffffff" }
+                    GradientStop { position: 1.0; color: "#18000000" }
+                }
+            }
+
+            Canvas {
+                id: serviceIconCanvas
+                anchors.centerIn: parent
+                width: 34
+                height: 34
+                antialiasing: true
+
+                function roundedRectPath(context, x, y, width, height, radius) {
+                    context.beginPath()
+                    context.moveTo(x + radius, y)
+                    context.lineTo(x + width - radius, y)
+                    context.quadraticCurveTo(x + width, y, x + width, y + radius)
+                    context.lineTo(x + width, y + height - radius)
+                    context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height)
+                    context.lineTo(x + radius, y + height)
+                    context.quadraticCurveTo(x, y + height, x, y + height - radius)
+                    context.lineTo(x, y + radius)
+                    context.quadraticCurveTo(x, y, x + radius, y)
+                    context.closePath()
+                }
+
+                onPaint: {
+                    var context = getContext("2d")
+                    context.clearRect(0, 0, width, height)
+                    context.lineCap = "round"
+                    context.lineJoin = "round"
+
+                    if (serviceIcon.normalizedType === "emby") {
+                        context.save()
+                        context.translate(17, 17)
+                        context.rotate(Math.PI / 4)
+                        context.strokeStyle = "#ffffff"
+                        context.lineWidth = 2.4
+                        context.strokeRect(-9.5, -9.5, 19, 19)
+                        context.restore()
+
+                        context.fillStyle = "#ffffff"
+                        context.beginPath()
+                        context.moveTo(14, 11)
+                        context.lineTo(14, 23)
+                        context.lineTo(23, 17)
+                        context.closePath()
+                        context.fill()
+                    } else if (serviceIcon.normalizedType === "jellyfin") {
+                        context.fillStyle = "#ffffff"
+                        context.beginPath()
+                        context.moveTo(17, 4)
+                        context.lineTo(31, 29)
+                        context.lineTo(3, 29)
+                        context.closePath()
+                        context.fill()
+
+                        context.fillStyle = serviceIcon.accentColor
+                        context.beginPath()
+                        context.moveTo(17, 10)
+                        context.lineTo(25.5, 25.5)
+                        context.lineTo(8.5, 25.5)
+                        context.closePath()
+                        context.fill()
+
+                        context.fillStyle = "#ffffff"
+                        context.beginPath()
+                        context.moveTo(17, 14)
+                        context.lineTo(22.5, 24)
+                        context.lineTo(11.5, 24)
+                        context.closePath()
+                        context.fill()
+                    } else if (serviceIcon.normalizedType === "webdav") {
+                        context.fillStyle = "#ffffff"
+                        context.beginPath()
+                        context.moveTo(8, 26)
+                        context.bezierCurveTo(4.5, 26, 3, 23.5, 3, 20.5)
+                        context.bezierCurveTo(3, 17, 5.5, 14.5, 9, 14.2)
+                        context.bezierCurveTo(10.6, 9.5, 15.2, 7.8, 19.2, 10.4)
+                        context.bezierCurveTo(21.2, 11.7, 22.3, 13.5, 22.6, 15.5)
+                        context.bezierCurveTo(27.5, 14.7, 31, 17.5, 31, 21.5)
+                        context.bezierCurveTo(31, 24.3, 28.8, 26, 25.5, 26)
+                        context.closePath()
+                        context.fill()
+
+                        context.fillStyle = serviceIcon.accentColor
+                        context.font = "bold 8px sans-serif"
+                        context.textAlign = "center"
+                        context.textBaseline = "middle"
+                        context.fillText("DAV", 17, 21)
+                    } else if (serviceIcon.normalizedType === "iptv") {
+                        context.strokeStyle = "#ffffff"
+                        context.lineWidth = 2.3
+                        context.beginPath()
+                        context.moveTo(17, 8)
+                        context.lineTo(12, 3.5)
+                        context.moveTo(17, 8)
+                        context.lineTo(22, 3.5)
+                        context.stroke()
+
+                        roundedRectPath(context, 4, 8, 26, 21, 5)
+                        context.stroke()
+
+                        context.fillStyle = "#ffffff"
+                        context.beginPath()
+                        context.moveTo(14, 13)
+                        context.lineTo(14, 24)
+                        context.lineTo(22, 18.5)
+                        context.closePath()
+                        context.fill()
+                    } else {
+                        context.strokeStyle = "#ffffff"
+                        context.fillStyle = "#ffffff"
+                        context.lineWidth = 2.2
+                        context.beginPath()
+                        context.moveTo(10, 12)
+                        context.lineTo(24, 8)
+                        context.lineTo(26, 23)
+                        context.lineTo(12, 26)
+                        context.closePath()
+                        context.stroke()
+                        for (var index = 0; index < 4; ++index) {
+                            var nodeX = index === 0 ? 10 : index === 1 ? 24 : index === 2 ? 26 : 12
+                            var nodeY = index === 0 ? 12 : index === 1 ? 8 : index === 2 ? 23 : 26
+                            context.beginPath()
+                            context.arc(nodeX, nodeY, 3, 0, Math.PI * 2)
+                            context.fill()
+                        }
+                    }
+                }
+
+                Component.onCompleted: requestPaint()
+            }
+        }
+
+        onServiceTypeChanged: serviceIconCanvas.requestPaint()
+    }
+
+    component ServiceStatusChip: Rectangle {
+        id: statusChip
+        property string text: ""
+        property color accentColor: theme.subtle
+
+        implicitWidth: statusContent.implicitWidth + 18
+        implicitHeight: 26
+        radius: 9
+        color: root.withAlpha(accentColor, darkTheme ? 0.14 : 0.09)
+        border.color: root.withAlpha(accentColor, 0.38)
+
+        RowLayout {
+            id: statusContent
+            anchors.fill: parent
+            anchors.leftMargin: 9
+            anchors.rightMargin: 9
+            spacing: 6
+
+            Rectangle {
+                Layout.preferredWidth: 6
+                Layout.preferredHeight: 6
+                radius: 3
+                color: statusChip.accentColor
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: statusChip.text
+                color: statusChip.accentColor
+                font.pixelSize: 11
+                font.bold: true
+                elide: Text.ElideRight
+            }
+        }
+    }
+
     component ServiceCard: Rectangle {
         id: card
         signal activated()
@@ -2114,18 +2336,26 @@ ApplicationWindow {
         property int dragIndex: -1
         property real dragStartX: 0
         property real dragStartY: 0
+        readonly property color accentColor: root.serviceAccentColor(serviceType)
 
-        radius: 10
+        radius: 14
         color: cardMouse.containsMouse || dropArea.containsDrag ? theme.elevatedHover : theme.elevated
-        border.color: dropArea.containsDrag ? theme.primary : theme.border
-        scale: cardMouse.drag.active ? 0.98 : 1.0
+        border.color: dropArea.containsDrag ? theme.primary
+            : cardMouse.containsMouse ? root.withAlpha(accentColor, 0.72)
+            : theme.border
+        border.width: dropArea.containsDrag ? 2 : 1
+        scale: cardMouse.drag.active ? 0.98 : (cardMouse.containsMouse && !editing ? 1.008 : 1.0)
+        opacity: cardMouse.drag.active ? 0.92 : 1.0
         z: cardMouse.drag.active ? 10 : 0
         Drag.active: cardMouse.drag.active && editing
         Drag.source: card
         Drag.hotSpot.x: width / 2
         Drag.hotSpot.y: height / 2
 
-        Behavior on scale { NumberAnimation { duration: 100 } }
+        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 120 } }
 
         function beginDrag() {
             dragStartX = x
@@ -2147,6 +2377,37 @@ ApplicationWindow {
             onDropped: card.droppedOn(card.dragIndex)
         }
 
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 1
+            radius: card.radius - 1
+            color: "transparent"
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop {
+                    position: 0.0
+                    color: root.withAlpha(card.accentColor,
+                        cardMouse.containsMouse || dropArea.containsDrag
+                            ? (darkTheme ? 0.15 : 0.10)
+                            : (darkTheme ? 0.09 : 0.055))
+                }
+                GradientStop { position: 0.65; color: root.withAlpha(card.accentColor, 0.0) }
+            }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.leftMargin: 1
+            anchors.verticalCenter: parent.verticalCenter
+            width: 3
+            height: parent.height - 34
+            radius: 1.5
+            color: card.accentColor
+            opacity: cardMouse.containsMouse || dropArea.containsDrag ? 0.95 : 0.62
+
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+        }
+
         MouseArea {
             id: cardMouse
             anchors.fill: parent
@@ -2166,92 +2427,133 @@ ApplicationWindow {
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 14
-            spacing: 8
+            spacing: 10
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: 12
 
-                Label {
+                ServiceTypeIcon {
+                    Layout.preferredWidth: 54
+                    Layout.preferredHeight: 54
+                    Layout.alignment: Qt.AlignTop
+                    serviceType: card.serviceType
+                }
+
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: serviceName
-                    color: theme.text
-                    font.pixelSize: 18
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
+                    spacing: 4
 
-                Rectangle {
-                    visible: privateMode
-                    Layout.preferredHeight: 24
-                    Layout.minimumWidth: 76
-                    Layout.maximumWidth: 112
-                    radius: 8
-                    color: theme.primary
-                    border.color: theme.primary
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
 
-                    Label {
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        text: t("history.privateBadge")
-                        color: "#ffffff"
+                        Label {
+                            Layout.fillWidth: true
+                            text: serviceName
+                            color: theme.text
+                            font.pixelSize: 17
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        RowLayout {
+                            visible: editing
+                            spacing: 4
+
+                            IconButton {
+                                implicitWidth: 30
+                                implicitHeight: 30
+                                text: "✎"
+                                onClicked: editRequested()
+                            }
+
+                            IconButton {
+                                implicitWidth: 30
+                                implicitHeight: 30
+                                text: "×"
+                                onClicked: deleteRequested()
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        Rectangle {
+                            Layout.preferredWidth: serviceTypeLabel.implicitWidth + 16
+                            Layout.preferredHeight: 21
+                            radius: 7
+                            color: root.withAlpha(card.accentColor, darkTheme ? 0.18 : 0.10)
+                            border.color: root.withAlpha(card.accentColor, 0.40)
+
+                            Label {
+                                id: serviceTypeLabel
+                                anchors.centerIn: parent
+                                text: card.serviceType
+                                color: card.accentColor
+                                font.pixelSize: 10
+                                font.bold: true
+                            }
+                        }
+
+                        Rectangle {
+                            visible: privateMode
+                            Layout.preferredWidth: privateModeLabel.implicitWidth + 14
+                            Layout.preferredHeight: 21
+                            radius: 7
+                            color: root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.10)
+                            border.color: root.withAlpha(theme.primary, 0.42)
+
+                            Label {
+                                id: privateModeLabel
+                                anchors.centerIn: parent
+                                text: t("history.privateBadge")
+                                color: theme.primary
+                                font.pixelSize: 10
+                                font.bold: true
+                            }
+                        }
+
+                        MutedText {
+                            visible: username.length > 0
+                            Layout.fillWidth: true
+                            text: username
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: host
+                        color: theme.subtle
                         font.pixelSize: 11
-                        font.bold: true
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
+                        elide: Text.ElideMiddle
                     }
                 }
-
-                RowLayout {
-                    visible: editing
-                    spacing: 6
-
-                    IconButton {
-                        text: "✎"
-                        onClicked: editRequested()
-                    }
-
-                    IconButton {
-                        text: "×"
-                        onClicked: deleteRequested()
-                    }
-                }
-            }
-
-            MutedText {
-                Layout.fillWidth: true
-                text: serviceType + " · " + username
-                elide: Text.ElideRight
-            }
-
-            MutedText {
-                Layout.fillWidth: true
-                text: host
-                color: theme.subtle
-                elide: Text.ElideRight
             }
 
             Item { Layout.fillHeight: true }
 
             RowLayout {
+                id: serviceStatusRow
                 Layout.fillWidth: true
                 spacing: 8
 
-                Label {
+                ServiceStatusChip {
+                    Layout.maximumWidth: serviceStatusRow.width * 0.62
                     text: autoLogin ? t("status.autoLogin") : t("status.passwordRequired")
-                    color: autoLogin ? theme.success : theme.warning
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
+                    accentColor: autoLogin ? theme.success : theme.warning
                 }
 
                 Item { Layout.fillWidth: true }
 
-                Label {
+                ServiceStatusChip {
+                    Layout.maximumWidth: serviceStatusRow.width * 0.46
                     text: hasSession ? t("status.ready") : t("status.noSession")
-                    color: hasSession ? theme.primary : theme.subtle
-                    font.pixelSize: 12
+                    accentColor: hasSession ? theme.primary : theme.subtle
                 }
             }
         }

@@ -30,6 +30,7 @@ class ScheduledPlaybackScheduleTest final : public QObject {
 
 private slots:
     void parsesAndSerializesDays();
+    void keepsEmptyScheduleDaysNonNull();
     void calculatesDailyRuns();
     void calculatesWeeklyRuns();
     void skipsMissingMonthlyDates();
@@ -45,6 +46,13 @@ void ScheduledPlaybackScheduleTest::parsesAndSerializesDays()
              QList<int>({ 14, 21, 28 }));
     QCOMPARE(ScheduledPlaybackSchedule::serializeDays({ 28, 14, 21, 14, 0, 32 }, 1, 31),
              QStringLiteral("14,21,28"));
+}
+
+void ScheduledPlaybackScheduleTest::keepsEmptyScheduleDaysNonNull()
+{
+    const ScheduledPlaybackTask emptyTask;
+    QVERIFY(emptyTask.scheduleDays.isEmpty());
+    QVERIFY(!emptyTask.scheduleDays.isNull());
 }
 
 void ScheduledPlaybackScheduleTest::calculatesDailyRuns()

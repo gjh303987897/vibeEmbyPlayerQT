@@ -9,7 +9,7 @@ struct ScheduledPlaybackTask {
     QString username;
     QString scheduleType { QStringLiteral("manual") };
     QString startTime { QStringLiteral("manual") };
-    QString scheduleDays;
+    QString scheduleDays { QStringLiteral("") };
     int durationMinutes { 90 };
     bool enabled { true };
     QString lastRunDate { QStringLiteral("") };

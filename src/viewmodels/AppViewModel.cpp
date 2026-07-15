@@ -2805,7 +2805,7 @@ std::optional<ScheduledPlaybackTask> AppViewModel::scheduledPlaybackTaskFromEdit
     }
 
     auto startTime = QStringLiteral("manual");
-    auto scheduleDays = QString {};
+    auto scheduleDays = QStringLiteral("");
     if (m_scheduledTaskScheduleType != QLatin1String(ScheduledPlaybackSchedule::manualType)) {
         startTime = QStringLiteral("%1:%2")
             .arg(m_scheduledTaskStartHour, 2, 10, QLatin1Char('0'))
@@ -2823,7 +2823,7 @@ std::optional<ScheduledPlaybackTask> AppViewModel::scheduledPlaybackTaskFromEdit
         }
     }
 
-    auto lastRunDate = QString {};
+    auto lastRunDate = QStringLiteral("");
     for (auto row = 0; row < m_scheduledPlaybackTasks.count(); ++row) {
         const auto existing = m_scheduledPlaybackTasks.taskAt(row);
         if (existing && existing->id == m_scheduledTaskEditingId &&

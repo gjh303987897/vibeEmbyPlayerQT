@@ -679,11 +679,10 @@ std::expected<void, QString> SessionRepository::saveScheduledPlaybackTask(const 
     query.bindValue(QStringLiteral(":server_id"), task.serverId);
     query.bindValue(QStringLiteral(":schedule_type"), task.scheduleType);
     query.bindValue(QStringLiteral(":start_time"), task.startTime);
-    query.bindValue(QStringLiteral(":schedule_days"), task.scheduleDays);
+    query.bindValue(QStringLiteral(":schedule_days"), nonNullText(task.scheduleDays));
     query.bindValue(QStringLiteral(":duration_minutes"), task.durationMinutes);
     query.bindValue(QStringLiteral(":enabled"), task.enabled ? 1 : 0);
-    query.bindValue(QStringLiteral(":last_run_date"),
-                    task.lastRunDate.isNull() ? QStringLiteral("") : task.lastRunDate);
+    query.bindValue(QStringLiteral(":last_run_date"), nonNullText(task.lastRunDate));
     query.bindValue(QStringLiteral(":created_at"), now);
     query.bindValue(QStringLiteral(":updated_at"), now);
     if (!query.exec()) {

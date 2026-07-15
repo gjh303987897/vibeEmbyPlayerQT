@@ -48,6 +48,9 @@ QML does not make network requests and does not parse JSON.
 ## Service Card Flow
 
 - App launch opens the service-card page.
+- Service cards derive their visual identity from the existing `serviceType` role. Emby, Jellyfin, WebDAV and IPTV each use a local vector-style mark and a stable accent color, so card rendering never depends on remote image assets.
+- The reusable QML service icon and status-chip components keep the card hierarchy consistent across light and dark themes: service identity and account details stay in the primary row, while login and session state remain in a fixed footer row.
+- Hover, drag and edit states reuse the same service accent without changing the card's information layout or invoking service-layer logic.
 - Adding a card stores service name, base URL, username, service type, certificate policy and auto-login preference.
 - If a password is provided while saving, the card is logged in immediately and the token is persisted through `SessionRepository`.
 - If auto-login is enabled, clicking a card attempts to restore the saved session and opens the service home.
