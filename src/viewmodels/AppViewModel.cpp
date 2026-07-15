@@ -475,8 +475,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("history.traffic"), QStringLiteral("Traffic") },
         { QStringLiteral("history.normalTraffic"), QStringLiteral("Normal traffic") },
         { QStringLiteral("history.keepAliveTraffic"), QStringLiteral("Keep-alive traffic") },
-        { QStringLiteral("history.download"), QStringLiteral("In") },
-        { QStringLiteral("history.upload"), QStringLiteral("Out") },
+        { QStringLiteral("history.download"), QStringLiteral("Download") },
+        { QStringLiteral("history.upload"), QStringLiteral("Upload") },
+        { QStringLiteral("history.totalDownload"), QStringLiteral("Total download") },
+        { QStringLiteral("history.totalUpload"), QStringLiteral("Total upload") },
         { QStringLiteral("history.retention"), QStringLiteral("Stats are kept for 30 days and old records are removed automatically.") },
         { QStringLiteral("history.privateBadge"), QStringLiteral("Private") },
         { QStringLiteral("history.subtitlePrivacy"), QStringLiteral("Privacy mode includes private records from the last 30 days") },
@@ -768,8 +770,10 @@ const QHash<QString, QString>& historyChineseTexts()
         { QStringLiteral("history.traffic"), QStringLiteral("流量") },
         { QStringLiteral("history.normalTraffic"), QStringLiteral("正常流量") },
         { QStringLiteral("history.keepAliveTraffic"), QStringLiteral("保号流量") },
-        { QStringLiteral("history.download"), QStringLiteral("入站") },
-        { QStringLiteral("history.upload"), QStringLiteral("出站") },
+        { QStringLiteral("history.download"), QStringLiteral("下行") },
+        { QStringLiteral("history.upload"), QStringLiteral("上行") },
+        { QStringLiteral("history.totalDownload"), QStringLiteral("总下行") },
+        { QStringLiteral("history.totalUpload"), QStringLiteral("总上行") },
         { QStringLiteral("history.retention"), QStringLiteral("统计数据保留 30 天，过期记录会自动删除。") },
     };
     return texts;
@@ -1484,14 +1488,44 @@ qint64 AppViewModel::historyTotalNetworkBytes() const
     return m_historyTotalNetworkBytes;
 }
 
+qint64 AppViewModel::historyTotalNetworkBytesIn() const
+{
+    return m_historyTotalNetworkBytesIn;
+}
+
+qint64 AppViewModel::historyTotalNetworkBytesOut() const
+{
+    return m_historyTotalNetworkBytesOut;
+}
+
 qint64 AppViewModel::historyNormalNetworkBytes() const
 {
     return m_historyNormalNetworkBytes;
 }
 
+qint64 AppViewModel::historyNormalNetworkBytesIn() const
+{
+    return m_historyNormalNetworkBytesIn;
+}
+
+qint64 AppViewModel::historyNormalNetworkBytesOut() const
+{
+    return m_historyNormalNetworkBytesOut;
+}
+
 qint64 AppViewModel::historyKeepAliveNetworkBytes() const
 {
     return m_historyKeepAliveNetworkBytes;
+}
+
+qint64 AppViewModel::historyKeepAliveNetworkBytesIn() const
+{
+    return m_historyKeepAliveNetworkBytesIn;
+}
+
+qint64 AppViewModel::historyKeepAliveNetworkBytesOut() const
+{
+    return m_historyKeepAliveNetworkBytesOut;
 }
 
 ScheduledPlaybackTaskListModel* AppViewModel::scheduledPlaybackTasks()
@@ -4263,17 +4297,29 @@ void AppViewModel::refreshUsageStats()
     }
 
     qint64 watchSeconds = 0;
-    qint64 normalNetworkBytes = 0;
-    qint64 keepAliveNetworkBytes = 0;
+    qint64 normalNetworkBytesIn = 0;
+    qint64 normalNetworkBytesOut = 0;
+    qint64 keepAliveNetworkBytesIn = 0;
+    qint64 keepAliveNetworkBytesOut = 0;
     for (const auto& stat : *result) {
         watchSeconds += stat.watchSeconds;
-        normalNetworkBytes += stat.networkBytesIn + stat.networkBytesOut;
-        keepAliveNetworkBytes += stat.keepAliveNetworkBytesIn + stat.keepAliveNetworkBytesOut;
+        normalNetworkBytesIn += stat.networkBytesIn;
+        normalNetworkBytesOut += stat.networkBytesOut;
+        keepAliveNetworkBytesIn += stat.keepAliveNetworkBytesIn;
+        keepAliveNetworkBytesOut += stat.keepAliveNetworkBytesOut;
     }
 
+    const auto normalNetworkBytes = normalNetworkBytesIn + normalNetworkBytesOut;
+    const auto keepAliveNetworkBytes = keepAliveNetworkBytesIn + keepAliveNetworkBytesOut;
     m_historyTotalWatchSeconds = watchSeconds;
+    m_historyNormalNetworkBytesIn = normalNetworkBytesIn;
+    m_historyNormalNetworkBytesOut = normalNetworkBytesOut;
     m_historyNormalNetworkBytes = normalNetworkBytes;
+    m_historyKeepAliveNetworkBytesIn = keepAliveNetworkBytesIn;
+    m_historyKeepAliveNetworkBytesOut = keepAliveNetworkBytesOut;
     m_historyKeepAliveNetworkBytes = keepAliveNetworkBytes;
+    m_historyTotalNetworkBytesIn = normalNetworkBytesIn + keepAliveNetworkBytesIn;
+    m_historyTotalNetworkBytesOut = normalNetworkBytesOut + keepAliveNetworkBytesOut;
     m_historyTotalNetworkBytes = normalNetworkBytes + keepAliveNetworkBytes;
     m_usageStats.setStats(*result);
     emit historyStatsChanged();

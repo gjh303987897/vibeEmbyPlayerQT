@@ -116,8 +116,14 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(DailyUsageStatsListModel* usageStats READ usageStats CONSTANT)
     Q_PROPERTY(qint64 historyTotalWatchSeconds READ historyTotalWatchSeconds NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyTotalNetworkBytes READ historyTotalNetworkBytes NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyTotalNetworkBytesIn READ historyTotalNetworkBytesIn NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyTotalNetworkBytesOut READ historyTotalNetworkBytesOut NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyNormalNetworkBytes READ historyNormalNetworkBytes NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyNormalNetworkBytesIn READ historyNormalNetworkBytesIn NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyNormalNetworkBytesOut READ historyNormalNetworkBytesOut NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyKeepAliveNetworkBytes READ historyKeepAliveNetworkBytes NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyKeepAliveNetworkBytesIn READ historyKeepAliveNetworkBytesIn NOTIFY historyStatsChanged)
+    Q_PROPERTY(qint64 historyKeepAliveNetworkBytesOut READ historyKeepAliveNetworkBytesOut NOTIFY historyStatsChanged)
     Q_PROPERTY(ScheduledPlaybackTaskListModel* scheduledPlaybackTasks READ scheduledPlaybackTasks CONSTANT)
     Q_PROPERTY(ServiceCardListModel* scheduledEmbySources READ scheduledEmbySources CONSTANT)
     Q_PROPERTY(QString scheduledPlaybackStatus READ scheduledPlaybackStatus NOTIFY scheduledPlaybackStatusChanged)
@@ -251,8 +257,14 @@ public:
     DailyUsageStatsListModel* usageStats();
     qint64 historyTotalWatchSeconds() const;
     qint64 historyTotalNetworkBytes() const;
+    qint64 historyTotalNetworkBytesIn() const;
+    qint64 historyTotalNetworkBytesOut() const;
     qint64 historyNormalNetworkBytes() const;
+    qint64 historyNormalNetworkBytesIn() const;
+    qint64 historyNormalNetworkBytesOut() const;
     qint64 historyKeepAliveNetworkBytes() const;
+    qint64 historyKeepAliveNetworkBytesIn() const;
+    qint64 historyKeepAliveNetworkBytesOut() const;
     ScheduledPlaybackTaskListModel* scheduledPlaybackTasks();
     ServiceCardListModel* scheduledEmbySources();
     QString scheduledPlaybackStatus() const;
@@ -585,8 +597,14 @@ private:
     DailyUsageStatsListModel m_usageStats;
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
+    qint64 m_historyTotalNetworkBytesIn { 0 };
+    qint64 m_historyTotalNetworkBytesOut { 0 };
     qint64 m_historyNormalNetworkBytes { 0 };
+    qint64 m_historyNormalNetworkBytesIn { 0 };
+    qint64 m_historyNormalNetworkBytesOut { 0 };
     qint64 m_historyKeepAliveNetworkBytes { 0 };
+    qint64 m_historyKeepAliveNetworkBytesIn { 0 };
+    qint64 m_historyKeepAliveNetworkBytesOut { 0 };
     QHash<QString, PendingUsageStat> m_pendingUsageStats;
     QHash<QString, PlaybackProgressSnapshot> m_recentPlaybackProgress;
     QTimer m_usageFlushTimer;

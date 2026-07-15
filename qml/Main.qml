@@ -96,6 +96,10 @@ ApplicationWindow {
         return unit === 0 ? Math.round(value) + " " + units[unit] : value.toFixed(value >= 10 ? 1 : 2) + " " + units[unit]
     }
 
+    function formatTrafficSplit(bytesIn, bytesOut) {
+        return "↓ " + formatBytes(bytesIn) + "  ·  ↑ " + formatBytes(bytesOut)
+    }
+
     function withAlpha(value, alpha) {
         return Qt.rgba(value.r, value.g, value.b, alpha)
     }
@@ -5564,14 +5568,61 @@ ApplicationWindow {
         }
     }
 
+    component HistoryTrafficMetricBlock: ColumnLayout {
+        property string label: ""
+        property real bytesIn: 0
+        property real bytesOut: 0
+        property color valueColor: theme.text
+
+        spacing: 2
+
+        MutedText {
+            Layout.fillWidth: true
+            text: label
+            color: theme.subtle
+            font.pixelSize: 11
+            elide: Text.ElideRight
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+
+            Label {
+                Layout.fillWidth: true
+                text: "↓ " + root.formatBytes(bytesIn)
+                color: valueColor
+                font.pixelSize: 13
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: "↑ " + root.formatBytes(bytesOut)
+                color: valueColor
+                font.pixelSize: 13
+                font.bold: true
+                horizontalAlignment: Text.AlignRight
+                elide: Text.ElideRight
+            }
+        }
+    }
+
     component HistoryStatRow: Rectangle {
         property string date: ""
         property string serviceName: ""
         property string serviceType: ""
         property real watchSeconds: 0
-        property real normalNetworkBytesTotal: 0
-        property real keepAliveNetworkBytesTotal: 0
-        property real networkBytesTotal: 0
+        property real normalNetworkBytesIn: 0
+        property real normalNetworkBytesOut: 0
+        property real keepAliveNetworkBytesIn: 0
+        property real keepAliveNetworkBytesOut: 0
+        readonly property real normalNetworkBytesTotal: normalNetworkBytesIn + normalNetworkBytesOut
+        readonly property real keepAliveNetworkBytesTotal: keepAliveNetworkBytesIn + keepAliveNetworkBytesOut
+        readonly property real networkBytesInTotal: normalNetworkBytesIn + keepAliveNetworkBytesIn
+        readonly property real networkBytesOutTotal: normalNetworkBytesOut + keepAliveNetworkBytesOut
+        readonly property real networkBytesTotal: networkBytesInTotal + networkBytesOutTotal
         property bool privacyMode: false
 
         width: parent ? parent.width : 0
@@ -5685,23 +5736,25 @@ ApplicationWindow {
                         valueColor: theme.primary
                     }
 
-                    HistoryMetricBlock {
+                    HistoryTrafficMetricBlock {
                         Layout.fillWidth: true
                         label: t("history.normalTraffic")
-                        value: root.formatBytes(normalNetworkBytesTotal)
+                        bytesIn: normalNetworkBytesIn
+                        bytesOut: normalNetworkBytesOut
                     }
 
-                    HistoryMetricBlock {
+                    HistoryTrafficMetricBlock {
                         Layout.fillWidth: true
                         label: t("history.keepAliveTraffic")
-                        value: root.formatBytes(keepAliveNetworkBytesTotal)
+                        bytesIn: keepAliveNetworkBytesIn
+                        bytesOut: keepAliveNetworkBytesOut
                         valueColor: keepAliveNetworkBytesTotal > 0 ? theme.warning : theme.text
                     }
                 }
             }
 
             ColumnLayout {
-                Layout.preferredWidth: 126
+                Layout.preferredWidth: 176
                 spacing: 3
 
                 MutedText {
@@ -5718,6 +5771,14 @@ ApplicationWindow {
                     font.pixelSize: 16
                     font.bold: true
                     horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                }
+
+                MutedText {
+                    Layout.fillWidth: true
+                    text: root.formatTrafficSplit(networkBytesInTotal, networkBytesOutTotal)
+                    horizontalAlignment: Text.AlignRight
+                    font.pixelSize: 11
                     elide: Text.ElideRight
                 }
             }
@@ -5754,7 +5815,7 @@ ApplicationWindow {
 
             GridLayout {
                 Layout.fillWidth: true
-                columns: historyFlick.width < 760 ? 1 : historyFlick.width < 1180 ? 2 : 4
+                columns: historyFlick.width < 760 ? 1 : historyFlick.width < 1180 ? 2 : 3
                 columnSpacing: 12
                 rowSpacing: 12
 
@@ -5766,23 +5827,40 @@ ApplicationWindow {
                 }
 
                 HistorySummaryCard {
+                    title: t("history.totalDownload")
+                    value: root.formatBytes(appViewModel.historyTotalNetworkBytesIn)
+                    subtitle: t("history.traffic")
+                    accentColor: theme.success
+                }
+
+                HistorySummaryCard {
+                    title: t("history.totalUpload")
+                    value: root.formatBytes(appViewModel.historyTotalNetworkBytesOut)
+                    subtitle: t("history.traffic")
+                    accentColor: theme.primary
+                }
+
+                HistorySummaryCard {
                     title: t("history.normalTraffic")
                     value: root.formatBytes(appViewModel.historyNormalNetworkBytes)
-                    subtitle: t("history.traffic")
+                    subtitle: root.formatTrafficSplit(appViewModel.historyNormalNetworkBytesIn,
+                        appViewModel.historyNormalNetworkBytesOut)
                     accentColor: theme.success
                 }
 
                 HistorySummaryCard {
                     title: t("history.keepAliveTraffic")
                     value: root.formatBytes(appViewModel.historyKeepAliveNetworkBytes)
-                    subtitle: t("history.traffic")
+                    subtitle: root.formatTrafficSplit(appViewModel.historyKeepAliveNetworkBytesIn,
+                        appViewModel.historyKeepAliveNetworkBytesOut)
                     accentColor: theme.warning
                 }
 
                 HistorySummaryCard {
                     title: t("history.totalTraffic")
                     value: root.formatBytes(appViewModel.historyTotalNetworkBytes)
-                    subtitle: t("history.traffic")
+                    subtitle: root.formatTrafficSplit(appViewModel.historyTotalNetworkBytesIn,
+                        appViewModel.historyTotalNetworkBytesOut)
                     accentColor: theme.text
                 }
             }
@@ -5826,9 +5904,10 @@ ApplicationWindow {
                     serviceName: model.serviceName
                     serviceType: model.serviceType
                     watchSeconds: model.watchSeconds
-                    normalNetworkBytesTotal: model.normalNetworkBytesTotal
-                    keepAliveNetworkBytesTotal: model.keepAliveNetworkBytesTotal
-                    networkBytesTotal: model.networkBytesTotal
+                    normalNetworkBytesIn: model.networkBytesIn
+                    normalNetworkBytesOut: model.networkBytesOut
+                    keepAliveNetworkBytesIn: model.keepAliveNetworkBytesIn
+                    keepAliveNetworkBytesOut: model.keepAliveNetworkBytesOut
                     privacyMode: model.privacyMode
                 }
             }
