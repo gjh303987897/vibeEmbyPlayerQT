@@ -73,6 +73,8 @@ QML does not make network requests and does not parse JSON.
 
 - Item details are fetched through the service layer, not QML.
 - Details currently expose title, poster, backdrop, overview, rating, runtime, genres, people cards and playback progress.
+- The details page uses the landscape backdrop as its page artwork and falls back to the primary poster when no backdrop is available. The artwork stays in the presentation layer and never triggers additional QML-side service requests.
+- Theme-aware horizontal and vertical scrims fade the artwork into the normal page background. The hero information remains on a high-contrast translucent surface, so titles, metadata, actions and overview text stay readable across bright or dark artwork and in both application themes.
 - Primary image tags are read from both the legacy `PrimaryImageTag` field and the current `ImageTags.Primary` map. Image URLs are only created when the server reports a real image tag.
 - Episode details also expose season / episode text through the ViewModel.
 - Series details expose seasons and the selected season's episodes through `MediaItemListModel` instances owned by `AppViewModel`.
