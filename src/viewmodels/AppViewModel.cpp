@@ -370,6 +370,13 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("transfers.empty"), QStringLiteral("No transfer tasks") },
         { QStringLiteral("transfers.emptyHint"), QStringLiteral("Downloads and uploads will appear here") },
         { QStringLiteral("transfers.emptyDetails"), QStringLiteral("This download contains no file tasks") },
+        { QStringLiteral("transfers.emptyFiltered"), QStringLiteral("No files match this status") },
+        { QStringLiteral("transfers.emptyFilteredHint"), QStringLiteral("This download has no files in the selected state") },
+        { QStringLiteral("transfers.filterAll"), QStringLiteral("All") },
+        { QStringLiteral("transfers.filterIncomplete"), QStringLiteral("Incomplete") },
+        { QStringLiteral("transfers.filterCompleted"), QStringLiteral("Completed") },
+        { QStringLiteral("transfers.filterFailed"), QStringLiteral("Failed") },
+        { QStringLiteral("transfers.filterCanceled"), QStringLiteral("Canceled") },
         { QStringLiteral("transfers.files"), QStringLiteral("files") },
         { QStringLiteral("transfers.pending"), QStringLiteral("Pending") },
         { QStringLiteral("transfers.completed"), QStringLiteral("Completed") },
@@ -392,10 +399,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("transfers.statusCanceled"), QStringLiteral("Canceled") },
         { QStringLiteral("transfers.pause"), QStringLiteral("Pause") },
         { QStringLiteral("transfers.resume"), QStringLiteral("Resume") },
-        { QStringLiteral("transfers.retryTask"), QStringLiteral("Retry all failed files") },
+        { QStringLiteral("transfers.retryTask"), QStringLiteral("Retry all failed or canceled files") },
         { QStringLiteral("transfers.retryFile"), QStringLiteral("Retry this file") },
         { QStringLiteral("transfers.cancelTask"), QStringLiteral("Cancel task and delete local files") },
-        { QStringLiteral("transfers.cancelFile"), QStringLiteral("Cancel file") },
+        { QStringLiteral("transfers.cancelFile"), QStringLiteral("Cancel file and delete local file") },
         { QStringLiteral("status.autoLogin"), QStringLiteral("Auto login") },
         { QStringLiteral("status.passwordRequired"), QStringLiteral("Password required") },
         { QStringLiteral("status.ready"), QStringLiteral("Ready") },
@@ -670,6 +677,13 @@ const QHash<QString, QString>& transferChineseTexts()
         { QStringLiteral("transfers.empty"), QStringLiteral("暂无下载任务") },
         { QStringLiteral("transfers.emptyHint"), QStringLiteral("下载和上传任务会显示在这里") },
         { QStringLiteral("transfers.emptyDetails"), QStringLiteral("本次下载没有文件任务") },
+        { QStringLiteral("transfers.emptyFiltered"), QStringLiteral("当前状态下没有文件") },
+        { QStringLiteral("transfers.emptyFilteredHint"), QStringLiteral("本次下载没有处于所选状态的文件") },
+        { QStringLiteral("transfers.filterAll"), QStringLiteral("全部") },
+        { QStringLiteral("transfers.filterIncomplete"), QStringLiteral("未完成") },
+        { QStringLiteral("transfers.filterCompleted"), QStringLiteral("已完成") },
+        { QStringLiteral("transfers.filterFailed"), QStringLiteral("失败") },
+        { QStringLiteral("transfers.filterCanceled"), QStringLiteral("已取消") },
         { QStringLiteral("transfers.files"), QStringLiteral("个文件") },
         { QStringLiteral("transfers.pending"), QStringLiteral("待完成") },
         { QStringLiteral("transfers.completed"), QStringLiteral("已完成") },
@@ -692,10 +706,10 @@ const QHash<QString, QString>& transferChineseTexts()
         { QStringLiteral("transfers.statusCanceled"), QStringLiteral("已取消") },
         { QStringLiteral("transfers.pause"), QStringLiteral("暂停") },
         { QStringLiteral("transfers.resume"), QStringLiteral("继续") },
-        { QStringLiteral("transfers.retryTask"), QStringLiteral("重试所有失败文件") },
+        { QStringLiteral("transfers.retryTask"), QStringLiteral("重试所有失败或已取消文件") },
         { QStringLiteral("transfers.retryFile"), QStringLiteral("重试此文件") },
         { QStringLiteral("transfers.cancelTask"), QStringLiteral("取消任务并删除本地文件") },
-        { QStringLiteral("transfers.cancelFile"), QStringLiteral("取消此文件") },
+        { QStringLiteral("transfers.cancelFile"), QStringLiteral("取消此文件并删除本地文件") },
     };
     return texts;
 }
@@ -1018,6 +1032,22 @@ TransferTaskListModel* AppViewModel::transferTasks()
 TransferTaskListModel* AppViewModel::transferDetailTasks()
 {
     return m_transferManager.detailTasks();
+}
+
+QString AppViewModel::transferDetailFilter() const
+{
+    return m_transferDetailFilter;
+}
+
+void AppViewModel::setTransferDetailFilter(const QString& value)
+{
+    m_transferManager.detailTasks()->setStatusFilter(value);
+    const auto normalized = m_transferManager.detailTasks()->statusFilter();
+    if (m_transferDetailFilter == normalized) {
+        return;
+    }
+    m_transferDetailFilter = normalized;
+    emit transferDetailFilterChanged();
 }
 
 QString AppViewModel::selectedTransferGroupId() const
@@ -1954,6 +1984,7 @@ void AppViewModel::chooseDefaultDownloadDirectory()
 
 void AppViewModel::openTransfers()
 {
+    setTransferDetailFilter(QStringLiteral("all"));
     m_transferManager.clearGroupSelection();
     setCurrentView(QStringLiteral("transfers"));
 }
@@ -1985,11 +2016,13 @@ void AppViewModel::clearFinishedTransfers()
 
 void AppViewModel::openTransferGroup(const QString& groupId)
 {
+    setTransferDetailFilter(QStringLiteral("all"));
     m_transferManager.selectGroup(groupId);
 }
 
 void AppViewModel::closeTransferGroup()
 {
+    setTransferDetailFilter(QStringLiteral("all"));
     m_transferManager.clearGroupSelection();
 }
 

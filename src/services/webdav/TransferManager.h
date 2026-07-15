@@ -146,6 +146,7 @@ private:
     void finishPaused(const QString& taskId);
     void wireReply(QNetworkReply* reply, const ServerConfig& server);
     bool requeueTask(const QString& taskId);
+    bool prepareDownloadGroupRetry(const QString& groupId);
     void cleanupDownloadGroupFiles(const QString& groupId);
     void startDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group);
     void stopDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group);

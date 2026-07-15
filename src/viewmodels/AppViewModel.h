@@ -54,6 +54,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString defaultDownloadDirectory READ defaultDownloadDirectory WRITE setDefaultDownloadDirectory NOTIFY defaultDownloadDirectoryChanged)
     Q_PROPERTY(TransferTaskListModel* transferTasks READ transferTasks CONSTANT)
     Q_PROPERTY(TransferTaskListModel* transferDetailTasks READ transferDetailTasks CONSTANT)
+    Q_PROPERTY(QString transferDetailFilter READ transferDetailFilter WRITE setTransferDetailFilter NOTIFY transferDetailFilterChanged)
     Q_PROPERTY(QString selectedTransferGroupId READ selectedTransferGroupId NOTIFY transferSelectionChanged)
     Q_PROPERTY(QString selectedTransferGroupTitle READ selectedTransferGroupTitle NOTIFY transferSelectionChanged)
     Q_PROPERTY(int activeTransferCount READ activeTransferCount NOTIFY transferTasksChanged)
@@ -166,6 +167,8 @@ public:
     void setDefaultDownloadDirectory(const QString& value);
     TransferTaskListModel* transferTasks();
     TransferTaskListModel* transferDetailTasks();
+    QString transferDetailFilter() const;
+    void setTransferDetailFilter(const QString& value);
     QString selectedTransferGroupId() const;
     QString selectedTransferGroupTitle() const;
     int activeTransferCount() const;
@@ -340,6 +343,7 @@ signals:
     void defaultDownloadDirectoryChanged();
     void transferTasksChanged();
     void transferSelectionChanged();
+    void transferDetailFilterChanged();
     void privacyModeChanged();
     void privacyPinChanged();
     void editingServicesChanged();
@@ -459,6 +463,7 @@ private:
     QStringList m_iptvGroups;
     QString m_webDavPassword;
     QString m_defaultDownloadDirectory;
+    QString m_transferDetailFilter { QStringLiteral("all") };
     ServiceType m_serviceType { ServiceType::Emby };
     bool m_trustSelfSignedCertificate { true };
     bool m_autoLogin { true };

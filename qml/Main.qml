@@ -1320,6 +1320,33 @@ ApplicationWindow {
         rightPadding: 0
     }
 
+    component TransferFilterButton: Button {
+        id: filterButton
+        property bool selected: false
+        implicitHeight: 34
+        leftPadding: 10
+        rightPadding: 10
+        font.pixelSize: 13
+        font.bold: selected
+        contentItem: Label {
+            text: filterButton.text
+            color: filterButton.selected ? "#ffffff" : theme.muted
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            font: filterButton.font
+        }
+        background: Rectangle {
+            radius: 5
+            color: filterButton.selected
+                ? theme.primary
+                : filterButton.hovered ? theme.elevatedHover : "transparent"
+            border.color: filterButton.selected
+                ? theme.primary
+                : filterButton.hovered ? theme.border : "transparent"
+        }
+    }
+
     component ModernTextField: TextField {
         id: field
         implicitHeight: 38
@@ -4862,6 +4889,16 @@ ApplicationWindow {
             ? appViewModel.transferDetailTasks
             : appViewModel.transferTasks
 
+        function filterLabel(filter) {
+            switch (filter) {
+            case "incomplete": return t("transfers.filterIncomplete")
+            case "completed": return t("transfers.filterCompleted")
+            case "failed": return t("transfers.filterFailed")
+            case "canceled": return t("transfers.filterCanceled")
+            default: return t("transfers.filterAll")
+            }
+        }
+
         ColumnLayout {
             anchors.fill: parent
             spacing: 16
@@ -4943,6 +4980,32 @@ ApplicationWindow {
                 }
             }
 
+            Rectangle {
+                visible: transfersPage.showingDetails
+                Layout.fillWidth: true
+                Layout.preferredHeight: 42
+                radius: 8
+                color: theme.input
+                border.color: theme.border
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: 4
+                    spacing: 3
+
+                    Repeater {
+                        model: ["all", "incomplete", "completed", "failed", "canceled"]
+
+                        delegate: TransferFilterButton {
+                            Layout.fillWidth: true
+                            text: transfersPage.filterLabel(modelData)
+                            selected: appViewModel.transferDetailFilter === modelData
+                            onClicked: appViewModel.transferDetailFilter = modelData
+                        }
+                    }
+                }
+            }
+
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -5003,7 +5066,9 @@ ApplicationWindow {
                     Label {
                         Layout.fillWidth: true
                         text: transfersPage.showingDetails
-                            ? t("transfers.emptyDetails")
+                            ? appViewModel.transferDetailFilter === "all"
+                                ? t("transfers.emptyDetails")
+                                : t("transfers.emptyFiltered")
                             : t("transfers.empty")
                         color: theme.text
                         font.pixelSize: 16
@@ -5013,7 +5078,9 @@ ApplicationWindow {
                     MutedText {
                         Layout.fillWidth: true
                         text: transfersPage.showingDetails
-                            ? t("transfers.detailsSubtitle")
+                            ? appViewModel.transferDetailFilter === "all"
+                                ? t("transfers.detailsSubtitle")
+                                : t("transfers.emptyFilteredHint")
                             : t("transfers.emptyHint")
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap

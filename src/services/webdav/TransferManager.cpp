@@ -409,6 +409,8 @@ void TransferManager::cancelTask(const QString& taskId)
             continue;
         }
         auto queued = m_queue.takeAt(index);
+        const auto canRetryCanceled = queued.direction == Direction::Download &&
+            !queued.task.parentId.isEmpty();
         for (auto& task : m_tasks) {
             if (task.id == queued.task.id) {
                 task.status = statusCanceled();
@@ -424,13 +426,15 @@ void TransferManager::cancelTask(const QString& taskId)
                 task.cancellable = false;
                 task.canPause = false;
                 task.canResume = false;
-                task.retryable = false;
+                task.retryable = canRetryCanceled;
                 publishTask(task);
                 break;
             }
         }
         emit taskFinished(queued.task.id, false, QStringLiteral("Canceled"));
-        m_taskDefinitions.remove(queued.task.id);
+        if (!canRetryCanceled) {
+            m_taskDefinitions.remove(queued.task.id);
+        }
         startNext();
         return;
     }
@@ -440,6 +444,8 @@ void TransferManager::cancelTask(const QString& taskId)
             continue;
         }
         const auto definition = m_taskDefinitions.value(taskId);
+        const auto canRetryCanceled = definition.direction == Direction::Download &&
+            !task.parentId.isEmpty();
         if (definition.direction == Direction::Download) {
             QFile::remove(definition.localPath);
             task.bytesDone = 0;
@@ -453,10 +459,12 @@ void TransferManager::cancelTask(const QString& taskId)
         task.cancellable = false;
         task.canPause = false;
         task.canResume = false;
-        task.retryable = false;
+        task.retryable = canRetryCanceled;
         publishTask(task);
         emit taskFinished(task.id, false, QStringLiteral("Canceled"));
-        m_taskDefinitions.remove(task.id);
+        if (!canRetryCanceled) {
+            m_taskDefinitions.remove(task.id);
+        }
         startNext();
         return;
     }
@@ -630,7 +638,14 @@ void TransferManager::retryTask(const QString& taskId)
     const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
         return existing.id == taskId;
     });
-    if (task == m_tasks.end() || task->status != statusFailed() || !requeueTask(taskId)) {
+    if (task == m_tasks.end() ||
+        (task->status != statusFailed() && task->status != statusCanceled())) {
+        return;
+    }
+    if (!task->parentId.isEmpty() && !prepareDownloadGroupRetry(task->parentId)) {
+        return;
+    }
+    if (!requeueTask(taskId)) {
         return;
     }
     startNext();
@@ -725,7 +740,7 @@ void TransferManager::resumeDownloadGroup(const QString& groupId)
 void TransferManager::retryDownloadGroup(const QString& groupId)
 {
     const auto group = m_downloadGroups.value(groupId);
-    if (!group || group->cancelRequested) {
+    if (!group || !prepareDownloadGroupRetry(groupId)) {
         return;
     }
 
@@ -734,7 +749,8 @@ void TransferManager::retryDownloadGroup(const QString& groupId)
         const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
             return existing.id == taskId;
         });
-        if (task != m_tasks.end() && task->status == statusFailed()) {
+        if (task != m_tasks.end() &&
+            (task->status == statusFailed() || task->status == statusCanceled())) {
             retried = requeueTask(taskId) || retried;
         }
     }
@@ -1102,17 +1118,20 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
             : static_cast<double>(finishedFiles) / static_cast<double>(summary->fileCount);
     }
 
+    if (group->cancelRequested) {
+        cleanupDownloadGroupFiles(groupId);
+    }
+
     summary->canPause = !group->pauseRequested && !group->cancelRequested && hasPausableTask;
     summary->canResume = !group->cancelRequested && !summary->canPause &&
         runningFiles == 0 && queuedFiles == 0 && hasResumableTask;
-    summary->retryable = !group->cancelRequested && summary->status == statusFailed();
+    summary->retryable = (summary->status == statusFailed() || summary->status == statusCanceled()) &&
+        (!group->cancelRequested || group->cleanupCompleted);
     summary->cancellable = !group->cancelRequested && summary->fileCount > 0 &&
         summary->status != statusDone() && summary->status != statusCanceled();
 
     m_model.updateTask(*summary);
-    if (group->cancelRequested) {
-        cleanupDownloadGroupFiles(groupId);
-    } else if (summary->status == statusDone()) {
+    if (!group->cancelRequested && summary->status == statusDone()) {
         for (const auto& taskId : group->taskIds) {
             m_taskDefinitions.remove(taskId);
         }
@@ -1220,7 +1239,10 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
         task.cancellable = false;
         task.canPause = false;
         task.canResume = false;
-        task.retryable = status == statusFailed();
+        task.retryable = status == statusFailed() ||
+            (status == statusCanceled() &&
+             active->queued.direction == Direction::Download &&
+             !task.parentId.isEmpty());
         publishTask(task);
         break;
     }
@@ -1304,6 +1326,13 @@ bool TransferManager::requeueTask(const QString& taskId)
     }
 
     if (definition->direction == Direction::Download) {
+        const auto parentDirectory = QFileInfo(definition->localPath).absolutePath();
+        if (!QDir().mkpath(parentDirectory)) {
+            AppLogger::warning(QStringLiteral("webdav-transfer"),
+                               QStringLiteral("Unable to recreate download directory for retry: %1")
+                                   .arg(parentDirectory));
+            return false;
+        }
         QFile::remove(definition->localPath);
     }
     task->status = statusQueued();
@@ -1327,43 +1356,72 @@ bool TransferManager::requeueTask(const QString& taskId)
     return true;
 }
 
+bool TransferManager::prepareDownloadGroupRetry(const QString& groupId)
+{
+    const auto group = m_downloadGroups.value(groupId);
+    if (!group) {
+        return false;
+    }
+    if (!group->cancelRequested) {
+        return true;
+    }
+
+    cleanupDownloadGroupFiles(groupId);
+    if (!group->cleanupCompleted) {
+        return false;
+    }
+
+    group->cancelRequested = false;
+    group->pauseRequested = false;
+    group->cleanupCompleted = false;
+    return true;
+}
+
 void TransferManager::cleanupDownloadGroupFiles(const QString& groupId)
 {
     const auto group = m_downloadGroups.value(groupId);
-    if (!group || !group->cancelRequested || group->cleanupCompleted) {
-        return;
-    }
-    if (std::ranges::any_of(group->taskIds, [this](const QString& taskId) {
-            return m_active.contains(taskId);
-        })) {
+    if (!group || !group->cancelRequested) {
         return;
     }
 
-    auto cleanupOk = true;
-    for (const auto& taskId : group->taskIds) {
-        const auto definition = m_taskDefinitions.constFind(taskId);
-        if (definition == m_taskDefinitions.cend() || !QFileInfo::exists(definition->localPath)) {
+    if (!group->cleanupCompleted) {
+        if (std::ranges::any_of(group->taskIds, [this](const QString& taskId) {
+                return m_active.contains(taskId);
+            })) {
+            return;
+        }
+
+        auto cleanupOk = true;
+        for (const auto& taskId : group->taskIds) {
+            const auto definition = m_taskDefinitions.constFind(taskId);
+            if (definition == m_taskDefinitions.cend() || !QFileInfo::exists(definition->localPath)) {
+                continue;
+            }
+            cleanupOk = QFile::remove(definition->localPath) && cleanupOk;
+        }
+
+        if (group->targetIsDirectory) {
+            QDir targetDirectory(group->targetPath);
+            if (targetDirectory.exists()) {
+                cleanupOk = targetDirectory.removeRecursively() && cleanupOk;
+            }
+        } else if (QFileInfo::exists(group->targetPath)) {
+            cleanupOk = QFile::remove(group->targetPath) && cleanupOk;
+        }
+
+        group->cleanupCompleted = true;
+        if (!cleanupOk) {
+            AppLogger::warning(QStringLiteral("webdav-transfer"),
+                               QStringLiteral("Canceled download task left files that could not be removed"));
+        }
+    }
+
+    for (auto& task : m_tasks) {
+        if (task.parentId != groupId || task.status != statusCanceled()) {
             continue;
         }
-        cleanupOk = QFile::remove(definition->localPath) && cleanupOk;
-    }
-
-    if (group->targetIsDirectory) {
-        QDir targetDirectory(group->targetPath);
-        if (targetDirectory.exists()) {
-            cleanupOk = targetDirectory.removeRecursively() && cleanupOk;
-        }
-    } else if (QFileInfo::exists(group->targetPath)) {
-        cleanupOk = QFile::remove(group->targetPath) && cleanupOk;
-    }
-
-    group->cleanupCompleted = true;
-    if (!cleanupOk) {
-        AppLogger::warning(QStringLiteral("webdav-transfer"),
-                           QStringLiteral("Canceled download task left files that could not be removed"));
-    }
-    for (const auto& taskId : group->taskIds) {
-        m_taskDefinitions.remove(taskId);
+        task.retryable = m_taskDefinitions.contains(task.id);
+        m_detailModel.updateTask(task);
     }
 }
 

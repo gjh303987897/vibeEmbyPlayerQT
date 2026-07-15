@@ -1,6 +1,20 @@
 #include "viewmodels/TransferTaskListModel.h"
 
+#include <algorithm>
 #include <iterator>
+
+namespace {
+QString normalizedStatusFilter(const QString& filter)
+{
+    if (filter == QStringLiteral("completed") ||
+        filter == QStringLiteral("incomplete") ||
+        filter == QStringLiteral("failed") ||
+        filter == QStringLiteral("canceled")) {
+        return filter;
+    }
+    return QStringLiteral("all");
+}
+}
 
 TransferTaskListModel::TransferTaskListModel(QObject* parent)
     : QAbstractListModel(parent)
@@ -15,6 +29,26 @@ int TransferTaskListModel::rowCount(const QModelIndex& parent) const
 int TransferTaskListModel::count() const
 {
     return rowCount();
+}
+
+QString TransferTaskListModel::statusFilter() const
+{
+    return m_statusFilter;
+}
+
+void TransferTaskListModel::setStatusFilter(const QString& filter)
+{
+    const auto normalized = normalizedStatusFilter(filter);
+    if (m_statusFilter == normalized) {
+        return;
+    }
+
+    beginResetModel();
+    m_statusFilter = normalized;
+    rebuildVisibleTasks();
+    endResetModel();
+    emit countChanged();
+    emit statusFilterChanged();
 }
 
 QVariant TransferTaskListModel::data(const QModelIndex& index, int role) const
@@ -102,7 +136,8 @@ QHash<int, QByteArray> TransferTaskListModel::roleNames() const
 void TransferTaskListModel::setTasks(std::vector<TransferTask> tasks)
 {
     beginResetModel();
-    m_tasks = std::move(tasks);
+    m_sourceTasks = std::move(tasks);
+    rebuildVisibleTasks();
     endResetModel();
     emit countChanged();
 }
@@ -113,26 +148,85 @@ void TransferTaskListModel::appendTasks(std::vector<TransferTask> tasks)
         return;
     }
 
+    std::vector<TransferTask> visibleTasks;
+    visibleTasks.reserve(tasks.size());
+    std::ranges::copy_if(tasks,
+                         std::back_inserter(visibleTasks),
+                         [this](const TransferTask& task) { return acceptsTask(task); });
+    m_sourceTasks.insert(m_sourceTasks.end(),
+                         std::make_move_iterator(tasks.begin()),
+                         std::make_move_iterator(tasks.end()));
+    if (visibleTasks.empty()) {
+        return;
+    }
+
     const auto firstRow = rowCount();
-    const auto lastRow = firstRow + static_cast<int>(tasks.size()) - 1;
+    const auto lastRow = firstRow + static_cast<int>(visibleTasks.size()) - 1;
     beginInsertRows({}, firstRow, lastRow);
     m_tasks.insert(m_tasks.end(),
-                   std::make_move_iterator(tasks.begin()),
-                   std::make_move_iterator(tasks.end()));
+                   std::make_move_iterator(visibleTasks.begin()),
+                   std::make_move_iterator(visibleTasks.end()));
     endInsertRows();
     emit countChanged();
 }
 
 void TransferTaskListModel::updateTask(const TransferTask& task)
 {
-    for (auto row = 0; row < rowCount(); ++row) {
-        auto& existing = m_tasks[static_cast<size_t>(row)];
-        if (existing.id != task.id) {
-            continue;
-        }
-        existing = task;
+    const auto source = std::ranges::find_if(m_sourceTasks, [&task](const TransferTask& existing) {
+        return existing.id == task.id;
+    });
+    if (source == m_sourceTasks.end()) {
+        return;
+    }
+
+    const auto visible = std::ranges::find_if(m_tasks, [&task](const TransferTask& existing) {
+        return existing.id == task.id;
+    });
+    const auto wasVisible = visible != m_tasks.end();
+    *source = task;
+    const auto isVisible = acceptsTask(task);
+
+    if (wasVisible && isVisible) {
+        const auto row = static_cast<int>(std::distance(m_tasks.begin(), visible));
+        *visible = task;
         const auto modelIndex = index(row, 0);
         emit dataChanged(modelIndex, modelIndex);
         return;
     }
+    if (!wasVisible && !isVisible) {
+        return;
+    }
+
+    beginResetModel();
+    rebuildVisibleTasks();
+    endResetModel();
+    emit countChanged();
+}
+
+bool TransferTaskListModel::acceptsTask(const TransferTask& task) const
+{
+    if (m_statusFilter == QStringLiteral("completed")) {
+        return task.status == QStringLiteral("done");
+    }
+    if (m_statusFilter == QStringLiteral("incomplete")) {
+        return task.status == QStringLiteral("queued") ||
+            task.status == QStringLiteral("running") ||
+            task.status == QStringLiteral("paused");
+    }
+    if (m_statusFilter == QStringLiteral("failed")) {
+        return task.status == QStringLiteral("failed");
+    }
+    if (m_statusFilter == QStringLiteral("canceled")) {
+        return task.status == QStringLiteral("canceled");
+    }
+    return true;
+}
+
+void TransferTaskListModel::rebuildVisibleTasks()
+{
+    m_tasks.clear();
+    m_tasks.reserve(m_sourceTasks.size());
+    std::ranges::copy_if(m_sourceTasks,
+                         std::back_inserter(m_tasks),
+                         [this](const TransferTask& task) { return acceptsTask(task); });
 }

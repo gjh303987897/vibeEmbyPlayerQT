@@ -120,6 +120,44 @@ class TransferManagerTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void filtersTransferTasksByStatus()
+    {
+        TransferTaskListModel model;
+        model.setTasks({
+            TransferTask { .id = QStringLiteral("done"), .status = QStringLiteral("done") },
+            TransferTask { .id = QStringLiteral("queued"), .status = QStringLiteral("queued") },
+            TransferTask { .id = QStringLiteral("running"), .status = QStringLiteral("running") },
+            TransferTask { .id = QStringLiteral("paused"), .status = QStringLiteral("paused") },
+            TransferTask { .id = QStringLiteral("failed"), .status = QStringLiteral("failed") },
+            TransferTask { .id = QStringLiteral("canceled"), .status = QStringLiteral("canceled") },
+        });
+
+        QCOMPARE(model.rowCount(), 6);
+
+        model.setStatusFilter(QStringLiteral("completed"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(taskData(&model, 0, TransferTaskListModel::IdRole).toString(), QStringLiteral("done"));
+
+        model.setStatusFilter(QStringLiteral("incomplete"));
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(taskData(&model, 0, TransferTaskListModel::IdRole).toString(), QStringLiteral("queued"));
+        QCOMPARE(taskData(&model, 1, TransferTaskListModel::IdRole).toString(), QStringLiteral("running"));
+        QCOMPARE(taskData(&model, 2, TransferTaskListModel::IdRole).toString(), QStringLiteral("paused"));
+
+        model.setStatusFilter(QStringLiteral("failed"));
+        QCOMPARE(model.rowCount(), 1);
+        model.updateTask(TransferTask { .id = QStringLiteral("failed"), .status = QStringLiteral("queued") });
+        QCOMPARE(model.rowCount(), 0);
+
+        model.setStatusFilter(QStringLiteral("canceled"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(taskData(&model, 0, TransferTaskListModel::IdRole).toString(), QStringLiteral("canceled"));
+
+        model.setStatusFilter(QStringLiteral("invalid"));
+        QCOMPARE(model.statusFilter(), QStringLiteral("all"));
+        QCOMPARE(model.rowCount(), 6);
+    }
+
     void groupsDownloadFilesAndPublishesAggregateProgress()
     {
         DownloadServer server;
@@ -380,6 +418,49 @@ private slots:
         QVERIFY(!QFileInfo::exists(secondPath));
     }
 
+    void cancelingIndividualDownloadDeletesLocalFileAndAllowsRetry()
+    {
+        DownloadServer server;
+        QVERIFY(server.listen());
+
+        const QByteArray payload(320 * 1024, 'i');
+        server.addPayload("/cancel-item.bin", payload);
+
+        QTemporaryDir targetDirectory;
+        QVERIFY(targetDirectory.isValid());
+        const auto targetPath = targetDirectory.filePath(QStringLiteral("cancel-item.bin"));
+
+        TransferManager manager;
+        ServerConfig serverConfig {
+            .id = QStringLiteral("webdav-cancel-item"),
+            .name = QStringLiteral("WebDAV cancel item"),
+            .serviceType = ServiceType::WebDAV,
+        };
+        const auto groupId = manager.enqueueDownload(serverConfig,
+                                                     {},
+                                                     server.url(QStringLiteral("/cancel-item.bin")),
+                                                     targetPath,
+                                                     payload.size());
+        QVERIFY(manager.selectGroup(groupId));
+        auto* details = manager.detailTasks();
+        QCOMPARE(details->rowCount(), 1);
+        const auto childId = taskData(details, 0, TransferTaskListModel::IdRole).toString();
+
+        QTRY_VERIFY_WITH_TIMEOUT(taskData(details, 0, TransferTaskListModel::BytesDoneRole).toLongLong() > 0, 3000);
+        manager.cancelTask(childId);
+        QTRY_COMPARE_WITH_TIMEOUT(taskData(details, 0, TransferTaskListModel::StatusRole).toString(),
+                                  QStringLiteral("canceled"),
+                                  3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(targetPath), 3000);
+        QVERIFY(taskData(details, 0, TransferTaskListModel::RetryableRole).toBool());
+        QVERIFY(taskData(manager.tasks(), 0, TransferTaskListModel::RetryableRole).toBool());
+
+        manager.retryTask(childId);
+        QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 8000);
+        QCOMPARE(QFileInfo(targetPath).size(), qint64 { payload.size() });
+        QCOMPARE(server.requestCount("/cancel-item.bin"), 2);
+    }
+
     void cancelingGroupDeletesAllLocalFiles()
     {
         DownloadServer server;
@@ -427,6 +508,18 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(groupPath), 3000);
         QVERIFY(!QFileInfo::exists(completedPath));
         QVERIFY(!QFileInfo::exists(activePath));
+        QVERIFY(taskData(manager.tasks(), 0, TransferTaskListModel::RetryableRole).toBool());
+        for (auto row = 0; row < manager.detailTasks()->rowCount(); ++row) {
+            QTRY_VERIFY_WITH_TIMEOUT(taskData(manager.detailTasks(), row, TransferTaskListModel::RetryableRole).toBool(),
+                                     3000);
+        }
+
+        manager.retryTask(groupId);
+        QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 10000);
+        QCOMPARE(QFileInfo(completedPath).size(), qint64 { completedPayload.size() });
+        QCOMPARE(QFileInfo(activePath).size(), qint64 { activePayload.size() });
+        QCOMPARE(server.requestCount("/completed.bin"), 2);
+        QCOMPARE(server.requestCount("/active.bin"), 2);
     }
 };
 

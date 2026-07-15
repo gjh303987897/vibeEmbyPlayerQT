@@ -9,6 +9,7 @@
 class TransferTaskListModel final : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
+    Q_PROPERTY(QString statusFilter READ statusFilter WRITE setStatusFilter NOTIFY statusFilterChanged)
 
 public:
     enum Role {
@@ -39,6 +40,8 @@ public:
 
     int rowCount(const QModelIndex& parent = {}) const override;
     int count() const;
+    QString statusFilter() const;
+    void setStatusFilter(const QString& filter);
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
@@ -48,7 +51,13 @@ public:
 
 signals:
     void countChanged();
+    void statusFilterChanged();
 
 private:
+    bool acceptsTask(const TransferTask& task) const;
+    void rebuildVisibleTasks();
+
+    QString m_statusFilter { QStringLiteral("all") };
+    std::vector<TransferTask> m_sourceTasks;
     std::vector<TransferTask> m_tasks;
 };
