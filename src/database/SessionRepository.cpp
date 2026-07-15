@@ -973,6 +973,16 @@ void SessionRepository::setLanguageMode(const QString& mode)
     m_settings.setValue(QStringLiteral("appearance/languageMode"), mode);
 }
 
+bool SessionRepository::pageTransitionsEnabled() const
+{
+    return m_settings.value(QStringLiteral("appearance/pageTransitionsEnabled"), true).toBool();
+}
+
+void SessionRepository::setPageTransitionsEnabled(bool enabled)
+{
+    m_settings.setValue(QStringLiteral("appearance/pageTransitionsEnabled"), enabled);
+}
+
 QString SessionRepository::defaultDownloadDirectory() const
 {
     return m_settings.value(QStringLiteral("webdav/defaultDownloadDirectory")).toString();

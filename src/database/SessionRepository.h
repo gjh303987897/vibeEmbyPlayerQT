@@ -61,6 +61,8 @@ public:
     void setThemeMode(const QString& mode);
     QString languageMode() const;
     void setLanguageMode(const QString& mode);
+    bool pageTransitionsEnabled() const;
+    void setPageTransitionsEnabled(bool enabled);
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& directory);
 

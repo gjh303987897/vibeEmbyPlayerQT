@@ -75,6 +75,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
     Q_PROPERTY(QString effectiveTheme READ effectiveTheme NOTIFY effectiveThemeChanged)
     Q_PROPERTY(QString languageMode READ languageMode WRITE setLanguageMode NOTIFY languageModeChanged)
+    Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool homeLoading READ homeLoading NOTIFY homeLoadingChanged)
@@ -196,6 +197,8 @@ public:
     QString effectiveTheme() const;
     QString languageMode() const;
     void setLanguageMode(const QString& value);
+    bool pageTransitionsEnabled() const;
+    void setPageTransitionsEnabled(bool value);
     int translationRevision() const;
 
     bool loading() const;
@@ -351,6 +354,7 @@ signals:
     void themeModeChanged();
     void effectiveThemeChanged();
     void languageModeChanged();
+    void pageTransitionsEnabledChanged();
     void translationsChanged();
     void loadingChanged();
     void homeLoadingChanged();

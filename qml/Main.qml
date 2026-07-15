@@ -164,6 +164,12 @@ ApplicationWindow {
             windowAppearanceController.applyTheme(appViewModel.effectiveTheme)
         }
 
+        function onPageTransitionsEnabledChanged() {
+            if (!appViewModel.pageTransitionsEnabled) {
+                pageStack.resetTransition()
+            }
+        }
+
         function onDownloadSpaceWarningRequested(title, message) {
             root.downloadWarningTitle = title
             root.downloadWarningMessage = message
@@ -928,8 +934,11 @@ ApplicationWindow {
             }
 
             StackLayout {
+                id: pageStack
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                property int previousIndex: -1
+                property bool transitionReady: false
                 currentIndex: appViewModel.currentView === "services" ? 0
                     : appViewModel.currentView === "home" ? 1
                     : appViewModel.currentView === "library" ? 2
@@ -941,6 +950,84 @@ ApplicationWindow {
                     : appViewModel.currentView === "history" ? 8
                     : appViewModel.currentView === "scheduledTasks" ? 9
                     : 10
+
+                transform: [
+                    Translate {
+                        id: pageTransitionOffset
+                    },
+                    Scale {
+                        id: pageTransitionScale
+                        origin.x: pageStack.width / 2
+                        origin.y: pageStack.height / 2
+                    }
+                ]
+
+                function resetTransition() {
+                    pageEnterAnimation.stop()
+                    pageStack.opacity = 1
+                    pageTransitionOffset.x = 0
+                    pageTransitionOffset.y = 0
+                    pageTransitionScale.xScale = 1
+                    pageTransitionScale.yScale = 1
+                }
+
+                function playTransition() {
+                    var nextIndex = pageStack.currentIndex
+                    var direction = pageStack.previousIndex < 0 || nextIndex >= pageStack.previousIndex ? 1 : -1
+                    pageStack.previousIndex = nextIndex
+
+                    if (!pageStack.transitionReady) {
+                        return
+                    }
+
+                    if (!appViewModel.pageTransitionsEnabled) {
+                        pageStack.resetTransition()
+                        return
+                    }
+
+                    pageEnterAnimation.stop()
+                    pageStack.opacity = 0.22
+                    pageTransitionOffset.x = direction * 26
+                    pageTransitionOffset.y = 6
+                    pageTransitionScale.xScale = 0.992
+                    pageTransitionScale.yScale = 0.992
+                    pageEnterAnimation.start()
+                }
+
+                onCurrentIndexChanged: pageStack.playTransition()
+                Component.onCompleted: {
+                    pageStack.previousIndex = pageStack.currentIndex
+                    pageStack.transitionReady = true
+                    pageStack.resetTransition()
+                }
+
+                ParallelAnimation {
+                    id: pageEnterAnimation
+
+                    NumberAnimation {
+                        target: pageStack
+                        property: "opacity"
+                        to: 1
+                        duration: 210
+                        easing.type: Easing.OutCubic
+                    }
+
+                    NumberAnimation {
+                        target: pageTransitionOffset
+                        properties: "x,y"
+                        to: 0
+                        duration: 280
+                        easing.type: Easing.OutQuint
+                    }
+
+                    NumberAnimation {
+                        target: pageTransitionScale
+                        properties: "xScale,yScale"
+                        to: 1
+                        duration: 260
+                        easing.type: Easing.OutCubic
+                    }
+                }
 
                 Item {
                     GridView {
@@ -5874,6 +5961,14 @@ ApplicationWindow {
                         ]
                         currentIndex: appViewModel.languageMode === "system" ? 0 : appViewModel.languageMode === "zh_CN" ? 1 : 2
                         onActivated: appViewModel.languageMode = model[index].value
+                    }
+                }
+
+                SettingRow {
+                    label: t("settings.pageTransitions")
+                    ModernCheckBox {
+                        checked: appViewModel.pageTransitionsEnabled
+                        onToggled: appViewModel.pageTransitionsEnabled = checked
                     }
                 }
             }

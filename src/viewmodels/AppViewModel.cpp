@@ -456,6 +456,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.appearance"), QStringLiteral("Appearance") },
         { QStringLiteral("settings.theme"), QStringLiteral("Theme") },
         { QStringLiteral("settings.language"), QStringLiteral("Language") },
+        { QStringLiteral("settings.pageTransitions"), QStringLiteral("Page transition animations") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
         { QStringLiteral("settings.privacy"), QStringLiteral("Privacy") },
@@ -612,6 +613,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.appearance"), QStringLiteral("外观") },
         { QStringLiteral("settings.theme"), QStringLiteral("主题") },
         { QStringLiteral("settings.language"), QStringLiteral("语言") },
+        { QStringLiteral("settings.pageTransitions"), QStringLiteral("页面切换动画") },
         { QStringLiteral("settings.desktop"), QStringLiteral("桌面") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("最小化到托盘") },
         { QStringLiteral("option.system"), QStringLiteral("跟随系统") },
@@ -1202,6 +1204,20 @@ void AppViewModel::setLanguageMode(const QString& value)
     ++m_translationRevision;
     emit languageModeChanged();
     emit translationsChanged();
+}
+
+bool AppViewModel::pageTransitionsEnabled() const
+{
+    return m_repository.pageTransitionsEnabled();
+}
+
+void AppViewModel::setPageTransitionsEnabled(bool value)
+{
+    if (pageTransitionsEnabled() == value) {
+        return;
+    }
+    m_repository.setPageTransitionsEnabled(value);
+    emit pageTransitionsEnabledChanged();
 }
 
 int AppViewModel::translationRevision() const

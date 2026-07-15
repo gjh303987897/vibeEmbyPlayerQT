@@ -8,11 +8,18 @@ Current settings:
 
 - Theme: `system`, `dark`, `light`
 - Language: `system`, `zh_CN`, `en_US`
+- Page transition animations: enabled or disabled, enabled by default
 - Desktop: minimize to tray
 
 Settings are exposed through `AppViewModel` and persisted by `SessionRepository` with `QSettings`.
 
 QML owns only layout and user interaction. It must not write `QSettings` directly.
+
+## Page Transitions
+
+All primary pages share one transition treatment at the page container boundary. A page enters with a short directional slide, gentle fade, and subtle scale recovery. The direction follows the destination page order, so forward and backward navigation remain visually distinct without rebuilding persistent pages.
+
+The animation is deliberately brief and does not move navigation or persistence logic into QML. `AppViewModel::pageTransitionsEnabled` exposes the preference, and `SessionRepository` persists it under `appearance/pageTransitionsEnabled`. Disabling the option resets the page container immediately and subsequent page changes occur without animation.
 
 ## I18n
 
