@@ -1,6 +1,7 @@
 #include "services/webdav/TransferManager.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
 #include <QTcpServer>
@@ -100,6 +101,119 @@ private:
     QHash<QByteArray, int> m_requestCounts;
 };
 
+class UploadServer final : public QObject {
+public:
+    explicit UploadServer(QObject* parent = nullptr)
+        : QObject(parent)
+    {
+        connect(&m_server, &QTcpServer::newConnection, this, [this]() {
+            while (auto* socket = m_server.nextPendingConnection()) {
+                socket->setReadBufferSize(8 * 1024);
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket]() {
+                    if (socket->property("uploadStarted").toBool()) {
+                        return;
+                    }
+
+                    auto request = socket->property("requestBuffer").toByteArray();
+                    request += socket->readAll();
+                    socket->setProperty("requestBuffer", request);
+                    const auto headerEnd = request.indexOf("\r\n\r\n");
+                    if (headerEnd < 0) {
+                        return;
+                    }
+
+                    const auto header = request.left(headerEnd);
+                    const auto requestLine = header.left(header.indexOf("\r\n"));
+                    const auto path = requestLine.split(' ').value(1);
+                    qint64 contentLength = -1;
+                    for (const auto& line : header.split('\n')) {
+                        const auto normalized = line.trimmed();
+                        if (normalized.toLower().startsWith("content-length:")) {
+                            contentLength = normalized.mid(sizeof("content-length:") - 1).trimmed().toLongLong();
+                            break;
+                        }
+                    }
+
+                    ++m_requestCounts[path];
+                    auto& failuresRemaining = m_failuresRemaining[path];
+                    auto shouldFail = false;
+                    if (failuresRemaining > 0) {
+                        --failuresRemaining;
+                        shouldFail = true;
+                    }
+                    if (contentLength < 0) {
+                        socket->setProperty("uploadStarted", true);
+                        socket->write("HTTP/1.1 411 Length Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        socket->disconnectFromHost();
+                        return;
+                    }
+
+                    socket->setProperty("uploadStarted", true);
+                    socket->setProperty("uploadPath", path);
+                    socket->setProperty("uploadLength", contentLength);
+                    socket->setProperty("uploadBody", request.mid(headerEnd + 4));
+                    socket->setProperty("uploadShouldFail", shouldFail);
+
+                    auto* timer = new QTimer(socket);
+                    timer->setInterval(5);
+                    connect(timer, &QTimer::timeout, socket, [this, socket, timer]() {
+                        auto body = socket->property("uploadBody").toByteArray();
+                        body += socket->read(16 * 1024);
+                        const auto contentLength = socket->property("uploadLength").toLongLong();
+                        if (body.size() < contentLength) {
+                            socket->setProperty("uploadBody", body);
+                            return;
+                        }
+
+                        const auto path = socket->property("uploadPath").toByteArray();
+                        timer->stop();
+                        if (socket->property("uploadShouldFail").toBool()) {
+                            socket->write("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        } else {
+                            m_uploadedPayloads.insert(path, body.left(contentLength));
+                            socket->write("HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        }
+                        socket->disconnectFromHost();
+                    });
+                    timer->start();
+                });
+            }
+        });
+    }
+
+    bool listen()
+    {
+        return m_server.listen(QHostAddress::LocalHost, 0);
+    }
+
+    void failNextRequests(const QByteArray& path, int count)
+    {
+        m_failuresRemaining.insert(path, count);
+    }
+
+    int requestCount(const QByteArray& path) const
+    {
+        return m_requestCounts.value(path);
+    }
+
+    QByteArray uploadedPayload(const QByteArray& path) const
+    {
+        return m_uploadedPayloads.value(path);
+    }
+
+    QUrl url(const QString& path) const
+    {
+        return QUrl(QStringLiteral("http://127.0.0.1:%1%2").arg(m_server.serverPort()).arg(path));
+    }
+
+private:
+    QTcpServer m_server;
+    QHash<QByteArray, int> m_failuresRemaining;
+    QHash<QByteArray, int> m_requestCounts;
+    QHash<QByteArray, QByteArray> m_uploadedPayloads;
+};
+
 QVariant taskData(TransferTaskListModel* model, int row, TransferTaskListModel::Role role)
 {
     return model->data(model->index(row, 0), role);
@@ -156,6 +270,131 @@ private slots:
         model.setStatusFilter(QStringLiteral("invalid"));
         QCOMPARE(model.statusFilter(), QStringLiteral("all"));
         QCOMPARE(model.rowCount(), 6);
+    }
+
+    void pausesAndResumesUpload()
+    {
+        UploadServer server;
+        QVERIFY(server.listen());
+
+        const QByteArray payload(2 * 1024 * 1024, 'u');
+        QTemporaryDir sourceDirectory;
+        QVERIFY(sourceDirectory.isValid());
+        const auto sourcePath = sourceDirectory.filePath(QStringLiteral("paused-upload.bin"));
+        QFile sourceFile(sourcePath);
+        QVERIFY(sourceFile.open(QIODevice::WriteOnly));
+        QCOMPARE(sourceFile.write(payload), qint64 { payload.size() });
+        sourceFile.close();
+
+        TransferManager manager;
+        ServerConfig serverConfig {
+            .id = QStringLiteral("webdav-upload-pause"),
+            .name = QStringLiteral("WebDAV upload pause"),
+            .serviceType = ServiceType::WebDAV,
+        };
+        const auto taskId = manager.enqueueUpload(serverConfig,
+                                                  {},
+                                                  sourcePath,
+                                                  server.url(QStringLiteral("/paused-upload.bin")),
+                                                  payload.size());
+        auto* tasks = manager.tasks();
+        QCOMPARE(tasks->rowCount(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(server.requestCount("/paused-upload.bin"), 1, 3000);
+        QCOMPARE(taskData(tasks, 0, TransferTaskListModel::StatusRole).toString(), QStringLiteral("running"));
+        QVERIFY(taskData(tasks, 0, TransferTaskListModel::CanPauseRole).toBool());
+
+        manager.pauseTask(taskId);
+        QTRY_COMPARE_WITH_TIMEOUT(taskData(tasks, 0, TransferTaskListModel::StatusRole).toString(),
+                                  QStringLiteral("paused"),
+                                  3000);
+        QVERIFY(taskData(tasks, 0, TransferTaskListModel::CanResumeRole).toBool());
+        QCOMPARE(QFileInfo(sourcePath).size(), qint64 { payload.size() });
+
+        manager.resumeTask(taskId);
+        QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 10000);
+        QCOMPARE(server.requestCount("/paused-upload.bin"), 2);
+        QCOMPARE(server.uploadedPayload("/paused-upload.bin"), payload);
+        QCOMPARE(QFileInfo(sourcePath).size(), qint64 { payload.size() });
+    }
+
+    void cancelingUploadKeepsLocalFileAndAllowsRetry()
+    {
+        UploadServer server;
+        QVERIFY(server.listen());
+
+        const QByteArray payload(2 * 1024 * 1024, 'c');
+        QTemporaryDir sourceDirectory;
+        QVERIFY(sourceDirectory.isValid());
+        const auto sourcePath = sourceDirectory.filePath(QStringLiteral("canceled-upload.bin"));
+        QFile sourceFile(sourcePath);
+        QVERIFY(sourceFile.open(QIODevice::WriteOnly));
+        QCOMPARE(sourceFile.write(payload), qint64 { payload.size() });
+        sourceFile.close();
+
+        TransferManager manager;
+        ServerConfig serverConfig {
+            .id = QStringLiteral("webdav-upload-cancel"),
+            .name = QStringLiteral("WebDAV upload cancel"),
+            .serviceType = ServiceType::WebDAV,
+        };
+        const auto taskId = manager.enqueueUpload(serverConfig,
+                                                  {},
+                                                  sourcePath,
+                                                  server.url(QStringLiteral("/canceled-upload.bin")),
+                                                  payload.size());
+        auto* tasks = manager.tasks();
+        QTRY_COMPARE_WITH_TIMEOUT(server.requestCount("/canceled-upload.bin"), 1, 3000);
+
+        manager.cancelTask(taskId);
+        QTRY_COMPARE_WITH_TIMEOUT(taskData(tasks, 0, TransferTaskListModel::StatusRole).toString(),
+                                  QStringLiteral("canceled"),
+                                  3000);
+        QVERIFY(taskData(tasks, 0, TransferTaskListModel::RetryableRole).toBool());
+        QCOMPARE(taskData(tasks, 0, TransferTaskListModel::BytesDoneRole).toLongLong(), qint64 { 0 });
+        QCOMPARE(QFileInfo(sourcePath).size(), qint64 { payload.size() });
+
+        manager.retryTask(taskId);
+        QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 10000);
+        QCOMPARE(server.requestCount("/canceled-upload.bin"), 2);
+        QCOMPARE(server.uploadedPayload("/canceled-upload.bin"), payload);
+        QCOMPARE(QFileInfo(sourcePath).size(), qint64 { payload.size() });
+    }
+
+    void retriesFailedUpload()
+    {
+        UploadServer server;
+        QVERIFY(server.listen());
+        server.failNextRequests("/failed-upload.bin", 1);
+
+        const QByteArray payload(512 * 1024, 'f');
+        QTemporaryDir sourceDirectory;
+        QVERIFY(sourceDirectory.isValid());
+        const auto sourcePath = sourceDirectory.filePath(QStringLiteral("failed-upload.bin"));
+        QFile sourceFile(sourcePath);
+        QVERIFY(sourceFile.open(QIODevice::WriteOnly));
+        QCOMPARE(sourceFile.write(payload), qint64 { payload.size() });
+        sourceFile.close();
+
+        TransferManager manager;
+        ServerConfig serverConfig {
+            .id = QStringLiteral("webdav-upload-retry"),
+            .name = QStringLiteral("WebDAV upload retry"),
+            .serviceType = ServiceType::WebDAV,
+        };
+        const auto taskId = manager.enqueueUpload(serverConfig,
+                                                  {},
+                                                  sourcePath,
+                                                  server.url(QStringLiteral("/failed-upload.bin")),
+                                                  payload.size());
+        auto* tasks = manager.tasks();
+        QTRY_COMPARE_WITH_TIMEOUT(manager.failedCount(), 1, 3000);
+        QVERIFY(taskData(tasks, 0, TransferTaskListModel::RetryableRole).toBool());
+        QCOMPARE(QFileInfo(sourcePath).size(), qint64 { payload.size() });
+
+        manager.retryTask(taskId);
+        QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 10000);
+        QCOMPARE(server.requestCount("/failed-upload.bin"), 2);
+        QCOMPARE(server.uploadedPayload("/failed-upload.bin"), payload);
     }
 
     void groupsDownloadFilesAndPublishesAggregateProgress()

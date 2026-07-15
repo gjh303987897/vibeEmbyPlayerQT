@@ -79,6 +79,18 @@ QString directionText(TransferManager::Direction direction)
     return QStringLiteral("transfer");
 }
 
+bool isPausableTransfer(TransferManager::Direction direction)
+{
+    return direction == TransferManager::Direction::Upload ||
+        direction == TransferManager::Direction::Download;
+}
+
+bool canRetryCanceledTransfer(TransferManager::Direction direction)
+{
+    return direction == TransferManager::Direction::Upload ||
+        direction == TransferManager::Direction::Download;
+}
+
 QString statusQueued()
 {
     return QStringLiteral("queued");
@@ -254,7 +266,7 @@ QString TransferManager::enqueueUpload(const ServerConfig& server,
         .source = localPath,
         .target = remoteUrl.toString(),
         .bytesTotal = totalBytes,
-        .canPause = false,
+        .canPause = true,
     };
     const auto id = queued.task.id;
     enqueue(std::move(queued));
@@ -409,8 +421,7 @@ void TransferManager::cancelTask(const QString& taskId)
             continue;
         }
         auto queued = m_queue.takeAt(index);
-        const auto canRetryCanceled = queued.direction == Direction::Download &&
-            !queued.task.parentId.isEmpty();
+        const auto canRetryCanceled = canRetryCanceledTransfer(queued.direction);
         for (auto& task : m_tasks) {
             if (task.id == queued.task.id) {
                 task.status = statusCanceled();
@@ -444,8 +455,7 @@ void TransferManager::cancelTask(const QString& taskId)
             continue;
         }
         const auto definition = m_taskDefinitions.value(taskId);
-        const auto canRetryCanceled = definition.direction == Direction::Download &&
-            !task.parentId.isEmpty();
+        const auto canRetryCanceled = canRetryCanceledTransfer(definition.direction);
         if (definition.direction == Direction::Download) {
             QFile::remove(definition.localPath);
             task.bytesDone = 0;
@@ -569,7 +579,8 @@ void TransferManager::pauseTask(const QString& taskId)
     }
 
     if (const auto active = m_active.value(taskId)) {
-        if (active->queued.direction != Direction::Download || active->requestedStop != RequestedStop::None) {
+        if (!isPausableTransfer(active->queued.direction) ||
+            active->requestedStop != RequestedStop::None) {
             return;
         }
         active->requestedStop = RequestedStop::Pause;
@@ -590,7 +601,8 @@ void TransferManager::pauseTask(const QString& taskId)
     }
 
     for (auto index = 0; index < m_queue.size(); ++index) {
-        if (m_queue.at(index).task.id != taskId || m_queue.at(index).direction != Direction::Download) {
+        if (m_queue.at(index).task.id != taskId ||
+            !isPausableTransfer(m_queue.at(index).direction)) {
             continue;
         }
         m_queue.takeAt(index);
@@ -889,7 +901,7 @@ void TransferManager::startTask(QueuedTask task)
         if (existing.id == taskId) {
             existing.status = statusRunning();
             existing.detail = QStringLiteral("Running");
-            existing.canPause = active->queued.direction == Direction::Download;
+            existing.canPause = isPausableTransfer(active->queued.direction);
             existing.canResume = false;
             existing.retryable = false;
             existing.cancellable = true;
@@ -1209,7 +1221,7 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
         return;
     }
 
-    if (active->file) {
+    if (active->file && active->queued.direction == Direction::Download) {
         active->file->close();
     }
     if (!ok && active->queued.direction == Direction::Download) {
@@ -1227,7 +1239,9 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
         task.progress = ok ? 1.0 : task.progress;
         if (ok && task.bytesTotal > 0) {
             task.bytesDone = task.bytesTotal;
-        } else if (!ok && active->queued.direction == Direction::Download) {
+        } else if (!ok &&
+                   (active->queued.direction == Direction::Download ||
+                    (status == statusCanceled() && active->queued.direction == Direction::Upload))) {
             task.bytesDone = 0;
             task.progress = 0.0;
         }
@@ -1240,9 +1254,7 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
         task.canPause = false;
         task.canResume = false;
         task.retryable = status == statusFailed() ||
-            (status == statusCanceled() &&
-             active->queued.direction == Direction::Download &&
-             !task.parentId.isEmpty());
+            (status == statusCanceled() && canRetryCanceledTransfer(active->queued.direction));
         publishTask(task);
         break;
     }
@@ -1258,7 +1270,7 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
     }
 
     emit taskFinished(taskId, ok, message);
-    if (status == statusCanceled() && active->queued.task.parentId.isEmpty()) {
+    if (status == statusCanceled() && !canRetryCanceledTransfer(active->queued.direction)) {
         m_taskDefinitions.remove(taskId);
     }
     QTimer::singleShot(0, this, [this]() {
@@ -1273,7 +1285,7 @@ void TransferManager::finishPaused(const QString& taskId)
         return;
     }
 
-    if (active->file) {
+    if (active->file && active->queued.direction == Direction::Download) {
         active->file->close();
     }
     if (active->queued.direction == Direction::Download) {
@@ -1301,7 +1313,8 @@ void TransferManager::finishPaused(const QString& taskId)
     }
 
     AppLogger::info(QStringLiteral("webdav-transfer"),
-                    QStringLiteral("Paused download task: %1").arg(active->queued.task.title));
+                    QStringLiteral("Paused %1 task: %2")
+                        .arg(active->queued.task.direction, active->queued.task.title));
     QTimer::singleShot(0, this, [this]() {
         startNext();
     });
@@ -1343,7 +1356,7 @@ bool TransferManager::requeueTask(const QString& taskId)
     task->bytesRemaining = task->bytesTotal;
     task->progress = 0.0;
     task->cancellable = true;
-    task->canPause = definition->direction == Direction::Download;
+    task->canPause = isPausableTransfer(definition->direction);
     task->canResume = false;
     task->retryable = false;
 

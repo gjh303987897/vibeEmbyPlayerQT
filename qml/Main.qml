@@ -2681,7 +2681,9 @@ ApplicationWindow {
                         ToolTip.visible: hovered
                         ToolTip.text: taskRow.isGroup
                             ? t("transfers.retryTask")
-                            : t("transfers.retryFile")
+                            : taskRow.direction === "upload"
+                                ? t("transfers.retryUpload")
+                                : t("transfers.retryFile")
                     }
 
                     IconButton {
@@ -2695,9 +2697,13 @@ ApplicationWindow {
                             }
                         }
                         ToolTip.visible: hovered
-                        ToolTip.text: taskRow.canResume
-                            ? t("transfers.resume")
-                            : t("transfers.pause")
+                        ToolTip.text: taskRow.direction === "upload"
+                            ? taskRow.canResume
+                                ? t("transfers.resumeUpload")
+                                : t("transfers.pauseUpload")
+                            : taskRow.canResume
+                                ? t("transfers.resume")
+                                : t("transfers.pause")
                     }
 
                     IconButton {
@@ -2710,7 +2716,9 @@ ApplicationWindow {
                         ToolTip.visible: hovered
                         ToolTip.text: taskRow.isGroup
                             ? t("transfers.cancelTask")
-                            : t("transfers.cancelFile")
+                            : taskRow.direction === "upload"
+                                ? t("transfers.cancelUpload")
+                                : t("transfers.cancelFile")
                     }
                 }
 

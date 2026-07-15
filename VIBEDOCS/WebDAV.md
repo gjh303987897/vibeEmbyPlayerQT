@@ -53,9 +53,12 @@ SQLite 不保存 WebDAV 密码。
 - 取消后的下载定义会保留到用户清除已结束任务，因此完成本地清理后仍可重做；重试时会重新创建已被总任务取消删除的目标目录。
 - 第一版不支持 HTTP Range 断点续传，不跨应用重启恢复暂停任务。
 - 文件夹上传会把远程目录创建和文件上传按队列执行。
+- 上传文件任务支持暂停、继续、取消和重新上传。运行中暂停会中止当前 `PUT` 并释放本地只读文件，继续时从文件开头重新上传；排队中的上传可直接暂停而不发起请求。
+- 取消或上传失败后会保留本地源文件与任务定义，用户可在清除已结束任务前重新上传。远程建目录任务不提供暂停，取消上传也不会删除本地源文件。
+- 第一版不支持上传断点续传或分块续传协议，暂停后的上传会完整重传当前文件。
 - 下载任务最多同时执行 3 个；上传和远程建目录保持独占串行，避免改变文件夹上传顺序。
 - 多文件下载使用一次批量模型插入，进度更新只刷新对应行，并限制为约每 120 毫秒发布一次。
-- 传输连续 60 秒没有数据或进度时会超时；失败或取消的下载会删除不完整文件。
+- 传输连续 60 秒没有数据或进度时会超时；失败或取消的下载会删除不完整文件，上传任务始终保留本地源文件。
 - 下载页使用虚拟化 `ListView`，不会因任务数增加而一次性创建全部 QML 行。
 
 下载统计口径：
@@ -68,7 +71,7 @@ SQLite 不保存 WebDAV 密码。
 
 `TransferTaskListModel` 分别承载顶层任务和当前选中总任务的文件明细。QML 通过 ViewModel 暴露的选择接口切换模型，不持有或计算下载业务状态。
 
-统计实现遵循 Qt 的 `QNetworkReply::downloadProgress` 约定：无法预知的 `bytesTotal` 为 `-1`，收到可确认总量后再更新剩余下载量。平均速度使用 `QElapsedTimer` 的单调计时结果计算，暂停期间不计入总任务平均速度时间。Qt 官方文档确认 `abort()` 会立即中止操作并仍触发 `finished()`：<https://doc.qt.io/qt-6/qnetworkreply.html#downloadProgress>、<https://doc.qt.io/qt-6/qnetworkreply.html#abort>、<https://doc.qt.io/qt-6/qelapsedtimer.html>。
+统计实现遵循 Qt 的 `QNetworkReply::downloadProgress` / `uploadProgress` 约定：无法预知的 `bytesTotal` 为 `-1`，收到可确认总量后再更新剩余下载量。平均速度使用 `QElapsedTimer` 的单调计时结果计算，暂停期间不计入总任务平均速度时间。上传通过 `QNetworkAccessManager::put(request, QIODevice*)` 读取本地文件；Qt 官方接口确认 `abort()` 会中止操作并仍触发 `finished()`：<https://doc.qt.io/qt-6/qnetworkreply.html#downloadProgress>、<https://doc.qt.io/qt-6/qnetworkreply.html#uploadProgress>、<https://doc.qt.io/qt-6/qnetworkreply.html#abort>、<https://doc.qt.io/qt-6/qnetworkaccessmanager.html#put>、<https://doc.qt.io/qt-6/qelapsedtimer.html>。
 
 ## 文件夹下载规划
 
