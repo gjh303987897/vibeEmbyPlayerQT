@@ -93,6 +93,8 @@ qt_add_executable(vibePlayerQT
     src/services/media/MediaServerClientBase.h
     src/services/scheduler/ScheduledPlaybackManager.cpp
     src/services/scheduler/ScheduledPlaybackManager.h
+    src/services/scheduler/ScheduledPlaybackSchedule.cpp
+    src/services/scheduler/ScheduledPlaybackSchedule.h
     src/services/webdav/WebDavDownloadPlanner.cpp
     src/services/webdav/WebDavDownloadPlanner.h
     src/services/webdav/TransferManager.cpp
@@ -305,6 +307,23 @@ if(BUILD_TESTING)
 
     add_test(NAME transfer_manager COMMAND transfer_manager_test)
     set_tests_properties(transfer_manager PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(scheduled_playback_schedule_test
+        tests/ScheduledPlaybackScheduleTest.cpp
+        src/services/scheduler/ScheduledPlaybackSchedule.cpp
+        src/services/scheduler/ScheduledPlaybackSchedule.h
+    )
+    target_include_directories(scheduled_playback_schedule_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(scheduled_playback_schedule_test PRIVATE
+        Qt6::Test
+    )
+
+    add_test(NAME scheduled_playback_schedule COMMAND scheduled_playback_schedule_test)
+    set_tests_properties(scheduled_playback_schedule PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 endif()

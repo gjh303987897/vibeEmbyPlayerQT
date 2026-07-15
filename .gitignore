@@ -26,6 +26,7 @@ aqtinstall.log
 resources/
 tests/*
 !tests/TransferManagerTest.cpp
+!tests/ScheduledPlaybackScheduleTest.cpp
 test-runtime/
 local-data/
 local-data*/

@@ -198,7 +198,9 @@ std::expected<void, QString> SessionRepository::initialize()
             "CREATE TABLE IF NOT EXISTS scheduled_playback_tasks ("
             "id TEXT PRIMARY KEY,"
             "server_id TEXT NOT NULL,"
+            "schedule_type TEXT NOT NULL DEFAULT 'manual',"
             "start_time TEXT NOT NULL,"
+            "schedule_days TEXT NOT NULL DEFAULT '',"
             "duration_minutes INTEGER NOT NULL DEFAULT 90,"
             "enabled INTEGER NOT NULL DEFAULT 1,"
             "last_run_date TEXT NOT NULL DEFAULT '',"
@@ -207,6 +209,18 @@ std::expected<void, QString> SessionRepository::initialize()
             "FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE"
             ")"))) {
         return std::unexpected(sqlError(scheduledTaskQuery));
+    }
+    if (auto columnResult = ensureColumn(QStringLiteral("scheduled_playback_tasks"),
+                                         QStringLiteral("schedule_type"),
+                                         QStringLiteral("TEXT NOT NULL DEFAULT 'manual'"));
+        !columnResult) {
+        return columnResult;
+    }
+    if (auto columnResult = ensureColumn(QStringLiteral("scheduled_playback_tasks"),
+                                         QStringLiteral("schedule_days"),
+                                         QStringLiteral("TEXT NOT NULL DEFAULT ''"));
+        !columnResult) {
+        return columnResult;
     }
 
     if (auto pruneResult = pruneOldDailyUsage(); !pruneResult) {
@@ -608,12 +622,13 @@ std::expected<std::vector<ScheduledPlaybackTask>, QString> SessionRepository::lo
 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-            "SELECT t.id, t.server_id, s.name, s.username, t.start_time, t.duration_minutes, t.enabled, t.last_run_date, s.private_mode "
+            "SELECT t.id, t.server_id, s.name, s.username, t.schedule_type, t.start_time, t.schedule_days, "
+            "t.duration_minutes, t.enabled, t.last_run_date, s.private_mode, t.created_at "
             "FROM scheduled_playback_tasks t "
             "JOIN servers s ON s.id = t.server_id "
             "WHERE s.enabled = 1 AND s.service_type = 'Emby' "
             "AND (:include_private = 1 OR s.private_mode = 0) "
-            "ORDER BY t.start_time ASC, s.name COLLATE NOCASE ASC"));
+            "ORDER BY t.enabled DESC, t.schedule_type ASC, t.start_time ASC, s.name COLLATE NOCASE ASC"));
     query.bindValue(QStringLiteral(":include_private"), privacyMode ? 1 : 0);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
@@ -626,11 +641,14 @@ std::expected<std::vector<ScheduledPlaybackTask>, QString> SessionRepository::lo
             .serverId = query.value(1).toString(),
             .serverName = query.value(2).toString(),
             .username = query.value(3).toString(),
-            .startTime = query.value(4).toString(),
-            .durationMinutes = query.value(5).toInt(),
-            .enabled = query.value(6).toInt() == 1,
-            .lastRunDate = query.value(7).toString(),
-            .privateMode = query.value(8).toInt() == 1,
+            .scheduleType = query.value(4).toString(),
+            .startTime = query.value(5).toString(),
+            .scheduleDays = query.value(6).toString(),
+            .durationMinutes = query.value(7).toInt(),
+            .enabled = query.value(8).toInt() == 1,
+            .lastRunDate = query.value(9).toString(),
+            .createdAt = query.value(11).toString(),
+            .privateMode = query.value(10).toInt() == 1,
         });
     }
     return tasks;
@@ -646,18 +664,22 @@ std::expected<void, QString> SessionRepository::saveScheduledPlaybackTask(const 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
         "INSERT INTO scheduled_playback_tasks "
-        "(id, server_id, start_time, duration_minutes, enabled, last_run_date, created_at, updated_at) "
-        "VALUES (:id, :server_id, :start_time, :duration_minutes, :enabled, :last_run_date, :created_at, :updated_at) "
+        "(id, server_id, schedule_type, start_time, schedule_days, duration_minutes, enabled, last_run_date, created_at, updated_at) "
+        "VALUES (:id, :server_id, :schedule_type, :start_time, :schedule_days, :duration_minutes, :enabled, :last_run_date, :created_at, :updated_at) "
         "ON CONFLICT(id) DO UPDATE SET "
         "server_id = excluded.server_id, "
+        "schedule_type = excluded.schedule_type, "
         "start_time = excluded.start_time, "
+        "schedule_days = excluded.schedule_days, "
         "duration_minutes = excluded.duration_minutes, "
         "enabled = excluded.enabled, "
         "last_run_date = excluded.last_run_date, "
         "updated_at = excluded.updated_at"));
     query.bindValue(QStringLiteral(":id"), task.id);
     query.bindValue(QStringLiteral(":server_id"), task.serverId);
+    query.bindValue(QStringLiteral(":schedule_type"), task.scheduleType);
     query.bindValue(QStringLiteral(":start_time"), task.startTime);
+    query.bindValue(QStringLiteral(":schedule_days"), task.scheduleDays);
     query.bindValue(QStringLiteral(":duration_minutes"), task.durationMinutes);
     query.bindValue(QStringLiteral(":enabled"), task.enabled ? 1 : 0);
     query.bindValue(QStringLiteral(":last_run_date"),
@@ -701,6 +723,32 @@ std::expected<void, QString> SessionRepository::setScheduledPlaybackTaskLastRun(
         return std::unexpected(sqlError(query));
     }
     return {};
+}
+
+QString SessionRepository::scheduledPlaybackCheckpoint(bool privateMode) const
+{
+    const auto key = privateMode
+        ? QStringLiteral("scheduledPlayback/privateCheckpoint")
+        : QStringLiteral("scheduledPlayback/normalCheckpoint");
+    return m_settings.value(key).toString();
+}
+
+void SessionRepository::setScheduledPlaybackCheckpoint(bool privateMode, const QString& timestamp)
+{
+    const auto key = privateMode
+        ? QStringLiteral("scheduledPlayback/privateCheckpoint")
+        : QStringLiteral("scheduledPlayback/normalCheckpoint");
+    m_settings.setValue(key, timestamp);
+}
+
+QStringList SessionRepository::pendingMissedScheduledPlaybackTaskIds() const
+{
+    return m_settings.value(QStringLiteral("scheduledPlayback/pendingMissedTaskIds")).toStringList();
+}
+
+void SessionRepository::setPendingMissedScheduledPlaybackTaskIds(const QStringList& taskIds)
+{
+    m_settings.setValue(QStringLiteral("scheduledPlayback/pendingMissedTaskIds"), taskIds);
 }
 
 std::expected<std::optional<UserSession>, QString> SessionRepository::loadLastSession()

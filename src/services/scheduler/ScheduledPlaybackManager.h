@@ -9,9 +9,13 @@
 #include "services/media/MediaServiceClient.h"
 
 #include <QObject>
+#include <QDateTime>
+#include <QHash>
 #include <QSet>
+#include <QStringList>
 #include <QTimer>
 
+#include <deque>
 #include <optional>
 #include <vector>
 
@@ -23,8 +27,10 @@ public:
                                       SessionRepository& repository,
                                       QObject* parent = nullptr);
 
+    void setTasks(std::vector<ScheduledPlaybackTask> tasks, bool privacyMode);
     void setForegroundPlaybackActive(bool active);
     void runNow(const ScheduledPlaybackTask& task);
+    void resolveMissedTasks(bool runNow);
     void stop();
 
     QString status() const;
@@ -35,12 +41,23 @@ public:
     qint64 targetSeconds() const;
     bool active() const;
     bool waiting() const;
+    int missedTaskCount() const;
+    QStringList missedTaskServerNames() const;
 
 signals:
     void statusChanged();
+    void scheduleStateChanged();
+    void missedTasksChanged();
     void networkTrafficSample(const ServerConfig& server, qint64 bytesReceived);
 
 private:
+    void rebuildNextRuns();
+    void checkStartupMissedTasks();
+    void updateScheduleCheckpoints(const QDateTime& timestamp);
+    void persistMissedTaskIds();
+    void evaluateScheduledTasks();
+    void enqueueScheduledTask(const ScheduledPlaybackTask& task);
+    void startNextScheduledTask();
     void startTask(ScheduledPlaybackTask task);
     void resumeTaskAfterForeground();
     void fetchCandidates();
@@ -63,7 +80,13 @@ private:
     SessionRepository& m_repository;
     PlayerController m_player;
     QTimer m_progressTimer;
+    QTimer m_scheduleTimer;
     std::vector<MediaItem> m_candidates;
+    std::vector<ScheduledPlaybackTask> m_scheduledTasks;
+    std::deque<ScheduledPlaybackTask> m_scheduledQueue;
+    QHash<QString, QDateTime> m_nextRuns;
+    QByteArray m_scheduleTimeZoneId;
+    QSet<QString> m_missedTaskIds;
     QSet<QString> m_recentItemIds;
     std::optional<ScheduledPlaybackTask> m_currentTask;
     std::optional<ScheduledPlaybackTask> m_pendingTask;
@@ -76,6 +99,11 @@ private:
     qint64 m_targetSeconds { 0 };
     double m_lastReportedPosition { -1.0 };
     bool m_foregroundPlaybackActive { false };
+    bool m_privacyMode { false };
+    bool m_tasksInitialized { false };
+    bool m_pendingMissedTaskIdsLoaded { false };
+    bool m_normalStartupMissedCheckCompleted { false };
+    bool m_privateStartupMissedCheckCompleted { false };
     bool m_currentItemStarted { false };
     bool m_resumeAfterForeground { false };
     bool m_ignoreNextPlaybackEnd { false };

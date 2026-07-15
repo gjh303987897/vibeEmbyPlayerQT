@@ -10,6 +10,7 @@
 #include <QSettings>
 #include <QSqlDatabase>
 #include <QString>
+#include <QStringList>
 
 #include <expected>
 #include <optional>
@@ -43,6 +44,10 @@ public:
     std::expected<void, QString> saveScheduledPlaybackTask(const ScheduledPlaybackTask& task);
     std::expected<void, QString> deleteScheduledPlaybackTask(const QString& taskId);
     std::expected<void, QString> setScheduledPlaybackTaskLastRun(const QString& taskId, const QString& date);
+    QString scheduledPlaybackCheckpoint(bool privateMode) const;
+    void setScheduledPlaybackCheckpoint(bool privateMode, const QString& timestamp);
+    QStringList pendingMissedScheduledPlaybackTaskIds() const;
+    void setPendingMissedScheduledPlaybackTaskIds(const QStringList& taskIds);
     std::expected<std::optional<UserSession>, QString> loadLastSession();
     std::expected<std::optional<UserSession>, QString> loadSession(const QString& serverId);
     std::expected<void, QString> deleteServer(const QString& serverId, bool deleteLocalData);

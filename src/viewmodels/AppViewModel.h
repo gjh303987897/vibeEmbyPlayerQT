@@ -23,10 +23,12 @@
 
 #include <QDateTime>
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QTimer>
 #include <QUrl>
+#include <QVariantList>
 
 #include <functional>
 #include <memory>
@@ -126,8 +128,18 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(qint64 scheduledPlaybackTargetSeconds READ scheduledPlaybackTargetSeconds NOTIFY scheduledPlaybackStatusChanged)
     Q_PROPERTY(bool scheduledPlaybackActive READ scheduledPlaybackActive NOTIFY scheduledPlaybackStatusChanged)
     Q_PROPERTY(bool scheduledPlaybackWaiting READ scheduledPlaybackWaiting NOTIFY scheduledPlaybackStatusChanged)
+    Q_PROPERTY(bool missedScheduledPlaybackPromptVisible READ missedScheduledPlaybackPromptVisible NOTIFY missedScheduledPlaybackTasksChanged)
+    Q_PROPERTY(int missedScheduledPlaybackTaskCount READ missedScheduledPlaybackTaskCount NOTIFY missedScheduledPlaybackTasksChanged)
+    Q_PROPERTY(QString missedScheduledPlaybackMessage READ missedScheduledPlaybackMessage NOTIFY missedScheduledPlaybackTasksChanged)
     Q_PROPERTY(int scheduledTaskSourceIndex READ scheduledTaskSourceIndex WRITE setScheduledTaskSourceIndex NOTIFY scheduledTaskEditorChanged)
     Q_PROPERTY(int scheduledTaskDurationMinutes READ scheduledTaskDurationMinutes WRITE setScheduledTaskDurationMinutes NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(QString scheduledTaskScheduleType READ scheduledTaskScheduleType WRITE setScheduledTaskScheduleType NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(int scheduledTaskStartHour READ scheduledTaskStartHour WRITE setScheduledTaskStartHour NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(int scheduledTaskStartMinute READ scheduledTaskStartMinute WRITE setScheduledTaskStartMinute NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(int scheduledTaskWeekday READ scheduledTaskWeekday WRITE setScheduledTaskWeekday NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(int scheduledTaskMonthDay READ scheduledTaskMonthDay WRITE setScheduledTaskMonthDay NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(QVariantList scheduledTaskCustomMonthDays READ scheduledTaskCustomMonthDays NOTIFY scheduledTaskEditorChanged)
+    Q_PROPERTY(bool scheduledTaskEnabled READ scheduledTaskEnabled WRITE setScheduledTaskEnabled NOTIFY scheduledTaskEditorChanged)
 
 public:
     explicit AppViewModel(QObject* parent = nullptr);
@@ -251,10 +263,26 @@ public:
     qint64 scheduledPlaybackTargetSeconds() const;
     bool scheduledPlaybackActive() const;
     bool scheduledPlaybackWaiting() const;
+    bool missedScheduledPlaybackPromptVisible() const;
+    int missedScheduledPlaybackTaskCount() const;
+    QString missedScheduledPlaybackMessage() const;
     int scheduledTaskSourceIndex() const;
     void setScheduledTaskSourceIndex(int value);
     int scheduledTaskDurationMinutes() const;
     void setScheduledTaskDurationMinutes(int value);
+    QString scheduledTaskScheduleType() const;
+    void setScheduledTaskScheduleType(const QString& value);
+    int scheduledTaskStartHour() const;
+    void setScheduledTaskStartHour(int value);
+    int scheduledTaskStartMinute() const;
+    void setScheduledTaskStartMinute(int value);
+    int scheduledTaskWeekday() const;
+    void setScheduledTaskWeekday(int value);
+    int scheduledTaskMonthDay() const;
+    void setScheduledTaskMonthDay(int value);
+    QVariantList scheduledTaskCustomMonthDays() const;
+    bool scheduledTaskEnabled() const;
+    void setScheduledTaskEnabled(bool value);
 
     Q_INVOKABLE void initialize();
     Q_INVOKABLE void beginAddServiceCard();
@@ -306,10 +334,16 @@ public:
     Q_INVOKABLE void openScheduledPlaybackTasks();
     Q_INVOKABLE void beginAddScheduledPlaybackTask();
     Q_INVOKABLE void editScheduledPlaybackTask(int row);
+    Q_INVOKABLE bool saveScheduledPlaybackTask();
     Q_INVOKABLE bool saveAndRunScheduledPlaybackTask();
+    Q_INVOKABLE void toggleScheduledTaskCustomMonthDay(int day);
     Q_INVOKABLE void deleteScheduledPlaybackTask(int row);
     Q_INVOKABLE void runScheduledPlaybackTaskNow(int row);
     Q_INVOKABLE void stopScheduledPlayback();
+    Q_INVOKABLE void resolveMissedScheduledPlaybackTasks(bool runNow);
+    Q_INVOKABLE QString formatScheduledPlaybackSchedule(const QString& scheduleType,
+                                                        const QString& startTime,
+                                                        const QString& scheduleDays) const;
     Q_INVOKABLE QString formatDuration(qint64 seconds) const;
     Q_INVOKABLE void refreshHome();
     Q_INVOKABLE void refreshLibraries();
@@ -371,6 +405,7 @@ signals:
     void historyStatsChanged();
     void scheduledPlaybackTasksChanged();
     void scheduledPlaybackStatusChanged();
+    void missedScheduledPlaybackTasksChanged();
     void scheduledTaskEditorChanged();
     void certificatePromptRequested(const QString& host, const QString& details);
     void passwordRequired(const QString& serviceName, const QString& username);
@@ -424,6 +459,8 @@ private:
     void refreshUsageStats();
     void refreshScheduledPlaybackTasks();
     void refreshScheduledEmbySources();
+    std::optional<ScheduledPlaybackTask> scheduledPlaybackTaskFromEditor();
+    bool saveScheduledPlaybackTaskInternal(bool runNow);
     void setForegroundPlaybackActive(bool active);
     void recordNetworkUsage(const ServerConfig& server, qint64 bytesReceived, qint64 bytesSent);
     void recordNetworkUsageForCurrentService(ServiceType type, qint64 bytesReceived, qint64 bytesSent);
@@ -516,6 +553,13 @@ private:
     QString m_scheduledTaskEditingId;
     int m_scheduledTaskSourceIndex { -1 };
     int m_scheduledTaskDurationMinutes { 90 };
+    QString m_scheduledTaskScheduleType { QStringLiteral("manual") };
+    int m_scheduledTaskStartHour { 12 };
+    int m_scheduledTaskStartMinute { 0 };
+    int m_scheduledTaskWeekday { 1 };
+    int m_scheduledTaskMonthDay { 1 };
+    QList<int> m_scheduledTaskCustomMonthDays { 1 };
+    bool m_scheduledTaskEnabled { true };
 
     NetworkClient m_embyNetworkClient;
     NetworkClient m_jellyfinNetworkClient;

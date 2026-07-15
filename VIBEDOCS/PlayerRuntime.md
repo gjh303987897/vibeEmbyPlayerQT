@@ -141,7 +141,7 @@ Future work should prefer passing authorization headers to libmpv when practical
 
 ## Headless Keep-Alive Playback
 
-`PlayerController::initializeHeadless()` creates a separate libmpv handle for manually started Emby keep-alive playback. It does not set `wid` and uses `force-window=no`, `vo=null`, and `ao=null`, so no video surface or audio output is created.
+`PlayerController::initializeHeadless()` creates a separate libmpv handle for manually or automatically started Emby keep-alive playback. It does not set `wid` and uses `force-window=no`, `vo=null`, and `ao=null`, so no video surface or audio output is created.
 
 The headless player emits the same playback-ended position signal used to accumulate actual elapsed time across multiple media items. It remains owned by `ScheduledPlaybackManager`; no manager or QML code calls libmpv directly.
 

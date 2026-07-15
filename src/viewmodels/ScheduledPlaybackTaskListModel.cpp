@@ -33,8 +33,12 @@ QVariant ScheduledPlaybackTaskListModel::data(const QModelIndex& index, int role
         return task.serverName;
     case UsernameRole:
         return task.username;
+    case ScheduleTypeRole:
+        return task.scheduleType;
     case StartTimeRole:
         return task.startTime;
+    case ScheduleDaysRole:
+        return task.scheduleDays;
     case DurationMinutesRole:
         return task.durationMinutes;
     case EnabledRole:
@@ -55,7 +59,9 @@ QHash<int, QByteArray> ScheduledPlaybackTaskListModel::roleNames() const
         { ServerIdRole, "serverId" },
         { ServerNameRole, "serverName" },
         { UsernameRole, "username" },
+        { ScheduleTypeRole, "scheduleType" },
         { StartTimeRole, "startTime" },
+        { ScheduleDaysRole, "scheduleDays" },
         { DurationMinutesRole, "durationMinutes" },
         { EnabledRole, "enabled" },
         { LastRunDateRole, "lastRunDate" },

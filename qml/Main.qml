@@ -175,6 +175,136 @@ ApplicationWindow {
             root.downloadWarningMessage = message
             downloadWarningDialog.open()
         }
+
+        function onMissedScheduledPlaybackTasksChanged() {
+            if (appViewModel.missedScheduledPlaybackPromptVisible) {
+                if (!missedScheduleNotification.visible) {
+                    missedScheduleNotification.open()
+                }
+            } else if (missedScheduleNotification.visible) {
+                missedScheduleNotification.close()
+            }
+        }
+    }
+
+    Popup {
+        id: missedScheduleNotification
+        readonly property real safeMargin: 24
+        readonly property real naturalHeight: notificationContent.implicitHeight + topPadding + bottomPadding
+
+        parent: Overlay.overlay
+        width: Math.min(440, parent.width - safeMargin * 2)
+        height: Math.min(naturalHeight, parent.height - safeMargin * 2)
+        x: Math.round(Math.max(safeMargin, parent.width - width - safeMargin))
+        y: Math.round(Math.max(safeMargin, parent.height - height - safeMargin))
+        margins: safeMargin
+        padding: 18
+        clip: true
+        modal: false
+        focus: false
+        closePolicy: Popup.NoAutoClose
+        transformOrigin: Item.BottomRight
+        z: 1000
+
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 220; easing.type: Easing.OutBack }
+            }
+        }
+
+        exit: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 130; easing.type: Easing.InCubic }
+                NumberAnimation { property: "scale"; from: 1; to: 0.98; duration: 130; easing.type: Easing.InCubic }
+            }
+        }
+
+        background: Rectangle {
+            radius: 14
+            color: theme.surface
+            border.width: 1
+            border.color: root.withAlpha(theme.warning, 0.72)
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 4
+                radius: 2
+                color: theme.warning
+            }
+        }
+
+        contentItem: ColumnLayout {
+            id: notificationContent
+            spacing: 14
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Rectangle {
+                    Layout.preferredWidth: 36
+                    Layout.preferredHeight: 36
+                    radius: 18
+                    color: root.withAlpha(theme.warning, 0.16)
+                    border.color: root.withAlpha(theme.warning, 0.5)
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "!"
+                        color: theme.warning
+                        font.pixelSize: 19
+                        font.bold: true
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("schedule.missedTitle")
+                        color: theme.text
+                        font.pixelSize: 16
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: appViewModel.missedScheduledPlaybackTaskCount + " " + t("nav.scheduledTasks")
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
+            BodyText {
+                Layout.fillWidth: true
+                text: appViewModel.missedScheduledPlaybackMessage
+                wrapMode: Text.WordWrap
+                maximumLineCount: 4
+                elide: Text.ElideRight
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+
+                ModernButton {
+                    text: t("schedule.missedIgnore")
+                    onClicked: appViewModel.resolveMissedScheduledPlaybackTasks(false)
+                }
+
+                ModernButton {
+                    text: t("schedule.missedRun")
+                    onClicked: appViewModel.resolveMissedScheduledPlaybackTasks(true)
+                }
+            }
+        }
     }
 
     ModernDialog {
@@ -478,11 +608,22 @@ ApplicationWindow {
         property bool editing: false
         title: editing ? t("schedule.edit") : t("schedule.add")
         standardButtons: Dialog.Cancel
-        width: Math.min(root.width - 64, 520)
+        width: Math.min(root.width - 64, 680)
 
-        ColumnLayout {
+        Flickable {
+            id: scheduledTaskEditorFlick
             width: parent.width
-            spacing: 14
+            implicitHeight: Math.min(editorColumn.implicitHeight, Math.max(300, root.height - 230))
+            contentWidth: width
+            contentHeight: editorColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            ColumnLayout {
+                id: editorColumn
+                width: scheduledTaskEditorFlick.width - 14
+                spacing: 12
 
             SettingRow {
                 label: t("schedule.source")
@@ -497,9 +638,143 @@ ApplicationWindow {
             }
 
             SettingRow {
+                label: t("schedule.type")
+                ModernComboBox {
+                    Layout.preferredWidth: 360
+                    textRole: "label"
+                    valueRole: "value"
+                    model: [
+                        { label: t("schedule.typeManual"), value: "manual" },
+                        { label: t("schedule.typeDaily"), value: "daily" },
+                        { label: t("schedule.typeWeekly"), value: "weekly" },
+                        { label: t("schedule.typeMonthly"), value: "monthly" },
+                        { label: t("schedule.typeCustomMonthly"), value: "custom_monthly" }
+                    ]
+                    currentIndex: appViewModel.scheduledTaskScheduleType === "manual" ? 0
+                        : appViewModel.scheduledTaskScheduleType === "daily" ? 1
+                        : appViewModel.scheduledTaskScheduleType === "weekly" ? 2
+                        : appViewModel.scheduledTaskScheduleType === "monthly" ? 3 : 4
+                    onActivated: appViewModel.scheduledTaskScheduleType = model[index].value
+                }
+            }
+
+            SettingRow {
+                visible: appViewModel.scheduledTaskScheduleType !== "manual"
+                label: t("schedule.startTime")
+                RowLayout {
+                    Layout.preferredWidth: 360
+                    spacing: 8
+
+                    ModernSpinBox {
+                        from: 0
+                        to: 23
+                        value: appViewModel.scheduledTaskStartHour
+                        editable: true
+                        textFromValue: function(value, locale) {
+                            return value < 10 ? "0" + value : value.toString()
+                        }
+                        onValueModified: appViewModel.scheduledTaskStartHour = value
+                    }
+
+                    Label {
+                        text: ":"
+                        color: theme.text
+                        font.pixelSize: 17
+                        font.bold: true
+                    }
+
+                    ModernSpinBox {
+                        from: 0
+                        to: 59
+                        stepSize: 5
+                        value: appViewModel.scheduledTaskStartMinute
+                        editable: true
+                        textFromValue: function(value, locale) {
+                            return value < 10 ? "0" + value : value.toString()
+                        }
+                        onValueModified: appViewModel.scheduledTaskStartMinute = value
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+            }
+
+            SettingRow {
+                visible: appViewModel.scheduledTaskScheduleType === "weekly"
+                label: t("schedule.weekday")
+                ModernComboBox {
+                    Layout.preferredWidth: 360
+                    model: [
+                        t("schedule.weekday1"), t("schedule.weekday2"), t("schedule.weekday3"),
+                        t("schedule.weekday4"), t("schedule.weekday5"), t("schedule.weekday6"),
+                        t("schedule.weekday7")
+                    ]
+                    currentIndex: appViewModel.scheduledTaskWeekday - 1
+                    onActivated: appViewModel.scheduledTaskWeekday = index + 1
+                }
+            }
+
+            SettingRow {
+                visible: appViewModel.scheduledTaskScheduleType === "monthly"
+                label: t("schedule.monthDay")
+                RowLayout {
+                    Layout.preferredWidth: 360
+                    ModernSpinBox {
+                        from: 1
+                        to: 31
+                        value: appViewModel.scheduledTaskMonthDay
+                        editable: true
+                        onValueModified: appViewModel.scheduledTaskMonthDay = value
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+            }
+
+            SettingRow {
+                visible: appViewModel.scheduledTaskScheduleType === "custom_monthly"
+                label: t("schedule.customDays")
+
+                GridLayout {
+                    Layout.preferredWidth: 360
+                    columns: 7
+                    columnSpacing: 7
+                    rowSpacing: 7
+
+                    Repeater {
+                        model: 31
+
+                        delegate: Button {
+                            id: dayButton
+                            property bool selected: appViewModel.scheduledTaskCustomMonthDays.indexOf(index + 1) >= 0
+                            Layout.preferredWidth: 42
+                            Layout.preferredHeight: 34
+                            text: (index + 1).toString()
+                            hoverEnabled: true
+                            onClicked: appViewModel.toggleScheduledTaskCustomMonthDay(index + 1)
+
+                            contentItem: Label {
+                                text: dayButton.text
+                                color: dayButton.selected ? "#ffffff" : theme.text
+                                font.pixelSize: 13
+                                font.bold: dayButton.selected
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                radius: 8
+                                color: dayButton.selected ? theme.primary
+                                    : dayButton.hovered ? theme.elevatedHover : theme.input
+                                border.color: dayButton.selected ? theme.primary : theme.border
+                            }
+                        }
+                    }
+                }
+            }
+
+            SettingRow {
                 label: t("schedule.duration")
                 RowLayout {
-                    Layout.preferredWidth: 270
+                    Layout.preferredWidth: 360
                     spacing: 10
                     ModernSpinBox {
                         from: 5
@@ -509,6 +784,19 @@ ApplicationWindow {
                         onValueModified: appViewModel.scheduledTaskDurationMinutes = value
                     }
                     MutedText { text: t("schedule.minutes") }
+                    Item { Layout.fillWidth: true }
+                }
+            }
+
+            SettingRow {
+                visible: appViewModel.scheduledTaskScheduleType !== "manual"
+                label: t("schedule.enabled")
+                RowLayout {
+                    Layout.preferredWidth: 360
+                    ModernCheckBox {
+                        checked: appViewModel.scheduledTaskEnabled
+                        onToggled: appViewModel.scheduledTaskEnabled = checked
+                    }
                     Item { Layout.fillWidth: true }
                 }
             }
@@ -524,21 +812,32 @@ ApplicationWindow {
             MutedText {
                 Layout.fillWidth: true
                 visible: appViewModel.scheduledEmbySources.count > 0
-                text: t("schedule.startHint")
+                text: appViewModel.scheduledTaskScheduleType === "manual"
+                    ? t("schedule.manualHint") : t("schedule.scheduledHint")
                 wrapMode: Text.WordWrap
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                ModernButton {
-                    text: t("schedule.runNow")
-                    enabled: appViewModel.scheduledEmbySources.count > 0
-                        && !appViewModel.scheduledPlaybackActive
-                        && !appViewModel.scheduledPlaybackWaiting
-                    onClicked: {
-                        if (appViewModel.saveAndRunScheduledPlaybackTask()) {
-                            scheduledTaskEditorDialog.close()
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    ModernButton {
+                        text: t("schedule.save")
+                        enabled: appViewModel.scheduledEmbySources.count > 0
+                        onClicked: {
+                            if (appViewModel.saveScheduledPlaybackTask()) {
+                                scheduledTaskEditorDialog.close()
+                            }
+                        }
+                    }
+                    ModernButton {
+                        text: t("schedule.saveAndRun")
+                        enabled: appViewModel.scheduledEmbySources.count > 0
+                            && !appViewModel.scheduledPlaybackActive
+                            && !appViewModel.scheduledPlaybackWaiting
+                        onClicked: {
+                            if (appViewModel.saveAndRunScheduledPlaybackTask()) {
+                                scheduledTaskEditorDialog.close()
+                            }
                         }
                     }
                 }
@@ -5716,7 +6015,7 @@ ApplicationWindow {
             ListView {
                 id: scheduledTaskList
                 Layout.fillWidth: true
-                Layout.preferredHeight: count > 0 ? count * 126 : 0
+                Layout.preferredHeight: count > 0 ? count * 140 : 0
                 visible: count > 0
                 interactive: false
                 spacing: 10
@@ -5724,7 +6023,7 @@ ApplicationWindow {
 
                 delegate: Rectangle {
                     width: scheduledTaskList.width
-                    height: 116
+                    height: 130
                     radius: 8
                     color: taskMouse.hovered ? theme.elevatedHover : theme.surface
                     border.color: theme.border
@@ -5740,7 +6039,7 @@ ApplicationWindow {
                             Layout.preferredWidth: 4
                             Layout.fillHeight: true
                             radius: 2
-                            color: theme.primary
+                            color: model.scheduleType === "manual" || model.enabled ? theme.primary : theme.subtle
                         }
 
                         ColumnLayout {
@@ -5782,11 +6081,36 @@ ApplicationWindow {
                                         elide: Text.ElideRight
                                     }
                                 }
+
+                                Rectangle {
+                                    visible: model.scheduleType !== "manual"
+                                    Layout.preferredHeight: 24
+                                    Layout.minimumWidth: 68
+                                    Layout.maximumWidth: 104
+                                    radius: 8
+                                    color: model.enabled ? root.withAlpha(theme.success, 0.16) : theme.elevated
+                                    border.color: model.enabled ? root.withAlpha(theme.success, 0.62) : theme.border
+
+                                    Label {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 8
+                                        anchors.rightMargin: 8
+                                        text: model.enabled ? t("schedule.enabledBadge") : t("schedule.disabledBadge")
+                                        color: model.enabled ? theme.success : theme.muted
+                                        font.pixelSize: 11
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                }
                             }
 
                             MutedText {
                                 Layout.fillWidth: true
-                                text: model.username + " · " + t("schedule.manual")
+                                text: model.username + " · "
+                                    + appViewModel.formatScheduledPlaybackSchedule(
+                                        model.scheduleType, model.startTime, model.scheduleDays)
                                 elide: Text.ElideRight
                             }
 

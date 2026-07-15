@@ -170,4 +170,4 @@ The Emby manual keep-alive module requests random playable candidates through th
 
 Official reference: `https://dev.emby.media/reference/RestAPI/ItemsService/getUsersByUseridItems.html`
 
-The selected item reuses the existing playback URL flow and the existing `/Sessions/Playing`, `/Sessions/Playing/Progress`, and `/Sessions/Playing/Stopped` reports. Keep-alive playback is intentionally Emby-only until Jellyfin's official OpenAPI behavior is reviewed separately. The current version starts only from an explicit user action and has no timer.
+The selected item reuses the existing playback URL flow and the existing `/Sessions/Playing`, `/Sessions/Playing/Progress`, and `/Sessions/Playing/Stopped` reports. Keep-alive playback is intentionally Emby-only until Jellyfin's official OpenAPI behavior is reviewed separately. Manual starts and local-time recurring strategies share the same playback and reporting flow; recurrence calculation remains local and does not add any server API assumptions.

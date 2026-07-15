@@ -1,7 +1,12 @@
 #include "services/scheduler/ScheduledPlaybackManager.h"
 
+#include "services/scheduler/ScheduledPlaybackSchedule.h"
 #include "utils/AppLogger.h"
 
+#include <QDateTime>
+#include <QStringList>
+#include <QTimer>
+#include <QTimeZone>
 #include <QUrl>
 
 #include <algorithm>
@@ -10,6 +15,8 @@
 
 namespace {
 constexpr int progressUpdateIntervalMs = 1'000;
+constexpr int scheduleCheckIntervalMs = 30'000;
+constexpr int scheduleActivationGraceSeconds = 90;
 constexpr double progressReportIntervalSeconds = 15.0;
 constexpr int randomCandidateCount = 12;
 constexpr int maxConsecutiveFailures = 3;
@@ -37,6 +44,10 @@ ScheduledPlaybackManager::ScheduledPlaybackManager(EmbyClient& embyClient,
     m_progressTimer.setInterval(progressUpdateIntervalMs);
     connect(&m_progressTimer, &QTimer::timeout, this, &ScheduledPlaybackManager::updateProgress);
 
+    m_scheduleTimer.setInterval(scheduleCheckIntervalMs);
+    connect(&m_scheduleTimer, &QTimer::timeout, this, &ScheduledPlaybackManager::evaluateScheduledTasks);
+    m_scheduleTimer.start();
+
     connect(&m_player, &PlayerController::playbackRestarted, this, &ScheduledPlaybackManager::handlePlaybackRestarted);
     connect(&m_player, &PlayerController::playbackEnded, this, &ScheduledPlaybackManager::handlePlaybackEnded);
     connect(&m_player, &PlayerController::playbackNetworkBytes, this, [this](qint64 bytesReceived) {
@@ -47,6 +58,42 @@ ScheduledPlaybackManager::ScheduledPlaybackManager(EmbyClient& embyClient,
     connect(&m_player, &PlayerController::errorOccurred, this, [](const QString& message) {
         AppLogger::warning(QStringLiteral("scheduled-playback"), message);
     });
+}
+
+void ScheduledPlaybackManager::setTasks(std::vector<ScheduledPlaybackTask> tasks, bool privacyMode)
+{
+    QHash<QString, ScheduledPlaybackTask> availableTasks;
+    for (const auto& task : tasks) {
+        availableTasks.insert(task.id, task);
+    }
+
+    std::deque<ScheduledPlaybackTask> retainedQueue;
+    for (const auto& queuedTask : m_scheduledQueue) {
+        const auto updated = availableTasks.constFind(queuedTask.id);
+        if (updated != availableTasks.cend() && ScheduledPlaybackSchedule::isAutomatic(*updated)) {
+            retainedQueue.push_back(*updated);
+        }
+    }
+
+    m_privacyMode = privacyMode;
+    m_scheduledTasks = std::move(tasks);
+    m_scheduledQueue = std::move(retainedQueue);
+    checkStartupMissedTasks();
+    m_tasksInitialized = true;
+
+    bool missedTasksUpdated = false;
+    for (const auto& task : m_scheduledTasks) {
+        if (!ScheduledPlaybackSchedule::isAutomatic(task) && m_missedTaskIds.remove(task.id)) {
+            missedTasksUpdated = true;
+        }
+    }
+    if (missedTasksUpdated) {
+        persistMissedTaskIds();
+    }
+
+    rebuildNextRuns();
+    startNextScheduledTask();
+    emit missedTasksChanged();
 }
 
 void ScheduledPlaybackManager::setForegroundPlaybackActive(bool active)
@@ -86,15 +133,212 @@ void ScheduledPlaybackManager::runNow(const ScheduledPlaybackTask& task)
     startTask(task);
 }
 
+void ScheduledPlaybackManager::resolveMissedTasks(bool runNow)
+{
+    std::vector<ScheduledPlaybackTask> resolvedTasks;
+    for (const auto& task : m_scheduledTasks) {
+        if (m_missedTaskIds.contains(task.id)) {
+            resolvedTasks.push_back(task);
+        }
+    }
+
+    for (const auto& task : resolvedTasks) {
+        m_missedTaskIds.remove(task.id);
+        if (runNow && ScheduledPlaybackSchedule::isAutomatic(task)) {
+            enqueueScheduledTask(task);
+        }
+    }
+
+    persistMissedTaskIds();
+    emit missedTasksChanged();
+    if (runNow) {
+        startNextScheduledTask();
+    }
+}
+
 void ScheduledPlaybackManager::stop()
 {
     ++m_generation;
     stopCurrentItem(false);
     m_pendingTask.reset();
+    m_scheduledQueue.clear();
     m_resumeAfterForeground = false;
     clearRunState();
     setStatus(QStringLiteral("idle"));
     AppLogger::info(QStringLiteral("scheduled-playback"), QStringLiteral("Scheduled playback stopped"));
+}
+
+void ScheduledPlaybackManager::rebuildNextRuns()
+{
+    m_nextRuns.clear();
+    m_scheduleTimeZoneId = QTimeZone::systemTimeZoneId();
+
+    const auto now = QDateTime::currentDateTime();
+    const auto recentSearchFrom = now.addSecs(-scheduleActivationGraceSeconds);
+    for (const auto& task : m_scheduledTasks) {
+        const auto& searchFrom = m_missedTaskIds.contains(task.id) ? now : recentSearchFrom;
+        if (const auto nextRun = ScheduledPlaybackSchedule::nextOccurrence(task, searchFrom)) {
+            m_nextRuns.insert(task.id, *nextRun);
+        }
+    }
+}
+
+void ScheduledPlaybackManager::checkStartupMissedTasks()
+{
+    auto& checkCompleted = m_privacyMode
+        ? m_privateStartupMissedCheckCompleted
+        : m_normalStartupMissedCheckCompleted;
+    if (checkCompleted) {
+        return;
+    }
+    checkCompleted = true;
+
+    if (!m_pendingMissedTaskIdsLoaded) {
+        for (const auto& taskId : m_repository.pendingMissedScheduledPlaybackTaskIds()) {
+            if (!taskId.isEmpty()) {
+                m_missedTaskIds.insert(taskId);
+            }
+        }
+        m_pendingMissedTaskIdsLoaded = true;
+    }
+
+    const auto now = QDateTime::currentDateTime();
+    const auto checkpointText = m_repository.scheduledPlaybackCheckpoint(m_privacyMode);
+    auto checkpoint = QDateTime::fromString(checkpointText, Qt::ISODateWithMs);
+    if (!checkpoint.isValid()) {
+        checkpoint = QDateTime::fromString(checkpointText, Qt::ISODate);
+    }
+    checkpoint = checkpoint.toLocalTime();
+
+    for (const auto& task : m_scheduledTasks) {
+        if (task.privateMode != m_privacyMode || !ScheduledPlaybackSchedule::isAutomatic(task)) {
+            continue;
+        }
+
+        auto taskCheckpoint = checkpoint;
+        auto createdAt = QDateTime::fromString(task.createdAt, Qt::ISODateWithMs);
+        if (!createdAt.isValid()) {
+            createdAt = QDateTime::fromString(task.createdAt, Qt::ISODate);
+        }
+        createdAt = createdAt.toLocalTime();
+        if (createdAt.isValid() && (!taskCheckpoint.isValid() || createdAt > taskCheckpoint)) {
+            taskCheckpoint = createdAt;
+        }
+
+        if (taskCheckpoint.isValid() && taskCheckpoint < now &&
+            ScheduledPlaybackSchedule::firstOccurrenceBetween(task, taskCheckpoint, now)) {
+            m_missedTaskIds.insert(task.id);
+        }
+    }
+
+    if (m_privacyMode) {
+        QSet<QString> existingTaskIds;
+        for (const auto& task : m_scheduledTasks) {
+            existingTaskIds.insert(task.id);
+        }
+        m_missedTaskIds.intersect(existingTaskIds);
+    }
+
+    persistMissedTaskIds();
+    m_repository.setScheduledPlaybackCheckpoint(
+        m_privacyMode,
+        now.toUTC().toString(Qt::ISODateWithMs));
+}
+
+void ScheduledPlaybackManager::updateScheduleCheckpoints(const QDateTime& timestamp)
+{
+    const auto value = timestamp.toUTC().toString(Qt::ISODateWithMs);
+    m_repository.setScheduledPlaybackCheckpoint(false, value);
+    if (m_privacyMode) {
+        m_repository.setScheduledPlaybackCheckpoint(true, value);
+    }
+}
+
+void ScheduledPlaybackManager::persistMissedTaskIds()
+{
+    auto taskIds = m_missedTaskIds.values();
+    std::ranges::sort(taskIds);
+    m_repository.setPendingMissedScheduledPlaybackTaskIds(taskIds);
+}
+
+void ScheduledPlaybackManager::evaluateScheduledTasks()
+{
+    if (!m_tasksInitialized) {
+        return;
+    }
+    if (m_scheduleTimeZoneId != QTimeZone::systemTimeZoneId()) {
+        rebuildNextRuns();
+    }
+
+    const auto now = QDateTime::currentDateTime();
+    QStringList dueTaskIds;
+    for (auto it = m_nextRuns.cbegin(); it != m_nextRuns.cend(); ++it) {
+        if (it.value() <= now) {
+            dueTaskIds.push_back(it.key());
+        }
+    }
+
+    bool scheduleStateUpdated = false;
+    bool checkpointSafe = true;
+    for (const auto& taskId : dueTaskIds) {
+        const auto taskIt = std::ranges::find(m_scheduledTasks, taskId, &ScheduledPlaybackTask::id);
+        if (taskIt == m_scheduledTasks.end() || !ScheduledPlaybackSchedule::isAutomatic(*taskIt)) {
+            m_nextRuns.remove(taskId);
+            continue;
+        }
+
+        const auto runAt = m_nextRuns.value(taskId);
+        const auto runDate = runAt.date().toString(Qt::ISODate);
+        taskIt->lastRunDate = runDate;
+        if (auto result = m_repository.setScheduledPlaybackTaskLastRun(taskIt->id, runDate); !result) {
+            AppLogger::warning(QStringLiteral("scheduled-playback"),
+                               QStringLiteral("Unable to persist scheduled task run date: %1").arg(result.error()));
+            checkpointSafe = false;
+        } else {
+            scheduleStateUpdated = true;
+        }
+
+        enqueueScheduledTask(*taskIt);
+        if (const auto nextRun = ScheduledPlaybackSchedule::nextOccurrence(*taskIt, now)) {
+            m_nextRuns.insert(taskIt->id, *nextRun);
+        } else {
+            m_nextRuns.remove(taskIt->id);
+        }
+    }
+
+    if (scheduleStateUpdated) {
+        emit scheduleStateChanged();
+    }
+    if (checkpointSafe) {
+        updateScheduleCheckpoints(now);
+    }
+    startNextScheduledTask();
+}
+
+void ScheduledPlaybackManager::enqueueScheduledTask(const ScheduledPlaybackTask& task)
+{
+    const auto alreadyQueued = std::ranges::any_of(m_scheduledQueue, [&task](const auto& queued) {
+        return queued.id == task.id;
+    });
+    if (alreadyQueued || (m_currentTask && m_currentTask->id == task.id) ||
+        (m_pendingTask && m_pendingTask->id == task.id)) {
+        return;
+    }
+
+    m_scheduledQueue.push_back(task);
+    AppLogger::info(QStringLiteral("scheduled-playback"),
+                    QStringLiteral("Automatic keep-alive task queued for source %1").arg(task.serverName));
+}
+
+void ScheduledPlaybackManager::startNextScheduledTask()
+{
+    if (m_currentTask || m_pendingTask || m_scheduledQueue.empty()) {
+        return;
+    }
+
+    auto task = std::move(m_scheduledQueue.front());
+    m_scheduledQueue.pop_front();
+    startTask(std::move(task));
 }
 
 QString ScheduledPlaybackManager::status() const
@@ -141,6 +385,24 @@ bool ScheduledPlaybackManager::active() const
 bool ScheduledPlaybackManager::waiting() const
 {
     return m_status == QStringLiteral("waiting");
+}
+
+int ScheduledPlaybackManager::missedTaskCount() const
+{
+    return static_cast<int>(std::ranges::count_if(m_scheduledTasks, [this](const auto& task) {
+        return m_missedTaskIds.contains(task.id);
+    }));
+}
+
+QStringList ScheduledPlaybackManager::missedTaskServerNames() const
+{
+    QStringList names;
+    for (const auto& task : m_scheduledTasks) {
+        if (m_missedTaskIds.contains(task.id) && !names.contains(task.serverName)) {
+            names.push_back(task.serverName);
+        }
+    }
+    return names;
 }
 
 void ScheduledPlaybackManager::startTask(ScheduledPlaybackTask task)
@@ -431,6 +693,7 @@ void ScheduledPlaybackManager::finishTask()
     m_resumeAfterForeground = false;
     setStatus(QStringLiteral("completed"));
     AppLogger::info(QStringLiteral("scheduled-playback"), QStringLiteral("Scheduled playback duration completed"));
+    QTimer::singleShot(0, this, &ScheduledPlaybackManager::startNextScheduledTask);
 }
 
 void ScheduledPlaybackManager::failTask(QString message)
@@ -443,6 +706,7 @@ void ScheduledPlaybackManager::failTask(QString message)
     m_resumeAfterForeground = false;
     setStatus(QStringLiteral("error"), std::move(message));
     AppLogger::warning(QStringLiteral("scheduled-playback"), m_errorMessage);
+    QTimer::singleShot(0, this, &ScheduledPlaybackManager::startNextScheduledTask);
 }
 
 void ScheduledPlaybackManager::setStatus(QString status, QString error)

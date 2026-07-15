@@ -2,6 +2,7 @@
 
 #include "services/credentials/CredentialStore.h"
 #include "services/iptv/IptvParser.h"
+#include "services/scheduler/ScheduledPlaybackSchedule.h"
 #include "utils/AppLogger.h"
 
 #include <QCoreApplication>
@@ -21,6 +22,7 @@
 #include <QtMath>
 #include <QStringList>
 #include <QStyleHints>
+#include <QTime>
 #include <QUrl>
 #include <QUuid>
 
@@ -503,15 +505,31 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("option.zh"), QStringLiteral("简体中文") },
         { QStringLiteral("option.en"), QStringLiteral("English") },
         { QStringLiteral("nav.scheduledTasks"), QStringLiteral("Keep-Alive Tasks") },
-        { QStringLiteral("schedule.subtitle"), QStringLiteral("Manually start silent background playback for Emby sources") },
-        { QStringLiteral("schedule.add"), QStringLiteral("New Playback") },
-        { QStringLiteral("schedule.edit"), QStringLiteral("Edit Playback") },
+        { QStringLiteral("schedule.subtitle"), QStringLiteral("Create manual or recurring silent background playback strategies for Emby") },
+        { QStringLiteral("schedule.add"), QStringLiteral("New Strategy") },
+        { QStringLiteral("schedule.edit"), QStringLiteral("Edit Strategy") },
         { QStringLiteral("schedule.source"), QStringLiteral("Emby source") },
         { QStringLiteral("schedule.duration"), QStringLiteral("Playback duration") },
         { QStringLiteral("schedule.minutes"), QStringLiteral("minutes") },
+        { QStringLiteral("schedule.type"), QStringLiteral("Run strategy") },
+        { QStringLiteral("schedule.typeManual"), QStringLiteral("Manual only") },
+        { QStringLiteral("schedule.typeDaily"), QStringLiteral("Every day") },
+        { QStringLiteral("schedule.typeWeekly"), QStringLiteral("Every week") },
+        { QStringLiteral("schedule.typeMonthly"), QStringLiteral("Every month") },
+        { QStringLiteral("schedule.typeCustomMonthly"), QStringLiteral("Custom monthly dates") },
+        { QStringLiteral("schedule.startTime"), QStringLiteral("Start time") },
+        { QStringLiteral("schedule.weekday"), QStringLiteral("Day of week") },
+        { QStringLiteral("schedule.monthDay"), QStringLiteral("Day of month") },
+        { QStringLiteral("schedule.customDays"), QStringLiteral("Monthly dates") },
+        { QStringLiteral("schedule.enabled"), QStringLiteral("Automatic scheduling") },
+        { QStringLiteral("schedule.enabledBadge"), QStringLiteral("Enabled") },
+        { QStringLiteral("schedule.disabledBadge"), QStringLiteral("Paused") },
+        { QStringLiteral("schedule.save"), QStringLiteral("Save Strategy") },
+        { QStringLiteral("schedule.saveAndRun"), QStringLiteral("Save & Start Now") },
         { QStringLiteral("schedule.runNow"), QStringLiteral("Start Now") },
-        { QStringLiteral("schedule.startHint"), QStringLiteral("Playback starts immediately after saving. If normal playback is active, it waits in the background.") },
-        { QStringLiteral("schedule.empty"), QStringLiteral("No saved background playback configurations") },
+        { QStringLiteral("schedule.manualHint"), QStringLiteral("Save the strategy for manual starts, or save and start it immediately.") },
+        { QStringLiteral("schedule.scheduledHint"), QStringLiteral("Automatic runs use the computer's local time. Foreground playback always takes priority.") },
+        { QStringLiteral("schedule.empty"), QStringLiteral("No saved keep-alive strategies") },
         { QStringLiteral("schedule.noSources"), QStringLiteral("Add and sign in to an Emby source first") },
         { QStringLiteral("schedule.statusIdle"), QStringLiteral("Ready to start") },
         { QStringLiteral("schedule.statusWaiting"), QStringLiteral("Waiting for foreground playback to finish") },
@@ -526,6 +544,17 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("schedule.deletePrompt"), QStringLiteral("Delete this background playback configuration?") },
         { QStringLiteral("schedule.errorSource"), QStringLiteral("Select an Emby source with a saved session") },
         { QStringLiteral("schedule.errorBusy"), QStringLiteral("Another background playback task is already active") },
+        { QStringLiteral("schedule.errorCustomDays"), QStringLiteral("Select at least one monthly date") },
+        { QStringLiteral("schedule.missedTitle"), QStringLiteral("Missed keep-alive tasks") },
+        { QStringLiteral("schedule.missedIgnore"), QStringLiteral("Skip These Runs") },
+        { QStringLiteral("schedule.missedRun"), QStringLiteral("Run Now") },
+        { QStringLiteral("schedule.weekday1"), QStringLiteral("Monday") },
+        { QStringLiteral("schedule.weekday2"), QStringLiteral("Tuesday") },
+        { QStringLiteral("schedule.weekday3"), QStringLiteral("Wednesday") },
+        { QStringLiteral("schedule.weekday4"), QStringLiteral("Thursday") },
+        { QStringLiteral("schedule.weekday5"), QStringLiteral("Friday") },
+        { QStringLiteral("schedule.weekday6"), QStringLiteral("Saturday") },
+        { QStringLiteral("schedule.weekday7"), QStringLiteral("Sunday") },
     };
     return texts;
 }
@@ -781,15 +810,31 @@ const QHash<QString, QString>& scheduledPlaybackChineseTexts()
 {
     static const QHash<QString, QString> texts {
         { QStringLiteral("nav.scheduledTasks"), QStringLiteral("保号任务") },
-        { QStringLiteral("schedule.subtitle"), QStringLiteral("手动启动 Emby 无声后台保号播放") },
-        { QStringLiteral("schedule.add"), QStringLiteral("新建播放") },
-        { QStringLiteral("schedule.edit"), QStringLiteral("编辑播放") },
+        { QStringLiteral("schedule.subtitle"), QStringLiteral("为 Emby 创建手动或周期运行的无声后台保号策略") },
+        { QStringLiteral("schedule.add"), QStringLiteral("新建策略") },
+        { QStringLiteral("schedule.edit"), QStringLiteral("编辑策略") },
         { QStringLiteral("schedule.source"), QStringLiteral("Emby 播放源") },
         { QStringLiteral("schedule.duration"), QStringLiteral("播放时长") },
         { QStringLiteral("schedule.minutes"), QStringLiteral("分钟") },
+        { QStringLiteral("schedule.type"), QStringLiteral("运行策略") },
+        { QStringLiteral("schedule.typeManual"), QStringLiteral("仅手动运行") },
+        { QStringLiteral("schedule.typeDaily"), QStringLiteral("每天") },
+        { QStringLiteral("schedule.typeWeekly"), QStringLiteral("每周") },
+        { QStringLiteral("schedule.typeMonthly"), QStringLiteral("每月") },
+        { QStringLiteral("schedule.typeCustomMonthly"), QStringLiteral("自定义每月日期") },
+        { QStringLiteral("schedule.startTime"), QStringLiteral("开始时间") },
+        { QStringLiteral("schedule.weekday"), QStringLiteral("星期") },
+        { QStringLiteral("schedule.monthDay"), QStringLiteral("每月日期") },
+        { QStringLiteral("schedule.customDays"), QStringLiteral("选择日期") },
+        { QStringLiteral("schedule.enabled"), QStringLiteral("自动运行策略") },
+        { QStringLiteral("schedule.enabledBadge"), QStringLiteral("已启用") },
+        { QStringLiteral("schedule.disabledBadge"), QStringLiteral("已暂停") },
+        { QStringLiteral("schedule.save"), QStringLiteral("保存策略") },
+        { QStringLiteral("schedule.saveAndRun"), QStringLiteral("保存并立即开始") },
         { QStringLiteral("schedule.runNow"), QStringLiteral("立即开始") },
-        { QStringLiteral("schedule.startHint"), QStringLiteral("保存后立即开始；如果正在正常播放，将在后台等待播放结束。") },
-        { QStringLiteral("schedule.empty"), QStringLiteral("暂无后台播放配置") },
+        { QStringLiteral("schedule.manualHint"), QStringLiteral("可以仅保存供以后手动启动，也可以保存后立即开始。") },
+        { QStringLiteral("schedule.scheduledHint"), QStringLiteral("自动任务按电脑本地时间运行；正常前台播放始终优先。") },
+        { QStringLiteral("schedule.empty"), QStringLiteral("暂无保号策略") },
         { QStringLiteral("schedule.noSources"), QStringLiteral("请先添加并登录 Emby 播放源") },
         { QStringLiteral("schedule.statusIdle"), QStringLiteral("可以立即开始") },
         { QStringLiteral("schedule.statusWaiting"), QStringLiteral("等待前台播放结束") },
@@ -804,6 +849,17 @@ const QHash<QString, QString>& scheduledPlaybackChineseTexts()
         { QStringLiteral("schedule.deletePrompt"), QStringLiteral("确定删除这个后台播放配置吗？") },
         { QStringLiteral("schedule.errorSource"), QStringLiteral("请选择已保存登录会话的 Emby 播放源") },
         { QStringLiteral("schedule.errorBusy"), QStringLiteral("已有后台播放任务正在运行") },
+        { QStringLiteral("schedule.errorCustomDays"), QStringLiteral("请至少选择一个每月运行日期") },
+        { QStringLiteral("schedule.missedTitle"), QStringLiteral("发现未执行的保号任务") },
+        { QStringLiteral("schedule.missedIgnore"), QStringLiteral("本次忽略") },
+        { QStringLiteral("schedule.missedRun"), QStringLiteral("立即补跑") },
+        { QStringLiteral("schedule.weekday1"), QStringLiteral("星期一") },
+        { QStringLiteral("schedule.weekday2"), QStringLiteral("星期二") },
+        { QStringLiteral("schedule.weekday3"), QStringLiteral("星期三") },
+        { QStringLiteral("schedule.weekday4"), QStringLiteral("星期四") },
+        { QStringLiteral("schedule.weekday5"), QStringLiteral("星期五") },
+        { QStringLiteral("schedule.weekday6"), QStringLiteral("星期六") },
+        { QStringLiteral("schedule.weekday7"), QStringLiteral("星期日") },
     };
     return texts;
 }
@@ -853,6 +909,14 @@ AppViewModel::AppViewModel(QObject* parent)
                     flushPendingUsageStats(m_currentView == QStringLiteral("history"));
                 }
             });
+    connect(&m_scheduledPlaybackManager,
+            &ScheduledPlaybackManager::scheduleStateChanged,
+            this,
+            &AppViewModel::refreshScheduledPlaybackTasks);
+    connect(&m_scheduledPlaybackManager,
+            &ScheduledPlaybackManager::missedTasksChanged,
+            this,
+            &AppViewModel::missedScheduledPlaybackTasksChanged);
 }
 
 QString AppViewModel::serverUrl() const
@@ -1204,6 +1268,7 @@ void AppViewModel::setLanguageMode(const QString& value)
     ++m_translationRevision;
     emit languageModeChanged();
     emit translationsChanged();
+    emit missedScheduledPlaybackTasksChanged();
 }
 
 bool AppViewModel::pageTransitionsEnabled() const
@@ -1479,6 +1544,52 @@ bool AppViewModel::scheduledPlaybackWaiting() const
     return m_scheduledPlaybackManager.waiting();
 }
 
+bool AppViewModel::missedScheduledPlaybackPromptVisible() const
+{
+    return missedScheduledPlaybackTaskCount() > 0;
+}
+
+int AppViewModel::missedScheduledPlaybackTaskCount() const
+{
+    return m_scheduledPlaybackManager.missedTaskCount();
+}
+
+QString AppViewModel::missedScheduledPlaybackMessage() const
+{
+    const auto count = missedScheduledPlaybackTaskCount();
+    if (count <= 0) {
+        return {};
+    }
+
+    auto names = m_scheduledPlaybackManager.missedTaskServerNames();
+    const auto totalNameCount = static_cast<int>(names.size());
+    const auto remainingNames = std::max(0, totalNameCount - 3);
+    names = names.mid(0, std::min(3, totalNameCount));
+    const auto chinese = effectiveLanguage(m_languageMode) == QStringLiteral("zh_CN");
+    auto sourceText = names.join(chinese ? QStringLiteral("、") : QStringLiteral(", "));
+    if (remainingNames > 0) {
+        sourceText += chinese
+            ? QStringLiteral(" 等 %1 个播放源").arg(remainingNames + names.size())
+            : QStringLiteral(" and %1 more").arg(remainingNames);
+    }
+
+    if (chinese) {
+        return sourceText.isEmpty()
+            ? QStringLiteral("发现 %1 个保号策略在应用关闭期间错过运行，是否现在补跑？").arg(count)
+            : QStringLiteral("发现 %1 个保号策略在应用关闭期间错过运行（%2），是否现在补跑？")
+                  .arg(count)
+                  .arg(sourceText);
+    }
+    return sourceText.isEmpty()
+        ? QStringLiteral("%1 keep-alive %2 missed while the app was closed. Run them now?")
+              .arg(count)
+              .arg(count == 1 ? QStringLiteral("strategy was") : QStringLiteral("strategies were"))
+        : QStringLiteral("%1 keep-alive %2 missed while the app was closed (%3). Run them now?")
+              .arg(count)
+              .arg(count == 1 ? QStringLiteral("strategy was") : QStringLiteral("strategies were"))
+              .arg(sourceText);
+}
+
 int AppViewModel::scheduledTaskSourceIndex() const
 {
     return m_scheduledTaskSourceIndex;
@@ -1505,6 +1616,107 @@ void AppViewModel::setScheduledTaskDurationMinutes(int value)
         return;
     }
     m_scheduledTaskDurationMinutes = normalized;
+    emit scheduledTaskEditorChanged();
+}
+
+QString AppViewModel::scheduledTaskScheduleType() const
+{
+    return m_scheduledTaskScheduleType;
+}
+
+void AppViewModel::setScheduledTaskScheduleType(const QString& value)
+{
+    const auto normalized = ScheduledPlaybackSchedule::isSupportedType(value)
+        ? value
+        : QString::fromLatin1(ScheduledPlaybackSchedule::manualType);
+    if (m_scheduledTaskScheduleType == normalized) {
+        return;
+    }
+    m_scheduledTaskScheduleType = normalized;
+    emit scheduledTaskEditorChanged();
+}
+
+int AppViewModel::scheduledTaskStartHour() const
+{
+    return m_scheduledTaskStartHour;
+}
+
+void AppViewModel::setScheduledTaskStartHour(int value)
+{
+    const auto normalized = std::clamp(value, 0, 23);
+    if (m_scheduledTaskStartHour == normalized) {
+        return;
+    }
+    m_scheduledTaskStartHour = normalized;
+    emit scheduledTaskEditorChanged();
+}
+
+int AppViewModel::scheduledTaskStartMinute() const
+{
+    return m_scheduledTaskStartMinute;
+}
+
+void AppViewModel::setScheduledTaskStartMinute(int value)
+{
+    const auto normalized = std::clamp(value, 0, 59);
+    if (m_scheduledTaskStartMinute == normalized) {
+        return;
+    }
+    m_scheduledTaskStartMinute = normalized;
+    emit scheduledTaskEditorChanged();
+}
+
+int AppViewModel::scheduledTaskWeekday() const
+{
+    return m_scheduledTaskWeekday;
+}
+
+void AppViewModel::setScheduledTaskWeekday(int value)
+{
+    const auto normalized = std::clamp(value, 1, 7);
+    if (m_scheduledTaskWeekday == normalized) {
+        return;
+    }
+    m_scheduledTaskWeekday = normalized;
+    emit scheduledTaskEditorChanged();
+}
+
+int AppViewModel::scheduledTaskMonthDay() const
+{
+    return m_scheduledTaskMonthDay;
+}
+
+void AppViewModel::setScheduledTaskMonthDay(int value)
+{
+    const auto normalized = std::clamp(value, 1, 31);
+    if (m_scheduledTaskMonthDay == normalized) {
+        return;
+    }
+    m_scheduledTaskMonthDay = normalized;
+    emit scheduledTaskEditorChanged();
+}
+
+QVariantList AppViewModel::scheduledTaskCustomMonthDays() const
+{
+    QVariantList values;
+    values.reserve(m_scheduledTaskCustomMonthDays.size());
+    for (const auto day : m_scheduledTaskCustomMonthDays) {
+        values.push_back(day);
+    }
+    return values;
+}
+
+bool AppViewModel::scheduledTaskEnabled() const
+{
+    return m_scheduledTaskEnabled;
+}
+
+void AppViewModel::setScheduledTaskEnabled(bool value)
+{
+    if (m_scheduledTaskEnabled == value) {
+        return;
+    }
+    m_scheduledTaskEnabled = value;
     emit scheduledTaskEditorChanged();
 }
 
@@ -2479,8 +2691,15 @@ void AppViewModel::openScheduledPlaybackTasks()
 void AppViewModel::beginAddScheduledPlaybackTask()
 {
     m_scheduledTaskEditingId.clear();
-    setScheduledTaskSourceIndex(m_scheduledEmbySources.count() > 0 ? 0 : -1);
-    setScheduledTaskDurationMinutes(90);
+    m_scheduledTaskSourceIndex = m_scheduledEmbySources.count() > 0 ? 0 : -1;
+    m_scheduledTaskDurationMinutes = 90;
+    m_scheduledTaskScheduleType = QString::fromLatin1(ScheduledPlaybackSchedule::manualType);
+    m_scheduledTaskStartHour = 12;
+    m_scheduledTaskStartMinute = 0;
+    m_scheduledTaskWeekday = QDate::currentDate().dayOfWeek();
+    m_scheduledTaskMonthDay = QDate::currentDate().day();
+    m_scheduledTaskCustomMonthDays = { QDate::currentDate().day() };
+    m_scheduledTaskEnabled = true;
     emit scheduledTaskEditorChanged();
 }
 
@@ -2502,42 +2721,123 @@ void AppViewModel::editScheduledPlaybackTask(int row)
     }
     m_scheduledTaskSourceIndex = sourceIndex;
     m_scheduledTaskDurationMinutes = task->durationMinutes;
+    m_scheduledTaskScheduleType = ScheduledPlaybackSchedule::isSupportedType(task->scheduleType)
+        ? task->scheduleType
+        : QString::fromLatin1(ScheduledPlaybackSchedule::manualType);
+    const auto startTime = QTime::fromString(task->startTime, QStringLiteral("HH:mm"));
+    m_scheduledTaskStartHour = startTime.isValid() ? startTime.hour() : 12;
+    m_scheduledTaskStartMinute = startTime.isValid() ? startTime.minute() : 0;
+    const auto weeklyDays = ScheduledPlaybackSchedule::parseDays(task->scheduleDays, 1, 7);
+    const auto monthlyDays = ScheduledPlaybackSchedule::parseDays(task->scheduleDays, 1, 31);
+    m_scheduledTaskWeekday = weeklyDays.isEmpty() ? QDate::currentDate().dayOfWeek() : weeklyDays.front();
+    m_scheduledTaskMonthDay = monthlyDays.isEmpty() ? QDate::currentDate().day() : monthlyDays.front();
+    m_scheduledTaskCustomMonthDays = monthlyDays.isEmpty()
+        ? QList<int> { QDate::currentDate().day() }
+        : monthlyDays;
+    m_scheduledTaskEnabled = task->enabled;
     emit scheduledTaskEditorChanged();
+}
+
+bool AppViewModel::saveScheduledPlaybackTask()
+{
+    return saveScheduledPlaybackTaskInternal(false);
 }
 
 bool AppViewModel::saveAndRunScheduledPlaybackTask()
 {
-    clearError();
-    if (scheduledPlaybackActive() || scheduledPlaybackWaiting()) {
-        setError(trText(QStringLiteral("schedule.errorBusy")));
-        return false;
+    return saveScheduledPlaybackTaskInternal(true);
+}
+
+void AppViewModel::toggleScheduledTaskCustomMonthDay(int day)
+{
+    if (day < 1 || day > 31) {
+        return;
     }
+    if (m_scheduledTaskCustomMonthDays.contains(day)) {
+        m_scheduledTaskCustomMonthDays.removeAll(day);
+    } else {
+        m_scheduledTaskCustomMonthDays.push_back(day);
+        std::ranges::sort(m_scheduledTaskCustomMonthDays);
+    }
+    emit scheduledTaskEditorChanged();
+}
+
+std::optional<ScheduledPlaybackTask> AppViewModel::scheduledPlaybackTaskFromEditor()
+{
     const auto source = m_scheduledEmbySources.cardAt(m_scheduledTaskSourceIndex);
     if (!source || source->server.serviceType != ServiceType::Emby || !source->hasSession) {
         setError(trText(QStringLiteral("schedule.errorSource")));
-        return false;
+        return std::nullopt;
     }
 
-    const ScheduledPlaybackTask task {
+    auto startTime = QStringLiteral("manual");
+    auto scheduleDays = QString {};
+    if (m_scheduledTaskScheduleType != QLatin1String(ScheduledPlaybackSchedule::manualType)) {
+        startTime = QStringLiteral("%1:%2")
+            .arg(m_scheduledTaskStartHour, 2, 10, QLatin1Char('0'))
+            .arg(m_scheduledTaskStartMinute, 2, 10, QLatin1Char('0'));
+    }
+    if (m_scheduledTaskScheduleType == QLatin1String(ScheduledPlaybackSchedule::weeklyType)) {
+        scheduleDays = ScheduledPlaybackSchedule::serializeDays({ m_scheduledTaskWeekday }, 1, 7);
+    } else if (m_scheduledTaskScheduleType == QLatin1String(ScheduledPlaybackSchedule::monthlyType)) {
+        scheduleDays = ScheduledPlaybackSchedule::serializeDays({ m_scheduledTaskMonthDay }, 1, 31);
+    } else if (m_scheduledTaskScheduleType == QLatin1String(ScheduledPlaybackSchedule::customMonthlyType)) {
+        scheduleDays = ScheduledPlaybackSchedule::serializeDays(m_scheduledTaskCustomMonthDays, 1, 31);
+        if (scheduleDays.isEmpty()) {
+            setError(trText(QStringLiteral("schedule.errorCustomDays")));
+            return std::nullopt;
+        }
+    }
+
+    auto lastRunDate = QString {};
+    for (auto row = 0; row < m_scheduledPlaybackTasks.count(); ++row) {
+        const auto existing = m_scheduledPlaybackTasks.taskAt(row);
+        if (existing && existing->id == m_scheduledTaskEditingId &&
+            existing->scheduleType == m_scheduledTaskScheduleType &&
+            existing->startTime == startTime && existing->scheduleDays == scheduleDays) {
+            lastRunDate = existing->lastRunDate;
+            break;
+        }
+    }
+
+    return ScheduledPlaybackTask {
         .id = m_scheduledTaskEditingId.isEmpty()
             ? QUuid::createUuid().toString(QUuid::WithoutBraces)
             : m_scheduledTaskEditingId,
         .serverId = source->server.id,
         .serverName = source->server.name,
         .username = source->server.username,
-        .startTime = QStringLiteral("manual"),
+        .scheduleType = m_scheduledTaskScheduleType,
+        .startTime = startTime,
+        .scheduleDays = scheduleDays,
         .durationMinutes = std::clamp(m_scheduledTaskDurationMinutes, 5, 720),
-        .enabled = true,
-        .lastRunDate = QStringLiteral(""),
+        .enabled = m_scheduledTaskEnabled,
+        .lastRunDate = lastRunDate,
         .privateMode = source->server.privateMode,
     };
-    if (auto result = m_repository.saveScheduledPlaybackTask(task); !result) {
+}
+
+bool AppViewModel::saveScheduledPlaybackTaskInternal(bool runNow)
+{
+    clearError();
+    if (runNow && (scheduledPlaybackActive() || scheduledPlaybackWaiting())) {
+        setError(trText(QStringLiteral("schedule.errorBusy")));
+        return false;
+    }
+
+    const auto task = scheduledPlaybackTaskFromEditor();
+    if (!task) {
+        return false;
+    }
+    if (auto result = m_repository.saveScheduledPlaybackTask(*task); !result) {
         setError(result.error());
         return false;
     }
 
     refreshScheduledPlaybackTasks();
-    m_scheduledPlaybackManager.runNow(task);
+    if (runNow) {
+        m_scheduledPlaybackManager.runNow(*task);
+    }
     return true;
 }
 
@@ -2575,6 +2875,60 @@ void AppViewModel::runScheduledPlaybackTaskNow(int row)
 void AppViewModel::stopScheduledPlayback()
 {
     m_scheduledPlaybackManager.stop();
+}
+
+void AppViewModel::resolveMissedScheduledPlaybackTasks(bool runNow)
+{
+    m_scheduledPlaybackManager.resolveMissedTasks(runNow);
+}
+
+QString AppViewModel::formatScheduledPlaybackSchedule(const QString& scheduleType,
+                                                      const QString& startTime,
+                                                      const QString& scheduleDays) const
+{
+    if (scheduleType == QLatin1String(ScheduledPlaybackSchedule::manualType)) {
+        return trText(QStringLiteral("schedule.manual"));
+    }
+
+    const auto time = QTime::fromString(startTime, QStringLiteral("HH:mm"));
+    const auto timeText = time.isValid() ? time.toString(QStringLiteral("HH:mm")) : QStringLiteral("--:--");
+    const auto chinese = effectiveLanguage(m_languageMode) == QStringLiteral("zh_CN");
+
+    if (scheduleType == QLatin1String(ScheduledPlaybackSchedule::dailyType)) {
+        return chinese
+            ? QStringLiteral("每天 %1").arg(timeText)
+            : QStringLiteral("Every day at %1").arg(timeText);
+    }
+
+    if (scheduleType == QLatin1String(ScheduledPlaybackSchedule::weeklyType)) {
+        const auto days = ScheduledPlaybackSchedule::parseDays(scheduleDays, 1, 7);
+        const auto weekday = days.isEmpty() ? 1 : days.front();
+        const auto weekdayText = trText(QStringLiteral("schedule.weekday%1").arg(weekday));
+        return chinese
+            ? QStringLiteral("每周%1 %2").arg(weekdayText.mid(2), timeText)
+            : QStringLiteral("Every %1 at %2").arg(weekdayText, timeText);
+    }
+
+    const auto days = ScheduledPlaybackSchedule::parseDays(scheduleDays, 1, 31);
+    QStringList dayTexts;
+    dayTexts.reserve(days.size());
+    for (const auto day : days) {
+        dayTexts.push_back(QString::number(day));
+    }
+    const auto joinedDays = dayTexts.join(chinese ? QStringLiteral("、") : QStringLiteral(", "));
+    if (scheduleType == QLatin1String(ScheduledPlaybackSchedule::monthlyType)) {
+        const auto dayText = dayTexts.isEmpty() ? QStringLiteral("1") : dayTexts.front();
+        return chinese
+            ? QStringLiteral("每月 %1 日 %2").arg(dayText, timeText)
+            : QStringLiteral("Day %1 of every month at %2").arg(dayText, timeText);
+    }
+    if (scheduleType == QLatin1String(ScheduledPlaybackSchedule::customMonthlyType)) {
+        return chinese
+            ? QStringLiteral("每月 %1 日 · %2").arg(joinedDays, timeText)
+            : QStringLiteral("Monthly on days %1 at %2").arg(joinedDays, timeText);
+    }
+
+    return trText(QStringLiteral("schedule.manual"));
 }
 
 QString AppViewModel::formatDuration(qint64 seconds) const
@@ -3368,6 +3722,7 @@ void AppViewModel::refreshScheduledPlaybackTasks()
                            QStringLiteral("Load scheduled tasks failed: %1").arg(result.error()));
         return;
     }
+    m_scheduledPlaybackManager.setTasks(*result, m_privacyMode);
     m_scheduledPlaybackTasks.setTasks(*result);
     emit scheduledPlaybackTasksChanged();
 }
