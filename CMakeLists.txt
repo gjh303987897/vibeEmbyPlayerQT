@@ -310,28 +310,30 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 
-    add_executable(emby_client_search_test
-        tests/EmbyClientSearchTest.cpp
+    add_executable(media_server_search_test
+        tests/MediaServerSearchTest.cpp
         src/network/NetworkClient.cpp
         src/network/NetworkClient.h
         src/services/emby/EmbyClient.cpp
         src/services/emby/EmbyClient.h
+        src/services/jellyfin/JellyfinClient.cpp
+        src/services/jellyfin/JellyfinClient.h
         src/services/media/MediaServerClientBase.cpp
         src/services/media/MediaServerClientBase.h
         src/services/media/MediaServiceClient.h
         src/utils/JsonUtils.cpp
         src/utils/JsonUtils.h
     )
-    target_include_directories(emby_client_search_test PRIVATE
+    target_include_directories(media_server_search_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-    target_link_libraries(emby_client_search_test PRIVATE
+    target_link_libraries(media_server_search_test PRIVATE
         Qt6::Network
         Qt6::Test
     )
 
-    add_test(NAME emby_client_search COMMAND emby_client_search_test)
-    set_tests_properties(emby_client_search PROPERTIES
+    add_test(NAME media_server_search COMMAND media_server_search_test)
+    set_tests_properties(media_server_search PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 

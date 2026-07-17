@@ -26,7 +26,7 @@ public:
                           const QString& searchTerm,
                           int startIndex,
                           int limit,
-                          std::function<void(ItemResult)> callback);
+                          std::function<void(ItemResult)> callback) override;
 
     void fetchContinueWatching(const UserSession& session, int limit, std::function<void(ItemResult)> callback) override;
 

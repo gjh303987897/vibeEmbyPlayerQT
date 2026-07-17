@@ -61,6 +61,12 @@ public:
                                    int limit,
                                    std::function<void(ItemResult)> callback) = 0;
 
+    virtual void searchVideoItems(const UserSession& session,
+                                  const QString& searchTerm,
+                                  int startIndex,
+                                  int limit,
+                                  std::function<void(ItemResult)> callback) = 0;
+
     virtual void fetchContinueWatching(const UserSession& session, int limit, std::function<void(ItemResult)> callback) = 0;
 
     virtual void fetchSeriesSeasons(const UserSession& session,

@@ -22,6 +22,12 @@ public:
                            int limit,
                            std::function<void(ItemResult)> callback) override;
 
+    void searchVideoItems(const UserSession& session,
+                          const QString& searchTerm,
+                          int startIndex,
+                          int limit,
+                          std::function<void(ItemResult)> callback) override;
+
     void fetchContinueWatching(const UserSession& session, int limit, std::function<void(ItemResult)> callback) override;
 
     void fetchSeriesSeasons(const UserSession& session,

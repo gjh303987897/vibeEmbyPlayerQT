@@ -82,11 +82,11 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(bool homeLoading READ homeLoading NOTIFY homeLoadingChanged)
     Q_PROPERTY(bool libraryItemsLoading READ libraryItemsLoading NOTIFY libraryItemsLoadingChanged)
-    Q_PROPERTY(QString embySearchText READ embySearchText WRITE setEmbySearchText NOTIFY embySearchChanged)
-    Q_PROPERTY(QString activeEmbySearchTerm READ activeEmbySearchTerm NOTIFY embySearchChanged)
-    Q_PROPERTY(bool embySearchAvailable READ embySearchAvailable NOTIFY currentServerChanged)
-    Q_PROPERTY(bool embySearchLoading READ embySearchLoading NOTIFY embySearchChanged)
-    Q_PROPERTY(bool embySearchHasMore READ embySearchHasMore NOTIFY embySearchChanged)
+    Q_PROPERTY(QString serverSearchText READ serverSearchText WRITE setServerSearchText NOTIFY serverSearchChanged)
+    Q_PROPERTY(QString activeServerSearchTerm READ activeServerSearchTerm NOTIFY serverSearchChanged)
+    Q_PROPERTY(bool serverSearchAvailable READ serverSearchAvailable NOTIFY currentServerChanged)
+    Q_PROPERTY(bool serverSearchLoading READ serverSearchLoading NOTIFY serverSearchChanged)
+    Q_PROPERTY(bool serverSearchHasMore READ serverSearchHasMore NOTIFY serverSearchChanged)
     Q_PROPERTY(bool loggedIn READ loggedIn NOTIFY loggedInChanged)
     Q_PROPERTY(QString currentUser READ currentUser NOTIFY currentUserChanged)
     Q_PROPERTY(QString currentServerName READ currentServerName NOTIFY currentServerChanged)
@@ -116,7 +116,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(MediaLibraryListModel* libraries READ libraries CONSTANT)
     Q_PROPERTY(MediaItemListModel* continueItems READ continueItems CONSTANT)
     Q_PROPERTY(MediaItemListModel* items READ items CONSTANT)
-    Q_PROPERTY(MediaItemListModel* embySearchResults READ embySearchResults CONSTANT)
+    Q_PROPERTY(MediaItemListModel* serverSearchResults READ serverSearchResults CONSTANT)
     Q_PROPERTY(MediaItemListModel* seriesSeasons READ seriesSeasons CONSTANT)
     Q_PROPERTY(MediaItemListModel* seriesEpisodes READ seriesEpisodes CONSTANT)
     Q_PROPERTY(DailyUsageStatsListModel* usageStats READ usageStats CONSTANT)
@@ -228,12 +228,12 @@ public:
     bool loading() const;
     bool homeLoading() const;
     bool libraryItemsLoading() const;
-    QString embySearchText() const;
-    void setEmbySearchText(const QString& value);
-    QString activeEmbySearchTerm() const;
-    bool embySearchAvailable() const;
-    bool embySearchLoading() const;
-    bool embySearchHasMore() const;
+    QString serverSearchText() const;
+    void setServerSearchText(const QString& value);
+    QString activeServerSearchTerm() const;
+    bool serverSearchAvailable() const;
+    bool serverSearchLoading() const;
+    bool serverSearchHasMore() const;
     bool loggedIn() const;
     QString currentUser() const;
     QString currentServerName() const;
@@ -264,7 +264,7 @@ public:
     MediaLibraryListModel* libraries();
     MediaItemListModel* continueItems();
     MediaItemListModel* items();
-    MediaItemListModel* embySearchResults();
+    MediaItemListModel* serverSearchResults();
     MediaItemListModel* seriesSeasons();
     MediaItemListModel* seriesEpisodes();
     DailyUsageStatsListModel* usageStats();
@@ -372,10 +372,10 @@ public:
     Q_INVOKABLE QString formatDuration(qint64 seconds) const;
     Q_INVOKABLE void refreshHome();
     Q_INVOKABLE void refreshLibraries();
-    Q_INVOKABLE void searchEmby();
-    Q_INVOKABLE void clearEmbySearch();
-    Q_INVOKABLE void loadMoreEmbySearchResults();
-    Q_INVOKABLE void openEmbySearchItem(int row);
+    Q_INVOKABLE void searchMediaServer();
+    Q_INVOKABLE void clearServerSearch();
+    Q_INVOKABLE void loadMoreServerSearchResults();
+    Q_INVOKABLE void openServerSearchItem(int row);
     Q_INVOKABLE void openLibrary(int row);
     Q_INVOKABLE void openContinueItem(int row);
     Q_INVOKABLE void openItem(int row);
@@ -422,7 +422,7 @@ signals:
     void loadingChanged();
     void homeLoadingChanged();
     void libraryItemsLoadingChanged();
-    void embySearchChanged();
+    void serverSearchChanged();
     void loggedInChanged();
     void currentUserChanged();
     void currentServerChanged();
@@ -502,8 +502,8 @@ private:
     void applyReportedPlaybackProgress(const QString& itemId, qint64 positionTicks);
     void mergeRecentPlaybackProgress(std::vector<MediaItem>& items) const;
     void refreshContinueWatching();
-    void clearEmbySearchState(bool clearText = true);
-    void loadEmbySearchResults(bool resetItems);
+    void clearServerSearchState(bool clearText = true);
+    void loadServerSearchResults(bool resetItems);
     void openMediaItemDetails(const MediaItem& item, bool returnToSearch);
     void resetMediaDirectory(const QString& id, const QString& name);
     void clearMediaDirectoryState();
@@ -549,13 +549,13 @@ private:
     bool m_loading { false };
     int m_homeLoadingRequests { 0 };
     bool m_libraryItemsLoading { false };
-    QString m_embySearchText;
-    QString m_activeEmbySearchTerm;
-    bool m_embySearchLoading { false };
-    int m_embySearchNextStartIndex { 0 };
-    int m_embySearchPageSize { 60 };
-    bool m_embySearchHasMore { false };
-    int m_embySearchRequestGeneration { 0 };
+    QString m_serverSearchText;
+    QString m_activeServerSearchTerm;
+    bool m_serverSearchLoading { false };
+    int m_serverSearchNextStartIndex { 0 };
+    int m_serverSearchPageSize { 60 };
+    bool m_serverSearchHasMore { false };
+    int m_serverSearchRequestGeneration { 0 };
     bool m_detailsReturnToSearch { false };
     QString m_errorMessage;
     std::optional<UserSession> m_session;
@@ -619,7 +619,7 @@ private:
     MediaLibraryListModel m_libraries;
     MediaItemListModel m_continueItems;
     MediaItemListModel m_items;
-    MediaItemListModel m_embySearchResults;
+    MediaItemListModel m_serverSearchResults;
     MediaItemListModel m_seriesSeasons;
     MediaItemListModel m_seriesEpisodes;
     IptvChannelListModel m_iptvChannels;

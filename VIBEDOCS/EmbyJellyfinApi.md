@@ -7,7 +7,7 @@
 - 用户名 + 密码登录。
 - 获取当前用户可访问的媒体库。
 - 进入媒体库后获取电影 / 剧集列表。
-- 搜索当前 Emby 用户可访问的全部影片。
+- 搜索当前 Emby / Jellyfin 用户可访问的全部影片。
 - 服务首页继续播放列表。
 - 媒体详情页基础信息。
 
@@ -24,6 +24,7 @@
 - Jellyfin login operation: `AuthenticateUserByName`
 - Jellyfin user views operation: `GetUserViews`
 - Jellyfin items operation: `GetItems`
+- Jellyfin server search: `GET /Items` with `userId`, `searchTerm` and `recursive=true`
 - Jellyfin resume operation: `GetResumeItems`, path `GET /UserItems/Resume`
 - Jellyfin item details operation: `GetItem`, path `GET /Items/{itemId}`
 
@@ -90,18 +91,30 @@ Current item type mapping:
 - `tvshows` collection -> `Series`
 - other collection types are requested without an item-type filter.
 
-## Emby Server Search
+## Media Server Search
 
 Emby 搜索复用官方用户条目接口：
 
 - Endpoint: `GET /Users/{UserId}/Items`
 - Query: `SearchTerm`, `Recursive=true`, `StartIndex`, `Limit`, `IncludeItemTypes`, `Fields`, `EnableImages=true`, `EnableUserData=true`
-- `IncludeItemTypes` 当前为 `Movie,Series,Episode,Video`，用于覆盖电影、剧集、单集和普通视频。
-- 请求不传 `ParentId`，因此搜索范围是当前用户可访问的服务器根目录，而不是当前打开的媒体库。
+
+Emby official reference: `https://dev.emby.media/reference/RestAPI/ItemsService/getUsersByUseridItems.html`
+
+Jellyfin 搜索使用官方 `GetItems` 操作：
+
+- Endpoint: `GET /Items`
+- Query: `userId`, `searchTerm`, `recursive=true`, `startIndex`, `limit`, `includeItemTypes`, `fields`, `enableImages=true`, `enableUserData=true`
+- 请求使用 Jellyfin `MediaBrowser` 鉴权方案，并保留服务现有的 `X-Emby-Token` 兼容头。
+
+Jellyfin official reference: `https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json`, operation `GetItems`
+
+Shared behavior:
+
+- `IncludeItemTypes` / `includeItemTypes` 当前为 `Movie,Series,Episode,Video`，用于覆盖电影、剧集、单集和普通视频。
+- 两种请求都不传 `ParentId` / `parentId`，因此搜索范围是当前用户可访问的服务器根目录，而不是当前打开的媒体库。
 - 搜索结果使用独立的 `MediaItemListModel`，不会覆盖媒体库分页和目录导航状态。
 - 新关键词提交时使用请求代数使旧响应失效；详情页返回时恢复原搜索结果和滚动上下文。
-
-Official reference: `https://dev.emby.media/reference/RestAPI/ItemsService/getUsersByUseridItems.html`
+- QML 只展示共用搜索栏和结果状态；服务类型对应的路径、参数命名和鉴权方案由 C++ 客户端负责。
 
 ## Continue Watching
 

@@ -27,7 +27,7 @@ resources/
 tests/*
 !tests/TransferManagerTest.cpp
 !tests/ScheduledPlaybackScheduleTest.cpp
-!tests/EmbyClientSearchTest.cpp
+!tests/MediaServerSearchTest.cpp
 test-runtime/
 local-data/
 local-data*/

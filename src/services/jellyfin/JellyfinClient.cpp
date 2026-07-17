@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QUrlQuery>
 
+#include <algorithm>
 #include <expected>
 #include <utility>
 
@@ -134,6 +135,50 @@ void JellyfinClient::fetchLibraryItems(const UserSession& session,
             return;
         }
 
+        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+    });
+}
+
+void JellyfinClient::searchVideoItems(const UserSession& session,
+                                      const QString& searchTerm,
+                                      int startIndex,
+                                      int limit,
+                                      std::function<void(ItemResult)> callback)
+{
+    const auto normalizedTerm = searchTerm.trimmed();
+    if (normalizedTerm.isEmpty()) {
+        callback(std::unexpected(NetworkError {
+            .kind = NetworkErrorKind::InvalidUrl,
+            .message = QStringLiteral("Search term is required"),
+        }));
+        return;
+    }
+
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Items"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("userId"), session.userId);
+    query.addQueryItem(QStringLiteral("searchTerm"), normalizedTerm);
+    query.addQueryItem(QStringLiteral("recursive"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("includeItemTypes"), QStringLiteral("Movie,Series,Episode,Video"));
+    query.addQueryItem(QStringLiteral("startIndex"), QString::number(std::max(0, startIndex)));
+    query.addQueryItem(QStringLiteral("limit"), QString::number(std::max(1, limit)));
+    query.addQueryItem(QStringLiteral("sortBy"), QStringLiteral("SortName"));
+    query.addQueryItem(QStringLiteral("sortOrder"), QStringLiteral("Ascending"));
+    query.addQueryItem(QStringLiteral("fields"),
+                       QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,SeriesPrimaryImageTag,ParentId"));
+    query.addQueryItem(QStringLiteral("enableImages"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("enableUserData"), QStringLiteral("true"));
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+        if (!result) {
+            callback(std::unexpected(result.error()));
+            return;
+        }
         callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
     });
 }

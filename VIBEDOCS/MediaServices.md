@@ -17,7 +17,7 @@ QML does not make network requests and does not parse JSON.
   - Emits a certificate confirmation signal before accepting self-signed certificates.
 
 - `MediaServiceClient`
-  - Abstract interface for login, library loading, item loading, continue-watching loading and item details.
+  - Abstract interface for login, library loading, item loading, server-wide search, continue-watching loading and item details.
 
 - `MediaServerClientBase`
   - Shared URL building, authorization header construction, response parsing and image URL construction.
@@ -26,7 +26,7 @@ QML does not make network requests and does not parse JSON.
   - Uses Emby REST API paths, including the current-user root item search endpoint.
 
 - `JellyfinClient`
-  - Uses Jellyfin OpenAPI paths.
+  - Uses Jellyfin OpenAPI paths, including `GET /Items` for current-user root searches.
 
 - `SessionRepository`
   - Owns SQLite persistence for servers and sessions.
@@ -42,7 +42,7 @@ QML does not make network requests and does not parse JSON.
 - `AppViewModel`
   - Owns screen state.
   - Selects Emby or Jellyfin client based on user-selected service type.
-  - Exposes `ServiceCardListModel`, `MediaLibraryListModel`, continue-watching `MediaItemListModel`, library item `MediaItemListModel` and an independent Emby search result model to QML.
+  - Exposes `ServiceCardListModel`, `MediaLibraryListModel`, continue-watching `MediaItemListModel`, library item `MediaItemListModel` and an independent media-server search result model to QML.
   - Owns the navigation state for service cards, service home, library item list and item details.
 
 ## Service Card Flow
@@ -62,8 +62,8 @@ QML does not make network requests and does not parse JSON.
 - Emby / Jellyfin service home loads two independent sections:
   - continue watching
   - user libraries
-- The Emby home and search-results view expose one shared server-wide search control in the top toolbar, alongside settings and service navigation. Jellyfin remains unchanged until its official OpenAPI search behavior is reviewed separately.
-- Search requests stay in `EmbyClient`; QML only edits the query, submits it and renders state exposed by `AppViewModel`.
+- The Emby and Jellyfin home/search-results views expose the same server-wide search control in the top toolbar, alongside settings and service navigation.
+- Search requests stay behind `MediaServiceClient`: `EmbyClient` uses the Emby user-items endpoint and `JellyfinClient` uses the official Jellyfin `GetItems` operation. QML only edits the query, submits it and renders state exposed by `AppViewModel`.
 - Search results use their own paginated model, reuse the normal media poster and details flow, and retain the result list when returning from details.
 - Continue-watching clicks open the item details page. Direct playback from this section is intentionally not implemented yet.
 - Continue watching is rendered as a horizontal carousel with left / right scroll buttons and touchpad / mouse wheel scrolling.

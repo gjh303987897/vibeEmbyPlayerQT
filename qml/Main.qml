@@ -1058,7 +1058,7 @@ ApplicationWindow {
                     } else if (appViewModel.currentView === "webdav") {
                         appViewModel.webDavBack()
                     } else if (appViewModel.currentView === "search") {
-                        appViewModel.clearEmbySearch()
+                        appViewModel.clearServerSearch()
                     } else if (appViewModel.currentView === "library") {
                         appViewModel.mediaLibraryBack()
                     } else if (appViewModel.currentView === "details") {
@@ -1140,8 +1140,8 @@ ApplicationWindow {
                 implicitHeight: 28
             }
 
-            EmbySearchBar {
-                visible: appViewModel.embySearchAvailable
+            MediaServerSearchBar {
+                visible: appViewModel.serverSearchAvailable
                     && (appViewModel.currentView === "home" || appViewModel.currentView === "search")
                 Layout.minimumWidth: visible ? 300 : 0
                 Layout.preferredWidth: visible ? Math.min(380, Math.max(320, root.width * 0.30)) : 0
@@ -1602,9 +1602,9 @@ ApplicationWindow {
                 }
 
                 Item {
-                    id: embySearchPage
-                    property bool showInitialLoading: appViewModel.embySearchLoading
-                        && appViewModel.embySearchResults.count === 0
+                    id: serverSearchPage
+                    property bool showInitialLoading: appViewModel.serverSearchLoading
+                        && appViewModel.serverSearchResults.count === 0
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1629,7 +1629,7 @@ ApplicationWindow {
 
                                 MutedText {
                                     Layout.fillWidth: true
-                                    text: t("search.resultsFor") + " “" + appViewModel.activeEmbySearchTerm + "”"
+                                    text: t("search.resultsFor") + " “" + appViewModel.activeServerSearchTerm + "”"
                                     elide: Text.ElideRight
                                 }
                             }
@@ -1644,7 +1644,7 @@ ApplicationWindow {
                                 Label {
                                     id: searchResultCount
                                     anchors.centerIn: parent
-                                    text: t("search.resultCount").arg(appViewModel.embySearchResults.count)
+                                    text: t("search.resultCount").arg(appViewModel.serverSearchResults.count)
                                     color: theme.primary
                                     font.pixelSize: 12
                                     font.bold: true
@@ -1657,24 +1657,24 @@ ApplicationWindow {
                             Layout.fillHeight: true
 
                             GridView {
-                                id: embySearchGrid
+                                id: serverSearchGrid
                                 anchors.fill: parent
                                 clip: true
-                                model: appViewModel.embySearchResults
+                                model: appViewModel.serverSearchResults
                                 cellWidth: Math.max(172, width / Math.max(1, Math.floor(width / 186)))
                                 cellHeight: 292
-                                opacity: embySearchPage.showInitialLoading ? 0.24 : 1
+                                opacity: serverSearchPage.showInitialLoading ? 0.24 : 1
 
                                 Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
                                 onMovementEnded: {
-                                    if (atYEnd && appViewModel.embySearchHasMore && !appViewModel.embySearchLoading) {
-                                        appViewModel.loadMoreEmbySearchResults()
+                                    if (atYEnd && appViewModel.serverSearchHasMore && !appViewModel.serverSearchLoading) {
+                                        appViewModel.loadMoreServerSearchResults()
                                     }
                                 }
 
                                 delegate: MediaPoster {
-                                    width: embySearchGrid.cellWidth - 14
+                                    width: serverSearchGrid.cellWidth - 14
                                     height: 278
                                     title: model.name
                                     subtitle: model.itemType === "Episode" && model.seriesName.length > 0
@@ -1683,14 +1683,14 @@ ApplicationWindow {
                                         : model.productionYear.length > 0 ? model.productionYear + " · " + model.itemType : model.itemType
                                     imageUrl: model.imageUrl
                                     progress: model.playedPercentage
-                                    onActivated: appViewModel.openEmbySearchItem(index)
+                                    onActivated: appViewModel.openServerSearchItem(index)
                                 }
                             }
 
                             ColumnLayout {
                                 anchors.centerIn: parent
-                                visible: !appViewModel.embySearchLoading
-                                    && appViewModel.embySearchResults.count === 0
+                                visible: !appViewModel.serverSearchLoading
+                                    && appViewModel.serverSearchResults.count === 0
                                 spacing: 9
 
                                 Rectangle {
@@ -1698,8 +1698,8 @@ ApplicationWindow {
                                     Layout.preferredWidth: 54
                                     Layout.preferredHeight: 54
                                     radius: 8
-                                    color: root.withAlpha(root.serviceAccentColor("Emby"), darkTheme ? 0.20 : 0.12)
-                                    border.color: root.withAlpha(root.serviceAccentColor("Emby"), 0.42)
+                                    color: root.withAlpha(theme.primary, darkTheme ? 0.20 : 0.12)
+                                    border.color: root.withAlpha(theme.primary, 0.42)
 
                                     Label {
                                         anchors.centerIn: parent
@@ -1724,15 +1724,15 @@ ApplicationWindow {
 
                             PageLoadingPanel {
                                 anchors.centerIn: parent
-                                visible: embySearchPage.showInitialLoading
+                                visible: serverSearchPage.showInitialLoading
                                 title: t("search.loading")
                                 subtitle: t("search.loadingHint")
                             }
                         }
 
                         RowLayout {
-                            visible: appViewModel.embySearchLoading
-                                && appViewModel.embySearchResults.count > 0
+                            visible: appViewModel.serverSearchLoading
+                                && appViewModel.serverSearchResults.count > 0
                             Layout.alignment: Qt.AlignHCenter
                             Layout.preferredHeight: visible ? 30 : 0
                             spacing: 8
@@ -1926,26 +1926,26 @@ ApplicationWindow {
         }
     }
 
-    component EmbySearchBar: RowLayout {
-        id: embySearchBar
+    component MediaServerSearchBar: RowLayout {
+        id: mediaServerSearchBar
         spacing: 8
 
         ModernTextField {
-            id: embySearchInput
+            id: serverSearchInput
             Layout.fillWidth: true
             implicitHeight: 38
             leftPadding: 36
-            rightPadding: embySearchClear.visible ? 38 : 12
-            placeholderText: t("search.embyPlaceholder")
-            text: appViewModel.embySearchText
+            rightPadding: serverSearchClear.visible ? 38 : 12
+            placeholderText: t("search.serverPlaceholder")
+            text: appViewModel.serverSearchText
             onTextChanged: {
-                if (appViewModel.embySearchText !== text) {
-                    appViewModel.embySearchText = text
+                if (appViewModel.serverSearchText !== text) {
+                    appViewModel.serverSearchText = text
                 }
             }
             onAccepted: {
                 if (text.trim().length > 0) {
-                    appViewModel.searchEmby()
+                    appViewModel.searchMediaServer()
                 }
             }
 
@@ -1954,29 +1954,29 @@ ApplicationWindow {
                 anchors.leftMargin: 11
                 anchors.verticalCenter: parent.verticalCenter
                 text: "\uD83D\uDD0D"
-                color: embySearchInput.activeFocus ? theme.primary : theme.muted
+                color: serverSearchInput.activeFocus ? theme.primary : theme.muted
                 font.pixelSize: 15
                 z: 2
             }
 
             Button {
-                id: embySearchClear
+                id: serverSearchClear
                 anchors.right: parent.right
                 anchors.rightMargin: 4
                 anchors.verticalCenter: parent.verticalCenter
                 width: 30
                 height: 30
-                visible: embySearchInput.text.length > 0
+                visible: serverSearchInput.text.length > 0
                 text: "×"
                 hoverEnabled: true
                 z: 2
                 ToolTip.visible: hovered
                 ToolTip.text: t("search.clear")
-                onClicked: appViewModel.clearEmbySearch()
+                onClicked: appViewModel.clearServerSearch()
 
                 contentItem: Label {
-                    text: embySearchClear.text
-                    color: embySearchClear.hovered ? theme.text : theme.muted
+                    text: serverSearchClear.text
+                    color: serverSearchClear.hovered ? theme.text : theme.muted
                     font.pixelSize: 17
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -1984,7 +1984,7 @@ ApplicationWindow {
 
                 background: Rectangle {
                     radius: 6
-                    color: embySearchClear.hovered ? theme.elevatedHover : "transparent"
+                    color: serverSearchClear.hovered ? theme.elevatedHover : "transparent"
                 }
             }
         }
@@ -1993,8 +1993,8 @@ ApplicationWindow {
             Layout.preferredWidth: 82
             implicitHeight: 38
             text: t("search.action")
-            enabled: embySearchInput.text.trim().length > 0
-            onClicked: appViewModel.searchEmby()
+            enabled: serverSearchInput.text.trim().length > 0
+            onClicked: appViewModel.searchMediaServer()
         }
     }
 
