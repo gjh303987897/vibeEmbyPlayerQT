@@ -359,6 +359,13 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("iptv.noChannels"), QStringLiteral("No channels found") },
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV Files") },
         { QStringLiteral("webdav.empty"), QStringLiteral("This folder is empty") },
+        { QStringLiteral("webdav.videoEmpty"), QStringLiteral("No folders or videos in this folder") },
+        { QStringLiteral("webdav.displayMode"), QStringLiteral("View") },
+        { QStringLiteral("webdav.modeDefault"), QStringLiteral("Default") },
+        { QStringLiteral("webdav.modeVideo"), QStringLiteral("Video") },
+        { QStringLiteral("webdav.videoModeHint"), QStringLiteral("Folders and videos only") },
+        { QStringLiteral("webdav.folder"), QStringLiteral("Folder") },
+        { QStringLiteral("webdav.video"), QStringLiteral("Video") },
         { QStringLiteral("webdav.loadingFolder"), QStringLiteral("Loading folder...") },
         { QStringLiteral("webdav.loadingHint"), QStringLiteral("Reading remote directory") },
         { QStringLiteral("webdav.defaultDownload"), QStringLiteral("Default download folder") },
@@ -714,6 +721,13 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("action.choose"), QStringLiteral("选择") },
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV 文件") },
         { QStringLiteral("webdav.empty"), QStringLiteral("当前文件夹为空") },
+        { QStringLiteral("webdav.videoEmpty"), QStringLiteral("当前文件夹中没有子文件夹或视频") },
+        { QStringLiteral("webdav.displayMode"), QStringLiteral("显示模式") },
+        { QStringLiteral("webdav.modeDefault"), QStringLiteral("默认") },
+        { QStringLiteral("webdav.modeVideo"), QStringLiteral("视频") },
+        { QStringLiteral("webdav.videoModeHint"), QStringLiteral("仅显示子文件夹和视频") },
+        { QStringLiteral("webdav.folder"), QStringLiteral("文件夹") },
+        { QStringLiteral("webdav.video"), QStringLiteral("视频") },
         { QStringLiteral("webdav.loadingFolder"), QStringLiteral("正在加载文件夹...") },
         { QStringLiteral("webdav.loadingHint"), QStringLiteral("正在读取远程目录") },
         { QStringLiteral("webdav.defaultDownload"), QStringLiteral("默认下载文件夹") },
@@ -1105,6 +1119,27 @@ WebDavItemListModel* AppViewModel::webDavItems()
 QString AppViewModel::webDavCurrentPath() const
 {
     return m_webDavCurrentUrl.path(QUrl::FullyDecoded);
+}
+
+QString AppViewModel::webDavDisplayMode() const
+{
+    return m_webDavDisplayMode;
+}
+
+void AppViewModel::setWebDavDisplayMode(const QString& value)
+{
+    const auto normalizedMode = value.compare(QStringLiteral("video"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("video")
+        : QStringLiteral("default");
+    if (m_webDavDisplayMode == normalizedMode) {
+        return;
+    }
+
+    m_webDavDisplayMode = normalizedMode;
+    m_webDavItems.setVideoMode(m_webDavDisplayMode == QStringLiteral("video"));
+    emit webDavDisplayModeChanged();
+    AppLogger::info(QStringLiteral("webdav"),
+                    QStringLiteral("Display mode changed to %1").arg(m_webDavDisplayMode));
 }
 
 QString AppViewModel::defaultDownloadDirectory() const

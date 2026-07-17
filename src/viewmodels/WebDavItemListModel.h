@@ -30,6 +30,8 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void setItems(std::vector<WebDavItem> items);
+    void setVideoMode(bool enabled);
+    bool videoMode() const;
     void clear();
     std::optional<WebDavItem> itemAt(int row) const;
 
@@ -37,5 +39,9 @@ signals:
     void countChanged();
 
 private:
+    void rebuildVisibleItems();
+
+    std::vector<WebDavItem> m_allItems;
     std::vector<WebDavItem> m_items;
+    bool m_videoMode { false };
 };

@@ -1,5 +1,8 @@
 #include "viewmodels/WebDavItemListModel.h"
 
+#include <algorithm>
+#include <iterator>
+
 WebDavItemListModel::WebDavItemListModel(QObject* parent)
     : QAbstractListModel(parent)
 {
@@ -60,8 +63,38 @@ QHash<int, QByteArray> WebDavItemListModel::roleNames() const
 
 void WebDavItemListModel::setItems(std::vector<WebDavItem> items)
 {
+    m_allItems = std::move(items);
+    rebuildVisibleItems();
+}
+
+void WebDavItemListModel::setVideoMode(bool enabled)
+{
+    if (m_videoMode == enabled) {
+        return;
+    }
+    m_videoMode = enabled;
+    rebuildVisibleItems();
+}
+
+bool WebDavItemListModel::videoMode() const
+{
+    return m_videoMode;
+}
+
+void WebDavItemListModel::rebuildVisibleItems()
+{
     beginResetModel();
-    m_items = std::move(items);
+    m_items.clear();
+    if (m_videoMode) {
+        m_items.reserve(m_allItems.size());
+        std::ranges::copy_if(m_allItems,
+                             std::back_inserter(m_items),
+                             [](const WebDavItem& item) {
+            return item.directory || item.playable;
+        });
+    } else {
+        m_items = m_allItems;
+    }
     endResetModel();
     emit countChanged();
 }

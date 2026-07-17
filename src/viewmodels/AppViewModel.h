@@ -53,6 +53,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString currentIptvChannelId READ currentIptvChannelId NOTIFY playbackChanged)
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
+    Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
     Q_PROPERTY(QString defaultDownloadDirectory READ defaultDownloadDirectory WRITE setDefaultDownloadDirectory NOTIFY defaultDownloadDirectoryChanged)
     Q_PROPERTY(TransferTaskListModel* transferTasks READ transferTasks CONSTANT)
     Q_PROPERTY(TransferTaskListModel* transferDetailTasks READ transferDetailTasks CONSTANT)
@@ -188,6 +189,8 @@ public:
     QString currentIptvChannelId() const;
     WebDavItemListModel* webDavItems();
     QString webDavCurrentPath() const;
+    QString webDavDisplayMode() const;
+    void setWebDavDisplayMode(const QString& value);
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& value);
     TransferTaskListModel* transferTasks();
@@ -406,6 +409,7 @@ signals:
     void iptvSelectedGroupChanged();
     void iptvGroupsChanged();
     void webDavCurrentPathChanged();
+    void webDavDisplayModeChanged();
     void defaultDownloadDirectoryChanged();
     void transferTasksChanged();
     void transferSelectionChanged();
@@ -536,6 +540,7 @@ private:
     QString m_iptvSelectedGroup;
     QStringList m_iptvGroups;
     QString m_webDavPassword;
+    QString m_webDavDisplayMode { QStringLiteral("default") };
     QString m_defaultDownloadDirectory;
     QString m_transferDetailFilter { QStringLiteral("all") };
     ServiceType m_serviceType { ServiceType::Emby };

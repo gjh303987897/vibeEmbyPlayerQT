@@ -3332,6 +3332,224 @@ ApplicationWindow {
         }
     }
 
+    component WebDavDisplayModeSwitch: Rectangle {
+        implicitWidth: 220
+        implicitHeight: 38
+        radius: 9
+        color: theme.input
+        border.color: theme.border
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 3
+            spacing: 3
+
+            TransferFilterButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                selected: appViewModel.webDavDisplayMode === "default"
+                text: "\u25a4  " + t("webdav.modeDefault")
+                onClicked: appViewModel.webDavDisplayMode = "default"
+            }
+
+            TransferFilterButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                selected: appViewModel.webDavDisplayMode === "video"
+                text: "\u25b6  " + t("webdav.modeVideo")
+                onClicked: appViewModel.webDavDisplayMode = "video"
+            }
+        }
+    }
+
+    component WebDavMediaCard: Rectangle {
+        id: mediaCard
+        signal activated()
+        signal downloadRequested()
+        property string title: ""
+        property string contentType: ""
+        property real bytes: -1
+        property bool directory: false
+        readonly property color accentColor: directory ? theme.primary : theme.success
+
+        function badgeText() {
+            if (directory) {
+                return t("webdav.folder")
+            }
+            var dot = title.lastIndexOf(".")
+            if (dot >= 0 && dot < title.length - 1) {
+                return title.substring(dot + 1).toUpperCase()
+            }
+            return t("webdav.video")
+        }
+
+        function detailText() {
+            if (directory) {
+                return t("webdav.folder")
+            }
+            if (bytes >= 0) {
+                return root.formatBytes(bytes)
+            }
+            return contentType.length > 0 ? contentType : t("webdav.video")
+        }
+
+        radius: 12
+        color: mediaMouse.containsMouse ? theme.elevatedHover : theme.elevated
+        border.color: mediaMouse.containsMouse ? root.withAlpha(accentColor, 0.78) : theme.border
+        border.width: 1
+        clip: true
+        scale: mediaMouse.containsMouse ? 1.012 : 1.0
+        implicitHeight: 214
+
+        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+        MouseArea {
+            id: mediaMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: mediaCard.activated()
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 7
+
+            Rectangle {
+                id: davThumbnail
+                Layout.fillWidth: true
+                Layout.preferredHeight: 120
+                radius: 9
+                clip: true
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop {
+                        position: 0.0
+                        color: root.withAlpha(mediaCard.accentColor, darkTheme ? 0.34 : 0.22)
+                    }
+                    GradientStop {
+                        position: 1.0
+                        color: root.withAlpha(mediaCard.accentColor, darkTheme ? 0.10 : 0.06)
+                    }
+                }
+
+                Rectangle {
+                    width: 112
+                    height: 112
+                    radius: 56
+                    anchors.right: parent.right
+                    anchors.rightMargin: -26
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: root.withAlpha(mediaCard.accentColor, darkTheme ? 0.12 : 0.08)
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: 9
+                    height: 24
+                    width: Math.min(parent.width - 18, davBadge.implicitWidth + 18)
+                    radius: 7
+                    color: root.withAlpha(mediaCard.accentColor, darkTheme ? 0.26 : 0.16)
+                    border.color: root.withAlpha(mediaCard.accentColor, 0.42)
+
+                    Label {
+                        id: davBadge
+                        anchors.centerIn: parent
+                        text: mediaCard.badgeText()
+                        color: mediaCard.accentColor
+                        font.pixelSize: 10
+                        font.bold: true
+                        font.capitalization: Font.AllUppercase
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Item {
+                    anchors.centerIn: parent
+                    width: 82
+                    height: 62
+                    visible: mediaCard.directory
+
+                    Rectangle {
+                        x: 8
+                        y: 8
+                        width: 34
+                        height: 18
+                        radius: 6
+                        color: root.withAlpha(mediaCard.accentColor, 0.82)
+                    }
+
+                    Rectangle {
+                        x: 5
+                        y: 18
+                        width: 72
+                        height: 40
+                        radius: 9
+                        color: mediaCard.accentColor
+                        border.color: Qt.rgba(1, 1, 1, 0.34)
+                    }
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 82
+                    height: 54
+                    radius: 11
+                    visible: !mediaCard.directory
+                    color: root.withAlpha(mediaCard.accentColor, darkTheme ? 0.24 : 0.16)
+                    border.color: root.withAlpha(mediaCard.accentColor, 0.72)
+                    border.width: 2
+
+                    Label {
+                        anchors.centerIn: parent
+                        anchors.horizontalCenterOffset: 2
+                        text: "\u25b6"
+                        color: mediaCard.accentColor
+                        font.pixelSize: 28
+                        font.bold: true
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                text: mediaCard.title
+                color: theme.text
+                font.pixelSize: 14
+                font.bold: true
+                wrapMode: Text.Wrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 28
+                spacing: 6
+
+                MutedText {
+                    Layout.fillWidth: true
+                    text: mediaCard.detailText()
+                    elide: Text.ElideRight
+                }
+
+                IconButton {
+                    implicitWidth: 30
+                    implicitHeight: 28
+                    text: "\u2193"
+                    ToolTip.visible: hovered
+                    ToolTip.text: t("action.download")
+                    onClicked: mediaCard.downloadRequested()
+                }
+            }
+        }
+    }
+
     component TransferTaskRow: Rectangle {
         id: taskRow
         property string taskId: ""
@@ -5836,85 +6054,128 @@ ApplicationWindow {
     component WebDavPage: Item {
         id: webDavPage
 
-        Flickable {
-            id: webDavFlick
+        ColumnLayout {
+            id: webDavColumn
             anchors.fill: parent
-            contentWidth: width
-            contentHeight: webDavColumn.implicitHeight
-            clip: true
-            interactive: !appViewModel.loading
+            spacing: 14
 
-            ColumnLayout {
-                id: webDavColumn
-                width: webDavFlick.width
-                spacing: 14
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
 
-                RowLayout {
+                SectionHeader {
                     Layout.fillWidth: true
-                    spacing: 10
+                    title: t("webdav.title")
+                    subtitle: appViewModel.webDavCurrentPath
+                }
 
-                    SectionHeader {
-                        Layout.fillWidth: true
-                        title: t("webdav.title")
-                        subtitle: appViewModel.webDavCurrentPath
-                    }
+                ModernButton {
+                    text: t("action.backToServices")
+                    onClicked: appViewModel.webDavBack()
+                }
+            }
 
-                    ModernButton {
-                        text: t("action.backToServices")
-                        onClicked: appViewModel.webDavBack()
-                    }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
 
-                    ModernButton {
-                        text: t("action.refresh")
-                        onClicked: appViewModel.refreshWebDavDirectory()
-                    }
+                Label {
+                    text: t("webdav.displayMode")
+                    color: theme.muted
+                    font.pixelSize: 12
+                    font.bold: true
+                }
 
-                    ModernButton {
-                        text: t("action.upload")
-                        onClicked: appViewModel.chooseWebDavUploadFiles()
-                    }
+                WebDavDisplayModeSwitch {}
 
-                    ModernButton {
-                        text: t("action.uploadFolder")
-                        onClicked: appViewModel.chooseWebDavUploadFolder()
-                    }
-
-                    ModernButton {
-                        text: t("action.transfers") + (appViewModel.activeTransferCount > 0 ? " (" + appViewModel.activeTransferCount + ")" : "")
-                        onClicked: appViewModel.openTransfers()
-                    }
+                MutedText {
+                    visible: appViewModel.webDavDisplayMode === "video" && webDavPage.width >= 1080
+                    text: t("webdav.videoModeHint")
                 }
 
                 Item {
-                    id: webDavListArea
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(180, appViewModel.webDavItems.count * 72)
-                    clip: true
+                }
 
-                    ListView {
-                        anchors.fill: parent
-                        enabled: !appViewModel.loading
-                        opacity: appViewModel.loading ? 0.34 : 1
-                        interactive: false
-                        spacing: 10
-                        model: appViewModel.webDavItems
-                        delegate: WebDavFileRow {
-                            width: ListView.view.width
-                            title: model.name
-                            subtitle: model.directory ? "Folder" : model.contentType + "  " + model.bytes + " B"
-                            directory: model.directory
-                            playable: model.playable
-                            onActivated: appViewModel.openWebDavItem(index)
-                            onDownloadRequested: appViewModel.downloadWebDavItem(index)
-                        }
-                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                    }
+                ModernButton {
+                    text: t("action.refresh")
+                    onClicked: appViewModel.refreshWebDavDirectory()
+                }
 
-                    MutedText {
-                        anchors.centerIn: parent
-                        visible: appViewModel.webDavItems.count === 0 && !appViewModel.loading
-                        text: t("webdav.empty")
+                ModernButton {
+                    text: t("action.upload")
+                    onClicked: appViewModel.chooseWebDavUploadFiles()
+                }
+
+                ModernButton {
+                    text: t("action.uploadFolder")
+                    onClicked: appViewModel.chooseWebDavUploadFolder()
+                }
+
+                ModernButton {
+                    text: t("action.transfers") + (appViewModel.activeTransferCount > 0 ? " (" + appViewModel.activeTransferCount + ")" : "")
+                    onClicked: appViewModel.openTransfers()
+                }
+            }
+
+            Item {
+                id: webDavListArea
+                property bool videoMode: appViewModel.webDavDisplayMode === "video"
+                property int gridColumns: Math.max(1, Math.floor(width / 226))
+                property real gridCellWidth: width / gridColumns
+                property real gridCellHeight: 226
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+
+                ListView {
+                    anchors.fill: parent
+                    visible: !webDavListArea.videoMode
+                    enabled: !appViewModel.loading
+                    opacity: appViewModel.loading ? 0.34 : 1
+                    spacing: 10
+                    model: visible ? appViewModel.webDavItems : null
+                    delegate: WebDavFileRow {
+                        width: ListView.view.width
+                        title: model.name
+                        subtitle: model.directory
+                            ? t("webdav.folder")
+                            : (model.contentType.length > 0 ? model.contentType + "  " : "")
+                                + (model.bytes >= 0 ? root.formatBytes(model.bytes) : "")
+                        directory: model.directory
+                        playable: model.playable
+                        onActivated: appViewModel.openWebDavItem(index)
+                        onDownloadRequested: appViewModel.downloadWebDavItem(index)
                     }
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                }
+
+                GridView {
+                    id: webDavVideoGrid
+                    anchors.fill: parent
+                    visible: webDavListArea.videoMode
+                    enabled: !appViewModel.loading
+                    opacity: appViewModel.loading ? 0.34 : 1
+                    cellWidth: webDavListArea.gridCellWidth
+                    cellHeight: webDavListArea.gridCellHeight
+                    model: visible ? appViewModel.webDavItems : null
+                    delegate: WebDavMediaCard {
+                        width: webDavVideoGrid.cellWidth - 12
+                        height: 214
+                        title: model.name
+                        contentType: model.contentType
+                        bytes: model.bytes
+                        directory: model.directory
+                        onActivated: appViewModel.openWebDavItem(index)
+                        onDownloadRequested: appViewModel.downloadWebDavItem(index)
+                    }
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                }
+
+                MutedText {
+                    anchors.centerIn: parent
+                    visible: appViewModel.webDavItems.count === 0 && !appViewModel.loading
+                    text: webDavListArea.videoMode ? t("webdav.videoEmpty") : t("webdav.empty")
                 }
             }
         }

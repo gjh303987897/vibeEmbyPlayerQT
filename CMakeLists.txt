@@ -288,6 +288,24 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 
+    add_executable(webdav_item_list_model_test
+        tests/WebDavItemListModelTest.cpp
+        src/viewmodels/WebDavItemListModel.cpp
+        src/viewmodels/WebDavItemListModel.h
+        src/models/WebDavItem.h
+    )
+    target_include_directories(webdav_item_list_model_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(webdav_item_list_model_test PRIVATE
+        Qt6::Test
+    )
+
+    add_test(NAME webdav_item_list_model COMMAND webdav_item_list_model_test)
+    set_tests_properties(webdav_item_list_model PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
     add_executable(transfer_manager_test
         tests/TransferManagerTest.cpp
         src/services/webdav/TransferManager.cpp
