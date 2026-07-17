@@ -7,6 +7,7 @@
 - 用户名 + 密码登录。
 - 获取当前用户可访问的媒体库。
 - 进入媒体库后获取电影 / 剧集列表。
+- 搜索当前 Emby 用户可访问的全部影片。
 - 服务首页继续播放列表。
 - 媒体详情页基础信息。
 
@@ -16,6 +17,7 @@
 - Emby login: `POST /Users/AuthenticateByName`
 - Emby user views: `GET /Users/{UserId}/Views`
 - Emby user items: `GET /Users/{UserId}/Items`
+- Emby server search: `GET /Users/{UserId}/Items` with `SearchTerm` and `Recursive=true`
 - Emby continue watching: `GET /Users/{UserId}/Items` with `Filters=IsResumable`
 - Emby item details: `GET /Users/{UserId}/Items` with `Ids={ItemId}`
 - Jellyfin OpenAPI stable: `https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json`
@@ -87,6 +89,19 @@ Current item type mapping:
 - `movies` collection -> `Movie`
 - `tvshows` collection -> `Series`
 - other collection types are requested without an item-type filter.
+
+## Emby Server Search
+
+Emby 搜索复用官方用户条目接口：
+
+- Endpoint: `GET /Users/{UserId}/Items`
+- Query: `SearchTerm`, `Recursive=true`, `StartIndex`, `Limit`, `IncludeItemTypes`, `Fields`, `EnableImages=true`, `EnableUserData=true`
+- `IncludeItemTypes` 当前为 `Movie,Series,Episode,Video`，用于覆盖电影、剧集、单集和普通视频。
+- 请求不传 `ParentId`，因此搜索范围是当前用户可访问的服务器根目录，而不是当前打开的媒体库。
+- 搜索结果使用独立的 `MediaItemListModel`，不会覆盖媒体库分页和目录导航状态。
+- 新关键词提交时使用请求代数使旧响应失效；详情页返回时恢复原搜索结果和滚动上下文。
+
+Official reference: `https://dev.emby.media/reference/RestAPI/ItemsService/getUsersByUseridItems.html`
 
 ## Continue Watching
 

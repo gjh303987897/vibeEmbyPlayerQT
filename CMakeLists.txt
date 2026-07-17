@@ -310,6 +310,31 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 
+    add_executable(emby_client_search_test
+        tests/EmbyClientSearchTest.cpp
+        src/network/NetworkClient.cpp
+        src/network/NetworkClient.h
+        src/services/emby/EmbyClient.cpp
+        src/services/emby/EmbyClient.h
+        src/services/media/MediaServerClientBase.cpp
+        src/services/media/MediaServerClientBase.h
+        src/services/media/MediaServiceClient.h
+        src/utils/JsonUtils.cpp
+        src/utils/JsonUtils.h
+    )
+    target_include_directories(emby_client_search_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(emby_client_search_test PRIVATE
+        Qt6::Network
+        Qt6::Test
+    )
+
+    add_test(NAME emby_client_search COMMAND emby_client_search_test)
+    set_tests_properties(emby_client_search PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
     add_executable(scheduled_playback_schedule_test
         tests/ScheduledPlaybackScheduleTest.cpp
         src/services/scheduler/ScheduledPlaybackSchedule.cpp

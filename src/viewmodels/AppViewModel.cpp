@@ -420,6 +420,18 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("section.noProgress"), QStringLiteral("Nothing in progress") },
         { QStringLiteral("section.libraries"), QStringLiteral("Libraries") },
         { QStringLiteral("section.librariesSubtitle"), QStringLiteral("Browse server media categories") },
+        { QStringLiteral("search.embyTitle"), QStringLiteral("Search this Emby server") },
+        { QStringLiteral("search.embySubtitle"), QStringLiteral("Find movies, series, episodes and other videos you can access") },
+        { QStringLiteral("search.embyPlaceholder"), QStringLiteral("Search all videos") },
+        { QStringLiteral("search.action"), QStringLiteral("Search") },
+        { QStringLiteral("search.clear"), QStringLiteral("Clear search") },
+        { QStringLiteral("search.results"), QStringLiteral("Search results") },
+        { QStringLiteral("search.resultsFor"), QStringLiteral("Results for") },
+        { QStringLiteral("search.resultCount"), QStringLiteral("%1 results") },
+        { QStringLiteral("search.noResults"), QStringLiteral("No matching videos found") },
+        { QStringLiteral("search.noResultsHint"), QStringLiteral("Try a shorter title or a different keyword") },
+        { QStringLiteral("search.loading"), QStringLiteral("Searching Emby") },
+        { QStringLiteral("search.loadingHint"), QStringLiteral("Reading matching videos from the current server") },
         { QStringLiteral("loading.home"), QStringLiteral("Loading home") },
         { QStringLiteral("loading.homeHint"), QStringLiteral("Fetching libraries and resume items") },
         { QStringLiteral("loading.library"), QStringLiteral("Loading library") },
@@ -616,6 +628,18 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("section.noProgress"), QStringLiteral("暂无继续观看内容") },
         { QStringLiteral("section.libraries"), QStringLiteral("媒体库") },
         { QStringLiteral("section.librariesSubtitle"), QStringLiteral("浏览服务器媒体分类") },
+        { QStringLiteral("search.embyTitle"), QStringLiteral("搜索当前 Emby 服务器") },
+        { QStringLiteral("search.embySubtitle"), QStringLiteral("搜索当前用户可访问的电影、剧集、单集和其他视频") },
+        { QStringLiteral("search.embyPlaceholder"), QStringLiteral("搜索所有影片") },
+        { QStringLiteral("search.action"), QStringLiteral("搜索") },
+        { QStringLiteral("search.clear"), QStringLiteral("清除搜索") },
+        { QStringLiteral("search.results"), QStringLiteral("搜索结果") },
+        { QStringLiteral("search.resultsFor"), QStringLiteral("搜索内容") },
+        { QStringLiteral("search.resultCount"), QStringLiteral("%1 个结果") },
+        { QStringLiteral("search.noResults"), QStringLiteral("没有找到匹配的影片") },
+        { QStringLiteral("search.noResultsHint"), QStringLiteral("请尝试更短的片名或其他关键词") },
+        { QStringLiteral("search.loading"), QStringLiteral("正在搜索 Emby") },
+        { QStringLiteral("search.loadingHint"), QStringLiteral("正在从当前服务器读取匹配影片") },
         { QStringLiteral("loading.home"), QStringLiteral("正在加载主页面") },
         { QStringLiteral("loading.homeHint"), QStringLiteral("正在读取媒体库和继续观看") },
         { QStringLiteral("loading.library"), QStringLiteral("正在加载媒体库") },
@@ -1309,6 +1333,40 @@ bool AppViewModel::libraryItemsLoading() const
     return m_libraryItemsLoading;
 }
 
+QString AppViewModel::embySearchText() const
+{
+    return m_embySearchText;
+}
+
+void AppViewModel::setEmbySearchText(const QString& value)
+{
+    if (m_embySearchText == value) {
+        return;
+    }
+    m_embySearchText = value;
+    emit embySearchChanged();
+}
+
+QString AppViewModel::activeEmbySearchTerm() const
+{
+    return m_activeEmbySearchTerm;
+}
+
+bool AppViewModel::embySearchAvailable() const
+{
+    return m_session && m_session->server.serviceType == ServiceType::Emby;
+}
+
+bool AppViewModel::embySearchLoading() const
+{
+    return m_embySearchLoading;
+}
+
+bool AppViewModel::embySearchHasMore() const
+{
+    return m_embySearchHasMore;
+}
+
 bool AppViewModel::loggedIn() const
 {
     return m_session.has_value();
@@ -1461,6 +1519,11 @@ MediaItemListModel* AppViewModel::continueItems()
 MediaItemListModel* AppViewModel::items()
 {
     return &m_items;
+}
+
+MediaItemListModel* AppViewModel::embySearchResults()
+{
+    return &m_embySearchResults;
 }
 
 MediaItemListModel* AppViewModel::seriesSeasons()
@@ -2575,6 +2638,7 @@ void AppViewModel::logout()
     clearWebDavState();
     m_currentLibrary.reset();
     clearMediaDirectoryState();
+    clearEmbySearchState();
     m_selectedItem.reset();
     clearSeriesDetails();
     syncSelectedPeople();
@@ -2599,6 +2663,7 @@ void AppViewModel::backToServices()
     clearWebDavState();
     m_currentLibrary.reset();
     clearMediaDirectoryState();
+    clearEmbySearchState();
     m_selectedItem.reset();
     clearSeriesDetails();
     syncSelectedPeople();
@@ -2641,6 +2706,7 @@ void AppViewModel::backToHome()
 
     m_currentLibrary.reset();
     clearMediaDirectoryState();
+    clearEmbySearchState();
     m_selectedItem.reset();
     clearSeriesDetails();
     syncSelectedPeople();
@@ -2676,6 +2742,18 @@ void AppViewModel::mediaLibraryBack()
 
 void AppViewModel::mediaDetailsBack()
 {
+    if (m_detailsReturnToSearch && !m_activeEmbySearchTerm.isEmpty()) {
+        m_detailsReturnToSearch = false;
+        m_selectedItem.reset();
+        clearSeriesDetails();
+        syncSelectedPeople();
+        clearCurrentPlayback();
+        emit selectedItemChanged();
+        emit playbackChanged();
+        setCurrentView(QStringLiteral("search"));
+        return;
+    }
+
     if (!m_currentLibrary) {
         backToHome();
         return;
@@ -3025,6 +3103,54 @@ void AppViewModel::refreshLibraries()
     });
 }
 
+void AppViewModel::searchEmby()
+{
+    if (!embySearchAvailable()) {
+        return;
+    }
+
+    const auto normalizedTerm = m_embySearchText.trimmed();
+    if (normalizedTerm.isEmpty()) {
+        clearEmbySearch();
+        return;
+    }
+
+    clearError();
+    ++m_embySearchRequestGeneration;
+    m_embySearchLoading = false;
+    m_embySearchText = normalizedTerm;
+    m_activeEmbySearchTerm = normalizedTerm;
+    m_detailsReturnToSearch = false;
+    m_embySearchResults.clear();
+    m_embySearchNextStartIndex = 0;
+    m_embySearchHasMore = true;
+    emit embySearchChanged();
+    setCurrentView(QStringLiteral("search"));
+    loadEmbySearchResults(false);
+}
+
+void AppViewModel::clearEmbySearch()
+{
+    clearEmbySearchState();
+    if (m_session) {
+        setCurrentView(QStringLiteral("home"));
+    }
+}
+
+void AppViewModel::loadMoreEmbySearchResults()
+{
+    loadEmbySearchResults(false);
+}
+
+void AppViewModel::openEmbySearchItem(int row)
+{
+    const auto item = m_embySearchResults.itemAt(row);
+    if (!item) {
+        return;
+    }
+    openMediaItemDetails(*item, true);
+}
+
 void AppViewModel::refreshContinueWatching()
 {
     if (!m_session) {
@@ -3044,6 +3170,77 @@ void AppViewModel::refreshContinueWatching()
         auto items = std::move(*result);
         mergeRecentPlaybackProgress(items);
         m_continueItems.setItems(std::move(items));
+    });
+}
+
+void AppViewModel::clearEmbySearchState(bool clearText)
+{
+    ++m_embySearchRequestGeneration;
+    m_embySearchLoading = false;
+    m_activeEmbySearchTerm.clear();
+    m_embySearchNextStartIndex = 0;
+    m_embySearchHasMore = false;
+    m_detailsReturnToSearch = false;
+    m_embySearchResults.clear();
+    if (clearText) {
+        m_embySearchText.clear();
+    }
+    emit embySearchChanged();
+}
+
+void AppViewModel::loadEmbySearchResults(bool resetItems)
+{
+    if (!embySearchAvailable() || m_activeEmbySearchTerm.isEmpty() || m_embySearchLoading) {
+        return;
+    }
+    if (!resetItems && !m_embySearchHasMore) {
+        return;
+    }
+
+    if (resetItems) {
+        m_embySearchResults.clear();
+        m_embySearchNextStartIndex = 0;
+        m_embySearchHasMore = true;
+    }
+
+    const auto requestTerm = m_activeEmbySearchTerm;
+    const auto requestStartIndex = m_embySearchNextStartIndex;
+    const auto generation = ++m_embySearchRequestGeneration;
+    m_embySearchLoading = true;
+    emit embySearchChanged();
+    AppLogger::info(QStringLiteral("emby-search"),
+                    QStringLiteral("Searching current Emby server from index %1").arg(requestStartIndex));
+    m_embyClient.searchVideoItems(*m_session,
+                                  requestTerm,
+                                  requestStartIndex,
+                                  m_embySearchPageSize,
+                                  [this, requestTerm, requestStartIndex, generation](ItemResult result) {
+        if (generation != m_embySearchRequestGeneration || requestTerm != m_activeEmbySearchTerm) {
+            AppLogger::info(QStringLiteral("emby-search"), QStringLiteral("Ignoring stale search result page"));
+            return;
+        }
+
+        m_embySearchLoading = false;
+        if (!result) {
+            m_embySearchHasMore = false;
+            emit embySearchChanged();
+            AppLogger::warning(QStringLiteral("emby-search"),
+                               QStringLiteral("Search failed: %1").arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+
+        auto items = std::move(*result);
+        mergeRecentPlaybackProgress(items);
+        const auto count = static_cast<int>(items.size());
+        const auto appendedCount = m_embySearchResults.appendItems(std::move(items));
+        m_embySearchNextStartIndex = requestStartIndex + count;
+        m_embySearchHasMore = count >= m_embySearchPageSize && appendedCount > 0;
+        emit embySearchChanged();
+        AppLogger::info(QStringLiteral("emby-search"),
+                        QStringLiteral("Fetched %1 search items, appended %2 unique items")
+                            .arg(count)
+                            .arg(appendedCount));
     });
 }
 
@@ -3314,6 +3511,7 @@ void AppViewModel::openContinueItem(int row)
         return;
     }
 
+    m_detailsReturnToSearch = false;
     m_selectedItem = *item;
     clearSeriesDetails();
     syncSelectedPeople();
@@ -3368,7 +3566,13 @@ void AppViewModel::openItem(int row)
         return;
     }
 
-    m_selectedItem = *item;
+    openMediaItemDetails(*item, false);
+}
+
+void AppViewModel::openMediaItemDetails(const MediaItem& item, bool returnToSearch)
+{
+    m_detailsReturnToSearch = returnToSearch;
+    m_selectedItem = item;
     clearSeriesDetails();
     syncSelectedPeople();
     clearCurrentPlayback();
@@ -3381,7 +3585,7 @@ void AppViewModel::openItem(int row)
     }
     auto* client = clientFor(m_session->server.serviceType);
     setLoading(true);
-    client->fetchItemDetails(*m_session, item->id, [this](std::expected<MediaItem, NetworkError> result) {
+    client->fetchItemDetails(*m_session, item.id, [this](std::expected<MediaItem, NetworkError> result) {
         setLoading(false);
         if (!result) {
             setError(displayNetworkError(result.error()));
@@ -3831,6 +4035,7 @@ void AppViewModel::loadServiceHome()
     clearIptvState();
     m_currentLibrary.reset();
     clearMediaDirectoryState();
+    clearEmbySearchState();
     m_selectedItem.reset();
     clearSeriesDetails();
     syncSelectedPeople();
@@ -4487,6 +4692,7 @@ void AppViewModel::applyReportedPlaybackProgress(const QString& itemId, qint64 p
 
     m_continueItems.updatePlaybackProgress(itemId, normalizedTicks, playedPercentage, played);
     m_items.updatePlaybackProgress(itemId, normalizedTicks, playedPercentage, played);
+    m_embySearchResults.updatePlaybackProgress(itemId, normalizedTicks, playedPercentage, played);
     m_seriesEpisodes.updatePlaybackProgress(itemId, normalizedTicks, playedPercentage, played);
 
     if (selectedChanged) {

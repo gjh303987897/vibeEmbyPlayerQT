@@ -1057,6 +1057,8 @@ ApplicationWindow {
                         appViewModel.backToServices()
                     } else if (appViewModel.currentView === "webdav") {
                         appViewModel.webDavBack()
+                    } else if (appViewModel.currentView === "search") {
+                        appViewModel.clearEmbySearch()
                     } else if (appViewModel.currentView === "library") {
                         appViewModel.mediaLibraryBack()
                     } else if (appViewModel.currentView === "details") {
@@ -1136,6 +1138,13 @@ ApplicationWindow {
                 visible: appViewModel.loading
                 implicitWidth: 28
                 implicitHeight: 28
+            }
+
+            EmbySearchBar {
+                visible: appViewModel.embySearchAvailable
+                    && (appViewModel.currentView === "home" || appViewModel.currentView === "search")
+                Layout.minimumWidth: visible ? 300 : 0
+                Layout.preferredWidth: visible ? Math.min(380, Math.max(320, root.width * 0.30)) : 0
             }
 
             IconButton {
@@ -1260,14 +1269,15 @@ ApplicationWindow {
                 currentIndex: appViewModel.currentView === "services" ? 0
                     : appViewModel.currentView === "home" ? 1
                     : appViewModel.currentView === "library" ? 2
-                    : appViewModel.currentView === "details" ? 3
-                    : appViewModel.currentView === "player" ? 4
-                    : appViewModel.currentView === "iptv" ? 5
-                    : appViewModel.currentView === "webdav" ? 6
-                    : appViewModel.currentView === "transfers" ? 7
-                    : appViewModel.currentView === "history" ? 8
-                    : appViewModel.currentView === "scheduledTasks" ? 9
-                    : 10
+                    : appViewModel.currentView === "search" ? 3
+                    : appViewModel.currentView === "details" ? 4
+                    : appViewModel.currentView === "player" ? 5
+                    : appViewModel.currentView === "iptv" ? 6
+                    : appViewModel.currentView === "webdav" ? 7
+                    : appViewModel.currentView === "transfers" ? 8
+                    : appViewModel.currentView === "history" ? 9
+                    : appViewModel.currentView === "scheduledTasks" ? 10
+                    : 11
 
                 transform: [
                     Translate {
@@ -1591,6 +1601,155 @@ ApplicationWindow {
                     }
                 }
 
+                Item {
+                    id: embySearchPage
+                    property bool showInitialLoading: appViewModel.embySearchLoading
+                        && appViewModel.embySearchResults.count === 0
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 14
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: t("search.results")
+                                    color: theme.text
+                                    font.pixelSize: 21
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                MutedText {
+                                    Layout.fillWidth: true
+                                    text: t("search.resultsFor") + " “" + appViewModel.activeEmbySearchTerm + "”"
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.preferredWidth: searchResultCount.implicitWidth + 20
+                                Layout.preferredHeight: 28
+                                radius: 8
+                                color: root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.10)
+                                border.color: root.withAlpha(theme.primary, 0.42)
+
+                                Label {
+                                    id: searchResultCount
+                                    anchors.centerIn: parent
+                                    text: t("search.resultCount").arg(appViewModel.embySearchResults.count)
+                                    color: theme.primary
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+                            }
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            GridView {
+                                id: embySearchGrid
+                                anchors.fill: parent
+                                clip: true
+                                model: appViewModel.embySearchResults
+                                cellWidth: Math.max(172, width / Math.max(1, Math.floor(width / 186)))
+                                cellHeight: 292
+                                opacity: embySearchPage.showInitialLoading ? 0.24 : 1
+
+                                Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                onMovementEnded: {
+                                    if (atYEnd && appViewModel.embySearchHasMore && !appViewModel.embySearchLoading) {
+                                        appViewModel.loadMoreEmbySearchResults()
+                                    }
+                                }
+
+                                delegate: MediaPoster {
+                                    width: embySearchGrid.cellWidth - 14
+                                    height: 278
+                                    title: model.name
+                                    subtitle: model.itemType === "Episode" && model.seriesName.length > 0
+                                        ? model.seriesName + (appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber).length > 0
+                                            ? " · " + appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber) : "")
+                                        : model.productionYear.length > 0 ? model.productionYear + " · " + model.itemType : model.itemType
+                                    imageUrl: model.imageUrl
+                                    progress: model.playedPercentage
+                                    onActivated: appViewModel.openEmbySearchItem(index)
+                                }
+                            }
+
+                            ColumnLayout {
+                                anchors.centerIn: parent
+                                visible: !appViewModel.embySearchLoading
+                                    && appViewModel.embySearchResults.count === 0
+                                spacing: 9
+
+                                Rectangle {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.preferredWidth: 54
+                                    Layout.preferredHeight: 54
+                                    radius: 8
+                                    color: root.withAlpha(root.serviceAccentColor("Emby"), darkTheme ? 0.20 : 0.12)
+                                    border.color: root.withAlpha(root.serviceAccentColor("Emby"), 0.42)
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: "\uD83D\uDD0D"
+                                        font.pixelSize: 25
+                                    }
+                                }
+
+                                Label {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: t("search.noResults")
+                                    color: theme.text
+                                    font.pixelSize: 18
+                                    font.bold: true
+                                }
+
+                                MutedText {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: t("search.noResultsHint")
+                                }
+                            }
+
+                            PageLoadingPanel {
+                                anchors.centerIn: parent
+                                visible: embySearchPage.showInitialLoading
+                                title: t("search.loading")
+                                subtitle: t("search.loadingHint")
+                            }
+                        }
+
+                        RowLayout {
+                            visible: appViewModel.embySearchLoading
+                                && appViewModel.embySearchResults.count > 0
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredHeight: visible ? 30 : 0
+                            spacing: 8
+
+                            BusyIndicator {
+                                running: parent.visible
+                                implicitWidth: 24
+                                implicitHeight: 24
+                            }
+
+                            MutedText {
+                                text: t("search.loading")
+                            }
+                        }
+                    }
+                }
+
                 DetailPage {}
 
                 PlayerPage {}
@@ -1764,6 +1923,78 @@ ApplicationWindow {
             radius: 8
             color: theme.input
             border.color: field.activeFocus ? theme.primary : theme.border
+        }
+    }
+
+    component EmbySearchBar: RowLayout {
+        id: embySearchBar
+        spacing: 8
+
+        ModernTextField {
+            id: embySearchInput
+            Layout.fillWidth: true
+            implicitHeight: 38
+            leftPadding: 36
+            rightPadding: embySearchClear.visible ? 38 : 12
+            placeholderText: t("search.embyPlaceholder")
+            text: appViewModel.embySearchText
+            onTextChanged: {
+                if (appViewModel.embySearchText !== text) {
+                    appViewModel.embySearchText = text
+                }
+            }
+            onAccepted: {
+                if (text.trim().length > 0) {
+                    appViewModel.searchEmby()
+                }
+            }
+
+            Label {
+                anchors.left: parent.left
+                anchors.leftMargin: 11
+                anchors.verticalCenter: parent.verticalCenter
+                text: "\uD83D\uDD0D"
+                color: embySearchInput.activeFocus ? theme.primary : theme.muted
+                font.pixelSize: 15
+                z: 2
+            }
+
+            Button {
+                id: embySearchClear
+                anchors.right: parent.right
+                anchors.rightMargin: 4
+                anchors.verticalCenter: parent.verticalCenter
+                width: 30
+                height: 30
+                visible: embySearchInput.text.length > 0
+                text: "×"
+                hoverEnabled: true
+                z: 2
+                ToolTip.visible: hovered
+                ToolTip.text: t("search.clear")
+                onClicked: appViewModel.clearEmbySearch()
+
+                contentItem: Label {
+                    text: embySearchClear.text
+                    color: embySearchClear.hovered ? theme.text : theme.muted
+                    font.pixelSize: 17
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    radius: 6
+                    color: embySearchClear.hovered ? theme.elevatedHover : "transparent"
+                }
+            }
+        }
+
+        ModernButton {
+            Layout.preferredWidth: 82
+            implicitHeight: 38
+            text: t("search.action")
+            enabled: embySearchInput.text.trim().length > 0
+            onClicked: appViewModel.searchEmby()
         }
     }
 

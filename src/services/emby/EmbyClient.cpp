@@ -132,6 +132,49 @@ void EmbyClient::fetchLibraryItems(const UserSession& session,
     });
 }
 
+void EmbyClient::searchVideoItems(const UserSession& session,
+                                  const QString& searchTerm,
+                                  int startIndex,
+                                  int limit,
+                                  std::function<void(ItemResult)> callback)
+{
+    const auto normalizedTerm = searchTerm.trimmed();
+    if (normalizedTerm.isEmpty()) {
+        callback(std::unexpected(NetworkError {
+            .kind = NetworkErrorKind::InvalidUrl,
+            .message = QStringLiteral("Search term is required"),
+        }));
+        return;
+    }
+
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Items").arg(session.userId));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("SearchTerm"), normalizedTerm);
+    query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Series,Episode,Video"));
+    query.addQueryItem(QStringLiteral("StartIndex"), QString::number(std::max(0, startIndex)));
+    query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
+    query.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("SortName"));
+    query.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Ascending"));
+    query.addQueryItem(QStringLiteral("Fields"),
+                       QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,SeriesPrimaryImageTag,ParentId"));
+    query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+        if (!result) {
+            callback(std::unexpected(result.error()));
+            return;
+        }
+        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+    });
+}
+
 void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, std::function<void(ItemResult)> callback)
 {
     auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Items").arg(session.userId));
