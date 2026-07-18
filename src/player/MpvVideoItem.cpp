@@ -111,6 +111,11 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
     connect(&m_controller, &PlayerController::tracksChanged, this, &MpvVideoItem::tracksChanged);
     connect(&m_controller, &PlayerController::videoOutputChanged, this, &MpvVideoItem::refreshNativeWindow);
     connect(&m_controller, &PlayerController::playbackRestarted, this, &MpvVideoItem::playbackRestarted);
+    connect(&m_controller,
+            &PlayerController::playbackEnded,
+            this,
+            &MpvVideoItem::playbackEnded,
+            Qt::QueuedConnection);
     connect(&m_controller, &PlayerController::playbackNetworkBytes, this, &MpvVideoItem::playbackNetworkBytes);
 }
 
@@ -195,6 +200,30 @@ void MpvVideoItem::setAllowInsecureTls(bool value)
     }
     m_allowInsecureTls = value;
     emit httpAuthChanged();
+}
+
+bool MpvVideoItem::audioOnly() const
+{
+    return m_audioOnly;
+}
+
+void MpvVideoItem::setAudioOnly(bool value)
+{
+    if (m_audioOnly == value) {
+        return;
+    }
+    m_audioOnly = value;
+    emit audioOnlyChanged();
+    if (m_source.isEmpty()) {
+        return;
+    }
+    stop();
+    m_pendingPlay = true;
+    QTimer::singleShot(0, this, [this]() {
+        if (m_pendingPlay && !m_source.isEmpty()) {
+            play();
+        }
+    });
 }
 
 bool MpvVideoItem::paused() const
@@ -282,12 +311,22 @@ void MpvVideoItem::play()
     if (m_source.isEmpty()) {
         return;
     }
-    if (!window() || !isVisible() || width() <= 0 || height() <= 0) {
+    if (!m_audioOnly && (!window() || !isVisible() || width() <= 0 || height() <= 0)) {
         m_pendingPlay = true;
         AppLogger::info(QStringLiteral("player"), QStringLiteral("Deferring playback until native video item is visible"));
         return;
     }
-    ensureNativeWindow();
+    if (m_audioOnly) {
+        if (!m_initialized) {
+            m_pendingPlay = true;
+            m_initialized = m_controller.initializeHeadless(true);
+            if (!m_initialized) {
+                return;
+            }
+        }
+    } else {
+        ensureNativeWindow();
+    }
     if (!m_initialized) {
         m_pendingPlay = true;
         AppLogger::warning(QStringLiteral("player"), QStringLiteral("Deferring playback because native mpv window is not initialized"));
@@ -297,7 +336,9 @@ void MpvVideoItem::play()
     m_startPosition = 0.0;
     emit startPositionChanged();
     m_pendingPlay = false;
-    scheduleNativeWindowRefresh();
+    if (!m_audioOnly) {
+        scheduleNativeWindowRefresh();
+    }
 }
 
 void MpvVideoItem::pause()
@@ -357,7 +398,13 @@ void MpvVideoItem::itemChange(ItemChange change, const ItemChangeData& value)
 {
     QQuickItem::itemChange(change, value);
     if (change == ItemSceneChange) {
-        if (value.window && !m_source.isEmpty()) {
+        if ((value.window || m_audioOnly) && !m_source.isEmpty()) {
+            if (m_audioOnly) {
+                if (m_pendingPlay) {
+                    play();
+                }
+                return;
+            }
             ensureNativeWindow();
             if (m_pendingPlay) {
                 play();

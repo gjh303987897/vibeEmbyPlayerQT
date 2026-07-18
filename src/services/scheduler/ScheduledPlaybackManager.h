@@ -64,7 +64,7 @@ private:
     void tryNextCandidate();
     void beginPlayback(MediaItem item, PlaybackRequest request);
     void handlePlaybackRestarted();
-    void handlePlaybackEnded(double positionSeconds, bool failed);
+    void handlePlaybackEnded(double positionSeconds, bool reachedEnd, bool failed);
     void updateProgress();
     void stopCurrentItem(bool accumulatePosition);
     void reportCurrentStart();

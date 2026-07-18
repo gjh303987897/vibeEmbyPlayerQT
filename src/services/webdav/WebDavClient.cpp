@@ -89,6 +89,19 @@ bool isVideoFile(const QString& name)
     return extensions.contains(suffix);
 }
 
+bool isAudioFile(const QString& name)
+{
+    const auto suffix = name.section(QLatin1Char('.'), -1).toLower();
+    static const QSet<QString> extensions {
+        QStringLiteral("mp3"), QStringLiteral("flac"), QStringLiteral("m4a"), QStringLiteral("m4b"),
+        QStringLiteral("aac"), QStringLiteral("ogg"), QStringLiteral("oga"), QStringLiteral("opus"),
+        QStringLiteral("wav"), QStringLiteral("wma"), QStringLiteral("alac"), QStringLiteral("aiff"),
+        QStringLiteral("aif"), QStringLiteral("ape"), QStringLiteral("mka"), QStringLiteral("weba"),
+        QStringLiteral("amr")
+    };
+    return extensions.contains(suffix);
+}
+
 QUrl resolvedUrl(const QUrl& baseUrl, const QString& href)
 {
     const auto hrefUrl = QUrl::fromEncoded(href.toUtf8());
@@ -157,6 +170,8 @@ std::vector<WebDavItem> parseList(const QByteArray& body, const QUrl& baseUrl)
         item.lastModified = childText(prop, QStringLiteral("getlastmodified"));
         item.directory = isDirectory;
         item.playable = !isDirectory && isVideoFile(name);
+        item.audioPlayable = !isDirectory &&
+            (isAudioFile(name) || item.contentType.startsWith(QStringLiteral("audio/"), Qt::CaseInsensitive));
 
         bool ok = false;
         const auto size = childText(prop, QStringLiteral("getcontentlength")).toLongLong(&ok);
@@ -271,6 +286,8 @@ void WebDavClient::statItem(const ServerConfig& server,
             item.url = itemUrl;
             item.directory = itemUrl.path().endsWith(QLatin1Char('/'));
             item.playable = !item.directory && isVideoFile(item.name);
+            item.audioPlayable = !item.directory &&
+                (isAudioFile(item.name) || item.contentType.startsWith(QStringLiteral("audio/"), Qt::CaseInsensitive));
             callback(std::move(item));
         } else {
             callback(std::move(parsed.front()));

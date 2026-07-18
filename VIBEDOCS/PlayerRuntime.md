@@ -143,6 +143,10 @@ Future work should prefer passing authorization headers to libmpv when practical
 
 `PlayerController::initializeHeadless()` creates a separate libmpv handle for manually or automatically started Emby keep-alive playback. It does not set `wid` and uses `force-window=no`, `vo=null`, and `ao=null`, so no video surface or audio output is created.
 
+`MpvVideoItem::audioOnly` uses the same initialization path with audio output explicitly enabled for interactive WebDAV music playback. This variant still uses `force-window=no` and `vo=null`, but leaves `ao` on libmpv's normal output so cover art or other video tracks cannot create a native player window while audio remains audible. Switching between audio-only and embedded-video playback tears down and reinitializes the libmpv handle because these options are pre-initialization options.
+
+`PlayerController::playbackEnded` reports the final position together with whether libmpv reached EOF and whether playback failed. The WebDAV audio queue advances only on EOF or failure, so a user-initiated stop or a `loadfile replace` during manual track selection cannot accidentally skip another track.
+
 The headless player emits the same playback-ended position signal used to accumulate actual elapsed time across multiple media items. It remains owned by `ScheduledPlaybackManager`; no manager or QML code calls libmpv directly.
 
 Foreground playback always has priority. `AppViewModel` marks normal player, WebDAV, IPTV, and local verification playback as foreground activity. The scheduler stops and reports its current item, preserves elapsed seconds, waits, and selects another random item after foreground playback ends.

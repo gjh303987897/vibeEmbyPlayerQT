@@ -17,6 +17,7 @@ class MpvVideoItem : public QQuickItem {
     Q_PROPERTY(QString httpUsername READ httpUsername WRITE setHttpUsername NOTIFY httpAuthChanged)
     Q_PROPERTY(QString httpPassword READ httpPassword WRITE setHttpPassword NOTIFY httpAuthChanged)
     Q_PROPERTY(bool allowInsecureTls READ allowInsecureTls WRITE setAllowInsecureTls NOTIFY httpAuthChanged)
+    Q_PROPERTY(bool audioOnly READ audioOnly WRITE setAudioOnly NOTIFY audioOnlyChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY playbackStateChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY playbackStateChanged)
     Q_PROPERTY(bool buffering READ buffering NOTIFY playbackStateChanged)
@@ -48,6 +49,8 @@ public:
     void setHttpPassword(const QString& value);
     bool allowInsecureTls() const;
     void setAllowInsecureTls(bool value);
+    bool audioOnly() const;
+    void setAudioOnly(bool value);
     bool paused() const;
     bool loading() const;
     bool buffering() const;
@@ -81,6 +84,7 @@ signals:
     void sourceChanged();
     void startPositionChanged();
     void httpAuthChanged();
+    void audioOnlyChanged();
     void errorOccurred(const QString& message);
     void playbackStateChanged();
     void volumeChanged();
@@ -90,6 +94,7 @@ signals:
     void tracksChanged();
     void nativeWindowUpdated();
     void playbackRestarted();
+    void playbackEnded(double positionSeconds, bool reachedEnd, bool failed);
     void playbackNetworkBytes(qint64 bytesReceived);
 
 protected:
@@ -113,6 +118,7 @@ private:
     QString m_httpUsername;
     QString m_httpPassword;
     bool m_allowInsecureTls { false };
+    bool m_audioOnly { false };
     double m_startPosition { 0.0 };
     qreal m_lastNativeDevicePixelRatio { 0.0 };
     bool m_initialized { false };

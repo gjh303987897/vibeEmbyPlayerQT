@@ -206,11 +206,13 @@ PlayerController::~PlayerController()
 
 bool PlayerController::initialize(qintptr windowId)
 {
+    m_headlessAudioOutput = false;
     return initializeInternal(windowId, false);
 }
 
-bool PlayerController::initializeHeadless()
+bool PlayerController::initializeHeadless(bool enableAudioOutput)
 {
+    m_headlessAudioOutput = enableAudioOutput;
     return initializeInternal(0, true);
 }
 
@@ -235,7 +237,9 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
     mpv_set_option_string(m_mpv, "input-default-bindings", "yes");
     if (m_headless) {
         mpv_set_option_string(m_mpv, "vo", "null");
-        mpv_set_option_string(m_mpv, "ao", "null");
+        if (!m_headlessAudioOutput) {
+            mpv_set_option_string(m_mpv, "ao", "null");
+        }
     }
     mpv_request_log_messages(m_mpv, "info");
 
@@ -594,7 +598,8 @@ void PlayerController::processEvents()
             m_bufferingProgress = 0;
             updateCacheDuration(-1.0);
             emit playbackStateChanged();
-            emit playbackEnded(finalPosition, failed);
+            const auto reachedEnd = endFile && endFile->reason == MPV_END_FILE_REASON_EOF;
+            emit playbackEnded(finalPosition, reachedEnd, failed);
         } else if (event->event_id == MPV_EVENT_FILE_LOADED ||
                    event->event_id == MPV_EVENT_VIDEO_RECONFIG ||
                    event->event_id == MPV_EVENT_PLAYBACK_RESTART) {

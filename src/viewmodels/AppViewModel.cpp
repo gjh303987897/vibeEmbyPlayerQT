@@ -327,6 +327,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("action.exitFullscreen"), QStringLiteral("Exit Fullscreen") },
         { QStringLiteral("action.forward15"), QStringLiteral("+15s") },
         { QStringLiteral("action.rewind15"), QStringLiteral("-15s") },
+        { QStringLiteral("action.previous"), QStringLiteral("Previous") },
+        { QStringLiteral("action.next"), QStringLiteral("Next") },
         { QStringLiteral("dialog.certificateTitle"), QStringLiteral("Certificate confirmation") },
         { QStringLiteral("dialog.certificatePrefix"), QStringLiteral("The server certificate for ") },
         { QStringLiteral("dialog.certificateSuffix"), QStringLiteral(" cannot be verified. Continue for this request?") },
@@ -360,12 +362,16 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV Files") },
         { QStringLiteral("webdav.empty"), QStringLiteral("This folder is empty") },
         { QStringLiteral("webdav.videoEmpty"), QStringLiteral("No folders or videos in this folder") },
+        { QStringLiteral("webdav.audioEmpty"), QStringLiteral("No audio files in this folder") },
         { QStringLiteral("webdav.displayMode"), QStringLiteral("View") },
         { QStringLiteral("webdav.modeDefault"), QStringLiteral("Default") },
         { QStringLiteral("webdav.modeVideo"), QStringLiteral("Video") },
+        { QStringLiteral("webdav.modeAudio"), QStringLiteral("Audio") },
         { QStringLiteral("webdav.videoModeHint"), QStringLiteral("Folders and videos only") },
+        { QStringLiteral("webdav.audioModeHint"), QStringLiteral("Play audio files in order") },
         { QStringLiteral("webdav.folder"), QStringLiteral("Folder") },
         { QStringLiteral("webdav.video"), QStringLiteral("Video") },
+        { QStringLiteral("webdav.audio"), QStringLiteral("Audio") },
         { QStringLiteral("webdav.loadingFolder"), QStringLiteral("Loading folder...") },
         { QStringLiteral("webdav.loadingHint"), QStringLiteral("Reading remote directory") },
         { QStringLiteral("webdav.defaultDownload"), QStringLiteral("Default download folder") },
@@ -606,6 +612,8 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("action.exitFullscreen"), QStringLiteral("退出全屏") },
         { QStringLiteral("action.forward15"), QStringLiteral("+15 秒") },
         { QStringLiteral("action.rewind15"), QStringLiteral("-15 秒") },
+        { QStringLiteral("action.previous"), QStringLiteral("上一首") },
+        { QStringLiteral("action.next"), QStringLiteral("下一首") },
         { QStringLiteral("dialog.certificateTitle"), QStringLiteral("证书确认") },
         { QStringLiteral("dialog.certificatePrefix"), QStringLiteral("服务器 ") },
         { QStringLiteral("dialog.certificateSuffix"), QStringLiteral(" 的证书无法验证。是否继续本次请求？") },
@@ -722,12 +730,16 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV 文件") },
         { QStringLiteral("webdav.empty"), QStringLiteral("当前文件夹为空") },
         { QStringLiteral("webdav.videoEmpty"), QStringLiteral("当前文件夹中没有子文件夹或视频") },
+        { QStringLiteral("webdav.audioEmpty"), QStringLiteral("当前文件夹中没有音频文件") },
         { QStringLiteral("webdav.displayMode"), QStringLiteral("显示模式") },
         { QStringLiteral("webdav.modeDefault"), QStringLiteral("默认") },
         { QStringLiteral("webdav.modeVideo"), QStringLiteral("视频") },
+        { QStringLiteral("webdav.modeAudio"), QStringLiteral("音频") },
         { QStringLiteral("webdav.videoModeHint"), QStringLiteral("仅显示子文件夹和视频") },
+        { QStringLiteral("webdav.audioModeHint"), QStringLiteral("按顺序播放当前文件夹中的音频") },
         { QStringLiteral("webdav.folder"), QStringLiteral("文件夹") },
         { QStringLiteral("webdav.video"), QStringLiteral("视频") },
+        { QStringLiteral("webdav.audio"), QStringLiteral("音频") },
         { QStringLiteral("webdav.loadingFolder"), QStringLiteral("正在加载文件夹...") },
         { QStringLiteral("webdav.loadingHint"), QStringLiteral("正在读取远程目录") },
         { QStringLiteral("webdav.defaultDownload"), QStringLiteral("默认下载文件夹") },
@@ -1126,18 +1138,58 @@ QString AppViewModel::webDavDisplayMode() const
     return m_webDavDisplayMode;
 }
 
+bool AppViewModel::webDavAudioPlaybackActive() const
+{
+    return m_webDavAudioPlaybackActive;
+}
+
+int AppViewModel::webDavAudioCurrentIndex() const
+{
+    return m_webDavAudioCurrentIndex;
+}
+
+int AppViewModel::webDavAudioQueueCount() const
+{
+    return static_cast<int>(m_webDavAudioQueue.size());
+}
+
+QString AppViewModel::webDavAudioCurrentName() const
+{
+    if (m_webDavAudioCurrentIndex < 0 ||
+        m_webDavAudioCurrentIndex >= static_cast<int>(m_webDavAudioQueue.size())) {
+        return {};
+    }
+    return m_webDavAudioQueue[static_cast<size_t>(m_webDavAudioCurrentIndex)].name;
+}
+
 void AppViewModel::setWebDavDisplayMode(const QString& value)
 {
     const auto normalizedMode = value.compare(QStringLiteral("video"), Qt::CaseInsensitive) == 0
         ? QStringLiteral("video")
-        : QStringLiteral("default");
+        : value.compare(QStringLiteral("audio"), Qt::CaseInsensitive) == 0
+            ? QStringLiteral("audio")
+            : QStringLiteral("default");
     if (m_webDavDisplayMode == normalizedMode) {
+        if (normalizedMode == QStringLiteral("audio") &&
+            !m_webDavAudioPlaybackActive && m_currentView == QStringLiteral("webdav") &&
+            !m_webDavAudioQueue.empty()) {
+            startWebDavAudioPlayback();
+        }
         return;
     }
 
+    if (m_webDavAudioPlaybackActive && normalizedMode != QStringLiteral("audio")) {
+        clearWebDavAudioPlayback();
+    }
     m_webDavDisplayMode = normalizedMode;
-    m_webDavItems.setVideoMode(m_webDavDisplayMode == QStringLiteral("video"));
+    m_webDavItems.setDisplayMode(m_webDavDisplayMode);
+    rebuildWebDavAudioQueue(m_webDavDirectoryItems);
     emit webDavDisplayModeChanged();
+    if (m_webDavDisplayMode == QStringLiteral("audio") &&
+        m_currentWebDavCard && m_currentView == QStringLiteral("webdav") &&
+        !m_webDavAudioQueue.empty()) {
+        startWebDavAudioPlayback();
+    }
     AppLogger::info(QStringLiteral("webdav"),
                     QStringLiteral("Display mode changed to %1").arg(m_webDavDisplayMode));
 }
@@ -2151,8 +2203,13 @@ void AppViewModel::openWebDavItem(int row)
         return;
     }
     if (item->directory) {
+        clearWebDavAudioPlayback();
         m_webDavHistory.push_back(m_webDavCurrentUrl);
         loadWebDavDirectory(ensureDirectoryUrl(item->url));
+        return;
+    }
+    if (item->audioPlayable && m_webDavDisplayMode == QStringLiteral("audio")) {
+        startWebDavAudioPlayback(row);
         return;
     }
     if (!item->playable) {
@@ -2188,6 +2245,130 @@ void AppViewModel::openWebDavItem(int row)
     emit selectedItemChanged();
     emit playbackChanged();
     setCurrentView(QStringLiteral("player"));
+}
+
+void AppViewModel::startWebDavAudioPlayback(int row)
+{
+    if (!m_currentWebDavCard) {
+        return;
+    }
+    if (m_webDavAudioQueue.empty()) {
+        rebuildWebDavAudioQueue(m_webDavDirectoryItems);
+    }
+    if (m_webDavAudioQueue.empty()) {
+        return;
+    }
+    const auto index = row >= 0 ? row : 0;
+    if (index >= static_cast<int>(m_webDavAudioQueue.size())) {
+        return;
+    }
+    m_webDavAudioPlaybackActive = true;
+    m_webDavAudioCurrentIndex = index;
+    emit webDavAudioPlaybackChanged();
+    playWebDavAudioTrack(index);
+    setCurrentView(QStringLiteral("player"));
+}
+
+void AppViewModel::advanceWebDavAudioPlayback(bool reachedEnd, bool failed)
+{
+    if (!m_webDavAudioPlaybackActive || (!reachedEnd && !failed)) {
+        return;
+    }
+    const auto nextIndex = m_webDavAudioCurrentIndex + 1;
+    if (nextIndex >= static_cast<int>(m_webDavAudioQueue.size())) {
+        AppLogger::info(QStringLiteral("webdav"), QStringLiteral("WebDAV audio queue completed"));
+        clearWebDavAudioPlayback();
+        if (m_currentWebDavCard) {
+            setCurrentView(QStringLiteral("webdav"));
+        }
+        return;
+    }
+    AppLogger::info(QStringLiteral("webdav"),
+                    QStringLiteral("Advancing WebDAV audio queue to item %1").arg(nextIndex + 1));
+    m_webDavAudioCurrentIndex = nextIndex;
+    emit webDavAudioPlaybackChanged();
+    playWebDavAudioTrack(nextIndex);
+}
+
+void AppViewModel::skipWebDavAudioTrack(int direction)
+{
+    if (!m_webDavAudioPlaybackActive || m_webDavAudioQueue.empty() || direction == 0) {
+        return;
+    }
+    const auto nextIndex = m_webDavAudioCurrentIndex + (direction > 0 ? 1 : -1);
+    if (nextIndex < 0 || nextIndex >= static_cast<int>(m_webDavAudioQueue.size())) {
+        return;
+    }
+    m_webDavAudioCurrentIndex = nextIndex;
+    emit webDavAudioPlaybackChanged();
+    playWebDavAudioTrack(nextIndex);
+}
+
+void AppViewModel::rebuildWebDavAudioQueue(const std::vector<WebDavItem>& items)
+{
+    m_webDavAudioQueue.clear();
+    m_webDavAudioQueue.reserve(items.size());
+    std::ranges::copy_if(items,
+                         std::back_inserter(m_webDavAudioQueue),
+                         [](const WebDavItem& item) {
+        return item.audioPlayable;
+    });
+    if (m_webDavAudioCurrentIndex >= static_cast<int>(m_webDavAudioQueue.size())) {
+        m_webDavAudioCurrentIndex = -1;
+    }
+    emit webDavAudioPlaybackChanged();
+}
+
+void AppViewModel::playWebDavAudioTrack(int index)
+{
+    if (!m_currentWebDavCard || index < 0 || index >= static_cast<int>(m_webDavAudioQueue.size())) {
+        return;
+    }
+    const auto& item = m_webDavAudioQueue[static_cast<size_t>(index)];
+    if (!m_webDavPlaybackStreamId.isEmpty()) {
+        m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
+        m_webDavPlaybackStreamId.clear();
+    }
+    const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(m_currentWebDavCard->server, m_webDavPassword, item.url);
+    m_currentPlaybackUrl = proxyUrl;
+    m_currentIptvChannelId.clear();
+    m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
+    m_playbackHttpUsername.clear();
+    m_playbackHttpPassword.clear();
+    m_playbackAllowInsecureTls = false;
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_currentPlaybackStartSeconds = 0.0;
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = false;
+
+    MediaItem media;
+    media.id = item.url.toString();
+    media.name = item.name;
+    media.itemType = QStringLiteral("WebDAV Audio");
+    media.overview = item.contentType;
+    m_selectedItem = std::move(media);
+    clearSeriesDetails();
+    syncSelectedPeople();
+    setForegroundPlaybackActive(true);
+    emit selectedItemChanged();
+    emit playbackChanged();
+    AppLogger::info(QStringLiteral("webdav"),
+                    QStringLiteral("Playing WebDAV audio item %1 of %2")
+                        .arg(index + 1)
+                        .arg(static_cast<int>(m_webDavAudioQueue.size())));
+}
+
+void AppViewModel::clearWebDavAudioPlayback()
+{
+    if (!m_webDavAudioPlaybackActive && m_webDavAudioCurrentIndex < 0) {
+        return;
+    }
+    m_webDavAudioPlaybackActive = false;
+    m_webDavAudioCurrentIndex = -1;
+    clearCurrentPlayback();
+    emit playbackChanged();
+    emit webDavAudioPlaybackChanged();
 }
 
 void AppViewModel::webDavBack()
@@ -3507,6 +3688,14 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
     m_currentPlaybackStartSeconds = 0.0;
     m_lastPlaybackReportSeconds = -1.0;
     m_playbackStartedReported = false;
+    const auto audioStateChanged = m_webDavAudioPlaybackActive || m_webDavAudioCurrentIndex >= 0;
+    m_webDavAudioPlaybackActive = false;
+    m_webDavAudioCurrentIndex = -1;
+    if (audioStateChanged) {
+        QTimer::singleShot(0, this, [this]() {
+            emit webDavAudioPlaybackChanged();
+        });
+    }
     setForegroundPlaybackActive(false);
 }
 
@@ -4278,13 +4467,19 @@ void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& pas
 
 void AppViewModel::clearWebDavState()
 {
-    if (!m_currentWebDavCard && m_webDavCurrentUrl.isEmpty() && m_webDavItems.count() == 0) {
+    if (!m_currentWebDavCard && m_webDavCurrentUrl.isEmpty() &&
+        m_webDavItems.count() == 0 && m_webDavAudioQueue.empty()) {
         return;
     }
     m_currentWebDavCard.reset();
     m_webDavPassword.clear();
     m_webDavCurrentUrl = QUrl();
     m_webDavHistory.clear();
+    clearWebDavAudioPlayback();
+    m_webDavDirectoryItems.clear();
+    m_webDavAudioQueue.clear();
+    m_webDavAudioCurrentIndex = -1;
+    emit webDavAudioPlaybackChanged();
     m_webDavItems.clear();
     emit currentServerChanged();
     emit webDavCurrentPathChanged();
@@ -4304,9 +4499,16 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
             return;
         }
         m_webDavCurrentUrl = directoryUrl;
+        m_webDavDirectoryItems = *result;
         m_webDavItems.setItems(std::move(*result));
+        m_webDavItems.setDisplayMode(m_webDavDisplayMode);
+        rebuildWebDavAudioQueue(m_webDavDirectoryItems);
         emit webDavCurrentPathChanged();
         setCurrentView(QStringLiteral("webdav"));
+        if (m_webDavDisplayMode == QStringLiteral("audio") &&
+            !m_webDavAudioPlaybackActive && !m_webDavAudioQueue.empty()) {
+            startWebDavAudioPlayback();
+        }
     });
 }
 

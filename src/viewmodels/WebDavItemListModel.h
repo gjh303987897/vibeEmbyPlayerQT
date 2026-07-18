@@ -20,6 +20,7 @@ public:
         SizeRole,
         DirectoryRole,
         PlayableRole,
+        AudioPlayableRole,
     };
 
     explicit WebDavItemListModel(QObject* parent = nullptr);
@@ -30,8 +31,11 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void setItems(std::vector<WebDavItem> items);
+    void setDisplayMode(const QString& mode);
+    QString displayMode() const;
     void setVideoMode(bool enabled);
     bool videoMode() const;
+    bool audioMode() const;
     void clear();
     std::optional<WebDavItem> itemAt(int row) const;
 
@@ -43,5 +47,5 @@ private:
 
     std::vector<WebDavItem> m_allItems;
     std::vector<WebDavItem> m_items;
-    bool m_videoMode { false };
+    QString m_displayMode { QStringLiteral("default") };
 };

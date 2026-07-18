@@ -3333,9 +3333,9 @@ ApplicationWindow {
     }
 
     component WebDavDisplayModeSwitch: Rectangle {
-        implicitWidth: 220
+        implicitWidth: 318
         implicitHeight: 38
-        radius: 9
+        radius: 8
         color: theme.input
         border.color: theme.border
 
@@ -3358,6 +3358,14 @@ ApplicationWindow {
                 selected: appViewModel.webDavDisplayMode === "video"
                 text: "\u25b6  " + t("webdav.modeVideo")
                 onClicked: appViewModel.webDavDisplayMode = "video"
+            }
+
+            TransferFilterButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                selected: appViewModel.webDavDisplayMode === "audio"
+                text: "\u266B  " + t("webdav.modeAudio")
+                onClicked: appViewModel.webDavDisplayMode = "audio"
             }
         }
     }
@@ -4431,6 +4439,16 @@ ApplicationWindow {
         }
 
         function handlePlayerKey(event) {
+            if (appViewModel.webDavAudioPlaybackActive && event.key === Qt.Key_Right) {
+                appViewModel.skipWebDavAudioTrack(1)
+                event.accepted = true
+                return
+            }
+            if (appViewModel.webDavAudioPlaybackActive && event.key === Qt.Key_Left) {
+                appViewModel.skipWebDavAudioTrack(-1)
+                event.accepted = true
+                return
+            }
             if (event.key === Qt.Key_Escape && iptvChannelListVisible) {
                 closeIptvChannelList()
                 event.accepted = true
@@ -4665,6 +4683,7 @@ ApplicationWindow {
         MpvVideoItem {
             id: mpvVideo
             anchors.fill: parent
+            audioOnly: appViewModel.webDavAudioPlaybackActive
             startPosition: appViewModel.currentPlaybackStartSeconds
             source: appViewModel.currentPlaybackUrl
             httpUsername: appViewModel.playbackHttpUsername
@@ -4681,6 +4700,9 @@ ApplicationWindow {
                 appViewModel.recordPlaybackNetworkBytes(bytesReceived)
             }
             onPlaybackRestarted: playerPage.finishSeekLoading()
+            onPlaybackEnded: function(positionSeconds, reachedEnd, failed) {
+                appViewModel.advanceWebDavAudioPlayback(reachedEnd, failed)
+            }
             onPlaybackStateChanged: {
                 if (playerPage.rawPlaybackLoading && appViewModel.currentView === "player") {
                     if (!playerPage.playbackLoadingVisible && !playbackLoadingDelay.running) {
@@ -4700,8 +4722,281 @@ ApplicationWindow {
             }
         }
 
+        Rectangle {
+            id: audioPlayerSurface
+            anchors.fill: parent
+            visible: appViewModel.webDavAudioPlaybackActive
+            color: theme.bg
+            z: 2
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Math.max(22, Math.min(42, audioPlayerSurface.width * 0.04))
+                spacing: 30
+
+                ColumnLayout {
+                    id: audioNowPlaying
+                    readonly property real artworkSize: Math.min(280, Math.max(210, width - 20), height * 0.52)
+                    Layout.preferredWidth: Math.min(390, Math.max(270, parent.width * 0.40))
+                    Layout.fillHeight: true
+                    spacing: 14
+
+                    Item { Layout.fillHeight: true }
+
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: audioNowPlaying.artworkSize
+                        Layout.preferredHeight: audioNowPlaying.artworkSize
+                        radius: 8
+                        color: root.withAlpha(theme.primary, darkTheme ? 0.20 : 0.10)
+                        border.color: root.withAlpha(theme.primary, 0.48)
+
+                        Column {
+                            anchors.centerIn: parent
+                            width: parent.width - 32
+                            spacing: 10
+
+                            Label {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "\u266B"
+                                color: theme.primary
+                                font.pixelSize: Math.max(58, Math.min(86, parent.width * 0.34))
+                                font.bold: true
+                            }
+
+                            Label {
+                                width: parent.width
+                                text: appViewModel.currentServerName
+                                color: theme.muted
+                                font.pixelSize: 12
+                                font.bold: true
+                                font.letterSpacing: 0
+                                horizontalAlignment: Text.AlignHCenter
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: appViewModel.webDavAudioCurrentName
+                        color: theme.text
+                        font.pixelSize: 21
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideMiddle
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: (appViewModel.webDavAudioCurrentIndex + 1) + " / " + appViewModel.webDavAudioQueueCount
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 9
+
+                        MutedText { text: playerPage.formatTime(mpvVideo.position) }
+
+                        Slider {
+                            id: audioProgressSlider
+                            Layout.fillWidth: true
+                            from: 0
+                            to: Math.max(1, mpvVideo.duration)
+                            value: mpvVideo.position
+                            onMoved: {
+                                mpvVideo.seekAbsolute(value)
+                                appViewModel.reportPlaybackProgress(value, mpvVideo.paused)
+                            }
+                        }
+
+                        MutedText { text: playerPage.formatTime(mpvVideo.duration) }
+                    }
+
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 12
+
+                        IconButton {
+                            text: "\u23EE"
+                            enabled: appViewModel.webDavAudioCurrentIndex > 0
+                            ToolTip.visible: hovered
+                            ToolTip.text: t("action.previous")
+                            onClicked: appViewModel.skipWebDavAudioTrack(-1)
+                        }
+
+                        IconButton {
+                            implicitWidth: 52
+                            implicitHeight: 44
+                            text: mpvVideo.paused ? "\u25B6" : "\u23F8"
+                            ToolTip.visible: hovered
+                            ToolTip.text: mpvVideo.paused ? t("action.resume") : t("action.pause")
+                            onClicked: mpvVideo.togglePause()
+                        }
+
+                        IconButton {
+                            text: "\u23ED"
+                            enabled: appViewModel.webDavAudioCurrentIndex + 1 < appViewModel.webDavAudioQueueCount
+                            ToolTip.visible: hovered
+                            ToolTip.text: t("action.next")
+                            onClicked: appViewModel.skipWebDavAudioTrack(1)
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        BodyText { text: t("player.volume"); color: theme.muted }
+
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 100
+                            value: mpvVideo.volume
+                            onMoved: mpvVideo.setVolume(value)
+                        }
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+
+                Rectangle {
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                    color: theme.border
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 14
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("webdav.modeAudio")
+                                color: theme.text
+                                font.pixelSize: 19
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: appViewModel.webDavCurrentPath
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        Label {
+                            text: appViewModel.webDavAudioQueueCount + " " + t("webdav.audio")
+                            color: theme.primary
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        ModernButton {
+                            text: t("action.exitPlayback")
+                            danger: true
+                            onClicked: playerPage.requestExitPlayback()
+                        }
+                    }
+
+                    ListView {
+                        id: audioQueueList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 7
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: appViewModel.webDavAudioPlaybackActive ? appViewModel.webDavItems : null
+                        currentIndex: appViewModel.webDavAudioCurrentIndex
+                        onCurrentIndexChanged: {
+                            if (currentIndex >= 0) {
+                                positionViewAtIndex(currentIndex, ListView.Contain)
+                            }
+                        }
+
+                        delegate: Rectangle {
+                            id: audioQueueRow
+                            required property int index
+                            required property string name
+                            required property real bytes
+                            width: audioQueueList.width
+                            height: 58
+                            radius: 8
+                            color: index === appViewModel.webDavAudioCurrentIndex
+                                ? root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
+                                : audioQueueMouse.containsMouse ? theme.elevatedHover : theme.elevated
+                            border.color: index === appViewModel.webDavAudioCurrentIndex
+                                ? root.withAlpha(theme.primary, 0.72)
+                                : theme.border
+
+                            MouseArea {
+                                id: audioQueueMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: appViewModel.startWebDavAudioPlayback(audioQueueRow.index)
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 10
+
+                                Label {
+                                    text: (audioQueueRow.index < 9 ? "0" : "") + (audioQueueRow.index + 1)
+                                    color: audioQueueRow.index === appViewModel.webDavAudioCurrentIndex ? theme.primary : theme.subtle
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: audioQueueRow.name
+                                        color: theme.text
+                                        font.pixelSize: 13
+                                        font.bold: audioQueueRow.index === appViewModel.webDavAudioCurrentIndex
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    MutedText {
+                                        Layout.fillWidth: true
+                                        text: audioQueueRow.bytes >= 0 ? root.formatBytes(audioQueueRow.bytes) : t("webdav.audio")
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                Label {
+                                    visible: audioQueueRow.index === appViewModel.webDavAudioCurrentIndex
+                                    text: "\u25B6"
+                                    color: theme.primary
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         MouseArea {
             anchors.fill: mpvVideo
+            visible: !appViewModel.webDavAudioPlaybackActive
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onPositionChanged: playerPage.revealControls()
@@ -5652,7 +5947,9 @@ ApplicationWindow {
             color: "transparent"
             flags: Qt.FramelessWindowHint | Qt.Tool
             transientParent: root
-            visible: appViewModel.currentView === "player" && root.visible && (playerPage.controlsVisible || playerPage.exitConfirmVisible)
+            visible: appViewModel.currentView === "player" && root.visible
+                && (playerPage.exitConfirmVisible
+                    || (!appViewModel.webDavAudioPlaybackActive && playerPage.controlsVisible))
 
             function syncChromeGeometry() {
                 if (playerPage.width <= 0 || playerPage.height <= 0) {
@@ -5765,7 +6062,9 @@ ApplicationWindow {
             color: "transparent"
             flags: Qt.FramelessWindowHint | Qt.Tool
             transientParent: root
-            visible: appViewModel.currentView === "player" && root.visible && (playerPage.controlsVisible || playerPage.exitConfirmVisible)
+            visible: appViewModel.currentView === "player" && root.visible
+                && !appViewModel.webDavAudioPlaybackActive
+                && (playerPage.controlsVisible || playerPage.exitConfirmVisible)
 
             function syncChromeGeometry() {
                 if (playerPage.width <= 0 || playerPage.height <= 0) {
@@ -6089,13 +6388,22 @@ ApplicationWindow {
                 WebDavDisplayModeSwitch {}
 
                 MutedText {
-                    visible: appViewModel.webDavDisplayMode === "video" && webDavPage.width >= 1080
-                    text: t("webdav.videoModeHint")
+                    visible: (appViewModel.webDavDisplayMode === "video" || appViewModel.webDavDisplayMode === "audio")
+                        && webDavPage.width >= 1080
+                    text: appViewModel.webDavDisplayMode === "audio"
+                        ? t("webdav.audioModeHint") : t("webdav.videoModeHint")
                 }
 
                 Item {
                     Layout.fillWidth: true
                 }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                Item { Layout.fillWidth: true }
 
                 ModernButton {
                     text: t("action.refresh")
@@ -6121,6 +6429,7 @@ ApplicationWindow {
             Item {
                 id: webDavListArea
                 property bool videoMode: appViewModel.webDavDisplayMode === "video"
+                property bool audioMode: appViewModel.webDavDisplayMode === "audio"
                 property int gridColumns: Math.max(1, Math.floor(width / 226))
                 property real gridCellWidth: width / gridColumns
                 property real gridCellHeight: 226
@@ -6130,7 +6439,7 @@ ApplicationWindow {
 
                 ListView {
                     anchors.fill: parent
-                    visible: !webDavListArea.videoMode
+                    visible: !webDavListArea.videoMode && !webDavListArea.audioMode
                     enabled: !appViewModel.loading
                     opacity: appViewModel.loading ? 0.34 : 1
                     spacing: 10
@@ -6172,10 +6481,93 @@ ApplicationWindow {
                     Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 }
 
+                ListView {
+                    id: webDavAudioList
+                    anchors.fill: parent
+                    visible: webDavListArea.audioMode
+                    enabled: !appViewModel.loading
+                    opacity: appViewModel.loading ? 0.34 : 1
+                    spacing: 8
+                    clip: true
+                    model: visible ? appViewModel.webDavItems : null
+                    delegate: Rectangle {
+                        width: webDavAudioList.width
+                        height: 70
+                        radius: 8
+                        color: index === appViewModel.webDavAudioCurrentIndex
+                            ? root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
+                            : (audioMouse.containsMouse ? theme.elevatedHover : theme.elevated)
+                        border.color: index === appViewModel.webDavAudioCurrentIndex
+                            ? root.withAlpha(theme.primary, 0.72)
+                            : theme.border
+
+                        MouseArea {
+                            id: audioMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: appViewModel.openWebDavItem(index)
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 16
+                            anchors.rightMargin: 16
+                            spacing: 14
+
+                            Rectangle {
+                                Layout.preferredWidth: 38
+                                Layout.preferredHeight: 38
+                                radius: 19
+                                color: root.withAlpha(theme.primary, index === appViewModel.webDavAudioCurrentIndex ? 0.9 : 0.16)
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: index === appViewModel.webDavAudioCurrentIndex ? "\u266B" : "\u266A"
+                                    color: index === appViewModel.webDavAudioCurrentIndex ? "#ffffff" : theme.primary
+                                    font.pixelSize: 18
+                                    font.bold: true
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 3
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: model.name
+                                    color: theme.text
+                                    font.pixelSize: 14
+                                    font.bold: index === appViewModel.webDavAudioCurrentIndex
+                                    elide: Text.ElideRight
+                                }
+
+                                MutedText {
+                                    Layout.fillWidth: true
+                                    text: model.contentType.length > 0
+                                        ? model.contentType
+                                        : (model.bytes >= 0 ? root.formatBytes(model.bytes) : t("webdav.audio"))
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Label {
+                                visible: index === appViewModel.webDavAudioCurrentIndex
+                                text: "\u25B6"
+                                color: theme.primary
+                                font.pixelSize: 16
+                            }
+                        }
+                    }
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                }
+
                 MutedText {
                     anchors.centerIn: parent
                     visible: appViewModel.webDavItems.count === 0 && !appViewModel.loading
-                    text: webDavListArea.videoMode ? t("webdav.videoEmpty") : t("webdav.empty")
+                    text: webDavListArea.audioMode
+                        ? t("webdav.audioEmpty")
+                        : webDavListArea.videoMode ? t("webdav.videoEmpty") : t("webdav.empty")
                 }
             }
         }

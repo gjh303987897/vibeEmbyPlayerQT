@@ -33,6 +33,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <vector>
 
 class AppViewModel final : public QObject {
     Q_OBJECT
@@ -54,6 +55,10 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
+    Q_PROPERTY(bool webDavAudioPlaybackActive READ webDavAudioPlaybackActive NOTIFY webDavAudioPlaybackChanged)
+    Q_PROPERTY(int webDavAudioCurrentIndex READ webDavAudioCurrentIndex NOTIFY webDavAudioPlaybackChanged)
+    Q_PROPERTY(int webDavAudioQueueCount READ webDavAudioQueueCount NOTIFY webDavAudioPlaybackChanged)
+    Q_PROPERTY(QString webDavAudioCurrentName READ webDavAudioCurrentName NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(QString defaultDownloadDirectory READ defaultDownloadDirectory WRITE setDefaultDownloadDirectory NOTIFY defaultDownloadDirectoryChanged)
     Q_PROPERTY(TransferTaskListModel* transferTasks READ transferTasks CONSTANT)
     Q_PROPERTY(TransferTaskListModel* transferDetailTasks READ transferDetailTasks CONSTANT)
@@ -191,6 +196,10 @@ public:
     QString webDavCurrentPath() const;
     QString webDavDisplayMode() const;
     void setWebDavDisplayMode(const QString& value);
+    bool webDavAudioPlaybackActive() const;
+    int webDavAudioCurrentIndex() const;
+    int webDavAudioQueueCount() const;
+    QString webDavAudioCurrentName() const;
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& value);
     TransferTaskListModel* transferTasks();
@@ -323,6 +332,9 @@ public:
     Q_INVOKABLE void selectIptvGroup(const QString& groupName);
     Q_INVOKABLE void playIptvChannel(int row);
     Q_INVOKABLE void openWebDavItem(int row);
+    Q_INVOKABLE void startWebDavAudioPlayback(int row = 0);
+    Q_INVOKABLE void advanceWebDavAudioPlayback(bool reachedEnd, bool failed);
+    Q_INVOKABLE void skipWebDavAudioTrack(int direction);
     Q_INVOKABLE void webDavBack();
     Q_INVOKABLE void refreshWebDavDirectory();
     Q_INVOKABLE void chooseWebDavUploadFiles();
@@ -410,6 +422,7 @@ signals:
     void iptvGroupsChanged();
     void webDavCurrentPathChanged();
     void webDavDisplayModeChanged();
+    void webDavAudioPlaybackChanged();
     void defaultDownloadDirectoryChanged();
     void transferTasksChanged();
     void transferSelectionChanged();
@@ -476,6 +489,9 @@ private:
     void loadWebDavService(const ServiceCard& card, const QString& password);
     void clearWebDavState();
     void loadWebDavDirectory(const QUrl& url);
+    void rebuildWebDavAudioQueue(const std::vector<WebDavItem>& items);
+    void playWebDavAudioTrack(int index);
+    void clearWebDavAudioPlayback();
     void saveWebDavCredentials(const ServerConfig& server, const QString& password);
     std::optional<QString> loadWebDavPassword(const ServerConfig& server);
     QUrl childWebDavUrl(const QString& name, bool directory) const;
@@ -541,6 +557,9 @@ private:
     QStringList m_iptvGroups;
     QString m_webDavPassword;
     QString m_webDavDisplayMode { QStringLiteral("default") };
+    std::vector<WebDavItem> m_webDavAudioQueue;
+    int m_webDavAudioCurrentIndex { -1 };
+    bool m_webDavAudioPlaybackActive { false };
     QString m_defaultDownloadDirectory;
     QString m_transferDetailFilter { QStringLiteral("all") };
     ServiceType m_serviceType { ServiceType::Emby };
@@ -571,6 +590,7 @@ private:
     std::optional<ServiceCard> m_currentWebDavCard;
     QUrl m_webDavCurrentUrl;
     std::vector<QUrl> m_webDavHistory;
+    std::vector<WebDavItem> m_webDavDirectoryItems;
     std::optional<MediaLibrary> m_currentLibrary;
     QString m_currentMediaParentId;
     QString m_currentMediaParentName;

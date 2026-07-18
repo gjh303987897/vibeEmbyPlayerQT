@@ -75,7 +75,7 @@ public:
     ~PlayerController() override;
 
     bool initialize(qintptr windowId);
-    bool initializeHeadless();
+    bool initializeHeadless(bool enableAudioOutput = false);
     bool paused() const;
     bool loading() const;
     bool buffering() const;
@@ -120,7 +120,7 @@ signals:
     void tracksChanged();
     void videoOutputChanged();
     void playbackRestarted();
-    void playbackEnded(double positionSeconds, bool failed);
+    void playbackEnded(double positionSeconds, bool reachedEnd, bool failed);
     void playbackNetworkBytes(qint64 bytesReceived);
 
 private:
@@ -143,6 +143,7 @@ private:
     mpv_handle* m_mpv { nullptr };
     qintptr m_windowId { 0 };
     bool m_headless { false };
+    bool m_headlessAudioOutput { false };
     bool m_paused { false };
     bool m_loading { false };
     bool m_buffering { false };

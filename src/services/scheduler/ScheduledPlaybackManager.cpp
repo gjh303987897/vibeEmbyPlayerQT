@@ -562,8 +562,9 @@ void ScheduledPlaybackManager::handlePlaybackRestarted()
                     QStringLiteral("Background media playback started: %1").arg(m_currentItem->name));
 }
 
-void ScheduledPlaybackManager::handlePlaybackEnded(double positionSeconds, bool failed)
+void ScheduledPlaybackManager::handlePlaybackEnded(double positionSeconds, bool reachedEnd, bool failed)
 {
+    Q_UNUSED(reachedEnd)
     if (m_ignoreNextPlaybackEnd) {
         m_ignoreNextPlaybackEnd = false;
         return;

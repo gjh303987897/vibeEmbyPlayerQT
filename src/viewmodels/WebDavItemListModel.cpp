@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <QString>
 
 WebDavItemListModel::WebDavItemListModel(QObject* parent)
     : QAbstractListModel(parent)
@@ -42,6 +43,8 @@ QVariant WebDavItemListModel::data(const QModelIndex& index, int role) const
         return item.directory;
     case PlayableRole:
         return item.playable;
+    case AudioPlayableRole:
+        return item.audioPlayable;
     default:
         return {};
     }
@@ -58,6 +61,7 @@ QHash<int, QByteArray> WebDavItemListModel::roleNames() const
         { SizeRole, "bytes" },
         { DirectoryRole, "directory" },
         { PlayableRole, "playable" },
+        { AudioPlayableRole, "audioPlayable" },
     };
 }
 
@@ -67,30 +71,57 @@ void WebDavItemListModel::setItems(std::vector<WebDavItem> items)
     rebuildVisibleItems();
 }
 
-void WebDavItemListModel::setVideoMode(bool enabled)
+void WebDavItemListModel::setDisplayMode(const QString& mode)
 {
-    if (m_videoMode == enabled) {
+    const auto normalized = mode.compare(QStringLiteral("video"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("video")
+        : mode.compare(QStringLiteral("audio"), Qt::CaseInsensitive) == 0
+            ? QStringLiteral("audio")
+            : QStringLiteral("default");
+    if (m_displayMode == normalized) {
         return;
     }
-    m_videoMode = enabled;
+    m_displayMode = normalized;
     rebuildVisibleItems();
+}
+
+QString WebDavItemListModel::displayMode() const
+{
+    return m_displayMode;
+}
+
+void WebDavItemListModel::setVideoMode(bool enabled)
+{
+    setDisplayMode(enabled ? QStringLiteral("video") : QStringLiteral("default"));
 }
 
 bool WebDavItemListModel::videoMode() const
 {
-    return m_videoMode;
+    return m_displayMode == QStringLiteral("video");
+}
+
+bool WebDavItemListModel::audioMode() const
+{
+    return m_displayMode == QStringLiteral("audio");
 }
 
 void WebDavItemListModel::rebuildVisibleItems()
 {
     beginResetModel();
     m_items.clear();
-    if (m_videoMode) {
+    if (m_displayMode == QStringLiteral("video")) {
         m_items.reserve(m_allItems.size());
         std::ranges::copy_if(m_allItems,
                              std::back_inserter(m_items),
                              [](const WebDavItem& item) {
             return item.directory || item.playable;
+        });
+    } else if (m_displayMode == QStringLiteral("audio")) {
+        m_items.reserve(m_allItems.size());
+        std::ranges::copy_if(m_allItems,
+                             std::back_inserter(m_items),
+                             [](const WebDavItem& item) {
+            return item.audioPlayable;
         });
     } else {
         m_items = m_allItems;

@@ -12,4 +12,5 @@ struct WebDavItem {
     qint64 size { -1 };
     bool directory { false };
     bool playable { false };
+    bool audioPlayable { false };
 };

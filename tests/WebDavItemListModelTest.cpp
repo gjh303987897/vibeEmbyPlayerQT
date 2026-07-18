@@ -15,6 +15,14 @@ WebDavItem item(QString name, bool directory, bool playable)
         .playable = playable,
     };
 }
+
+WebDavItem audioItem(QString name)
+{
+    return WebDavItem {
+        .name = std::move(name),
+        .audioPlayable = true,
+    };
+}
 }
 
 class WebDavItemListModelTest final : public QObject {
@@ -24,6 +32,7 @@ private slots:
     void defaultModeShowsEveryItem();
     void videoModeShowsOnlyFoldersAndVideos();
     void newDirectoryContentsRespectCurrentMode();
+    void audioModeShowsOnlyAudioFiles();
 };
 
 void WebDavItemListModelTest::defaultModeShowsEveryItem()
@@ -46,6 +55,7 @@ void WebDavItemListModelTest::videoModeShowsOnlyFoldersAndVideos()
     model.setItems({
         item(QStringLiteral("Movies"), true, false),
         item(QStringLiteral("film.mkv"), false, true),
+        audioItem(QStringLiteral("soundtrack.flac")),
         item(QStringLiteral("notes.txt"), false, false),
         item(QStringLiteral("Artwork"), true, false),
     });
@@ -62,8 +72,8 @@ void WebDavItemListModelTest::videoModeShowsOnlyFoldersAndVideos()
     QVERIFY(!model.itemAt(3).has_value());
 
     model.setVideoMode(false);
-    QCOMPARE(model.count(), 4);
-    QCOMPARE(model.itemAt(2)->name, QStringLiteral("notes.txt"));
+    QCOMPARE(model.count(), 5);
+    QCOMPARE(model.itemAt(2)->name, QStringLiteral("soundtrack.flac"));
 }
 
 void WebDavItemListModelTest::newDirectoryContentsRespectCurrentMode()
@@ -83,6 +93,32 @@ void WebDavItemListModelTest::newDirectoryContentsRespectCurrentMode()
     model.clear();
     QCOMPARE(model.count(), 0);
     QVERIFY(model.videoMode());
+}
+
+void WebDavItemListModelTest::audioModeShowsOnlyAudioFiles()
+{
+    WebDavItemListModel model;
+    model.setItems({
+        item(QStringLiteral("film.mkv"), false, true),
+        audioItem(QStringLiteral("track.flac")),
+        item(QStringLiteral("notes.txt"), false, false),
+        audioItem(QStringLiteral("track-two.mp3")),
+    });
+
+    model.setDisplayMode(QStringLiteral("audio"));
+
+    QCOMPARE(model.count(), 2);
+    QVERIFY(model.audioMode());
+    QCOMPARE(model.itemAt(0)->name, QStringLiteral("track.flac"));
+    QCOMPARE(model.itemAt(1)->name, QStringLiteral("track-two.mp3"));
+
+    model.setItems({
+        audioItem(QStringLiteral("next-folder-track.ogg")),
+        item(QStringLiteral("Series"), true, false),
+        item(QStringLiteral("episode.mp4"), false, true),
+    });
+    QCOMPARE(model.count(), 1);
+    QCOMPARE(model.itemAt(0)->name, QStringLiteral("next-folder-track.ogg"));
 }
 
 QTEST_MAIN(WebDavItemListModelTest)
