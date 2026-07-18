@@ -368,7 +368,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.modeVideo"), QStringLiteral("Video") },
         { QStringLiteral("webdav.modeAudio"), QStringLiteral("Audio") },
         { QStringLiteral("webdav.videoModeHint"), QStringLiteral("Folders and videos only") },
-        { QStringLiteral("webdav.audioModeHint"), QStringLiteral("Play audio files in order") },
+        { QStringLiteral("webdav.audioModeHint"), QStringLiteral("Play audio from this folder") },
+        { QStringLiteral("webdav.repeatOff"), QStringLiteral("Play in order") },
+        { QStringLiteral("webdav.repeatOne"), QStringLiteral("Repeat current track") },
+        { QStringLiteral("webdav.repeatAll"), QStringLiteral("Repeat queue") },
         { QStringLiteral("webdav.folder"), QStringLiteral("Folder") },
         { QStringLiteral("webdav.video"), QStringLiteral("Video") },
         { QStringLiteral("webdav.audio"), QStringLiteral("Audio") },
@@ -736,7 +739,10 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("webdav.modeVideo"), QStringLiteral("视频") },
         { QStringLiteral("webdav.modeAudio"), QStringLiteral("音频") },
         { QStringLiteral("webdav.videoModeHint"), QStringLiteral("仅显示子文件夹和视频") },
-        { QStringLiteral("webdav.audioModeHint"), QStringLiteral("按顺序播放当前文件夹中的音频") },
+        { QStringLiteral("webdav.audioModeHint"), QStringLiteral("播放当前文件夹中的音频") },
+        { QStringLiteral("webdav.repeatOff"), QStringLiteral("顺序播放") },
+        { QStringLiteral("webdav.repeatOne"), QStringLiteral("单曲循环") },
+        { QStringLiteral("webdav.repeatAll"), QStringLiteral("列表循环") },
         { QStringLiteral("webdav.folder"), QStringLiteral("文件夹") },
         { QStringLiteral("webdav.video"), QStringLiteral("视频") },
         { QStringLiteral("webdav.audio"), QStringLiteral("音频") },
@@ -1160,6 +1166,27 @@ QString AppViewModel::webDavAudioCurrentName() const
         return {};
     }
     return m_webDavAudioQueue[static_cast<size_t>(m_webDavAudioCurrentIndex)].name;
+}
+
+QString AppViewModel::webDavAudioRepeatMode() const
+{
+    return m_webDavAudioRepeatMode;
+}
+
+void AppViewModel::setWebDavAudioRepeatMode(const QString& value)
+{
+    const auto normalizedMode = value.compare(QStringLiteral("one"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("one")
+        : value.compare(QStringLiteral("all"), Qt::CaseInsensitive) == 0
+            ? QStringLiteral("all")
+            : QStringLiteral("off");
+    if (m_webDavAudioRepeatMode == normalizedMode) {
+        return;
+    }
+    m_webDavAudioRepeatMode = normalizedMode;
+    emit webDavAudioRepeatModeChanged();
+    AppLogger::info(QStringLiteral("webdav"),
+                    QStringLiteral("Audio repeat mode changed to %1").arg(m_webDavAudioRepeatMode));
 }
 
 void AppViewModel::setWebDavDisplayMode(const QString& value)
@@ -2274,14 +2301,25 @@ void AppViewModel::advanceWebDavAudioPlayback(bool reachedEnd, bool failed)
     if (!m_webDavAudioPlaybackActive || (!reachedEnd && !failed)) {
         return;
     }
-    const auto nextIndex = m_webDavAudioCurrentIndex + 1;
-    if (nextIndex >= static_cast<int>(m_webDavAudioQueue.size())) {
-        AppLogger::info(QStringLiteral("webdav"), QStringLiteral("WebDAV audio queue completed"));
-        clearWebDavAudioPlayback();
-        if (m_currentWebDavCard) {
-            setCurrentView(QStringLiteral("webdav"));
-        }
+    if (reachedEnd && m_webDavAudioRepeatMode == QStringLiteral("one")) {
+        AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Repeating current WebDAV audio item"));
+        playWebDavAudioTrack(m_webDavAudioCurrentIndex);
         return;
+    }
+
+    auto nextIndex = m_webDavAudioCurrentIndex + 1;
+    if (nextIndex >= static_cast<int>(m_webDavAudioQueue.size())) {
+        if (reachedEnd && m_webDavAudioRepeatMode == QStringLiteral("all")) {
+            nextIndex = 0;
+            AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Restarting WebDAV audio queue"));
+        } else {
+            AppLogger::info(QStringLiteral("webdav"), QStringLiteral("WebDAV audio queue completed"));
+            clearWebDavAudioPlayback();
+            if (m_currentWebDavCard) {
+                setCurrentView(QStringLiteral("webdav"));
+            }
+            return;
+        }
     }
     AppLogger::info(QStringLiteral("webdav"),
                     QStringLiteral("Advancing WebDAV audio queue to item %1").arg(nextIndex + 1));
@@ -2292,12 +2330,15 @@ void AppViewModel::advanceWebDavAudioPlayback(bool reachedEnd, bool failed)
 
 void AppViewModel::skipWebDavAudioTrack(int direction)
 {
-    if (!m_webDavAudioPlaybackActive || m_webDavAudioQueue.empty() || direction == 0) {
+    if (!m_webDavAudioPlaybackActive || m_webDavAudioQueue.size() <= 1 || direction == 0) {
         return;
     }
-    const auto nextIndex = m_webDavAudioCurrentIndex + (direction > 0 ? 1 : -1);
+    auto nextIndex = m_webDavAudioCurrentIndex + (direction > 0 ? 1 : -1);
     if (nextIndex < 0 || nextIndex >= static_cast<int>(m_webDavAudioQueue.size())) {
-        return;
+        if (m_webDavAudioRepeatMode != QStringLiteral("all")) {
+            return;
+        }
+        nextIndex = direction > 0 ? 0 : static_cast<int>(m_webDavAudioQueue.size()) - 1;
     }
     m_webDavAudioCurrentIndex = nextIndex;
     emit webDavAudioPlaybackChanged();

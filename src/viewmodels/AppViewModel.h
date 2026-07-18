@@ -59,6 +59,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(int webDavAudioCurrentIndex READ webDavAudioCurrentIndex NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioQueueCount READ webDavAudioQueueCount NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(QString webDavAudioCurrentName READ webDavAudioCurrentName NOTIFY webDavAudioPlaybackChanged)
+    Q_PROPERTY(QString webDavAudioRepeatMode READ webDavAudioRepeatMode WRITE setWebDavAudioRepeatMode NOTIFY webDavAudioRepeatModeChanged)
     Q_PROPERTY(QString defaultDownloadDirectory READ defaultDownloadDirectory WRITE setDefaultDownloadDirectory NOTIFY defaultDownloadDirectoryChanged)
     Q_PROPERTY(TransferTaskListModel* transferTasks READ transferTasks CONSTANT)
     Q_PROPERTY(TransferTaskListModel* transferDetailTasks READ transferDetailTasks CONSTANT)
@@ -200,6 +201,8 @@ public:
     int webDavAudioCurrentIndex() const;
     int webDavAudioQueueCount() const;
     QString webDavAudioCurrentName() const;
+    QString webDavAudioRepeatMode() const;
+    void setWebDavAudioRepeatMode(const QString& value);
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& value);
     TransferTaskListModel* transferTasks();
@@ -423,6 +426,7 @@ signals:
     void webDavCurrentPathChanged();
     void webDavDisplayModeChanged();
     void webDavAudioPlaybackChanged();
+    void webDavAudioRepeatModeChanged();
     void defaultDownloadDirectoryChanged();
     void transferTasksChanged();
     void transferSelectionChanged();
@@ -560,6 +564,7 @@ private:
     std::vector<WebDavItem> m_webDavAudioQueue;
     int m_webDavAudioCurrentIndex { -1 };
     bool m_webDavAudioPlaybackActive { false };
+    QString m_webDavAudioRepeatMode { QStringLiteral("off") };
     QString m_defaultDownloadDirectory;
     QString m_transferDetailFilter { QStringLiteral("all") };
     ServiceType m_serviceType { ServiceType::Emby };

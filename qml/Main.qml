@@ -1884,6 +1884,192 @@ ApplicationWindow {
         rightPadding: 0
     }
 
+    component AudioControlIcon: Canvas {
+        property string kind: "play"
+        property color iconColor: theme.text
+        antialiasing: true
+
+        onKindChanged: requestPaint()
+        onIconColorChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+
+        onPaint: {
+            var ctx = getContext("2d")
+            var w = width
+            var h = height
+            ctx.clearRect(0, 0, w, h)
+            ctx.fillStyle = iconColor
+            ctx.strokeStyle = iconColor
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
+
+            if (kind === "play") {
+                ctx.beginPath()
+                ctx.moveTo(w * 0.38, h * 0.27)
+                ctx.lineTo(w * 0.72, h * 0.50)
+                ctx.lineTo(w * 0.38, h * 0.73)
+                ctx.closePath()
+                ctx.fill()
+                return
+            }
+            if (kind === "pause") {
+                ctx.fillRect(w * 0.31, h * 0.27, w * 0.13, h * 0.46)
+                ctx.fillRect(w * 0.56, h * 0.27, w * 0.13, h * 0.46)
+                return
+            }
+            if (kind === "previous" || kind === "next") {
+                var previous = kind === "previous"
+                ctx.fillRect(previous ? w * 0.25 : w * 0.67, h * 0.29, w * 0.09, h * 0.42)
+                ctx.beginPath()
+                if (previous) {
+                    ctx.moveTo(w * 0.67, h * 0.27)
+                    ctx.lineTo(w * 0.36, h * 0.50)
+                    ctx.lineTo(w * 0.67, h * 0.73)
+                } else {
+                    ctx.moveTo(w * 0.33, h * 0.27)
+                    ctx.lineTo(w * 0.64, h * 0.50)
+                    ctx.lineTo(w * 0.33, h * 0.73)
+                }
+                ctx.closePath()
+                ctx.fill()
+                return
+            }
+
+            ctx.lineWidth = Math.max(1.7, Math.min(w, h) * 0.075)
+            if (kind === "order") {
+                ctx.beginPath()
+                ctx.moveTo(w * 0.22, h * 0.50)
+                ctx.lineTo(w * 0.72, h * 0.50)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(w * 0.60, h * 0.34)
+                ctx.lineTo(w * 0.74, h * 0.50)
+                ctx.lineTo(w * 0.60, h * 0.66)
+                ctx.stroke()
+                return
+            }
+
+            ctx.beginPath()
+            ctx.moveTo(w * 0.24, h * 0.34)
+            ctx.lineTo(w * 0.72, h * 0.34)
+            ctx.lineTo(w * 0.62, h * 0.23)
+            ctx.moveTo(w * 0.72, h * 0.34)
+            ctx.lineTo(w * 0.62, h * 0.45)
+            ctx.moveTo(w * 0.76, h * 0.66)
+            ctx.lineTo(w * 0.28, h * 0.66)
+            ctx.lineTo(w * 0.38, h * 0.55)
+            ctx.moveTo(w * 0.28, h * 0.66)
+            ctx.lineTo(w * 0.38, h * 0.77)
+            ctx.stroke()
+            if (kind === "repeatOne") {
+                ctx.font = "600 " + Math.round(h * 0.30) + "px sans-serif"
+                ctx.textAlign = "center"
+                ctx.textBaseline = "middle"
+                ctx.fillText("1", w * 0.50, h * 0.51)
+            }
+        }
+    }
+
+    component AudioTransportButton: Button {
+        id: transportButton
+        property string iconKind: "play"
+        property bool primaryAction: false
+        implicitWidth: primaryAction ? 54 : 44
+        implicitHeight: primaryAction ? 54 : 44
+        padding: 0
+
+        contentItem: AudioControlIcon {
+            kind: transportButton.iconKind
+            iconColor: transportButton.enabled
+                ? (transportButton.primaryAction ? "#ffffff" : theme.text)
+                : theme.subtle
+        }
+        background: Rectangle {
+            radius: width / 2
+            color: transportButton.primaryAction
+                ? (transportButton.hovered ? theme.primaryHover : theme.primary)
+                : transportButton.down ? root.withAlpha(theme.primary, 0.18)
+                : transportButton.hovered ? theme.elevatedHover : theme.elevated
+            border.width: transportButton.activeFocus ? 2 : 1
+            border.color: transportButton.primaryAction
+                ? theme.primary
+                : transportButton.activeFocus || transportButton.hovered
+                    ? root.withAlpha(theme.primary, 0.72) : theme.border
+        }
+    }
+
+    component AudioRepeatButton: Button {
+        id: repeatButton
+        property string iconKind: "order"
+        property bool selected: false
+        implicitWidth: 34
+        implicitHeight: 32
+        padding: 0
+
+        contentItem: AudioControlIcon {
+            kind: repeatButton.iconKind
+            iconColor: repeatButton.selected ? "#ffffff" : theme.muted
+        }
+        background: Rectangle {
+            radius: 5
+            color: repeatButton.selected
+                ? theme.primary
+                : repeatButton.hovered ? theme.elevatedHover : "transparent"
+            border.width: repeatButton.activeFocus ? 2 : 1
+            border.color: repeatButton.selected
+                ? theme.primary
+                : repeatButton.activeFocus ? root.withAlpha(theme.primary, 0.72) : "transparent"
+        }
+    }
+
+    component AudioRepeatModeSwitch: Rectangle {
+        implicitWidth: 112
+        implicitHeight: 38
+        radius: 8
+        color: theme.input
+        border.color: theme.border
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 3
+            spacing: 2
+
+            AudioRepeatButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                iconKind: "order"
+                selected: appViewModel.webDavAudioRepeatMode === "off"
+                Accessible.name: t("webdav.repeatOff")
+                ToolTip.visible: hovered
+                ToolTip.text: t("webdav.repeatOff")
+                onClicked: appViewModel.webDavAudioRepeatMode = "off"
+            }
+
+            AudioRepeatButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                iconKind: "repeatOne"
+                selected: appViewModel.webDavAudioRepeatMode === "one"
+                Accessible.name: t("webdav.repeatOne")
+                ToolTip.visible: hovered
+                ToolTip.text: t("webdav.repeatOne")
+                onClicked: appViewModel.webDavAudioRepeatMode = "one"
+            }
+
+            AudioRepeatButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                iconKind: "repeatAll"
+                selected: appViewModel.webDavAudioRepeatMode === "all"
+                Accessible.name: t("webdav.repeatAll")
+                ToolTip.visible: hovered
+                ToolTip.text: t("webdav.repeatAll")
+                onClicked: appViewModel.webDavAudioRepeatMode = "all"
+            }
+        }
+    }
+
     component TransferFilterButton: Button {
         id: filterButton
         property bool selected: false
@@ -4816,32 +5002,44 @@ ApplicationWindow {
 
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
-                        spacing: 12
+                        spacing: 18
 
-                        IconButton {
-                            text: "\u23EE"
-                            enabled: appViewModel.webDavAudioCurrentIndex > 0
-                            ToolTip.visible: hovered
-                            ToolTip.text: t("action.previous")
-                            onClicked: appViewModel.skipWebDavAudioTrack(-1)
+                        RowLayout {
+                            spacing: 10
+
+                            AudioTransportButton {
+                                iconKind: "previous"
+                                enabled: appViewModel.webDavAudioQueueCount > 1
+                                    && (appViewModel.webDavAudioRepeatMode === "all"
+                                        || appViewModel.webDavAudioCurrentIndex > 0)
+                                Accessible.name: t("action.previous")
+                                ToolTip.visible: hovered
+                                ToolTip.text: t("action.previous")
+                                onClicked: appViewModel.skipWebDavAudioTrack(-1)
+                            }
+
+                            AudioTransportButton {
+                                iconKind: mpvVideo.paused ? "play" : "pause"
+                                primaryAction: true
+                                Accessible.name: mpvVideo.paused ? t("action.resume") : t("action.pause")
+                                ToolTip.visible: hovered
+                                ToolTip.text: mpvVideo.paused ? t("action.resume") : t("action.pause")
+                                onClicked: mpvVideo.togglePause()
+                            }
+
+                            AudioTransportButton {
+                                iconKind: "next"
+                                enabled: appViewModel.webDavAudioQueueCount > 1
+                                    && (appViewModel.webDavAudioRepeatMode === "all"
+                                        || appViewModel.webDavAudioCurrentIndex + 1 < appViewModel.webDavAudioQueueCount)
+                                Accessible.name: t("action.next")
+                                ToolTip.visible: hovered
+                                ToolTip.text: t("action.next")
+                                onClicked: appViewModel.skipWebDavAudioTrack(1)
+                            }
                         }
 
-                        IconButton {
-                            implicitWidth: 52
-                            implicitHeight: 44
-                            text: mpvVideo.paused ? "\u25B6" : "\u23F8"
-                            ToolTip.visible: hovered
-                            ToolTip.text: mpvVideo.paused ? t("action.resume") : t("action.pause")
-                            onClicked: mpvVideo.togglePause()
-                        }
-
-                        IconButton {
-                            text: "\u23ED"
-                            enabled: appViewModel.webDavAudioCurrentIndex + 1 < appViewModel.webDavAudioQueueCount
-                            ToolTip.visible: hovered
-                            ToolTip.text: t("action.next")
-                            onClicked: appViewModel.skipWebDavAudioTrack(1)
-                        }
+                        AudioRepeatModeSwitch {}
                     }
 
                     RowLayout {
