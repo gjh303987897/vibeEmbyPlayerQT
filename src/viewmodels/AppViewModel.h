@@ -26,6 +26,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 #include <QVariantList>
@@ -108,6 +109,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString selectedItemImageUrl READ selectedItemImageUrl NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemLogoUrl READ selectedItemLogoUrl NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemBackdropUrl READ selectedItemBackdropUrl NOTIFY selectedItemChanged)
+    Q_PROPERTY(QStringList selectedItemBackdropUrls READ selectedItemBackdropUrls NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemMeta READ selectedItemMeta NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemSeasonEpisode READ selectedItemSeasonEpisode NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemPeople READ selectedItemPeople NOTIFY selectedItemChanged)
@@ -266,6 +268,7 @@ public:
     QString selectedItemImageUrl() const;
     QString selectedItemLogoUrl() const;
     QString selectedItemBackdropUrl() const;
+    QStringList selectedItemBackdropUrls() const;
     QString selectedItemMeta() const;
     QString selectedItemSeasonEpisode() const;
     QString selectedItemPeople() const;

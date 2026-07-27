@@ -4374,9 +4374,12 @@ ApplicationWindow {
         id: detailPage
         clip: true
 
-        readonly property string backgroundImageUrl: appViewModel.selectedItemBackdropUrl.length > 0
-            ? appViewModel.selectedItemBackdropUrl
-            : appViewModel.selectedItemImageUrl
+        readonly property var backgroundImageUrls: appViewModel.selectedItemBackdropUrls
+        readonly property string backgroundImageUrl: backgroundImageUrls.length > 0
+                && backdropRotationIndex >= 0
+                && backdropRotationIndex < backgroundImageUrls.length
+            ? backgroundImageUrls[backdropRotationIndex]
+            : ""
         readonly property real heroHeight: Math.max(540, Math.min(700, height * 0.78))
         readonly property color pageBackground: theme.bg
         readonly property color heroPrimaryText: theme.text
@@ -4391,7 +4394,44 @@ ApplicationWindow {
         property string pendingBackdropUrl: ""
         property int activeBackdropLayer: 0
         property int pendingBackdropLayer: -1
+        property int backdropRotationIndex: 0
         property string lastAnimatedItemId: ""
+
+        function backdropIndexForUrl(url) {
+            for (var index = 0; index < backgroundImageUrls.length; ++index) {
+                if (backgroundImageUrls[index] === url) {
+                    return index
+                }
+            }
+            return -1
+        }
+
+        function synchronizeBackdrops() {
+            if (backgroundImageUrls.length === 0) {
+                backdropRotationIndex = 0
+                requestBackdrop("")
+                return
+            }
+
+            var activeIndex = backdropIndexForUrl(activeBackdropUrl)
+            if (activeIndex >= 0) {
+                backdropRotationIndex = activeIndex
+                return
+            }
+
+            backdropRotationIndex = 0
+            if (!appViewModel.episodeSwitching || activeBackdropUrl.length === 0) {
+                requestBackdrop(backgroundImageUrl)
+            }
+        }
+
+        function advanceBackdrop() {
+            if (backgroundImageUrls.length < 2 || pendingBackdropLayer >= 0) {
+                return
+            }
+            backdropRotationIndex = (backdropRotationIndex + 1) % backgroundImageUrls.length
+            requestBackdrop(backgroundImageUrl)
+        }
 
         function requestBackdrop(url) {
             var normalizedUrl = url || ""
@@ -4446,14 +4486,12 @@ ApplicationWindow {
             detailContentFade.restart()
         }
 
-        onBackgroundImageUrlChanged: {
-            if (!appViewModel.episodeSwitching || activeBackdropUrl.length === 0) {
-                requestBackdrop(backgroundImageUrl)
-            }
+        onBackgroundImageUrlsChanged: {
+            Qt.callLater(synchronizeBackdrops)
         }
 
         Component.onCompleted: {
-            requestBackdrop(backgroundImageUrl)
+            synchronizeBackdrops()
             animateSelectedItem()
         }
 
@@ -4462,7 +4500,7 @@ ApplicationWindow {
 
             function onEpisodeSwitchingChanged() {
                 if (!appViewModel.episodeSwitching) {
-                    detailPage.requestBackdrop(detailPage.backgroundImageUrl)
+                    detailPage.synchronizeBackdrops()
                 }
             }
 
@@ -4482,6 +4520,15 @@ ApplicationWindow {
             to: 1.0
             duration: 180
             easing.type: Easing.OutCubic
+        }
+
+        Timer {
+            interval: 12000
+            repeat: true
+            running: appViewModel.currentView === "details"
+                && detailPage.backgroundImageUrls.length > 1
+                && !appViewModel.episodeSwitching
+            onTriggered: detailPage.advanceBackdrop()
         }
 
         Rectangle {
@@ -4541,7 +4588,7 @@ ApplicationWindow {
                         opacity: detailPage.activeBackdropLayer === 0 ? 1 : 0
 
                         Behavior on opacity {
-                            NumberAnimation { duration: 260; easing.type: Easing.InOutCubic }
+                            NumberAnimation { duration: 520; easing.type: Easing.InOutCubic }
                         }
 
                         onStatusChanged: {
@@ -4562,7 +4609,7 @@ ApplicationWindow {
                         opacity: detailPage.activeBackdropLayer === 1 ? 1 : 0
 
                         Behavior on opacity {
-                            NumberAnimation { duration: 260; easing.type: Easing.InOutCubic }
+                            NumberAnimation { duration: 520; easing.type: Easing.InOutCubic }
                         }
 
                         onStatusChanged: {

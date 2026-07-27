@@ -208,7 +208,7 @@ void MediaServerSearchTest::jellyfinSearchesCurrentUserRootRecursively()
 void MediaServerSearchTest::embyDetailsPreferItemLogoArtwork()
 {
     LocalMediaServer server(QByteArrayLiteral(
-        R"({"Items":[{"Id":"series-1","Name":"Example Show","Type":"Series","ImageTags":{"Logo":"direct-logo-tag"},"ParentLogoItemId":"parent-1","ParentLogoImageTag":"parent-logo-tag"}]})"));
+        R"({"Items":[{"Id":"series-1","Name":"Example Show","Type":"Series","ImageTags":{"Logo":"direct-logo-tag"},"BackdropImageTags":["backdrop-one","backdrop-two"],"ParentLogoItemId":"parent-1","ParentLogoImageTag":"parent-logo-tag"}]})"));
     QVERIFY(server.listen());
     NetworkClient networkClient;
     EmbyClient client(networkClient);
@@ -225,6 +225,9 @@ void MediaServerSearchTest::embyDetailsPreferItemLogoArtwork()
     const QUrl logoUrl(result->value().logoImageUrl);
     QCOMPARE(logoUrl.path(), QStringLiteral("/Items/series-1/Images/Logo"));
     QCOMPARE(QUrlQuery(logoUrl).queryItemValue(QStringLiteral("tag")), QStringLiteral("direct-logo-tag"));
+    QCOMPARE(result->value().backdropImageUrls.size(), qsizetype { 2 });
+    QCOMPARE(QUrl(result->value().backdropImageUrls.at(0)).path(), QStringLiteral("/Items/series-1/Images/Backdrop/0"));
+    QCOMPARE(QUrl(result->value().backdropImageUrls.at(1)).path(), QStringLiteral("/Items/series-1/Images/Backdrop/1"));
 
     const QUrl requestUrl(QStringLiteral("http://127.0.0.1") + QString::fromLatin1(server.requestTarget()));
     QCOMPARE(QUrlQuery(requestUrl).queryItemValue(QStringLiteral("EnableImageTypes")),
@@ -234,7 +237,7 @@ void MediaServerSearchTest::embyDetailsPreferItemLogoArtwork()
 void MediaServerSearchTest::embyEpisodeDetailsUseInheritedSeriesLogoArtwork()
 {
     LocalMediaServer server(QByteArrayLiteral(
-        R"({"Items":[{"Id":"episode-1","Name":"Episode One","Type":"Episode","SeriesId":"series-1","ParentLogoItemId":"series-1","ParentLogoImageTag":"series-logo-tag"}]})"));
+        R"({"Items":[{"Id":"episode-1","Name":"Episode One","Type":"Episode","SeriesId":"series-1","BackdropImageTags":["episode-backdrop"],"ParentBackdropItemId":"series-1","ParentBackdropImageTags":["series-backdrop-one","series-backdrop-two"],"ParentLogoItemId":"series-1","ParentLogoImageTag":"series-logo-tag"}]})"));
     QVERIFY(server.listen());
     NetworkClient networkClient;
     EmbyClient client(networkClient);
@@ -251,6 +254,10 @@ void MediaServerSearchTest::embyEpisodeDetailsUseInheritedSeriesLogoArtwork()
     const QUrl logoUrl(result->value().logoImageUrl);
     QCOMPARE(logoUrl.path(), QStringLiteral("/Items/series-1/Images/Logo"));
     QCOMPARE(QUrlQuery(logoUrl).queryItemValue(QStringLiteral("tag")), QStringLiteral("series-logo-tag"));
+    QCOMPARE(result->value().backdropImageUrls.size(), qsizetype { 2 });
+    QCOMPARE(QUrl(result->value().backdropImageUrls.at(0)).path(), QStringLiteral("/Items/series-1/Images/Backdrop/0"));
+    QCOMPARE(QUrlQuery(result->value().backdropImageUrls.at(0)).queryItemValue(QStringLiteral("tag")),
+             QStringLiteral("series-backdrop-one"));
 }
 
 void MediaServerSearchTest::rejectsBlankSearchTermsWithoutRequests()

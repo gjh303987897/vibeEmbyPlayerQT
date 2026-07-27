@@ -31,7 +31,12 @@ protected:
     static std::expected<MediaItem, NetworkError> parseItemDetails(const QByteArray& body, const QString& baseUrl, const QString& token);
     static QString primaryImageUrl(const QString& baseUrl, const QString& itemId, const QString& imageTag, const QString& token, int width);
     static QString logoImageUrl(const QString& baseUrl, const QString& itemId, const QString& imageTag, const QString& token, int width);
-    static QString backdropImageUrl(const QString& baseUrl, const QString& itemId, const QString& imageTag, const QString& token, int width);
+    static QString backdropImageUrl(const QString& baseUrl,
+                                    const QString& itemId,
+                                    const QString& imageTag,
+                                    const QString& token,
+                                    int width,
+                                    int index);
     static PlaybackUrlResult streamUrl(const UserSession& session,
                                        const MediaItem& item,
                                        const QString& mediaSourceId,

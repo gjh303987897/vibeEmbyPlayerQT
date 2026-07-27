@@ -175,6 +175,7 @@ Images use:
 
 - `GET /Items/{ItemId}/Images/Primary`
 - `GET /Items/{ItemId}/Images/Logo` for optional title artwork
+- `GET /Items/{ItemId}/Images/Backdrop/{Index}` for each reported series backdrop
 
 The current implementation adds:
 
@@ -186,6 +187,8 @@ The current implementation adds:
 Primary image availability is determined from `ImageTags.Primary`, with `PrimaryImageTag` retained as a compatibility fallback. The client does not create a primary-image URL when neither field contains a tag. Episodes without their own primary image use `SeriesPrimaryImageTag` and the series item id as a display fallback.
 
 Emby detail and episode-list requests explicitly include `Logo` in `EnableImageTypes`. The parser prefers `ImageTags.Logo` on the current item, then resolves `ParentLogoItemId` with `ParentLogoImageTag` for inherited series artwork. Missing logo data does not trigger a speculative image request, because the official API returns 404 for image types that the item does not report.
+
+Backdrop parsing retains every `BackdropImageTags` entry. Episode details prefer `ParentBackdropItemId` and `ParentBackdropImageTags` over episode-owned artwork, while series and movie details use their own backdrop list. Each URL includes its required backdrop index and cache tag.
 
 This keeps QML image loading simple while still allowing the server to authorize image access.
 

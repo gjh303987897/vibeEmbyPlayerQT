@@ -3,6 +3,7 @@
 #include "models/MediaPerson.h"
 
 #include <QString>
+#include <QStringList>
 #include <vector>
 
 struct MediaItem {
@@ -21,6 +22,7 @@ struct MediaItem {
     QString imageUrl;
     QString logoImageUrl;
     QString backdropImageUrl;
+    QStringList backdropImageUrls;
     QString communityRating;
     QString officialRating;
     QString runTime;

@@ -116,13 +116,27 @@ QString runtimeFromTicks(qint64 ticks)
     return QStringLiteral("%1 min").arg(minutes);
 }
 
-QString firstBackdropTag(const QJsonObject& object)
+std::pair<QString, QJsonArray> backdropImageSource(const QJsonObject& object)
 {
-    const auto tags = object.value(QStringLiteral("BackdropImageTags")).toArray(object.value(QStringLiteral("backdropImageTags")).toArray());
-    if (tags.isEmpty()) {
-        return {};
+    const auto itemId = jsonStringAny(object, { QStringLiteral("Id"), QStringLiteral("id") });
+    const auto itemType = jsonStringAny(object, { QStringLiteral("Type"), QStringLiteral("type") });
+    const auto directTags = object.value(QStringLiteral("BackdropImageTags"))
+                                .toArray(object.value(QStringLiteral("backdropImageTags")).toArray());
+    const auto parentItemId = jsonStringAny(object, {
+        QStringLiteral("ParentBackdropItemId"),
+        QStringLiteral("parentBackdropItemId"),
+    });
+    const auto parentTags = object.value(QStringLiteral("ParentBackdropImageTags"))
+                                .toArray(object.value(QStringLiteral("parentBackdropImageTags")).toArray());
+
+    if (itemType.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0
+        && !parentItemId.isEmpty() && !parentTags.isEmpty()) {
+        return { parentItemId, parentTags };
     }
-    return tags.first().toString();
+    if (!itemId.isEmpty() && !directTags.isEmpty()) {
+        return { itemId, directTags };
+    }
+    return { parentItemId, parentTags };
 }
 
 std::pair<QString, QString> logoImageSource(const QJsonObject& object)
@@ -245,7 +259,17 @@ MediaItem MediaServerClientBase::parseItem(const QJsonObject& object, const QStr
     item.seriesImageUrl = primaryImageUrl(baseUrl, item.seriesId, item.seriesImageTag, token, 460);
     const auto [logoItemId, logoTag] = logoImageSource(object);
     item.logoImageUrl = logoImageUrl(baseUrl, logoItemId, logoTag, token, 900);
-    item.backdropImageUrl = backdropImageUrl(baseUrl, item.id, firstBackdropTag(object), token, 1280);
+    const auto [backdropItemId, backdropTags] = backdropImageSource(object);
+    for (auto index = 0; index < backdropTags.size(); ++index) {
+        const auto tag = backdropTags.at(index).toString();
+        const auto url = backdropImageUrl(baseUrl, backdropItemId, tag, token, 1600, index);
+        if (!url.isEmpty()) {
+            item.backdropImageUrls.push_back(url);
+        }
+    }
+    if (!item.backdropImageUrls.isEmpty()) {
+        item.backdropImageUrl = item.backdropImageUrls.front();
+    }
     const auto rating = jsonDoubleAny(object, { QStringLiteral("CommunityRating"), QStringLiteral("communityRating") });
     if (rating > 0) {
         item.communityRating = QString::number(rating, 'f', 1);
@@ -365,13 +389,14 @@ QString MediaServerClientBase::backdropImageUrl(const QString& baseUrl,
                                                 const QString& itemId,
                                                 const QString& imageTag,
                                                 const QString& token,
-                                                int width)
+                                                int width,
+                                                int index)
 {
-    if (baseUrl.isEmpty() || itemId.isEmpty() || imageTag.isEmpty()) {
+    if (baseUrl.isEmpty() || itemId.isEmpty() || imageTag.isEmpty() || index < 0) {
         return {};
     }
 
-    auto url = makeUrl(baseUrl, QStringLiteral("/Items/%1/Images/Backdrop").arg(itemId));
+    auto url = makeUrl(baseUrl, QStringLiteral("/Items/%1/Images/Backdrop/%2").arg(itemId).arg(index));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("maxWidth"), QString::number(width));
     query.addQueryItem(QStringLiteral("quality"), QStringLiteral("90"));
