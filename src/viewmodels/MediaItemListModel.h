@@ -47,6 +47,7 @@ public:
 
     void setItems(std::vector<MediaItem> items);
     int appendItems(std::vector<MediaItem> items);
+    Q_INVOKABLE int indexOfItemId(const QString& itemId) const;
     bool updatePlaybackProgress(const QString& itemId, qint64 playbackPositionTicks, double playedPercentage, bool played);
     void clear();
     std::optional<MediaItem> itemAt(int row) const;

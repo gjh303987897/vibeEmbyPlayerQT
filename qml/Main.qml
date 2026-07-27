@@ -4194,6 +4194,29 @@ ApplicationWindow {
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
+    component DetailThumbnailCorner: Canvas {
+        property color fillColor: theme.bg
+        implicitWidth: 12
+        implicitHeight: 12
+        antialiasing: true
+
+        onFillColorChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+
+        onPaint: {
+            var context = getContext("2d")
+            context.clearRect(0, 0, width, height)
+            context.fillStyle = fillColor
+            context.beginPath()
+            context.moveTo(0, 0)
+            context.lineTo(width, 0)
+            context.quadraticCurveTo(0, 0, 0, height)
+            context.closePath()
+            context.fill()
+        }
+    }
+
     component DetailEpisodeCard: Item {
         id: detailEpisodeCard
         signal activated()
@@ -4221,23 +4244,60 @@ ApplicationWindow {
             spacing: 8
 
             Rectangle {
+                id: episodeThumbnailFrame
                 Layout.fillWidth: true
                 Layout.preferredHeight: 154
-                radius: 14
+                radius: 12
                 color: theme.elevated
-                border.color: detailEpisodeCard.selected ? theme.primary : theme.border
-                border.width: detailEpisodeCard.selected ? 2 : 1
-                clip: true
+                border.color: "transparent"
 
                 PosterImage {
                     anchors.fill: parent
+                    radius: episodeThumbnailFrame.radius
                     imageUrl: detailEpisodeCard.imageUrl
                     fallbackText: detailEpisodeCard.title.length > 0 ? detailEpisodeCard.title[0] : "?"
                 }
 
                 Rectangle {
                     anchors.fill: parent
+                    radius: parent.radius
                     color: episodeMouse.containsMouse ? "#12000000" : "transparent"
+                }
+
+                DetailThumbnailCorner {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    z: 2
+                }
+
+                DetailThumbnailCorner {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    rotation: 90
+                    z: 2
+                }
+
+                DetailThumbnailCorner {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    rotation: 180
+                    z: 2
+                }
+
+                DetailThumbnailCorner {
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    rotation: 270
+                    z: 2
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: "transparent"
+                    border.color: detailEpisodeCard.selected ? theme.primary : theme.border
+                    border.width: detailEpisodeCard.selected ? 2 : 1
+                    z: 3
                 }
 
                 Rectangle {
@@ -4249,6 +4309,7 @@ ApplicationWindow {
                     height: 27
                     radius: width / 2
                     color: theme.primary
+                    z: 4
 
                     Label {
                         anchors.centerIn: parent
@@ -4270,6 +4331,7 @@ ApplicationWindow {
                     height: 4
                     radius: 2
                     color: root.withAlpha(darkTheme ? "#ffffff" : theme.text, 0.34)
+                    z: 4
 
                     Rectangle {
                         anchors.left: parent.left
@@ -4406,6 +4468,9 @@ ApplicationWindow {
 
             function onSelectedItemChanged() {
                 detailPage.animateSelectedItem()
+                Qt.callLater(function() {
+                    episodeRail.revealSelectedEpisode(true)
+                })
             }
         }
 
@@ -4828,6 +4893,38 @@ ApplicationWindow {
                     }
 
                     ListView {
+                        id: episodeRail
+                        property real episodeCardWidth: Math.max(286, Math.min(350, detailPage.width * 0.285))
+                        property bool selectionPositionInitialized: false
+
+                        function revealSelectedEpisode(animated) {
+                            var selectedRow = appViewModel.seriesEpisodes.indexOfItemId(appViewModel.selectedItemId)
+                            if (selectedRow < 0 || width <= 0 || contentWidth <= 0) {
+                                return
+                            }
+
+                            var centeredPosition = selectedRow * (episodeCardWidth + spacing)
+                                - (width - episodeCardWidth) / 2
+                            var maximumPosition = Math.max(0, contentWidth - width)
+                            var targetPosition = Math.max(0, Math.min(maximumPosition, centeredPosition))
+                            if (!selectionPositionInitialized || !animated) {
+                                episodeRailScroll.stop()
+                                contentX = targetPosition
+                                selectionPositionInitialized = true
+                                return
+                            }
+                            if (Math.abs(contentX - targetPosition) < 1) {
+                                return
+                            }
+
+                            episodeRailScroll.stop()
+                            episodeRailScroll.from = contentX
+                            episodeRailScroll.to = targetPosition
+                            episodeRailScroll.duration = Math.max(180,
+                                Math.min(420, 180 + Math.abs(targetPosition - contentX) * 0.16))
+                            episodeRailScroll.start()
+                        }
+
                         Layout.fillWidth: true
                         Layout.preferredHeight: appViewModel.seriesEpisodes.count > 0 ? 244 : 0
                         visible: appViewModel.seriesEpisodes.count > 0
@@ -4837,8 +4934,25 @@ ApplicationWindow {
                         model: appViewModel.seriesEpisodes
                         clip: true
 
+                        onCountChanged: {
+                            if (count === 0) {
+                                selectionPositionInitialized = false
+                            } else {
+                                Qt.callLater(function() {
+                                    episodeRail.revealSelectedEpisode(false)
+                                })
+                            }
+                        }
+
+                        NumberAnimation {
+                            id: episodeRailScroll
+                            target: episodeRail
+                            property: "contentX"
+                            easing.type: Easing.InOutCubic
+                        }
+
                         delegate: DetailEpisodeCard {
-                            width: Math.max(286, Math.min(350, detailPage.width * 0.285))
+                            width: episodeRail.episodeCardWidth
                             height: 228
                             title: model.name
                             episodeLabel: appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber)

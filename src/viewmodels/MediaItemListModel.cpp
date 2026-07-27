@@ -160,6 +160,18 @@ int MediaItemListModel::appendItems(std::vector<MediaItem> items)
     return appendedCount;
 }
 
+int MediaItemListModel::indexOfItemId(const QString& itemId) const
+{
+    if (itemId.isEmpty()) {
+        return -1;
+    }
+
+    const auto match = std::ranges::find(m_items, itemId, &MediaItem::id);
+    return match == m_items.end()
+        ? -1
+        : static_cast<int>(std::distance(m_items.begin(), match));
+}
+
 bool MediaItemListModel::updatePlaybackProgress(const QString& itemId, qint64 playbackPositionTicks, double playedPercentage, bool played)
 {
     if (itemId.isEmpty()) {
