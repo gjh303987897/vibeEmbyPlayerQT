@@ -546,7 +546,11 @@ void ScheduledPlaybackManager::beginPlayback(MediaItem item, PlaybackRequest req
     m_lastReportedPosition = -1.0;
     m_ignoreNextPlaybackEnd = false;
     setStatus(QStringLiteral("starting"));
-    m_player.playUrl(m_currentRequest->url.toString(QUrl::FullyEncoded));
+    m_player.playUrl(m_currentRequest->url.toString(QUrl::FullyEncoded),
+                     0.0,
+                     {},
+                     {},
+                     m_currentSession && m_currentSession->server.trustSelfSignedCertificate);
 }
 
 void ScheduledPlaybackManager::handlePlaybackRestarted()

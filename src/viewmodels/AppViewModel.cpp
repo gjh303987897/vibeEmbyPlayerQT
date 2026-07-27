@@ -4012,8 +4012,9 @@ void AppViewModel::playSelectedItem()
     setForegroundPlaybackActive(true);
     setLoading(true);
     const auto itemName = m_selectedItem->name;
+    const auto allowInsecureTls = m_session->server.trustSelfSignedCertificate;
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Fetching playback info for selected media item"));
-    client->fetchPlaybackUrl(*m_session, *m_selectedItem, [this, itemName](PlaybackUrlResult result) {
+    client->fetchPlaybackUrl(*m_session, *m_selectedItem, [this, itemName, allowInsecureTls](PlaybackUrlResult result) {
         setLoading(false);
         if (!result) {
             setForegroundPlaybackActive(false);
@@ -4027,6 +4028,7 @@ void AppViewModel::playSelectedItem()
         m_currentIptvChannelId.clear();
         m_currentMediaSourceId = result->mediaSourceId;
         m_currentPlaySessionId = result->playSessionId;
+        m_playbackAllowInsecureTls = allowInsecureTls;
         m_currentPlaybackStartSeconds = result->startSeconds;
         m_lastPlaybackReportSeconds = -1.0;
         m_playbackStartedReported = false;

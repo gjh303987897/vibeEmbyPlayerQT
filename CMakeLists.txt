@@ -74,6 +74,8 @@ qt_add_executable(vibePlayerQT
     src/network/NetworkClient.cpp
     src/network/NetworkClient.h
     src/network/NetworkError.h
+    src/network/TlsCertificateStore.cpp
+    src/network/TlsCertificateStore.h
     src/player/MpvWidget.cpp
     src/player/MpvWidget.h
     src/player/MpvVideoItem.cpp

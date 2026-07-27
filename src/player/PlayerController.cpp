@@ -1,5 +1,6 @@
 #include "player/PlayerController.h"
 
+#include "network/TlsCertificateStore.h"
 #include "utils/AppLogger.h"
 
 #include <mpv/client.h>
@@ -241,6 +242,27 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
             mpv_set_option_string(m_mpv, "ao", "null");
         }
     }
+    const auto caBundle = TlsCertificateStore::ensureSystemCaBundle();
+    if (caBundle) {
+        const auto encodedPath = caBundle->toUtf8();
+        const auto result = mpv_set_option_string(m_mpv, "tls-ca-file", encodedPath.constData());
+        if (result < 0) {
+            AppLogger::warning(QStringLiteral("player"),
+                               QStringLiteral("Unable to configure libmpv system CA bundle: %1")
+                                   .arg(QString::fromUtf8(mpv_error_string(result))));
+        } else {
+            AppLogger::info(QStringLiteral("player"), QStringLiteral("Configured libmpv with the system CA bundle"));
+        }
+    } else {
+        AppLogger::warning(QStringLiteral("player"),
+                           QStringLiteral("Unable to prepare the libmpv system CA bundle: %1").arg(caBundle.error()));
+    }
+    const auto tlsVerifyOptionResult = mpv_set_option_string(m_mpv, "tls-verify", "yes");
+    if (tlsVerifyOptionResult < 0) {
+        AppLogger::warning(QStringLiteral("player"),
+                           QStringLiteral("Unable to enable libmpv TLS certificate verification: %1")
+                               .arg(QString::fromUtf8(mpv_error_string(tlsVerifyOptionResult))));
+    }
     mpv_request_log_messages(m_mpv, "info");
 
     if (!m_headless) {
@@ -371,7 +393,14 @@ void PlayerController::playUrl(const QString& url,
     } else {
         mpv_set_option_string(m_mpv, "http-password", "");
     }
-    mpv_set_option_string(m_mpv, "tls-verify", allowInsecureTls ? "no" : "yes");
+    const auto tlsVerifyResult = mpv_set_property_string(m_mpv,
+                                                        "options/tls-verify",
+                                                        allowInsecureTls ? "no" : "yes");
+    if (tlsVerifyResult < 0) {
+        AppLogger::warning(QStringLiteral("player"),
+                           QStringLiteral("Unable to update libmpv TLS verification mode: %1")
+                               .arg(QString::fromUtf8(mpv_error_string(tlsVerifyResult))));
+    }
     int pauseFlag = 0;
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag);
     const QByteArray encoded = url.toUtf8();

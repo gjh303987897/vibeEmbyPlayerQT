@@ -5532,10 +5532,10 @@ ApplicationWindow {
             anchors.fill: parent
             audioOnly: appViewModel.webDavAudioPlaybackActive
             startPosition: appViewModel.currentPlaybackStartSeconds
-            source: appViewModel.currentPlaybackUrl
             httpUsername: appViewModel.playbackHttpUsername
             httpPassword: appViewModel.playbackHttpPassword
             allowInsecureTls: appViewModel.playbackAllowInsecureTls
+            source: appViewModel.currentPlaybackUrl
             onErrorOccurred: function(message) {
                 appViewModel.reportPlaybackError(message)
                 console.warn(message)

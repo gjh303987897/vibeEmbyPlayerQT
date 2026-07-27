@@ -123,6 +123,8 @@ The detail page calls `AppViewModel::playSelectedItem()`.
 
 The playback request also carries a resume start position derived from `UserData.PlaybackPositionTicks`. `MpvVideoItem` passes this to libmpv as a file-local `start=<seconds>` option when loading the URL.
 
+For HTTPS playback, `PlayerController` configures libmpv with the PEM bundle produced by `TlsCertificateStore`. The bundle mirrors the operating-system trusted CA certificates exposed by Qt, allowing libmpv's FFmpeg/OpenSSL backend to validate the same public certificate authorities used by the application network layer. TLS verification remains enabled by default. A server saved with the explicit self-signed-certificate trust option disables verification only for that server's foreground or scheduled playback request.
+
 During playback, `AppViewModel` reports:
 
 - start: `POST /Sessions/Playing`
