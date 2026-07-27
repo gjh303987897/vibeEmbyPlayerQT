@@ -87,6 +87,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(bool episodeSwitching READ episodeSwitching NOTIFY episodeSwitchingChanged)
     Q_PROPERTY(bool homeLoading READ homeLoading NOTIFY homeLoadingChanged)
     Q_PROPERTY(bool libraryItemsLoading READ libraryItemsLoading NOTIFY libraryItemsLoadingChanged)
     Q_PROPERTY(QString serverSearchText READ serverSearchText WRITE setServerSearchText NOTIFY serverSearchChanged)
@@ -242,6 +243,7 @@ public:
     int translationRevision() const;
 
     bool loading() const;
+    bool episodeSwitching() const;
     bool homeLoading() const;
     bool libraryItemsLoading() const;
     QString serverSearchText() const;
@@ -443,6 +445,7 @@ signals:
     void pageTransitionsEnabledChanged();
     void translationsChanged();
     void loadingChanged();
+    void episodeSwitchingChanged();
     void homeLoadingChanged();
     void libraryItemsLoadingChanged();
     void serverSearchChanged();
@@ -542,6 +545,7 @@ private:
     void syncSelectedPeople();
     void setCurrentView(QString view);
     void setLoading(bool value);
+    void setEpisodeSwitching(bool value);
     void beginHomeLoading();
     void endHomeLoading();
     void setLibraryItemsLoading(bool value);
@@ -578,6 +582,7 @@ private:
     QString m_languageMode { QStringLiteral("system") };
     int m_translationRevision { 0 };
     bool m_loading { false };
+    bool m_episodeSwitching { false };
     int m_homeLoadingRequests { 0 };
     bool m_libraryItemsLoading { false };
     QString m_serverSearchText;
@@ -623,6 +628,7 @@ private:
     int m_itemPageSize { 80 };
     bool m_hasMoreMediaItems { true };
     int m_seriesRequestGeneration { 0 };
+    int m_episodeDetailRequestGeneration { 0 };
     QString m_scheduledTaskEditingId;
     int m_scheduledTaskSourceIndex { -1 };
     int m_scheduledTaskDurationMinutes { 90 };

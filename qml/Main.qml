@@ -4325,6 +4325,99 @@ ApplicationWindow {
         readonly property color primaryActionHover: darkTheme ? "#ffffff" : theme.primaryHover
         readonly property color primaryActionPressed: darkTheme ? "#d9d7d2" : Qt.darker(theme.primary, 1.12)
         readonly property color primaryActionForeground: darkTheme ? "#202126" : "#ffffff"
+        property string activeBackdropUrl: ""
+        property string pendingBackdropUrl: ""
+        property int activeBackdropLayer: 0
+        property int pendingBackdropLayer: -1
+        property string lastAnimatedItemId: ""
+
+        function requestBackdrop(url) {
+            var normalizedUrl = url || ""
+            if (normalizedUrl.length === 0) {
+                if (appViewModel.episodeSwitching && activeBackdropUrl.length > 0) {
+                    return
+                }
+                pendingBackdropLayer = -1
+                pendingBackdropUrl = ""
+                activeBackdropUrl = ""
+                detailBackdropA.source = ""
+                detailBackdropB.source = ""
+                return
+            }
+            if (normalizedUrl === activeBackdropUrl || normalizedUrl === pendingBackdropUrl) {
+                return
+            }
+
+            pendingBackdropUrl = normalizedUrl
+            pendingBackdropLayer = activeBackdropLayer === 0 ? 1 : 0
+            if (pendingBackdropLayer === 0) {
+                detailBackdropA.source = normalizedUrl
+            } else {
+                detailBackdropB.source = normalizedUrl
+            }
+        }
+
+        function commitBackdrop(layer) {
+            if (pendingBackdropLayer !== layer) {
+                return
+            }
+            activeBackdropLayer = layer
+            activeBackdropUrl = pendingBackdropUrl
+            pendingBackdropUrl = ""
+            pendingBackdropLayer = -1
+        }
+
+        function rejectBackdrop(layer) {
+            if (pendingBackdropLayer !== layer) {
+                return
+            }
+            pendingBackdropUrl = ""
+            pendingBackdropLayer = -1
+        }
+
+        function animateSelectedItem() {
+            if (appViewModel.selectedItemId.length === 0
+                    || appViewModel.selectedItemId === lastAnimatedItemId) {
+                return
+            }
+            lastAnimatedItemId = appViewModel.selectedItemId
+            detailContentFade.restart()
+        }
+
+        onBackgroundImageUrlChanged: {
+            if (!appViewModel.episodeSwitching || activeBackdropUrl.length === 0) {
+                requestBackdrop(backgroundImageUrl)
+            }
+        }
+
+        Component.onCompleted: {
+            requestBackdrop(backgroundImageUrl)
+            animateSelectedItem()
+        }
+
+        Connections {
+            target: appViewModel
+
+            function onEpisodeSwitchingChanged() {
+                if (!appViewModel.episodeSwitching) {
+                    detailPage.requestBackdrop(detailPage.backgroundImageUrl)
+                }
+            }
+
+            function onSelectedItemChanged() {
+                detailPage.animateSelectedItem()
+            }
+        }
+
+        NumberAnimation {
+            id: detailContentFade
+            target: detailHeroContent
+            property: "opacity"
+            from: 0.82
+            to: 1.0
+            duration: 180
+            easing.type: Easing.OutCubic
+        }
 
         Rectangle {
             anchors.fill: parent
@@ -4375,12 +4468,45 @@ ApplicationWindow {
                     clip: true
 
                     Image {
-                        id: detailBackdrop
+                        id: detailBackdropA
                         anchors.fill: parent
-                        source: detailPage.backgroundImageUrl
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
+                        opacity: detailPage.activeBackdropLayer === 0 ? 1 : 0
+
+                        Behavior on opacity {
+                            NumberAnimation { duration: 260; easing.type: Easing.InOutCubic }
+                        }
+
+                        onStatusChanged: {
+                            if (status === Image.Ready) {
+                                detailPage.commitBackdrop(0)
+                            } else if (status === Image.Error) {
+                                detailPage.rejectBackdrop(0)
+                            }
+                        }
+                    }
+
+                    Image {
+                        id: detailBackdropB
+                        anchors.fill: parent
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                        opacity: detailPage.activeBackdropLayer === 1 ? 1 : 0
+
+                        Behavior on opacity {
+                            NumberAnimation { duration: 260; easing.type: Easing.InOutCubic }
+                        }
+
+                        onStatusChanged: {
+                            if (status === Image.Ready) {
+                                detailPage.commitBackdrop(1)
+                            } else if (status === Image.Error) {
+                                detailPage.rejectBackdrop(1)
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -4423,17 +4549,20 @@ ApplicationWindow {
 
                     Rectangle {
                         anchors.fill: parent
-                        visible: detailPage.backgroundImageUrl.length === 0
+                        visible: detailPage.activeBackdropUrl.length === 0
+                            && detailPage.pendingBackdropUrl.length === 0
                         color: theme.elevated
                     }
 
                     ThumbnailLoadingIcon {
                         anchors.centerIn: parent
-                        running: detailBackdrop.status === Image.Loading
+                        running: detailPage.pendingBackdropLayer >= 0
+                            && detailPage.activeBackdropUrl.length === 0
                         iconSize: 42
                     }
 
                     RowLayout {
+                        id: detailHeroContent
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
@@ -4674,6 +4803,10 @@ ApplicationWindow {
                                 : episodeNumberMouse.containsMouse ? theme.elevatedHover
                                 : theme.elevated
                             border.color: currentEpisode ? (darkTheme ? "#ffffff" : theme.primary) : theme.border
+
+                            Behavior on color {
+                                ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                            }
 
                             Label {
                                 anchors.centerIn: parent

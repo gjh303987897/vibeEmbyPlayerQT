@@ -1433,6 +1433,11 @@ bool AppViewModel::loading() const
     return m_loading;
 }
 
+bool AppViewModel::episodeSwitching() const
+{
+    return m_episodeSwitching;
+}
+
 bool AppViewModel::homeLoading() const
 {
     return m_homeLoadingRequests > 0;
@@ -3592,11 +3597,17 @@ bool AppViewModel::isNavigableMediaFolder(const MediaItem& item) const
 
 void AppViewModel::clearSeriesDetails()
 {
+    const auto wasEpisodeSwitching = m_episodeSwitching;
+    ++m_episodeDetailRequestGeneration;
     ++m_seriesRequestGeneration;
     m_selectedSeason.reset();
     m_seriesSeasons.clear();
     m_seriesEpisodes.clear();
     emit selectedSeasonChanged();
+    setEpisodeSwitching(false);
+    if (wasEpisodeSwitching) {
+        setLoading(false);
+    }
 }
 
 void AppViewModel::loadSeriesSeasons()
@@ -3909,22 +3920,30 @@ void AppViewModel::openEpisode(int row)
         episodeContext.seasonName = m_selectedSeason->name;
     }
 
+    const auto generation = ++m_episodeDetailRequestGeneration;
+    if (m_session) {
+        setEpisodeSwitching(true);
+        setLoading(true);
+    }
     m_selectedItem = episodeContext;
-    clearSeriesDetails();
-    syncSelectedPeople();
     clearCurrentPlayback();
     emit selectedItemChanged();
     emit playbackChanged();
     setCurrentView(QStringLiteral("details"));
 
     if (!m_session) {
+        syncSelectedPeople();
         return;
     }
     auto* client = clientFor(m_session->server.serviceType);
-    setLoading(true);
-    client->fetchItemDetails(*m_session, episodeContext.id, [this, episodeContext](std::expected<MediaItem, NetworkError> result) {
-        setLoading(false);
+    client->fetchItemDetails(*m_session, episodeContext.id, [this, episodeContext, generation](std::expected<MediaItem, NetworkError> result) {
+        if (generation != m_episodeDetailRequestGeneration) {
+            return;
+        }
         if (!result) {
+            syncSelectedPeople();
+            setEpisodeSwitching(false);
+            setLoading(false);
             setError(displayNetworkError(result.error()));
             return;
         }
@@ -3933,9 +3952,9 @@ void AppViewModel::openEpisode(int row)
         m_selectedItem = std::move(detail);
         syncSelectedPeople();
         emit selectedItemChanged();
-        if (selectedItemHasSeriesEpisodes()) {
-            loadSeriesSeasons();
-        } else {
+        setEpisodeSwitching(false);
+        setLoading(false);
+        if (!selectedItemHasSeriesEpisodes()) {
             clearSeriesDetails();
         }
     });
@@ -5028,6 +5047,15 @@ void AppViewModel::setLoading(bool value)
     }
     m_loading = value;
     emit loadingChanged();
+}
+
+void AppViewModel::setEpisodeSwitching(bool value)
+{
+    if (m_episodeSwitching == value) {
+        return;
+    }
+    m_episodeSwitching = value;
+    emit episodeSwitchingChanged();
 }
 
 void AppViewModel::beginHomeLoading()

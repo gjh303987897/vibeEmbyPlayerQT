@@ -82,6 +82,7 @@ QML does not make network requests and does not parse JSON.
 - Episode details also expose season / episode text through the ViewModel.
 - Series details expose seasons and the selected season's episodes through `MediaItemListModel` instances owned by `AppViewModel`.
 - The selected item ID is exposed read-only so QML can highlight the active episode in both the circular episode index and the horizontal landscape episode rail.
+- Switching between episodes keeps the loaded season and episode models in place instead of clearing and refetching them. Episode-detail requests use a generation guard so rapid selections cannot apply stale responses, while QML retains the current backdrop until the next image is ready and then crossfades between the two layers.
 - Episode details opened from continue-watching also expose the parent series seasons and selected season episodes when the server response includes `SeriesId`.
 - QML only renders the season selector and episode cards; Emby / Jellyfin season and episode requests stay inside the service layer.
 - Episode cards and episode details fall back to the parent series primary image when the episode has no primary image of its own. Failed image requests display the normal placeholder instead of an empty card.
