@@ -1515,6 +1515,11 @@ QString AppViewModel::errorMessage() const
     return m_errorMessage;
 }
 
+QString AppViewModel::selectedItemId() const
+{
+    return m_selectedItem ? m_selectedItem->id : QString {};
+}
+
 QString AppViewModel::selectedItemName() const
 {
     return m_selectedItem ? m_selectedItem->name : QString {};

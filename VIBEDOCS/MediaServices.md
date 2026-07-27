@@ -76,10 +76,11 @@ QML does not make network requests and does not parse JSON.
 
 - Item details are fetched through the service layer, not QML.
 - Details currently expose title, poster, backdrop, overview, rating, runtime, genres, people cards and playback progress.
-- The details page keeps artwork inside the elevated hero card. When a landscape backdrop is available, it is shown at low opacity behind the poster and metadata; the page itself retains the normal theme background without a full-page artwork scrim.
+- The details page uses the landscape backdrop as a full-width hero image. Presentation-only side and bottom gradients preserve artwork brightness while giving the overlaid title, actions, metadata and overview enough contrast; the normal application toolbar is hidden only on this page and replaced by floating navigation controls.
 - Primary image tags are read from both the legacy `PrimaryImageTag` field and the current `ImageTags.Primary` map. Image URLs are only created when the server reports a real image tag.
 - Episode details also expose season / episode text through the ViewModel.
 - Series details expose seasons and the selected season's episodes through `MediaItemListModel` instances owned by `AppViewModel`.
+- The selected item ID is exposed read-only so QML can highlight the active episode in both the circular episode index and the horizontal landscape episode rail.
 - Episode details opened from continue-watching also expose the parent series seasons and selected season episodes when the server response includes `SeriesId`.
 - QML only renders the season selector and episode cards; Emby / Jellyfin season and episode requests stay inside the service layer.
 - Episode cards and episode details fall back to the parent series primary image when the episode has no primary image of its own. Failed image requests display the normal placeholder instead of an empty card.

@@ -1032,9 +1032,9 @@ ApplicationWindow {
     }
 
     header: ToolBar {
-        height: root.playerImmersive ? 0 : 64
-        visible: !root.playerImmersive
-        enabled: !root.playerImmersive
+        height: root.playerImmersive || appViewModel.currentView === "details" ? 0 : 64
+        visible: !root.playerImmersive && appViewModel.currentView !== "details"
+        enabled: visible
         background: Rectangle {
             color: theme.surface
             border.color: theme.border
@@ -1228,8 +1228,8 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: root.playerImmersive ? 0 : 26
-            spacing: root.playerImmersive ? 0 : 16
+            anchors.margins: root.playerImmersive || appViewModel.currentView === "details" ? 0 : 26
+            spacing: root.playerImmersive || appViewModel.currentView === "details" ? 0 : 16
 
             Rectangle {
                 visible: appViewModel.errorMessage.length > 0 && !root.playerImmersive
@@ -4157,224 +4157,648 @@ ApplicationWindow {
         }
     }
 
-    component DetailPage: Flickable {
-        id: detailFlick
-        contentWidth: width
-        contentHeight: detailColumn.implicitHeight
-        clip: true
+    component DetailOverlayButton: Button {
+        id: overlayButton
+        implicitWidth: 54
+        implicitHeight: 54
+        hoverEnabled: true
+        leftPadding: 0
+        rightPadding: 0
+        font.pixelSize: 25
+        font.bold: false
+
+        contentItem: Label {
+            text: overlayButton.text
+            color: overlayButton.enabled ? "#17191d" : "#7717191d"
+            font: overlayButton.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+
+        background: Rectangle {
+            radius: height / 2
+            color: overlayButton.down ? "#ddd8cc"
+                : overlayButton.hovered ? "#ffffff"
+                : "#f3eee4"
+            border.color: "#24ffffff"
+            border.width: 1
+        }
+
+        scale: overlayButton.down ? 0.96 : overlayButton.hovered ? 1.04 : 1.0
+        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+    }
+
+    component DetailEpisodeCard: Item {
+        id: detailEpisodeCard
+        signal activated()
+        property string title: ""
+        property string episodeLabel: ""
+        property string overview: ""
+        property string imageUrl: ""
+        property real progress: 0
+        property bool selected: false
+
+        implicitWidth: 330
+        implicitHeight: 228
+        scale: episodeMouse.containsMouse ? 1.018 : 1.0
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+        MouseArea {
+            id: episodeMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: detailEpisodeCard.activated()
+        }
 
         ColumnLayout {
-            id: detailColumn
-            width: detailFlick.width
-            spacing: 18
+            anchors.fill: parent
+            spacing: 8
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 318
-                radius: 12
-                color: theme.elevated
-                border.color: theme.border
+                Layout.preferredHeight: 154
+                radius: 14
+                color: "#1b2027"
+                border.color: detailEpisodeCard.selected ? theme.primary : "#24ffffff"
+                border.width: detailEpisodeCard.selected ? 2 : 1
                 clip: true
 
-                Image {
+                PosterImage {
                     anchors.fill: parent
-                    source: appViewModel.selectedItemBackdropUrl
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    opacity: darkTheme ? 0.36 : 0.22
-                    visible: appViewModel.selectedItemBackdropUrl.length > 0
+                    imageUrl: detailEpisodeCard.imageUrl
+                    fallbackText: detailEpisodeCard.title.length > 0 ? detailEpisodeCard.title[0] : "?"
                 }
 
-                RowLayout {
+                Rectangle {
                     anchors.fill: parent
-                    anchors.margins: 22
-                    spacing: 22
+                    color: episodeMouse.containsMouse ? "#12000000" : "transparent"
+                }
 
-                    PosterImage {
-                        Layout.preferredWidth: 150
-                        Layout.preferredHeight: 250
-                        imageUrl: appViewModel.selectedItemImageUrl
-                        fallbackText: appViewModel.selectedItemName.length > 0 ? appViewModel.selectedItemName[0] : "?"
-                    }
+                Rectangle {
+                    visible: detailEpisodeCard.selected
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 10
+                    width: 27
+                    height: 27
+                    radius: width / 2
+                    color: "#1597ff"
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        spacing: 10
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: appViewModel.selectedItemName
-                            color: theme.text
-                            font.pixelSize: 30
-                            font.bold: true
-                            wrapMode: Text.WordWrap
-                        }
-
-                        MutedText {
-                            Layout.fillWidth: true
-                            text: appViewModel.selectedItemMeta
-                            wrapMode: Text.WordWrap
-                        }
-
-                        MutedText {
-                            Layout.fillWidth: true
-                            visible: appViewModel.selectedItemSeasonEpisode.length > 0
-                            text: appViewModel.selectedItemSeasonEpisode
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 5
-                            radius: 2
-                            color: theme.border
-                            visible: appViewModel.selectedItemPlayedPercentage > 0
-
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.top: parent.top
-                                anchors.bottom: parent.bottom
-                                radius: 2
-                                width: parent.width * Math.min(100, appViewModel.selectedItemPlayedPercentage) / 100
-                                color: theme.primary
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
-
-                            ModernButton {
-                                text: appViewModel.selectedItemPlayedPercentage > 0 ? t("action.continue") : t("action.play")
-                                visible: !appViewModel.selectedItemIsSeries
-                                enabled: !appViewModel.loading
-                                onClicked: appViewModel.playSelectedItem()
-                            }
-
-                            ModernButton {
-                                text: t("details.showOverview")
-                                enabled: appViewModel.selectedItemOverview.length > 0
-                                onClicked: overviewDialog.open()
-                            }
-
-                            Item { Layout.fillWidth: true }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 78
-                            radius: 8
-                            color: darkTheme ? "#88121720" : "#bbffffff"
-                            border.color: darkTheme ? "#33404c" : "#d8e0ea"
-                            clip: true
-
-                            BodyText {
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                text: appViewModel.selectedItemOverview.length > 0 ? appViewModel.selectedItemOverview : t("details.noOverview")
-                                color: theme.text
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 3
-                                elide: Text.ElideRight
-                                lineHeight: 1.08
-                            }
-                        }
-
-                        Item { Layout.fillHeight: true }
+                    Label {
+                        anchors.centerIn: parent
+                        text: "\u2713"
+                        color: "#ffffff"
+                        font.pixelSize: 17
+                        font.bold: true
                     }
                 }
+
+                Rectangle {
+                    visible: detailEpisodeCard.progress > 0
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    anchors.bottomMargin: 10
+                    height: 4
+                    radius: 2
+                    color: "#66ffffff"
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: parent.width * Math.min(100, detailEpisodeCard.progress) / 100
+                        radius: 2
+                        color: "#f7f7f7"
+                    }
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: detailEpisodeCard.episodeLabel.length > 0
+                    ? detailEpisodeCard.episodeLabel + " · " + detailEpisodeCard.title
+                    : detailEpisodeCard.title
+                color: "#f7f7f7"
+                font.pixelSize: 15
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                text: detailEpisodeCard.overview
+                color: "#aeb1b7"
+                font.pixelSize: 13
+                lineHeight: 1.12
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignTop
+            }
+        }
+    }
+
+    component DetailPage: Item {
+        id: detailPage
+        clip: true
+
+        readonly property string backgroundImageUrl: appViewModel.selectedItemBackdropUrl.length > 0
+            ? appViewModel.selectedItemBackdropUrl
+            : appViewModel.selectedItemImageUrl
+        readonly property real heroHeight: Math.max(540, Math.min(700, height * 0.78))
+
+        Rectangle {
+            anchors.fill: parent
+            color: "#0f1217"
+        }
+
+        Popup {
+            id: detailSearchPopup
+            x: Math.max(22, detailPage.width - width - 28)
+            y: 26
+            width: Math.min(460, detailPage.width - 44)
+            height: 76
+            padding: 14
+            modal: false
+            focus: true
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+            background: Rectangle {
+                radius: 18
+                color: "#f2eee5"
+                border.color: "#55ffffff"
+            }
+
+            contentItem: MediaServerSearchBar {}
+        }
+
+        Flickable {
+            id: detailFlick
+            anchors.fill: parent
+            contentWidth: width
+            contentHeight: detailColumn.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+            clip: true
+
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
             }
 
             ColumnLayout {
-                Layout.fillWidth: true
-                visible: appViewModel.selectedItemHasSeriesEpisodes
-                spacing: 14
+                id: detailColumn
+                width: detailFlick.width
+                spacing: 0
 
-                SectionHeader {
-                    title: t("details.seasonsEpisodes")
-                    subtitle: appViewModel.selectedSeasonName.length > 0
-                        ? appViewModel.selectedSeasonName
-                        : t("details.noSeasons")
-                }
-
-                ListView {
+                Item {
+                    id: detailHero
                     Layout.fillWidth: true
-                    Layout.preferredHeight: appViewModel.seriesSeasons.count > 0 ? 54 : 0
-                    visible: appViewModel.seriesSeasons.count > 0
+                    Layout.preferredHeight: detailPage.heroHeight
                     clip: true
-                    orientation: ListView.Horizontal
-                    boundsBehavior: Flickable.StopAtBounds
-                    spacing: 10
-                    model: appViewModel.seriesSeasons
 
-                    delegate: SeasonPill {
-                        width: Math.min(190, Math.max(104, model.name.length * 9 + 34))
-                        height: 42
-                        title: model.name
-                        selected: model.itemId === appViewModel.selectedSeasonId
-                        onActivated: appViewModel.selectSeason(index)
+                    Image {
+                        id: detailBackdrop
+                        anchors.fill: parent
+                        source: detailPage.backgroundImageUrl
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: Math.min(parent.width * 0.68, 820)
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0.0; color: "#4d0f1217" }
+                            GradientStop { position: 0.42; color: "#160f1217" }
+                            GradientStop { position: 1.0; color: "#000f1217" }
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: Math.min(parent.height * 0.68, 500)
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "#000f1217" }
+                            GradientStop { position: 0.34; color: "#260f1217" }
+                            GradientStop { position: 0.72; color: "#b80f1217" }
+                            GradientStop { position: 1.0; color: "#ff0f1217" }
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: detailPage.backgroundImageUrl.length === 0
+                        color: "#202630"
+                    }
+
+                    ThumbnailLoadingIcon {
+                        anchors.centerIn: parent
+                        running: detailBackdrop.status === Image.Loading
+                        iconSize: 42
+                    }
+
+                    RowLayout {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: 28
+                        anchors.rightMargin: 30
+                        anchors.bottomMargin: 24
+                        spacing: 34
+
+                        ColumnLayout {
+                            Layout.preferredWidth: Math.max(360, Math.min(510, detailPage.width * 0.43))
+                            Layout.alignment: Qt.AlignBottom
+                            spacing: 14
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: appViewModel.selectedItemName
+                                color: "#ffffff"
+                                font.pixelSize: Math.max(38, Math.min(62, detailPage.width * 0.046))
+                                font.weight: Font.DemiBold
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                style: Text.Raised
+                                styleColor: "#55000000"
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 12
+
+                                DetailOverlayButton {
+                                    visible: !appViewModel.selectedItemIsSeries
+                                    text: "\u21bb"
+                                    onClicked: appViewModel.playSelectedItem()
+                                }
+
+                                DetailOverlayButton {
+                                    text: "\u24d8"
+                                    enabled: appViewModel.selectedItemOverview.length > 0
+                                    onClicked: overviewDialog.open()
+                                }
+
+                                Rectangle {
+                                    width: 54
+                                    height: 54
+                                    radius: width / 2
+                                    color: "#f3eee4"
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: appViewModel.selectedItemPlayedPercentage >= 90 ? "\u2713" : "\u25cb"
+                                        color: "#17191d"
+                                        font.pixelSize: 24
+                                        font.bold: appViewModel.selectedItemPlayedPercentage >= 90
+                                    }
+
+                                    ToolTip.visible: progressHover.containsMouse
+                                    ToolTip.text: Math.round(appViewModel.selectedItemPlayedPercentage) + "%"
+
+                                    MouseArea {
+                                        id: progressHover
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        acceptedButtons: Qt.NoButton
+                                    }
+                                }
+
+                                Item { Layout.fillWidth: true }
+                            }
+
+                            Button {
+                                id: detailPlayButton
+                                visible: !appViewModel.selectedItemIsSeries
+                                enabled: !appViewModel.loading
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: 430
+                                Layout.preferredHeight: 58
+                                hoverEnabled: true
+                                onClicked: appViewModel.playSelectedItem()
+
+                                contentItem: RowLayout {
+                                    spacing: 12
+
+                                    Label {
+                                        Layout.leftMargin: 24
+                                        text: "\u25b6"
+                                        color: "#202126"
+                                        font.pixelSize: 23
+                                    }
+
+                                    Label {
+                                        text: appViewModel.selectedItemPlayedPercentage > 0
+                                            ? t("action.continue")
+                                            : t("action.play")
+                                        color: "#202126"
+                                        font.pixelSize: 18
+                                        font.bold: true
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    Label {
+                                        visible: appViewModel.selectedItemPlayedPercentage > 0
+                                        Layout.rightMargin: 24
+                                        text: Math.round(appViewModel.selectedItemPlayedPercentage) + "%"
+                                        color: "#5a5c61"
+                                        font.pixelSize: 15
+                                        font.bold: true
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    radius: height / 2
+                                    color: detailPlayButton.down ? "#d9d7d2"
+                                        : detailPlayButton.hovered ? "#ffffff"
+                                        : "#f5f3ef"
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignBottom
+                            Layout.bottomMargin: 2
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 9
+
+                                Label {
+                                    text: "\u2605"
+                                    color: "#ff4e55"
+                                    font.pixelSize: 20
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: appViewModel.selectedItemMeta
+                                    color: "#f4f4f4"
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                visible: appViewModel.selectedItemSeasonEpisode.length > 0
+                                text: appViewModel.selectedItemSeasonEpisode
+                                color: "#dedfe1"
+                                font.pixelSize: 15
+                                font.bold: true
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: appViewModel.selectedItemOverview.length > 0
+                                    ? appViewModel.selectedItemOverview
+                                    : t("details.noOverview")
+                                color: "#e3e3e5"
+                                font.pixelSize: 15
+                                lineHeight: 1.12
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 4
+                                elide: Text.ElideRight
+                            }
+                        }
                     }
                 }
 
-                GridView {
-                    id: episodeGrid
+                ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: appViewModel.seriesEpisodes.count > 0
-                        ? Math.ceil(appViewModel.seriesEpisodes.count / Math.max(1, Math.floor(width / 292))) * 118
-                        : 46
-                    visible: appViewModel.seriesSeasons.count > 0
-                    clip: true
-                    interactive: false
-                    model: appViewModel.seriesEpisodes
-                    cellWidth: Math.max(260, width / Math.max(1, Math.floor(width / 292)))
-                    cellHeight: 112
+                    Layout.leftMargin: 28
+                    Layout.rightMargin: 28
+                    Layout.topMargin: 8
+                    visible: appViewModel.selectedItemHasSeriesEpisodes
+                    spacing: 12
 
-                    delegate: EpisodeCard {
-                        width: episodeGrid.cellWidth - 12
-                        height: 100
-                        title: model.name
-                        subtitle: appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber)
-                        runtime: model.runTime
-                        overview: model.overview
-                        imageUrl: model.imageUrl
-                        progress: model.playedPercentage
-                        onActivated: appViewModel.openEpisode(index)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
+                            text: appViewModel.selectedSeasonName.length > 0
+                                ? appViewModel.selectedSeasonName
+                                : t("details.seasonsEpisodes")
+                            color: "#f4f4f5"
+                            font.pixelSize: 22
+                            font.bold: true
+                        }
+
+                        Label {
+                            text: "\u2304"
+                            color: "#f4f4f5"
+                            font.pixelSize: 22
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: appViewModel.seriesSeasons.count > 1 ? 44 : 0
+                        visible: appViewModel.seriesSeasons.count > 1
+                        orientation: ListView.Horizontal
+                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: 10
+                        model: appViewModel.seriesSeasons
+                        clip: true
+
+                        delegate: SeasonPill {
+                            width: Math.min(190, Math.max(104, model.name.length * 9 + 34))
+                            height: 38
+                            title: model.name
+                            selected: model.itemId === appViewModel.selectedSeasonId
+                            onActivated: appViewModel.selectSeason(index)
+                        }
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: appViewModel.seriesEpisodes.count > 0 ? 46 : 0
+                        visible: appViewModel.seriesEpisodes.count > 0
+                        orientation: ListView.Horizontal
+                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: 10
+                        model: appViewModel.seriesEpisodes
+                        clip: true
+
+                        delegate: Rectangle {
+                            readonly property bool currentEpisode: model.itemId === appViewModel.selectedItemId
+                            width: 38
+                            height: 38
+                            radius: width / 2
+                            color: currentEpisode ? "#f4f2ed"
+                                : episodeNumberMouse.containsMouse ? "#716f6c"
+                                : "#8c8985"
+                            border.color: currentEpisode ? "#ffffff" : "#20ffffff"
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: model.indexNumber > 0 ? model.indexNumber : index + 1
+                                color: parent.currentEpisode ? "#17191d" : "#dedddb"
+                                font.pixelSize: 15
+                                font.bold: parent.currentEpisode
+                            }
+
+                            MouseArea {
+                                id: episodeNumberMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: appViewModel.openEpisode(index)
+                            }
+                        }
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: appViewModel.seriesEpisodes.count > 0 ? 244 : 0
+                        visible: appViewModel.seriesEpisodes.count > 0
+                        orientation: ListView.Horizontal
+                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: 20
+                        model: appViewModel.seriesEpisodes
+                        clip: true
+
+                        delegate: DetailEpisodeCard {
+                            width: Math.max(286, Math.min(350, detailPage.width * 0.285))
+                            height: 228
+                            title: model.name
+                            episodeLabel: appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber)
+                            overview: model.overview
+                            imageUrl: model.imageUrl
+                            progress: model.playedPercentage
+                            selected: model.itemId === appViewModel.selectedItemId
+                            onActivated: appViewModel.openEpisode(index)
+                        }
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: appViewModel.seriesSeasons.count === 0 && !appViewModel.loading
+                        text: t("details.noSeasons")
                     }
                 }
 
-                MutedText {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    visible: appViewModel.seriesSeasons.count === 0 && !appViewModel.loading
-                    text: t("details.noSeasons")
+                    Layout.leftMargin: 28
+                    Layout.rightMargin: 28
+                    Layout.topMargin: 22
+                    Layout.bottomMargin: 30
+                    spacing: 14
+
+                    SectionHeader {
+                        title: t("details.castCrew")
+                        subtitle: appViewModel.selectedItemPeopleModel.count > 0 ? "" : t("details.noCast")
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: appViewModel.selectedItemPeopleModel.count > 0 ? 218 : 0
+                        visible: appViewModel.selectedItemPeopleModel.count > 0
+                        orientation: ListView.Horizontal
+                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: 14
+                        model: appViewModel.selectedItemPeopleModel
+                        clip: true
+
+                        delegate: PersonCard {
+                            width: 128
+                            height: 210
+                            name: model.name
+                            roleName: model.roleName
+                            imageUrl: model.imageUrl
+                        }
+                    }
                 }
             }
+        }
 
-            SectionHeader {
-                title: t("details.castCrew")
-                subtitle: appViewModel.selectedItemPeopleModel.count > 0 ? "" : t("details.noCast")
-            }
+        DetailOverlayButton {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.margins: 26
+            text: "\u2190"
+            z: 20
+            onClicked: appViewModel.mediaDetailsBack()
+        }
 
-            ListView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: appViewModel.selectedItemPeopleModel.count > 0 ? 218 : 0
-                visible: appViewModel.selectedItemPeopleModel.count > 0
-                clip: true
-                orientation: ListView.Horizontal
-                boundsBehavior: Flickable.StopAtBounds
-                spacing: 14
-                model: appViewModel.selectedItemPeopleModel
+        Rectangle {
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.topMargin: 26
+            anchors.rightMargin: 26
+            width: 146
+            height: 56
+            radius: height / 2
+            color: "#f3eee4"
+            z: 20
 
-                delegate: PersonCard {
-                    width: 128
-                    height: 210
-                    name: model.name
-                    roleName: model.roleName
-                    imageUrl: model.imageUrl
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 10
+                spacing: 2
+
+                Button {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    hoverEnabled: true
+                    onClicked: detailSearchPopup.open()
+
+                    contentItem: Label {
+                        text: "\uD83D\uDD0D"
+                        color: "#17191d"
+                        font.pixelSize: 23
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        radius: height / 2
+                        color: parent.hovered ? "#18ffffff" : "transparent"
+                    }
+                }
+
+                Button {
+                    Layout.preferredWidth: 56
+                    Layout.fillHeight: true
+                    hoverEnabled: true
+                    onClicked: overviewDialog.open()
+
+                    contentItem: Label {
+                        text: "\u2026"
+                        color: "#17191d"
+                        font.pixelSize: 28
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        radius: height / 2
+                        color: parent.hovered ? "#18ffffff" : "transparent"
+                    }
                 }
             }
         }
     }
+
 
     component PlayerPage: Item {
         id: playerPage

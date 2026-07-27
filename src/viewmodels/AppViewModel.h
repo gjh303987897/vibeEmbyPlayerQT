@@ -100,6 +100,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString currentLibraryName READ currentLibraryName NOTIFY currentLibraryChanged)
     Q_PROPERTY(QString currentView READ currentView NOTIFY currentViewChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(QString selectedItemId READ selectedItemId NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemName READ selectedItemName NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemType READ selectedItemType NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemOverview READ selectedItemOverview NOTIFY selectedItemChanged)
@@ -255,6 +256,7 @@ public:
     QString currentLibraryName() const;
     QString currentView() const;
     QString errorMessage() const;
+    QString selectedItemId() const;
     QString selectedItemName() const;
     QString selectedItemType() const;
     QString selectedItemOverview() const;
