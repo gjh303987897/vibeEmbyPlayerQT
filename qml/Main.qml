@@ -886,15 +886,31 @@ ApplicationWindow {
     Dialog {
         id: overviewDialog
         modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         anchors.centerIn: parent
         padding: 0
-        width: Math.min(root.width - 64, 680)
-        height: Math.min(root.height - 88, 560)
+        width: Math.min(root.width - 56, 720)
+        height: Math.min(root.height - 72, 600)
+
+        Overlay.modal: Rectangle {
+            color: root.withAlpha("#000000", darkTheme ? 0.72 : 0.32)
+        }
+
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 160; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: 180; easing.type: Easing.OutCubic }
+        }
+
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120; easing.type: Easing.InCubic }
+            NumberAnimation { property: "scale"; from: 1; to: 0.98; duration: 120; easing.type: Easing.InCubic }
+        }
 
         background: Rectangle {
-            color: "#0b0f15"
-            radius: 14
-            border.color: "#27313d"
+            color: theme.surface
+            radius: 22
+            border.color: theme.border
             border.width: 1
         }
 
@@ -903,16 +919,16 @@ ApplicationWindow {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 82
-                radius: 14
-                color: "#0b0f15"
+                Layout.preferredHeight: 92
+                radius: 22
+                color: darkTheme ? theme.elevated : theme.bg
 
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     height: 1
-                    color: "#1f2a36"
+                    color: theme.border
                 }
 
                 RowLayout {
@@ -921,27 +937,40 @@ ApplicationWindow {
                     anchors.rightMargin: 18
                     spacing: 12
 
-                    Label {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: t("dialog.overviewTitle")
-                        color: "#ffffff"
-                        font.pixelSize: 28
-                        font.bold: true
-                        elide: Text.ElideRight
+                        spacing: 3
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: t("dialog.overviewTitle")
+                            color: theme.text
+                            font.pixelSize: 26
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: appViewModel.selectedItemName
+                            color: theme.muted
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                        }
                     }
 
                     Button {
                         id: overviewHeaderCloseButton
                         implicitWidth: 38
                         implicitHeight: 38
-                        text: "×"
+                        text: "\u00d7"
                         font.pixelSize: 22
                         font.bold: true
                         onClicked: overviewDialog.close()
 
                         contentItem: Label {
                             text: overviewHeaderCloseButton.text
-                            color: overviewHeaderCloseButton.enabled ? "#ffffff" : "#6d7784"
+                            color: overviewHeaderCloseButton.enabled ? theme.text : theme.subtle
                             font: overviewHeaderCloseButton.font
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -949,10 +978,12 @@ ApplicationWindow {
 
                         background: Rectangle {
                             radius: 19
-                            color: overviewHeaderCloseButton.down ? "#2d7dff"
-                                : overviewHeaderCloseButton.hovered ? "#1c2633"
-                                : "#111820"
-                            border.color: overviewHeaderCloseButton.hovered ? "#4f8cff" : "#2f3b48"
+                            color: overviewHeaderCloseButton.down
+                                ? root.withAlpha(theme.primary, darkTheme ? 0.32 : 0.18)
+                                : overviewHeaderCloseButton.hovered
+                                    ? root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.1)
+                                    : "transparent"
+                            border.color: overviewHeaderCloseButton.hovered ? theme.primary : theme.border
                         }
                     }
                 }
@@ -964,32 +995,46 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 Layout.leftMargin: 24
                 Layout.rightMargin: 24
-                Layout.topMargin: 18
-                Layout.bottomMargin: 18
+                Layout.topMargin: 22
+                Layout.bottomMargin: 22
                 clip: true
+
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+
+                    contentItem: Rectangle {
+                        implicitWidth: 6
+                        radius: 3
+                        color: parent.pressed
+                            ? theme.primary
+                            : parent.hovered
+                                ? root.withAlpha(theme.primary, 0.72)
+                                : root.withAlpha(theme.muted, darkTheme ? 0.48 : 0.34)
+                    }
+                }
 
                 BodyText {
                     width: overviewScroll.availableWidth
                     text: appViewModel.selectedItemOverview.length > 0 ? appViewModel.selectedItemOverview : t("details.noOverview")
-                    color: "#ffffff"
-                    font.pixelSize: 15
+                    color: theme.text
+                    font.pixelSize: 16
                     wrapMode: Text.WordWrap
-                    lineHeight: 1.18
+                    lineHeight: 1.35
                 }
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 76
-                radius: 14
-                color: "#0b0f15"
+                Layout.preferredHeight: 74
+                radius: 22
+                color: darkTheme ? theme.elevated : theme.bg
 
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
                     height: 1
-                    color: "#1f2a36"
+                    color: theme.border
                 }
 
                 RowLayout {
@@ -997,6 +1042,15 @@ ApplicationWindow {
                     anchors.leftMargin: 24
                     anchors.rightMargin: 24
                     spacing: 12
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: appViewModel.selectedItemSeasonEpisode.length > 0
+                        text: appViewModel.selectedItemSeasonEpisode
+                        color: theme.muted
+                        font.pixelSize: 13
+                        elide: Text.ElideRight
+                    }
 
                     Item { Layout.fillWidth: true }
 
@@ -1019,11 +1073,11 @@ ApplicationWindow {
                         }
 
                         background: Rectangle {
-                            radius: 9
-                            color: overviewCloseButton.down ? "#2d7dff"
-                                : overviewCloseButton.hovered ? "#1f6fff"
-                                : "#1677ff"
-                            border.color: overviewCloseButton.hovered ? "#73a7ff" : "#1677ff"
+                            radius: 10
+                            color: overviewCloseButton.down
+                                ? Qt.darker(theme.primary, 1.12)
+                                : overviewCloseButton.hovered ? theme.primaryHover : theme.primary
+                            border.color: overviewCloseButton.hovered ? theme.primaryHover : theme.primary
                         }
                     }
                 }
