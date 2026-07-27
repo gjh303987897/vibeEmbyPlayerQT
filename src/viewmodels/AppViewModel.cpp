@@ -225,6 +225,9 @@ void applyMissingEpisodeContext(MediaItem& item, const MediaItem& context)
     if (item.seriesImageUrl.isEmpty()) {
         item.seriesImageUrl = context.seriesImageUrl;
     }
+    if (item.logoImageUrl.isEmpty()) {
+        item.logoImageUrl = context.logoImageUrl;
+    }
     if (item.parentId.isEmpty()) {
         item.parentId = context.parentId;
     }
@@ -1546,6 +1549,11 @@ QString AppViewModel::selectedItemImageUrl() const
         return {};
     }
     return m_selectedItem->imageUrl.isEmpty() ? m_selectedItem->seriesImageUrl : m_selectedItem->imageUrl;
+}
+
+QString AppViewModel::selectedItemLogoUrl() const
+{
+    return m_selectedItem ? m_selectedItem->logoImageUrl : QString {};
 }
 
 QString AppViewModel::selectedItemBackdropUrl() const

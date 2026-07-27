@@ -284,6 +284,7 @@ void EmbyClient::fetchSeasonEpisodes(const UserSession& session,
     query.addQueryItem(QStringLiteral("Fields"),
                        QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,People,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,SeriesPrimaryImageTag,ParentId"));
     query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary,Backdrop,Logo"));
     query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
     query.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("SortName"));
     query.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Ascending"));
@@ -310,6 +311,7 @@ void EmbyClient::fetchItemDetails(const UserSession& session,
     query.addQueryItem(QStringLiteral("Fields"),
                        QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,People,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,SeriesPrimaryImageTag,ParentId"));
     query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary,Backdrop,Logo"));
     query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
     url.setQuery(query);
 

@@ -19,6 +19,7 @@ struct MediaItem {
     QString overview;
     QString imageTag;
     QString imageUrl;
+    QString logoImageUrl;
     QString backdropImageUrl;
     QString communityRating;
     QString officialRating;

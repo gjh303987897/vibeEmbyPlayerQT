@@ -174,6 +174,7 @@ ViewModel behavior:
 Images use:
 
 - `GET /Items/{ItemId}/Images/Primary`
+- `GET /Items/{ItemId}/Images/Logo` for optional title artwork
 
 The current implementation adds:
 
@@ -183,6 +184,8 @@ The current implementation adds:
 - `api_key`
 
 Primary image availability is determined from `ImageTags.Primary`, with `PrimaryImageTag` retained as a compatibility fallback. The client does not create a primary-image URL when neither field contains a tag. Episodes without their own primary image use `SeriesPrimaryImageTag` and the series item id as a display fallback.
+
+Emby detail and episode-list requests explicitly include `Logo` in `EnableImageTypes`. The parser prefers `ImageTags.Logo` on the current item, then resolves `ParentLogoItemId` with `ParentLogoImageTag` for inherited series artwork. Missing logo data does not trigger a speculative image request, because the official API returns 404 for image types that the item does not report.
 
 This keeps QML image loading simple while still allowing the server to authorize image access.
 

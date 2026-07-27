@@ -106,6 +106,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString selectedItemType READ selectedItemType NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemOverview READ selectedItemOverview NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemImageUrl READ selectedItemImageUrl NOTIFY selectedItemChanged)
+    Q_PROPERTY(QString selectedItemLogoUrl READ selectedItemLogoUrl NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemBackdropUrl READ selectedItemBackdropUrl NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemMeta READ selectedItemMeta NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemSeasonEpisode READ selectedItemSeasonEpisode NOTIFY selectedItemChanged)
@@ -263,6 +264,7 @@ public:
     QString selectedItemType() const;
     QString selectedItemOverview() const;
     QString selectedItemImageUrl() const;
+    QString selectedItemLogoUrl() const;
     QString selectedItemBackdropUrl() const;
     QString selectedItemMeta() const;
     QString selectedItemSeasonEpisode() const;

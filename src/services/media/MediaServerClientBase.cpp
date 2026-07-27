@@ -125,6 +125,24 @@ QString firstBackdropTag(const QJsonObject& object)
     return tags.first().toString();
 }
 
+std::pair<QString, QString> logoImageSource(const QJsonObject& object)
+{
+    const auto imageTags = object.value(QStringLiteral("ImageTags"))
+                               .toObject(object.value(QStringLiteral("imageTags")).toObject());
+    const auto directLogoTag = jsonStringAny(imageTags, { QStringLiteral("Logo"), QStringLiteral("logo") });
+    if (!directLogoTag.isEmpty()) {
+        return {
+            jsonStringAny(object, { QStringLiteral("Id"), QStringLiteral("id") }),
+            directLogoTag,
+        };
+    }
+
+    return {
+        jsonStringAny(object, { QStringLiteral("ParentLogoItemId"), QStringLiteral("parentLogoItemId") }),
+        jsonStringAny(object, { QStringLiteral("ParentLogoImageTag"), QStringLiteral("parentLogoImageTag") }),
+    };
+}
+
 NetworkError parseError(const QString& message)
 {
     return {
@@ -225,6 +243,8 @@ MediaItem MediaServerClientBase::parseItem(const QJsonObject& object, const QStr
     item.imageTag = primaryImageTag(object);
     item.imageUrl = primaryImageUrl(baseUrl, item.id, item.imageTag, token, 460);
     item.seriesImageUrl = primaryImageUrl(baseUrl, item.seriesId, item.seriesImageTag, token, 460);
+    const auto [logoItemId, logoTag] = logoImageSource(object);
+    item.logoImageUrl = logoImageUrl(baseUrl, logoItemId, logoTag, token, 900);
     item.backdropImageUrl = backdropImageUrl(baseUrl, item.id, firstBackdropTag(object), token, 1280);
     const auto rating = jsonDoubleAny(object, { QStringLiteral("CommunityRating"), QStringLiteral("communityRating") });
     if (rating > 0) {
@@ -312,6 +332,28 @@ QString MediaServerClientBase::primaryImageUrl(const QString& baseUrl,
     if (!imageTag.isEmpty()) {
         query.addQueryItem(QStringLiteral("tag"), imageTag);
     }
+    if (!token.isEmpty()) {
+        query.addQueryItem(QStringLiteral("api_key"), token);
+    }
+    url.setQuery(query);
+    return url.toString();
+}
+
+QString MediaServerClientBase::logoImageUrl(const QString& baseUrl,
+                                            const QString& itemId,
+                                            const QString& imageTag,
+                                            const QString& token,
+                                            int width)
+{
+    if (baseUrl.isEmpty() || itemId.isEmpty() || imageTag.isEmpty()) {
+        return {};
+    }
+
+    auto url = makeUrl(baseUrl, QStringLiteral("/Items/%1/Images/Logo").arg(itemId));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("maxWidth"), QString::number(width));
+    query.addQueryItem(QStringLiteral("quality"), QStringLiteral("90"));
+    query.addQueryItem(QStringLiteral("tag"), imageTag);
     if (!token.isEmpty()) {
         query.addQueryItem(QStringLiteral("api_key"), token);
     }

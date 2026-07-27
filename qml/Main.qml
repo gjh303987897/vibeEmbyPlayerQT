@@ -4641,17 +4641,67 @@ ApplicationWindow {
                             Layout.alignment: Qt.AlignBottom
                             spacing: 14
 
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: appViewModel.selectedItemLogoUrl.length > 0
+                                        && detailTitleLogo.status !== Image.Error
+                                    ? Math.max(92, Math.min(142, detailPage.heroHeight * 0.2))
+                                    : detailTitleText.implicitHeight
+
+                                Image {
+                                    id: detailTitleLogo
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    width: Math.min(parent.width, 450)
+                                    height: parent.height
+                                    source: appViewModel.selectedItemLogoUrl
+                                    sourceSize.width: 900
+                                    fillMode: Image.PreserveAspectFit
+                                    horizontalAlignment: Image.AlignLeft
+                                    verticalAlignment: Image.AlignVCenter
+                                    asynchronous: true
+                                    cache: true
+                                    visible: status === Image.Ready
+                                    opacity: status === Image.Ready ? 1 : 0
+
+                                    Behavior on opacity {
+                                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                    }
+                                }
+
+                                Label {
+                                    id: detailTitleText
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: appViewModel.selectedItemName
+                                    color: detailPage.heroPrimaryText
+                                    font.pixelSize: Math.max(38, Math.min(62, detailPage.width * 0.046))
+                                    font.weight: Font.DemiBold
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                    style: Text.Raised
+                                    styleColor: darkTheme ? "#55000000" : "#99ffffff"
+                                    visible: detailTitleLogo.status !== Image.Ready
+                                    opacity: visible ? 1 : 0
+
+                                    Behavior on opacity {
+                                        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                                    }
+                                }
+                            }
+
                             Label {
                                 Layout.fillWidth: true
+                                visible: detailTitleLogo.status === Image.Ready
+                                    && appViewModel.selectedItemType === "Episode"
+                                    && appViewModel.selectedItemName.length > 0
                                 text: appViewModel.selectedItemName
                                 color: detailPage.heroPrimaryText
-                                font.pixelSize: Math.max(38, Math.min(62, detailPage.width * 0.046))
+                                font.pixelSize: 20
                                 font.weight: Font.DemiBold
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
                                 elide: Text.ElideRight
-                                style: Text.Raised
-                                styleColor: darkTheme ? "#55000000" : "#99ffffff"
                             }
 
                             RowLayout {

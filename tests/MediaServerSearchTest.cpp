@@ -9,6 +9,7 @@
 #include <QTest>
 #include <QUrlQuery>
 
+#include <expected>
 #include <optional>
 #include <utility>
 
@@ -17,8 +18,11 @@ class LocalMediaServer final : public QObject {
     Q_OBJECT
 
 public:
-    explicit LocalMediaServer(QObject* parent = nullptr)
+    explicit LocalMediaServer(QByteArray responseBody = {}, QObject* parent = nullptr)
         : QObject(parent)
+        , m_responseBody(responseBody.isEmpty()
+              ? QByteArrayLiteral(R"({"Items":[{"Id":"movie-1","Name":"Alien","Type":"Movie","ProductionYear":1979,"ImageTags":{"Primary":"poster-tag"},"UserData":{"PlayedPercentage":25.0}}],"TotalRecordCount":1})")
+              : std::move(responseBody))
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this]() {
             while (auto* socket = m_server.nextPendingConnection()) {
@@ -45,10 +49,8 @@ public:
                     }
                     m_buffers.remove(socket);
 
-                    const auto body = QByteArrayLiteral(
-                        R"({"Items":[{"Id":"movie-1","Name":"Alien","Type":"Movie","ProductionYear":1979,"ImageTags":{"Primary":"poster-tag"},"UserData":{"PlayedPercentage":25.0}}],"TotalRecordCount":1})");
                     const auto response = QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ")
-                        + QByteArray::number(body.size()) + QByteArrayLiteral("\r\n\r\n") + body;
+                        + QByteArray::number(m_responseBody.size()) + QByteArrayLiteral("\r\n\r\n") + m_responseBody;
                     socket->write(response);
                     socket->disconnectFromHost();
                 });
@@ -89,6 +91,7 @@ private:
     QTcpServer m_server;
     QHash<QTcpSocket*, QByteArray> m_buffers;
     QHash<QByteArray, QByteArray> m_headers;
+    QByteArray m_responseBody;
     QByteArray m_requestTarget;
     int m_requestCount { 0 };
 };
@@ -128,6 +131,8 @@ class MediaServerSearchTest final : public QObject {
 private slots:
     void embySearchesCurrentUserRootRecursively();
     void jellyfinSearchesCurrentUserRootRecursively();
+    void embyDetailsPreferItemLogoArtwork();
+    void embyEpisodeDetailsUseInheritedSeriesLogoArtwork();
     void rejectsBlankSearchTermsWithoutRequests();
 };
 
@@ -198,6 +203,54 @@ void MediaServerSearchTest::jellyfinSearchesCurrentUserRootRecursively()
     QVERIFY(server.header(QByteArrayLiteral("authorization")).startsWith(QByteArrayLiteral("MediaBrowser ")));
     QVERIFY(server.header(QByteArrayLiteral("authorization")).contains(QByteArrayLiteral("Token=\"secret-token\"")));
     QCOMPARE(server.header(QByteArrayLiteral("x-emby-token")), QByteArrayLiteral("secret-token"));
+}
+
+void MediaServerSearchTest::embyDetailsPreferItemLogoArtwork()
+{
+    LocalMediaServer server(QByteArrayLiteral(
+        R"({"Items":[{"Id":"series-1","Name":"Example Show","Type":"Series","ImageTags":{"Logo":"direct-logo-tag"},"ParentLogoItemId":"parent-1","ParentLogoImageTag":"parent-logo-tag"}]})"));
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    EmbyClient client(networkClient);
+    std::optional<std::expected<MediaItem, NetworkError>> result;
+
+    client.fetchItemDetails(sessionFor(server, ServiceType::Emby),
+                            QStringLiteral("series-1"),
+                            [&result](std::expected<MediaItem, NetworkError> value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    const QUrl logoUrl(result->value().logoImageUrl);
+    QCOMPARE(logoUrl.path(), QStringLiteral("/Items/series-1/Images/Logo"));
+    QCOMPARE(QUrlQuery(logoUrl).queryItemValue(QStringLiteral("tag")), QStringLiteral("direct-logo-tag"));
+
+    const QUrl requestUrl(QStringLiteral("http://127.0.0.1") + QString::fromLatin1(server.requestTarget()));
+    QCOMPARE(QUrlQuery(requestUrl).queryItemValue(QStringLiteral("EnableImageTypes")),
+             QStringLiteral("Primary,Backdrop,Logo"));
+}
+
+void MediaServerSearchTest::embyEpisodeDetailsUseInheritedSeriesLogoArtwork()
+{
+    LocalMediaServer server(QByteArrayLiteral(
+        R"({"Items":[{"Id":"episode-1","Name":"Episode One","Type":"Episode","SeriesId":"series-1","ParentLogoItemId":"series-1","ParentLogoImageTag":"series-logo-tag"}]})"));
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    EmbyClient client(networkClient);
+    std::optional<std::expected<MediaItem, NetworkError>> result;
+
+    client.fetchItemDetails(sessionFor(server, ServiceType::Emby),
+                            QStringLiteral("episode-1"),
+                            [&result](std::expected<MediaItem, NetworkError> value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    const QUrl logoUrl(result->value().logoImageUrl);
+    QCOMPARE(logoUrl.path(), QStringLiteral("/Items/series-1/Images/Logo"));
+    QCOMPARE(QUrlQuery(logoUrl).queryItemValue(QStringLiteral("tag")), QStringLiteral("series-logo-tag"));
 }
 
 void MediaServerSearchTest::rejectsBlankSearchTermsWithoutRequests()
