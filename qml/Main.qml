@@ -4159,6 +4159,8 @@ ApplicationWindow {
 
     component DetailOverlayButton: Button {
         id: overlayButton
+        readonly property color foregroundColor: darkTheme ? "#17191d" : theme.text
+        readonly property color surfaceColor: darkTheme ? "#f3eee4" : theme.surface
         implicitWidth: 54
         implicitHeight: 54
         hoverEnabled: true
@@ -4169,7 +4171,9 @@ ApplicationWindow {
 
         contentItem: Label {
             text: overlayButton.text
-            color: overlayButton.enabled ? "#17191d" : "#7717191d"
+            color: overlayButton.enabled
+                ? overlayButton.foregroundColor
+                : root.withAlpha(overlayButton.foregroundColor, 0.42)
             font: overlayButton.font
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -4177,10 +4181,12 @@ ApplicationWindow {
 
         background: Rectangle {
             radius: height / 2
-            color: overlayButton.down ? "#ddd8cc"
-                : overlayButton.hovered ? "#ffffff"
-                : "#f3eee4"
-            border.color: "#24ffffff"
+            color: overlayButton.down
+                ? (darkTheme ? "#ddd8cc" : theme.elevatedHover)
+                : overlayButton.hovered
+                    ? (darkTheme ? "#ffffff" : theme.elevated)
+                    : overlayButton.surfaceColor
+            border.color: darkTheme ? "#24ffffff" : theme.border
             border.width: 1
         }
 
@@ -4218,8 +4224,8 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 154
                 radius: 14
-                color: "#1b2027"
-                border.color: detailEpisodeCard.selected ? theme.primary : "#24ffffff"
+                color: theme.elevated
+                border.color: detailEpisodeCard.selected ? theme.primary : theme.border
                 border.width: detailEpisodeCard.selected ? 2 : 1
                 clip: true
 
@@ -4242,7 +4248,7 @@ ApplicationWindow {
                     width: 27
                     height: 27
                     radius: width / 2
-                    color: "#1597ff"
+                    color: theme.primary
 
                     Label {
                         anchors.centerIn: parent
@@ -4263,7 +4269,7 @@ ApplicationWindow {
                     anchors.bottomMargin: 10
                     height: 4
                     radius: 2
-                    color: "#66ffffff"
+                    color: root.withAlpha(darkTheme ? "#ffffff" : theme.text, 0.34)
 
                     Rectangle {
                         anchors.left: parent.left
@@ -4271,7 +4277,7 @@ ApplicationWindow {
                         anchors.bottom: parent.bottom
                         width: parent.width * Math.min(100, detailEpisodeCard.progress) / 100
                         radius: 2
-                        color: "#f7f7f7"
+                        color: theme.primary
                     }
                 }
             }
@@ -4281,7 +4287,7 @@ ApplicationWindow {
                 text: detailEpisodeCard.episodeLabel.length > 0
                     ? detailEpisodeCard.episodeLabel + " · " + detailEpisodeCard.title
                     : detailEpisodeCard.title
-                color: "#f7f7f7"
+                color: theme.text
                 font.pixelSize: 15
                 font.bold: true
                 elide: Text.ElideRight
@@ -4291,7 +4297,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 text: detailEpisodeCard.overview
-                color: "#aeb1b7"
+                color: theme.muted
                 font.pixelSize: 13
                 lineHeight: 1.12
                 wrapMode: Text.WordWrap
@@ -4310,10 +4316,19 @@ ApplicationWindow {
             ? appViewModel.selectedItemBackdropUrl
             : appViewModel.selectedItemImageUrl
         readonly property real heroHeight: Math.max(540, Math.min(700, height * 0.78))
+        readonly property color pageBackground: theme.bg
+        readonly property color heroPrimaryText: theme.text
+        readonly property color heroSecondaryText: darkTheme ? "#d9dde3" : theme.muted
+        readonly property color floatingSurface: darkTheme ? "#f3eee4" : theme.surface
+        readonly property color floatingForeground: darkTheme ? "#17191d" : theme.text
+        readonly property color primaryActionSurface: darkTheme ? "#f5f3ef" : theme.primary
+        readonly property color primaryActionHover: darkTheme ? "#ffffff" : theme.primaryHover
+        readonly property color primaryActionPressed: darkTheme ? "#d9d7d2" : Qt.darker(theme.primary, 1.12)
+        readonly property color primaryActionForeground: darkTheme ? "#202126" : "#ffffff"
 
         Rectangle {
             anchors.fill: parent
-            color: "#0f1217"
+            color: detailPage.pageBackground
         }
 
         Popup {
@@ -4329,8 +4344,8 @@ ApplicationWindow {
 
             background: Rectangle {
                 radius: 18
-                color: "#f2eee5"
-                border.color: "#55ffffff"
+                color: theme.surface
+                border.color: theme.border
             }
 
             contentItem: MediaServerSearchBar {}
@@ -4375,9 +4390,15 @@ ApplicationWindow {
                         width: Math.min(parent.width * 0.68, 820)
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
-                            GradientStop { position: 0.0; color: "#4d0f1217" }
-                            GradientStop { position: 0.42; color: "#160f1217" }
-                            GradientStop { position: 1.0; color: "#000f1217" }
+                            GradientStop {
+                                position: 0.0
+                                color: root.withAlpha(detailPage.pageBackground, darkTheme ? 0.34 : 0.24)
+                            }
+                            GradientStop {
+                                position: 0.42
+                                color: root.withAlpha(detailPage.pageBackground, darkTheme ? 0.09 : 0.06)
+                            }
+                            GradientStop { position: 1.0; color: root.withAlpha(detailPage.pageBackground, 0.0) }
                         }
                     }
 
@@ -4387,17 +4408,23 @@ ApplicationWindow {
                         anchors.bottom: parent.bottom
                         height: Math.min(parent.height * 0.68, 500)
                         gradient: Gradient {
-                            GradientStop { position: 0.0; color: "#000f1217" }
-                            GradientStop { position: 0.34; color: "#260f1217" }
-                            GradientStop { position: 0.72; color: "#b80f1217" }
-                            GradientStop { position: 1.0; color: "#ff0f1217" }
+                            GradientStop { position: 0.0; color: root.withAlpha(detailPage.pageBackground, 0.0) }
+                            GradientStop {
+                                position: 0.34
+                                color: root.withAlpha(detailPage.pageBackground, darkTheme ? 0.15 : 0.12)
+                            }
+                            GradientStop {
+                                position: 0.72
+                                color: root.withAlpha(detailPage.pageBackground, darkTheme ? 0.72 : 0.78)
+                            }
+                            GradientStop { position: 1.0; color: detailPage.pageBackground }
                         }
                     }
 
                     Rectangle {
                         anchors.fill: parent
                         visible: detailPage.backgroundImageUrl.length === 0
-                        color: "#202630"
+                        color: theme.elevated
                     }
 
                     ThumbnailLoadingIcon {
@@ -4423,14 +4450,14 @@ ApplicationWindow {
                             Label {
                                 Layout.fillWidth: true
                                 text: appViewModel.selectedItemName
-                                color: "#ffffff"
+                                color: detailPage.heroPrimaryText
                                 font.pixelSize: Math.max(38, Math.min(62, detailPage.width * 0.046))
                                 font.weight: Font.DemiBold
                                 wrapMode: Text.WordWrap
                                 maximumLineCount: 2
                                 elide: Text.ElideRight
                                 style: Text.Raised
-                                styleColor: "#55000000"
+                                styleColor: darkTheme ? "#55000000" : "#99ffffff"
                             }
 
                             RowLayout {
@@ -4453,12 +4480,13 @@ ApplicationWindow {
                                     width: 54
                                     height: 54
                                     radius: width / 2
-                                    color: "#f3eee4"
+                                    color: detailPage.floatingSurface
+                                    border.color: darkTheme ? "#24ffffff" : theme.border
 
                                     Label {
                                         anchors.centerIn: parent
                                         text: appViewModel.selectedItemPlayedPercentage >= 90 ? "\u2713" : "\u25cb"
-                                        color: "#17191d"
+                                        color: detailPage.floatingForeground
                                         font.pixelSize: 24
                                         font.bold: appViewModel.selectedItemPlayedPercentage >= 90
                                     }
@@ -4493,7 +4521,7 @@ ApplicationWindow {
                                     Label {
                                         Layout.leftMargin: 24
                                         text: "\u25b6"
-                                        color: "#202126"
+                                        color: detailPage.primaryActionForeground
                                         font.pixelSize: 23
                                     }
 
@@ -4501,7 +4529,7 @@ ApplicationWindow {
                                         text: appViewModel.selectedItemPlayedPercentage > 0
                                             ? t("action.continue")
                                             : t("action.play")
-                                        color: "#202126"
+                                        color: detailPage.primaryActionForeground
                                         font.pixelSize: 18
                                         font.bold: true
                                     }
@@ -4512,7 +4540,7 @@ ApplicationWindow {
                                         visible: appViewModel.selectedItemPlayedPercentage > 0
                                         Layout.rightMargin: 24
                                         text: Math.round(appViewModel.selectedItemPlayedPercentage) + "%"
-                                        color: "#5a5c61"
+                                        color: root.withAlpha(detailPage.primaryActionForeground, 0.72)
                                         font.pixelSize: 15
                                         font.bold: true
                                     }
@@ -4520,9 +4548,9 @@ ApplicationWindow {
 
                                 background: Rectangle {
                                     radius: height / 2
-                                    color: detailPlayButton.down ? "#d9d7d2"
-                                        : detailPlayButton.hovered ? "#ffffff"
-                                        : "#f5f3ef"
+                                    color: detailPlayButton.down ? detailPage.primaryActionPressed
+                                        : detailPlayButton.hovered ? detailPage.primaryActionHover
+                                        : detailPage.primaryActionSurface
                                 }
                             }
                         }
@@ -4539,14 +4567,14 @@ ApplicationWindow {
 
                                 Label {
                                     text: "\u2605"
-                                    color: "#ff4e55"
+                                    color: theme.danger
                                     font.pixelSize: 20
                                 }
 
                                 Label {
                                     Layout.fillWidth: true
                                     text: appViewModel.selectedItemMeta
-                                    color: "#f4f4f4"
+                                    color: detailPage.heroPrimaryText
                                     font.pixelSize: 16
                                     font.bold: true
                                     wrapMode: Text.WordWrap
@@ -4557,7 +4585,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 visible: appViewModel.selectedItemSeasonEpisode.length > 0
                                 text: appViewModel.selectedItemSeasonEpisode
-                                color: "#dedfe1"
+                                color: detailPage.heroSecondaryText
                                 font.pixelSize: 15
                                 font.bold: true
                             }
@@ -4567,7 +4595,7 @@ ApplicationWindow {
                                 text: appViewModel.selectedItemOverview.length > 0
                                     ? appViewModel.selectedItemOverview
                                     : t("details.noOverview")
-                                color: "#e3e3e5"
+                                color: detailPage.heroSecondaryText
                                 font.pixelSize: 15
                                 lineHeight: 1.12
                                 wrapMode: Text.WordWrap
@@ -4594,14 +4622,14 @@ ApplicationWindow {
                             text: appViewModel.selectedSeasonName.length > 0
                                 ? appViewModel.selectedSeasonName
                                 : t("details.seasonsEpisodes")
-                            color: "#f4f4f5"
+                            color: theme.text
                             font.pixelSize: 22
                             font.bold: true
                         }
 
                         Label {
                             text: "\u2304"
-                            color: "#f4f4f5"
+                            color: theme.text
                             font.pixelSize: 22
                         }
 
@@ -4642,15 +4670,17 @@ ApplicationWindow {
                             width: 38
                             height: 38
                             radius: width / 2
-                            color: currentEpisode ? "#f4f2ed"
-                                : episodeNumberMouse.containsMouse ? "#716f6c"
-                                : "#8c8985"
-                            border.color: currentEpisode ? "#ffffff" : "#20ffffff"
+                            color: currentEpisode ? (darkTheme ? "#f4f2ed" : theme.primary)
+                                : episodeNumberMouse.containsMouse ? theme.elevatedHover
+                                : theme.elevated
+                            border.color: currentEpisode ? (darkTheme ? "#ffffff" : theme.primary) : theme.border
 
                             Label {
                                 anchors.centerIn: parent
                                 text: model.indexNumber > 0 ? model.indexNumber : index + 1
-                                color: parent.currentEpisode ? "#17191d" : "#dedddb"
+                                color: parent.currentEpisode
+                                    ? (darkTheme ? "#17191d" : "#ffffff")
+                                    : theme.text
                                 font.pixelSize: 15
                                 font.bold: parent.currentEpisode
                             }
@@ -4746,7 +4776,8 @@ ApplicationWindow {
             width: 146
             height: 56
             radius: height / 2
-            color: "#f3eee4"
+            color: detailPage.floatingSurface
+            border.color: darkTheme ? "#24ffffff" : theme.border
             z: 20
 
             RowLayout {
@@ -4763,7 +4794,7 @@ ApplicationWindow {
 
                     contentItem: Label {
                         text: "\uD83D\uDD0D"
-                        color: "#17191d"
+                        color: detailPage.floatingForeground
                         font.pixelSize: 23
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -4771,7 +4802,9 @@ ApplicationWindow {
 
                     background: Rectangle {
                         radius: height / 2
-                        color: parent.hovered ? "#18ffffff" : "transparent"
+                        color: parent.hovered
+                            ? (darkTheme ? "#18ffffff" : root.withAlpha(theme.primary, 0.08))
+                            : "transparent"
                     }
                 }
 
@@ -4783,7 +4816,7 @@ ApplicationWindow {
 
                     contentItem: Label {
                         text: "\u2026"
-                        color: "#17191d"
+                        color: detailPage.floatingForeground
                         font.pixelSize: 28
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
@@ -4792,7 +4825,9 @@ ApplicationWindow {
 
                     background: Rectangle {
                         radius: height / 2
-                        color: parent.hovered ? "#18ffffff" : "transparent"
+                        color: parent.hovered
+                            ? (darkTheme ? "#18ffffff" : root.withAlpha(theme.primary, 0.08))
+                            : "transparent"
                     }
                 }
             }
