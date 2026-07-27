@@ -4751,51 +4751,6 @@ ApplicationWindow {
                                 elide: Text.ElideRight
                             }
 
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 12
-
-                                DetailOverlayButton {
-                                    visible: !appViewModel.selectedItemIsSeries
-                                    text: "\u21bb"
-                                    onClicked: appViewModel.playSelectedItem()
-                                }
-
-                                DetailOverlayButton {
-                                    text: "\u24d8"
-                                    enabled: appViewModel.selectedItemOverview.length > 0
-                                    onClicked: overviewDialog.open()
-                                }
-
-                                Rectangle {
-                                    width: 54
-                                    height: 54
-                                    radius: width / 2
-                                    color: detailPage.floatingSurface
-                                    border.color: darkTheme ? "#24ffffff" : theme.border
-
-                                    Label {
-                                        anchors.centerIn: parent
-                                        text: appViewModel.selectedItemPlayedPercentage >= 90 ? "\u2713" : "\u25cb"
-                                        color: detailPage.floatingForeground
-                                        font.pixelSize: 24
-                                        font.bold: appViewModel.selectedItemPlayedPercentage >= 90
-                                    }
-
-                                    ToolTip.visible: progressHover.containsMouse
-                                    ToolTip.text: Math.round(appViewModel.selectedItemPlayedPercentage) + "%"
-
-                                    MouseArea {
-                                        id: progressHover
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        acceptedButtons: Qt.NoButton
-                                    }
-                                }
-
-                                Item { Layout.fillWidth: true }
-                            }
-
                             Button {
                                 id: detailPlayButton
                                 visible: !appViewModel.selectedItemIsSeries
