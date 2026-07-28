@@ -107,6 +107,7 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
     connect(&m_controller, &PlayerController::volumeChanged, this, &MpvVideoItem::volumeChanged);
     connect(&m_controller, &PlayerController::speedChanged, this, &MpvVideoItem::speedChanged);
     connect(&m_controller, &PlayerController::videoInfoChanged, this, &MpvVideoItem::videoInfoChanged);
+    connect(&m_controller, &PlayerController::audioMetadataChanged, this, &MpvVideoItem::audioMetadataChanged);
     connect(&m_controller, &PlayerController::cacheStatsChanged, this, &MpvVideoItem::cacheStatsChanged);
     connect(&m_controller, &PlayerController::tracksChanged, this, &MpvVideoItem::tracksChanged);
     connect(&m_controller, &PlayerController::videoOutputChanged, this, &MpvVideoItem::refreshNativeWindow);
@@ -289,6 +290,36 @@ QString MpvVideoItem::videoFrameRate() const
 QString MpvVideoItem::videoBitrate() const
 {
     return m_controller.videoBitrate();
+}
+
+QString MpvVideoItem::audioTitle() const
+{
+    return m_controller.audioTitle();
+}
+
+QString MpvVideoItem::audioArtist() const
+{
+    return m_controller.audioArtist();
+}
+
+QString MpvVideoItem::audioAlbum() const
+{
+    return m_controller.audioAlbum();
+}
+
+QString MpvVideoItem::audioGenre() const
+{
+    return m_controller.audioGenre();
+}
+
+QString MpvVideoItem::audioDate() const
+{
+    return m_controller.audioDate();
+}
+
+QString MpvVideoItem::audioTrack() const
+{
+    return m_controller.audioTrack();
 }
 
 double MpvVideoItem::cacheDurationSeconds() const

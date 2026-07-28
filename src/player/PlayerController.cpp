@@ -9,6 +9,7 @@
 #include <QVariant>
 #include <QStringList>
 #include <cmath>
+#include <initializer_list>
 #include <utility>
 
 namespace {
@@ -23,6 +24,7 @@ constexpr uint64_t propertyCacheBufferingState = 8;
 constexpr uint64_t propertySeeking = 9;
 constexpr uint64_t propertyIdleActive = 10;
 constexpr uint64_t propertyDemuxerCacheDuration = 11;
+constexpr uint64_t propertyMetadata = 12;
 
 QString endFileReasonName(mpv_end_file_reason reason)
 {
@@ -356,6 +358,36 @@ QString PlayerController::videoBitrate() const
     return m_videoBitrate;
 }
 
+QString PlayerController::audioTitle() const
+{
+    return m_audioTitle;
+}
+
+QString PlayerController::audioArtist() const
+{
+    return m_audioArtist;
+}
+
+QString PlayerController::audioAlbum() const
+{
+    return m_audioAlbum;
+}
+
+QString PlayerController::audioGenre() const
+{
+    return m_audioGenre;
+}
+
+QString PlayerController::audioDate() const
+{
+    return m_audioDate;
+}
+
+QString PlayerController::audioTrack() const
+{
+    return m_audioTrack;
+}
+
 double PlayerController::cacheDurationSeconds() const
 {
     return m_cacheDurationSeconds;
@@ -406,6 +438,7 @@ void PlayerController::playUrl(const QString& url,
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag);
     const QByteArray encoded = url.toUtf8();
     updateVideoInfo({}, {}, {}, {});
+    setAudioMetadata({}, {}, {}, {}, {}, {});
     updateCacheDuration(-1.0);
     m_paused = false;
     m_position = 0.0;
@@ -579,6 +612,7 @@ void PlayerController::observeProperties()
     mpv_observe_property(m_mpv, propertySeeking, "seeking", MPV_FORMAT_FLAG);
     mpv_observe_property(m_mpv, propertyIdleActive, "idle-active", MPV_FORMAT_FLAG);
     mpv_observe_property(m_mpv, propertyDemuxerCacheDuration, "demuxer-cache-duration", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(m_mpv, propertyMetadata, "metadata", MPV_FORMAT_NODE);
 }
 
 void PlayerController::processEvents()
@@ -669,6 +703,9 @@ void PlayerController::processEvents()
                    event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
             AppLogger::info(QStringLiteral("player"), QStringLiteral("libmpv video output event %1").arg(static_cast<int>(event->event_id)));
             updateTracks();
+            if (event->event_id == MPV_EVENT_FILE_LOADED) {
+                updateAudioMetadata();
+            }
             if (event->event_id == MPV_EVENT_FILE_LOADED || event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
                 m_loading = false;
                 emit playbackStateChanged();
@@ -719,6 +756,10 @@ void PlayerController::handlePropertyChange(const char* name, int format, void* 
         updateCacheDuration(-1.0);
         return;
     }
+    if (propertyName == QStringLiteral("metadata") && format == MPV_FORMAT_NONE) {
+        setAudioMetadata({}, {}, {}, {}, {}, {});
+        return;
+    }
     if (!data || format == MPV_FORMAT_NONE) {
         return;
     }
@@ -740,6 +781,8 @@ void PlayerController::handlePropertyChange(const char* name, int format, void* 
         emit speedChanged();
     } else if (propertyName == QStringLiteral("track-list") && format == MPV_FORMAT_NODE) {
         updateTracks();
+    } else if (propertyName == QStringLiteral("metadata") && format == MPV_FORMAT_NODE) {
+        updateAudioMetadata(*static_cast<mpv_node*>(data));
     } else if (propertyName == QStringLiteral("paused-for-cache") && format == MPV_FORMAT_FLAG) {
         m_buffering = *static_cast<int*>(data) != 0;
         if (!m_buffering) {
@@ -858,6 +901,82 @@ void PlayerController::updateTracks()
     emit tracksChanged();
 }
 
+void PlayerController::updateAudioMetadata()
+{
+    if (!m_mpv) {
+        setAudioMetadata({}, {}, {}, {}, {}, {});
+        return;
+    }
+
+    mpv_node root {};
+    const auto status = mpv_get_property(m_mpv, "metadata", MPV_FORMAT_NODE, &root);
+    if (status < 0) {
+        setAudioMetadata({}, {}, {}, {}, {}, {});
+        return;
+    }
+
+    updateAudioMetadata(root);
+    mpv_free_node_contents(&root);
+}
+
+void PlayerController::updateAudioMetadata(const mpv_node& root)
+{
+    QHash<QString, QString> metadata;
+    if (root.format == MPV_FORMAT_NODE_MAP && root.u.list) {
+        for (int i = 0; i < root.u.list->num; ++i) {
+            const auto* rawKey = root.u.list->keys[i];
+            if (!rawKey) {
+                continue;
+            }
+            const auto value = nodeString(root.u.list->values[i]).trimmed();
+            if (!value.isEmpty()) {
+                metadata.insert(QString::fromUtf8(rawKey).trimmed().toLower(), value);
+            }
+        }
+    }
+
+    const auto firstValue = [&metadata](std::initializer_list<QString> keys) {
+        for (const auto& key : keys) {
+            const auto value = metadata.value(key);
+            if (!value.isEmpty()) {
+                return value;
+            }
+        }
+        return QString {};
+    };
+
+    setAudioMetadata(firstValue({ QStringLiteral("title") }),
+                     firstValue({ QStringLiteral("artist"),
+                                  QStringLiteral("album_artist"),
+                                  QStringLiteral("albumartist"),
+                                  QStringLiteral("performer") }),
+                     firstValue({ QStringLiteral("album") }),
+                     firstValue({ QStringLiteral("genre") }),
+                     firstValue({ QStringLiteral("date"), QStringLiteral("year") }),
+                     firstValue({ QStringLiteral("track"), QStringLiteral("tracknumber") }));
+}
+
+void PlayerController::setAudioMetadata(QString title,
+                                        QString artist,
+                                        QString album,
+                                        QString genre,
+                                        QString date,
+                                        QString track)
+{
+    if (m_audioTitle == title && m_audioArtist == artist && m_audioAlbum == album &&
+        m_audioGenre == genre && m_audioDate == date && m_audioTrack == track) {
+        return;
+    }
+
+    m_audioTitle = std::move(title);
+    m_audioArtist = std::move(artist);
+    m_audioAlbum = std::move(album);
+    m_audioGenre = std::move(genre);
+    m_audioDate = std::move(date);
+    m_audioTrack = std::move(track);
+    emit audioMetadataChanged();
+}
+
 void PlayerController::updateVideoInfo(QString resolution, QString codec, QString frameRate, QString bitrate)
 {
     if (m_videoResolution == resolution &&
@@ -897,6 +1016,7 @@ void PlayerController::resetPlaybackState()
     m_subtitleTracks.setTracks({});
     m_audioTracks.setTracks({});
     updateVideoInfo({}, {}, {}, {});
+    setAudioMetadata({}, {}, {}, {}, {}, {});
     updateCacheDuration(-1.0);
     emit tracksChanged();
     if (stateChanged) {

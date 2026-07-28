@@ -2245,7 +2245,9 @@ ApplicationWindow {
 
                     Label {
                         Layout.fillWidth: true
-                        text: appViewModel.webDavAudioCurrentName
+                        text: miniPlayer.playerPage
+                            ? miniPlayer.playerPage.audioDisplayTitle
+                            : appViewModel.webDavAudioCurrentName
                         color: theme.text
                         font.pixelSize: 14
                         font.bold: true
@@ -2254,7 +2256,9 @@ ApplicationWindow {
 
                     MutedText {
                         Layout.fillWidth: true
-                        text: appViewModel.currentServerName
+                        text: (miniPlayer.playerPage && miniPlayer.playerPage.audioDisplayArtist.length > 0
+                                   ? miniPlayer.playerPage.audioDisplayArtist
+                                   : appViewModel.currentServerName)
                             + "  \u00B7  "
                             + (miniPlayer.playerPage ? miniPlayer.playerPage.formatTime(miniPlayer.playerPage.audioPosition) : "00:00")
                         font.pixelSize: 11
@@ -2314,13 +2318,29 @@ ApplicationWindow {
         }
 
         Rectangle {
+            id: miniPlayerProgressTrack
             anchors.left: parent.left
+            anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: 3
-            width: parent.width * Math.max(0, Math.min(1,
-                miniPlayer.playerPage && miniPlayer.playerPage.audioDuration > 0
-                    ? miniPlayer.playerPage.audioPosition / miniPlayer.playerPage.audioDuration : 0))
-            color: theme.primary
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            anchors.bottomMargin: 5
+            height: 4
+            radius: height / 2
+            color: root.withAlpha(theme.muted, darkTheme ? 0.30 : 0.18)
+            clip: true
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: parent.width * Math.max(0, Math.min(1,
+                    miniPlayer.playerPage && miniPlayer.playerPage.audioDuration > 0
+                        ? miniPlayer.playerPage.audioPosition / miniPlayer.playerPage.audioDuration : 0))
+                radius: parent.radius
+                color: theme.primary
+                visible: width > 0
+            }
         }
     }
 
@@ -5405,6 +5425,17 @@ ApplicationWindow {
         readonly property bool audioPaused: mpvVideo.paused
         readonly property real audioPosition: mpvVideo.position
         readonly property real audioDuration: mpvVideo.duration
+        readonly property string audioDisplayTitle: mpvVideo.audioTitle.length > 0
+            ? mpvVideo.audioTitle : appViewModel.webDavAudioCurrentName
+        readonly property string audioDisplayArtist: mpvVideo.audioArtist
+        readonly property string audioMetadataDetails: {
+            var parts = []
+            if (mpvVideo.audioAlbum.length > 0) parts.push(mpvVideo.audioAlbum)
+            if (mpvVideo.audioGenre.length > 0) parts.push(mpvVideo.audioGenre)
+            if (mpvVideo.audioDate.length > 0) parts.push(mpvVideo.audioDate)
+            if (mpvVideo.audioTrack.length > 0) parts.push("#" + mpvVideo.audioTrack)
+            return parts.join("  \u00B7  ")
+        }
         property bool playbackLoadingVisible: false
         property bool videoInfoVisible: false
         property bool trackMenuVisible: false
@@ -5838,7 +5869,8 @@ ApplicationWindow {
 
                             Label {
                                 width: parent.width
-                                text: appViewModel.currentServerName
+                                text: mpvVideo.audioAlbum.length > 0
+                                    ? mpvVideo.audioAlbum : appViewModel.currentServerName
                                 color: theme.muted
                                 font.pixelSize: 12
                                 font.bold: true
@@ -5851,12 +5883,31 @@ ApplicationWindow {
 
                     Label {
                         Layout.fillWidth: true
-                        text: appViewModel.webDavAudioCurrentName
+                        text: playerPage.audioDisplayTitle
                         color: theme.text
                         font.pixelSize: 21
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideMiddle
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: playerPage.audioDisplayArtist.length > 0
+                        text: playerPage.audioDisplayArtist
+                        font.pixelSize: 14
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: playerPage.audioMetadataDetails.length > 0
+                        text: playerPage.audioMetadataDetails
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
                     }
 
                     MutedText {

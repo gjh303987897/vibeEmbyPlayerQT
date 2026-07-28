@@ -31,6 +31,12 @@ class MpvVideoItem : public QQuickItem {
     Q_PROPERTY(QString videoCodec READ videoCodec NOTIFY videoInfoChanged)
     Q_PROPERTY(QString videoFrameRate READ videoFrameRate NOTIFY videoInfoChanged)
     Q_PROPERTY(QString videoBitrate READ videoBitrate NOTIFY videoInfoChanged)
+    Q_PROPERTY(QString audioTitle READ audioTitle NOTIFY audioMetadataChanged)
+    Q_PROPERTY(QString audioArtist READ audioArtist NOTIFY audioMetadataChanged)
+    Q_PROPERTY(QString audioAlbum READ audioAlbum NOTIFY audioMetadataChanged)
+    Q_PROPERTY(QString audioGenre READ audioGenre NOTIFY audioMetadataChanged)
+    Q_PROPERTY(QString audioDate READ audioDate NOTIFY audioMetadataChanged)
+    Q_PROPERTY(QString audioTrack READ audioTrack NOTIFY audioMetadataChanged)
     Q_PROPERTY(double cacheDurationSeconds READ cacheDurationSeconds NOTIFY cacheStatsChanged)
     Q_PROPERTY(TrackListModel* subtitleTracks READ subtitleTracks CONSTANT)
     Q_PROPERTY(TrackListModel* audioTracks READ audioTracks CONSTANT)
@@ -64,6 +70,12 @@ public:
     QString videoCodec() const;
     QString videoFrameRate() const;
     QString videoBitrate() const;
+    QString audioTitle() const;
+    QString audioArtist() const;
+    QString audioAlbum() const;
+    QString audioGenre() const;
+    QString audioDate() const;
+    QString audioTrack() const;
     double cacheDurationSeconds() const;
     TrackListModel* subtitleTracks();
     TrackListModel* audioTracks();
@@ -90,6 +102,7 @@ signals:
     void volumeChanged();
     void speedChanged();
     void videoInfoChanged();
+    void audioMetadataChanged();
     void cacheStatsChanged();
     void tracksChanged();
     void nativeWindowUpdated();

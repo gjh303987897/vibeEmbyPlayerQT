@@ -58,6 +58,7 @@ QML owns only the page layout and buttons. It does not call libmpv directly.
 - speed
 - playback property observation through `mpv_observe_property`
 - subtitle and audio track parsing from `track-list`
+- audio tag parsing from the libmpv `metadata` node map, with stale values cleared before each replacement load
 - subtitle and audio track switching through libmpv properties
 
 No other module should include `mpv/client.h`.
@@ -148,7 +149,7 @@ Future work should prefer passing authorization headers to libmpv when practical
 
 `MpvVideoItem::audioOnly` uses the same initialization path with audio output explicitly enabled for interactive WebDAV music playback. This variant still uses `force-window=no` and `vo=null`, but leaves `ao` on libmpv's normal output so cover art or other video tracks cannot create a native player window while audio remains audible. Switching between audio-only and embedded-video playback tears down and reinitializes the libmpv handle because these options are pre-initialization options.
 
-The full WebDAV audio page and draggable mini player share this single `MpvVideoItem`. Returning from the full page changes only `AppViewModel::currentView`; it does not clear the playback URL or create a second mpv instance. The mini player remains synchronized with pause, position, duration, loading, buffering and queue changes, and only its explicit exit action invokes the normal stop-and-clear path.
+The full WebDAV audio page and draggable mini player share this single `MpvVideoItem`. Returning from the full page changes only `AppViewModel::currentView`; it does not clear the playback URL or create a second mpv instance. The mini player remains synchronized with pause, position, duration, loading, buffering, queue changes and embedded audio metadata, and only its explicit exit action invokes the normal stop-and-clear path.
 
 Audio loading uses libmpv file lifecycle events instead of the video loading overlay. `MPV_EVENT_START_FILE` resets stale position/duration and starts the indicator; `MPV_EVENT_FILE_LOADED` or `MPV_EVENT_PLAYBACK_RESTART` clears it. When `loadfile replace` switches tracks, the old file's `MPV_END_FILE` with `STOP` reason does not clear the new request's loading state or network accounting.
 
