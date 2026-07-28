@@ -44,13 +44,9 @@ Windows and macOS use Qt's platform deployment tools underneath. Linux uses Qt's
 
 ## libmpv Dependency
 
-Windows keeps using the project-pinned zhongfly/mpv-winbuild development package:
+Windows resolves the latest standard x86_64 development package from the official `zhongfly/mpv-winbuild` GitHub Releases API. The asset must match `mpv-dev-x86_64-YYYYMMDD-git-HASH.7z`; the CPU-specific `-v3` package is intentionally excluded so the application remains compatible with older x86_64 processors.
 
-- tag: `2026-06-19-2d5dfb343a`
-- asset: `mpv-dev-x86_64-20260619-git-2d5dfb343a.7z`
-- SHA-256: `efb530ca2b36a69c3f5be2d69fadbdf691274b48c0a3963ff771fbf7d9e0f1dd`
-
-The Windows job downloads this package, verifies the hash, extracts it into `third_party/mpv/dev`, links `libmpv.dll.a`, and installs `libmpv-2.dll`.
+The upstream project periodically removes old daily release tags, so the workflow does not keep a direct URL to a dated asset. GitHub's release asset metadata supplies a SHA-256 digest. The Windows job verifies the downloaded archive against that digest, extracts it into `third_party/mpv/dev`, checks for `include/mpv/client.h`, `libmpv.dll.a`, and `libmpv-2.dll`, then links the import library and installs the runtime DLL.
 
 Windows CI configures CMake with `clang-cl` and `lld-link`, matching the local `scripts/configure-clang.cmd` flow while still using the MSVC-compatible Qt package.
 
