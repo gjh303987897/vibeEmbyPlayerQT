@@ -92,3 +92,5 @@ Qt packages are installed with `aqtinstall` using Qt 6.7.3:
 - macOS: `clang_64`, installed as `macos`
 - Linux x86_64: `linux_gcc_64`, installed as `gcc_64`
 - Linux arm64: `linux_gcc_arm64`, installed as `gcc_arm64`
+
+The workflow pins Python 3.13 and `aqtinstall` 3.3.0. Qt archives are extracted with the runner's external `7z` command instead of aqt's default `py7zr` backend. This avoids the intermittent Windows `Bad7zFile: Specified path is bad` failure tracked by [aqtinstall issue #995](https://github.com/miurahr/aqtinstall/issues/995). Linux and macOS install p7zip before the Qt step, while the Windows hosted runner already supplies the same `7z` command used later for the libmpv package.

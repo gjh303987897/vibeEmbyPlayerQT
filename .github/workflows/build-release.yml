@@ -18,6 +18,7 @@ concurrency:
 env:
   BUILD_TYPE: Release
   QT_VERSION: 6.7.3
+  AQT_VERSION: 3.3.0
   MPV_WINBUILD_REPOSITORY: zhongfly/mpv-winbuild
   MPV_WINBUILD_ASSET_PATTERN: '^mpv-dev-x86_64-[0-9]{8}-git-[0-9a-fA-F]+\.7z$'
 
@@ -75,10 +76,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.13'
 
       - name: Install aqtinstall
-        run: python -m pip install --upgrade pip aqtinstall
+        run: python -m pip install --upgrade pip "aqtinstall==${{ env.AQT_VERSION }}"
 
       - name: Set up MSVC
         if: runner.os == 'Windows'
@@ -123,7 +124,8 @@ jobs:
             desktop \
             "$QT_VERSION" \
             "${{ matrix.qt-arch }}" \
-            -O "$RUNNER_TEMP/Qt"
+            -O "$RUNNER_TEMP/Qt" \
+            --external 7z
 
       - name: Export Qt paths
         if: runner.os != 'Windows'
