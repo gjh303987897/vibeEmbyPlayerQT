@@ -4,7 +4,9 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QTemporaryDir>
 #include <QTimer>
+#include <QUrl>
 #include <QtGlobal>
 #include <vector>
 
@@ -72,6 +74,7 @@ class PlayerController final : public QObject {
     Q_PROPERTY(QString audioGenre READ audioGenre NOTIFY audioMetadataChanged)
     Q_PROPERTY(QString audioDate READ audioDate NOTIFY audioMetadataChanged)
     Q_PROPERTY(QString audioTrack READ audioTrack NOTIFY audioMetadataChanged)
+    Q_PROPERTY(QUrl audioCoverUrl READ audioCoverUrl NOTIFY audioCoverChanged)
     Q_PROPERTY(double cacheDurationSeconds READ cacheDurationSeconds NOTIFY cacheStatsChanged)
     Q_PROPERTY(TrackListModel* subtitleTracks READ subtitleTracks CONSTANT)
     Q_PROPERTY(TrackListModel* audioTracks READ audioTracks CONSTANT)
@@ -101,6 +104,7 @@ public:
     QString audioGenre() const;
     QString audioDate() const;
     QString audioTrack() const;
+    QUrl audioCoverUrl() const;
     double cacheDurationSeconds() const;
     TrackListModel* subtitleTracks();
     TrackListModel* audioTracks();
@@ -129,6 +133,7 @@ signals:
     void speedChanged();
     void videoInfoChanged();
     void audioMetadataChanged();
+    void audioCoverChanged();
     void cacheStatsChanged();
     void tracksChanged();
     void videoOutputChanged();
@@ -151,6 +156,10 @@ private:
                           QString genre,
                           QString date,
                           QString track);
+    void updateAudioCoverTrack(bool available);
+    void captureAudioCover();
+    void handleAudioCoverCaptureFailure(const QString& reason);
+    void resetAudioCover();
     void updateCacheDuration(double seconds);
     void resetPlaybackState();
     static QString nodeString(const struct mpv_node& node);
@@ -184,6 +193,14 @@ private:
     QString m_audioGenre;
     QString m_audioDate;
     QString m_audioTrack;
+    QUrl m_audioCoverUrl;
+    QString m_audioCoverPath;
+    QTemporaryDir m_audioCoverDirectory;
+    quint64 m_audioCoverFileCounter { 0 };
+    bool m_audioCoverTrackAvailable { false };
+    bool m_audioCoverCapturePending { false };
+    bool m_audioCoverCaptureExhausted { false };
+    int m_audioCoverCaptureAttempts { 0 };
     double m_cacheDurationSeconds { -1.0 };
     QTimer m_eventTimer;
     QTimer m_networkStatsTimer;

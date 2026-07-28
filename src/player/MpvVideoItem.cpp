@@ -108,6 +108,7 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
     connect(&m_controller, &PlayerController::speedChanged, this, &MpvVideoItem::speedChanged);
     connect(&m_controller, &PlayerController::videoInfoChanged, this, &MpvVideoItem::videoInfoChanged);
     connect(&m_controller, &PlayerController::audioMetadataChanged, this, &MpvVideoItem::audioMetadataChanged);
+    connect(&m_controller, &PlayerController::audioCoverChanged, this, &MpvVideoItem::audioCoverChanged);
     connect(&m_controller, &PlayerController::cacheStatsChanged, this, &MpvVideoItem::cacheStatsChanged);
     connect(&m_controller, &PlayerController::tracksChanged, this, &MpvVideoItem::tracksChanged);
     connect(&m_controller, &PlayerController::videoOutputChanged, this, &MpvVideoItem::refreshNativeWindow);
@@ -320,6 +321,11 @@ QString MpvVideoItem::audioDate() const
 QString MpvVideoItem::audioTrack() const
 {
     return m_controller.audioTrack();
+}
+
+QUrl MpvVideoItem::audioCoverUrl() const
+{
+    return m_controller.audioCoverUrl();
 }
 
 double MpvVideoItem::cacheDurationSeconds() const

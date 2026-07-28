@@ -6,9 +6,12 @@
 #include <mpv/client.h>
 
 #include <algorithm>
+#include <QFile>
+#include <QImage>
 #include <QVariant>
 #include <QStringList>
 #include <cmath>
+#include <cstring>
 #include <initializer_list>
 #include <utility>
 
@@ -64,6 +67,7 @@ QString displayNameFor(const TrackInfo& track)
 struct VideoTrackDetails {
     bool available { false };
     bool selected { false };
+    bool albumArt { false };
     QString codec;
     int width { -1 };
     int height { -1 };
@@ -388,6 +392,11 @@ QString PlayerController::audioTrack() const
     return m_audioTrack;
 }
 
+QUrl PlayerController::audioCoverUrl() const
+{
+    return m_audioCoverUrl;
+}
+
 double PlayerController::cacheDurationSeconds() const
 {
     return m_cacheDurationSeconds;
@@ -439,6 +448,7 @@ void PlayerController::playUrl(const QString& url,
     const QByteArray encoded = url.toUtf8();
     updateVideoInfo({}, {}, {}, {});
     setAudioMetadata({}, {}, {}, {}, {}, {});
+    resetAudioCover();
     updateCacheDuration(-1.0);
     m_paused = false;
     m_position = 0.0;
@@ -706,6 +716,10 @@ void PlayerController::processEvents()
             if (event->event_id == MPV_EVENT_FILE_LOADED) {
                 updateAudioMetadata();
             }
+            if (event->event_id == MPV_EVENT_VIDEO_RECONFIG ||
+                event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
+                captureAudioCover();
+            }
             if (event->event_id == MPV_EVENT_FILE_LOADED || event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
                 m_loading = false;
                 emit playbackStateChanged();
@@ -838,6 +852,7 @@ void PlayerController::updateTracks()
             int videoHeight = -1;
             double videoFrameRate = 0.0;
             qint64 videoBitrate = 0;
+            bool albumArt = false;
             for (int j = 0; j < entry.u.list->num; ++j) {
                 const auto key = QString::fromUtf8(entry.u.list->keys[j]);
                 const auto& value = entry.u.list->values[j];
@@ -863,6 +878,8 @@ void PlayerController::updateTracks()
                     videoBitrate = nodeInt64(value);
                 } else if (key == QStringLiteral("hls-bitrate") && videoBitrate <= 0) {
                     videoBitrate = nodeInt64(value);
+                } else if (key == QStringLiteral("albumart")) {
+                    albumArt = nodeBool(value);
                 }
             }
 
@@ -874,6 +891,7 @@ void PlayerController::updateTracks()
                 const VideoTrackDetails candidate {
                     true,
                     track.selected,
+                    albumArt,
                     track.codec,
                     videoWidth,
                     videoHeight,
@@ -890,6 +908,7 @@ void PlayerController::updateTracks()
     mpv_free_node_contents(&root);
     m_subtitleTracks.setTracks(std::move(subtitles));
     m_audioTracks.setTracks(std::move(audioTracks));
+    updateAudioCoverTrack(videoTrack.available && videoTrack.albumArt);
     if (videoTrack.available) {
         updateVideoInfo(formatVideoResolution(videoTrack.width, videoTrack.height),
                         formatVideoCodec(videoTrack.codec),
@@ -977,6 +996,150 @@ void PlayerController::setAudioMetadata(QString title,
     emit audioMetadataChanged();
 }
 
+void PlayerController::updateAudioCoverTrack(bool available)
+{
+    if (!m_headlessAudioOutput) {
+        return;
+    }
+    if (!available) {
+        if (m_audioCoverTrackAvailable || !m_audioCoverUrl.isEmpty()) {
+            resetAudioCover();
+        }
+        return;
+    }
+
+    m_audioCoverTrackAvailable = true;
+    if (m_audioCoverUrl.isEmpty() && !m_audioCoverCapturePending && !m_audioCoverCaptureExhausted) {
+        m_audioCoverCapturePending = true;
+        m_audioCoverCaptureAttempts = 0;
+    }
+}
+
+void PlayerController::captureAudioCover()
+{
+    if (!m_mpv || !m_headlessAudioOutput || !m_audioCoverTrackAvailable ||
+        !m_audioCoverCapturePending || m_audioCoverCaptureExhausted) {
+        return;
+    }
+
+    ++m_audioCoverCaptureAttempts;
+    const char* args[] = { "screenshot-raw", "video", "rgba", nullptr };
+    mpv_node result {};
+    const auto status = mpv_command_ret(m_mpv, args, &result);
+    if (status < 0) {
+        handleAudioCoverCaptureFailure(QString::fromUtf8(mpv_error_string(status)));
+        return;
+    }
+
+    int width = -1;
+    int height = -1;
+    qint64 stride = 0;
+    QString format;
+    const mpv_byte_array* bytes = nullptr;
+    if (result.format == MPV_FORMAT_NODE_MAP && result.u.list) {
+        for (int i = 0; i < result.u.list->num; ++i) {
+            const auto key = QString::fromUtf8(result.u.list->keys[i]);
+            const auto& value = result.u.list->values[i];
+            if (key == QStringLiteral("w")) {
+                width = nodeInt(value);
+            } else if (key == QStringLiteral("h")) {
+                height = nodeInt(value);
+            } else if (key == QStringLiteral("stride")) {
+                stride = nodeInt64(value);
+            } else if (key == QStringLiteral("format")) {
+                format = nodeString(value);
+            } else if (key == QStringLiteral("data") && value.format == MPV_FORMAT_BYTE_ARRAY) {
+                bytes = value.u.ba;
+            }
+        }
+    }
+
+    constexpr auto maxCoverDimension = 8192;
+    constexpr qint64 maxCoverBytes = 128LL * 1024LL * 1024LL;
+    const auto rowBytes = static_cast<qint64>(width) * 4;
+    const auto absoluteStride = std::abs(stride);
+    const auto requiredBytes = height > 0 ? absoluteStride * (height - 1LL) + rowBytes : 0;
+    if (width <= 0 || height <= 0 || width > maxCoverDimension || height > maxCoverDimension ||
+        format != QStringLiteral("rgba") || !bytes || !bytes->data || stride == 0 ||
+        absoluteStride < rowBytes || requiredBytes <= 0 || requiredBytes > maxCoverBytes ||
+        static_cast<quint64>(requiredBytes) > static_cast<quint64>(bytes->size)) {
+        mpv_free_node_contents(&result);
+        handleAudioCoverCaptureFailure(QStringLiteral("invalid screenshot data"));
+        return;
+    }
+
+    QImage cover(width, height, QImage::Format_RGBA8888);
+    if (cover.isNull()) {
+        mpv_free_node_contents(&result);
+        handleAudioCoverCaptureFailure(QStringLiteral("unable to allocate cover image"));
+        return;
+    }
+
+    const auto* source = static_cast<const uchar*>(bytes->data);
+    for (int y = 0; y < height; ++y) {
+        const auto* sourceRow = source + static_cast<qint64>(y) * stride;
+        std::memcpy(cover.scanLine(y), sourceRow, static_cast<size_t>(rowBytes));
+    }
+    mpv_free_node_contents(&result);
+
+    constexpr auto maxStoredCoverSize = 1024;
+    if (cover.width() > maxStoredCoverSize || cover.height() > maxStoredCoverSize) {
+        cover = cover.scaled(maxStoredCoverSize,
+                             maxStoredCoverSize,
+                             Qt::KeepAspectRatio,
+                             Qt::SmoothTransformation);
+    }
+    if (!m_audioCoverDirectory.isValid()) {
+        handleAudioCoverCaptureFailure(QStringLiteral("temporary cover directory is unavailable"));
+        return;
+    }
+
+    const auto outputPath = m_audioCoverDirectory.filePath(
+        QStringLiteral("cover-%1.bmp").arg(++m_audioCoverFileCounter));
+    if (!cover.save(outputPath, "BMP")) {
+        handleAudioCoverCaptureFailure(QStringLiteral("unable to save cover image"));
+        return;
+    }
+
+    const auto previousPath = std::exchange(m_audioCoverPath, outputPath);
+    m_audioCoverUrl = QUrl::fromLocalFile(outputPath);
+    m_audioCoverCapturePending = false;
+    m_audioCoverCaptureExhausted = false;
+    if (!previousPath.isEmpty() && previousPath != outputPath) {
+        QFile::remove(previousPath);
+    }
+    emit audioCoverChanged();
+}
+
+void PlayerController::handleAudioCoverCaptureFailure(const QString& reason)
+{
+    constexpr auto maxAttempts = 3;
+    if (m_audioCoverCaptureAttempts < maxAttempts) {
+        QTimer::singleShot(140, this, [this]() { captureAudioCover(); });
+        return;
+    }
+    m_audioCoverCapturePending = false;
+    m_audioCoverCaptureExhausted = true;
+    AppLogger::warning(QStringLiteral("player"),
+                       QStringLiteral("Unable to capture embedded audio cover: %1").arg(reason));
+}
+
+void PlayerController::resetAudioCover()
+{
+    m_audioCoverTrackAvailable = false;
+    m_audioCoverCapturePending = false;
+    m_audioCoverCaptureExhausted = false;
+    m_audioCoverCaptureAttempts = 0;
+    if (!m_audioCoverPath.isEmpty()) {
+        QFile::remove(m_audioCoverPath);
+        m_audioCoverPath.clear();
+    }
+    if (!m_audioCoverUrl.isEmpty()) {
+        m_audioCoverUrl = QUrl {};
+        emit audioCoverChanged();
+    }
+}
+
 void PlayerController::updateVideoInfo(QString resolution, QString codec, QString frameRate, QString bitrate)
 {
     if (m_videoResolution == resolution &&
@@ -1017,6 +1180,7 @@ void PlayerController::resetPlaybackState()
     m_audioTracks.setTracks({});
     updateVideoInfo({}, {}, {}, {});
     setAudioMetadata({}, {}, {}, {}, {}, {});
+    resetAudioCover();
     updateCacheDuration(-1.0);
     emit tracksChanged();
     if (stateChanged) {

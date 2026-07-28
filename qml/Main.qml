@@ -2220,11 +2220,27 @@ ApplicationWindow {
             spacing: 11
 
             Rectangle {
+                id: miniPlayerArtwork
                 Layout.preferredWidth: 58
                 Layout.preferredHeight: 58
                 radius: 9
                 color: root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
                 border.color: root.withAlpha(theme.primary, 0.52)
+                clip: true
+
+                Image {
+                    id: miniPlayerCoverImage
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    source: miniPlayer.playerPage ? miniPlayer.playerPage.audioCoverUrl : ""
+                    sourceSize.width: 116
+                    sourceSize.height: 116
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: false
+                    smooth: true
+                    visible: status === Image.Ready
+                }
 
                 Label {
                     anchors.centerIn: parent
@@ -2232,6 +2248,7 @@ ApplicationWindow {
                     color: theme.primary
                     font.pixelSize: 29
                     font.bold: true
+                    visible: miniPlayerCoverImage.status !== Image.Ready
                 }
             }
 
@@ -5428,6 +5445,7 @@ ApplicationWindow {
         readonly property string audioDisplayTitle: mpvVideo.audioTitle.length > 0
             ? mpvVideo.audioTitle : appViewModel.webDavAudioCurrentName
         readonly property string audioDisplayArtist: mpvVideo.audioArtist
+        readonly property url audioCoverUrl: mpvVideo.audioCoverUrl
         readonly property string audioMetadataDetails: {
             var parts = []
             if (mpvVideo.audioAlbum.length > 0) parts.push(mpvVideo.audioAlbum)
@@ -5839,81 +5857,129 @@ ApplicationWindow {
 
                 ColumnLayout {
                     id: audioNowPlaying
-                    readonly property real artworkSize: Math.min(280, Math.max(210, width - 20), height * 0.52)
-                    Layout.preferredWidth: Math.min(390, Math.max(270, parent.width * 0.40))
+                    readonly property real artworkSize: Math.min(300, Math.max(210, width * 0.42), height * 0.48)
+                    Layout.preferredWidth: Math.min(680, Math.max(510, parent.width * 0.57))
                     Layout.fillHeight: true
-                    spacing: 14
+                    spacing: 16
 
                     Item { Layout.fillHeight: true }
 
-                    Rectangle {
+                    RowLayout {
+                        Layout.fillWidth: true
                         Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: audioNowPlaying.artworkSize
-                        Layout.preferredHeight: audioNowPlaying.artworkSize
-                        radius: 8
-                        color: root.withAlpha(theme.primary, darkTheme ? 0.20 : 0.10)
-                        border.color: root.withAlpha(theme.primary, 0.48)
+                        spacing: Math.max(22, width * 0.04)
 
-                        Column {
-                            anchors.centerIn: parent
-                            width: parent.width - 32
-                            spacing: 10
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 210
+                            Layout.alignment: Qt.AlignVCenter
+                            spacing: 8
 
-                            Label {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: "\u266B"
-                                color: theme.primary
-                                font.pixelSize: Math.max(58, Math.min(86, parent.width * 0.34))
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: appViewModel.currentServerName
+                                font.pixelSize: 11
                                 font.bold: true
-                            }
-
-                            Label {
-                                width: parent.width
-                                text: mpvVideo.audioAlbum.length > 0
-                                    ? mpvVideo.audioAlbum : appViewModel.currentServerName
-                                color: theme.muted
-                                font.pixelSize: 12
-                                font.bold: true
-                                font.letterSpacing: 0
-                                horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideRight
                             }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: playerPage.audioDisplayTitle
+                                color: theme.text
+                                font.pixelSize: 24
+                                font.bold: true
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 3
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                visible: playerPage.audioDisplayArtist.length > 0
+                                text: playerPage.audioDisplayArtist
+                                font.pixelSize: 15
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 1
+                                Layout.topMargin: 4
+                                Layout.bottomMargin: 4
+                                color: theme.border
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                visible: playerPage.audioMetadataDetails.length > 0
+                                text: playerPage.audioMetadataDetails
+                                font.pixelSize: 12
+                                wrapMode: Text.Wrap
+                                maximumLineCount: 3
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: (appViewModel.webDavAudioCurrentIndex + 1)
+                                    + " / " + appViewModel.webDavAudioQueueCount
+                                font.pixelSize: 12
+                            }
                         }
-                    }
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: playerPage.audioDisplayTitle
-                        color: theme.text
-                        font.pixelSize: 21
-                        font.bold: true
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideMiddle
-                    }
+                        Rectangle {
+                            id: audioCoverFrame
+                            Layout.preferredWidth: audioNowPlaying.artworkSize
+                            Layout.preferredHeight: audioNowPlaying.artworkSize
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: 14
+                            color: root.withAlpha(theme.primary, darkTheme ? 0.20 : 0.10)
+                            border.color: root.withAlpha(theme.primary, 0.48)
+                            border.width: 1
+                            clip: true
 
-                    MutedText {
-                        Layout.fillWidth: true
-                        visible: playerPage.audioDisplayArtist.length > 0
-                        text: playerPage.audioDisplayArtist
-                        font.pixelSize: 14
-                        font.bold: true
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                    }
+                            Image {
+                                id: audioCoverImage
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                source: playerPage.audioCoverUrl
+                                sourceSize.width: Math.round(audioNowPlaying.artworkSize * 2)
+                                sourceSize.height: Math.round(audioNowPlaying.artworkSize * 2)
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                cache: false
+                                smooth: true
+                                visible: status === Image.Ready
+                            }
 
-                    MutedText {
-                        Layout.fillWidth: true
-                        visible: playerPage.audioMetadataDetails.length > 0
-                        text: playerPage.audioMetadataDetails
-                        font.pixelSize: 12
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                    }
+                            Column {
+                                anchors.centerIn: parent
+                                width: parent.width - 32
+                                spacing: 10
+                                visible: audioCoverImage.status !== Image.Ready
 
-                    MutedText {
-                        Layout.fillWidth: true
-                        text: (appViewModel.webDavAudioCurrentIndex + 1) + " / " + appViewModel.webDavAudioQueueCount
-                        horizontalAlignment: Text.AlignHCenter
+                                Label {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: "\u266B"
+                                    color: theme.primary
+                                    font.pixelSize: Math.max(58, Math.min(86, parent.width * 0.34))
+                                    font.bold: true
+                                }
+
+                                Label {
+                                    width: parent.width
+                                    text: mpvVideo.audioAlbum.length > 0
+                                        ? mpvVideo.audioAlbum : appViewModel.currentServerName
+                                    color: theme.muted
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
                     }
 
                     RowLayout {
