@@ -1109,6 +1109,8 @@ ApplicationWindow {
                         appViewModel.backToServices()
                     } else if (appViewModel.currentView === "scheduledTasks") {
                         appViewModel.backToServices()
+                    } else if (appViewModel.currentView === "player" && appViewModel.webDavAudioPlaybackActive) {
+                        appViewModel.minimizeWebDavAudioPlayer()
                     } else if (appViewModel.currentView === "webdav") {
                         appViewModel.webDavBack()
                     } else if (appViewModel.currentView === "search") {
@@ -1806,7 +1808,7 @@ ApplicationWindow {
 
                 DetailPage {}
 
-                PlayerPage {}
+                PlayerPage { id: playerPageInstance }
 
                 IptvPage {}
 
@@ -1819,6 +1821,13 @@ ApplicationWindow {
                 ScheduledTasksPage {}
 
                 SettingsPage {}
+            }
+
+            WebDavAudioMiniPlayer {
+                id: webDavAudioMiniPlayer
+                playerPage: playerPageInstance
+                visible: appViewModel.webDavAudioPlaybackActive && appViewModel.currentView !== "player"
+                z: 200
             }
         }
     }
@@ -2029,15 +2038,28 @@ ApplicationWindow {
         id: transportButton
         property string iconKind: "play"
         property bool primaryAction: false
+        property bool loading: false
         implicitWidth: primaryAction ? 54 : 44
         implicitHeight: primaryAction ? 54 : 44
         padding: 0
 
-        contentItem: AudioControlIcon {
-            kind: transportButton.iconKind
-            iconColor: transportButton.enabled
-                ? (transportButton.primaryAction ? "#ffffff" : theme.text)
-                : theme.subtle
+        contentItem: Item {
+            AudioControlIcon {
+                anchors.fill: parent
+                visible: !transportButton.loading
+                kind: transportButton.iconKind
+                iconColor: transportButton.enabled
+                    ? (transportButton.primaryAction ? "#ffffff" : theme.text)
+                    : theme.subtle
+            }
+
+            ThumbnailLoadingIcon {
+                anchors.centerIn: parent
+                running: transportButton.loading
+                iconSize: Math.round(Math.min(parent.width, parent.height) * 0.66)
+                accentColor: transportButton.primaryAction ? "#ffffff" : theme.primary
+                backgroundVisible: false
+            }
         }
         background: Rectangle {
             radius: width / 2
@@ -2121,6 +2143,184 @@ ApplicationWindow {
                 ToolTip.text: t("webdav.repeatAll")
                 onClicked: appViewModel.webDavAudioRepeatMode = "all"
             }
+        }
+    }
+
+    component WebDavAudioMiniPlayer: Rectangle {
+        id: miniPlayer
+        property var playerPage: null
+        property bool placementInitialized: false
+        property bool manuallyPositioned: false
+        readonly property real safeMargin: 22
+
+        width: Math.min(400, Math.max(340, parent ? parent.width * 0.34 : 360))
+        height: 94
+        radius: 12
+        color: darkTheme ? "#f21d232b" : "#f7ffffff"
+        border.color: root.withAlpha(theme.primary, darkTheme ? 0.54 : 0.40)
+        border.width: 1
+        clip: true
+
+        function clampPosition() {
+            if (!parent || !placementInitialized) {
+                return
+            }
+            x = Math.max(safeMargin, Math.min(x, parent.width - width - safeMargin))
+            y = Math.max(safeMargin, Math.min(y, parent.height - height - safeMargin))
+        }
+
+        function ensurePlacement() {
+            if (!visible || !parent) {
+                return
+            }
+            if (!placementInitialized || !manuallyPositioned) {
+                x = Math.max(safeMargin, parent.width - width - safeMargin)
+                y = Math.max(safeMargin, parent.height - height - safeMargin)
+                placementInitialized = true
+                return
+            }
+            clampPosition()
+        }
+
+        onVisibleChanged: Qt.callLater(ensurePlacement)
+        onWidthChanged: Qt.callLater(ensurePlacement)
+        onHeightChanged: Qt.callLater(ensurePlacement)
+        Component.onCompleted: Qt.callLater(ensurePlacement)
+
+        Connections {
+            target: miniPlayer.parent
+            function onWidthChanged() { miniPlayer.ensurePlacement() }
+            function onHeightChanged() { miniPlayer.ensurePlacement() }
+        }
+
+        DragHandler {
+            id: miniPlayerDrag
+            target: miniPlayer
+            xAxis.minimum: miniPlayer.safeMargin
+            xAxis.maximum: Math.max(miniPlayer.safeMargin,
+                                    miniPlayer.parent ? miniPlayer.parent.width - miniPlayer.width - miniPlayer.safeMargin : miniPlayer.safeMargin)
+            yAxis.minimum: miniPlayer.safeMargin
+            yAxis.maximum: Math.max(miniPlayer.safeMargin,
+                                    miniPlayer.parent ? miniPlayer.parent.height - miniPlayer.height - miniPlayer.safeMargin : miniPlayer.safeMargin)
+            cursorShape: active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            onActiveChanged: {
+                if (!active) {
+                    miniPlayer.manuallyPositioned = true
+                    miniPlayer.clampPosition()
+                }
+            }
+        }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 14
+            anchors.rightMargin: 10
+            anchors.topMargin: 11
+            anchors.bottomMargin: 12
+            spacing: 11
+
+            Rectangle {
+                Layout.preferredWidth: 58
+                Layout.preferredHeight: 58
+                radius: 9
+                color: root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
+                border.color: root.withAlpha(theme.primary, 0.52)
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "\u266B"
+                    color: theme.primary
+                    font.pixelSize: 29
+                    font.bold: true
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 3
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: appViewModel.webDavAudioCurrentName
+                        color: theme.text
+                        font.pixelSize: 14
+                        font.bold: true
+                        elide: Text.ElideMiddle
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: appViewModel.currentServerName
+                            + "  \u00B7  "
+                            + (miniPlayer.playerPage ? miniPlayer.playerPage.formatTime(miniPlayer.playerPage.audioPosition) : "00:00")
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+                }
+
+                TapHandler {
+                    onTapped: appViewModel.restoreWebDavAudioPlayer()
+                }
+
+                ToolTip.visible: miniPlayerCentralHover.hovered
+                ToolTip.text: t("webdav.openAudioPlayer")
+
+                HoverHandler { id: miniPlayerCentralHover }
+            }
+
+            AudioTransportButton {
+                primaryAction: true
+                loading: miniPlayer.playerPage ? miniPlayer.playerPage.audioPlaybackLoading : false
+                iconKind: miniPlayer.playerPage && miniPlayer.playerPage.audioPaused ? "play" : "pause"
+                Accessible.name: loading ? t("player.loading")
+                    : iconKind === "play" ? t("action.resume") : t("action.pause")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onClicked: {
+                    if (!loading && miniPlayer.playerPage) {
+                        miniPlayer.playerPage.toggleAudioPause()
+                    }
+                }
+            }
+
+            Button {
+                id: miniPlayerExitButton
+                implicitWidth: 32
+                implicitHeight: 32
+                padding: 0
+                Accessible.name: t("action.exitPlayback")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onClicked: if (miniPlayer.playerPage) miniPlayer.playerPage.stopAudioPlayback()
+
+                contentItem: Label {
+                    text: "\u00D7"
+                    color: miniPlayerExitButton.hovered ? "#ffffff" : theme.muted
+                    font.pixelSize: 22
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    radius: width / 2
+                    color: miniPlayerExitButton.hovered ? theme.danger : "transparent"
+                    border.color: miniPlayerExitButton.hovered ? theme.danger : theme.border
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            height: 3
+            width: parent.width * Math.max(0, Math.min(1,
+                miniPlayer.playerPage && miniPlayer.playerPage.audioDuration > 0
+                    ? miniPlayer.playerPage.audioPosition / miniPlayer.playerPage.audioDuration : 0))
+            color: theme.primary
         }
     }
 
@@ -2457,6 +2657,7 @@ ApplicationWindow {
         property bool running: false
         property int iconSize: 26
         property color accentColor: theme.primary
+        property bool backgroundVisible: true
 
         width: iconSize
         height: iconSize
@@ -2467,6 +2668,7 @@ ApplicationWindow {
 
         Rectangle {
             anchors.fill: parent
+            visible: loadingIcon.backgroundVisible
             radius: width / 2
             color: darkTheme ? "#b30f1217" : "#d9ffffff"
             border.color: darkTheme ? "#4dffffff" : "#99d8e0ea"
@@ -5199,6 +5401,10 @@ ApplicationWindow {
         property int bottomChromeHeight: 146
         property bool seekLoadingActive: false
         property bool rawPlaybackLoading: mpvVideo.loading || mpvVideo.buffering || mpvVideo.seeking || seekLoadingActive
+        readonly property bool audioPlaybackLoading: appViewModel.webDavAudioPlaybackActive && rawPlaybackLoading
+        readonly property bool audioPaused: mpvVideo.paused
+        readonly property real audioPosition: mpvVideo.position
+        readonly property real audioDuration: mpvVideo.duration
         property bool playbackLoadingVisible: false
         property bool videoInfoVisible: false
         property bool trackMenuVisible: false
@@ -5252,7 +5458,11 @@ ApplicationWindow {
         }
 
         function confirmExitPlayback() {
-            appViewModel.reportPlaybackStopped(exitPositionSeconds)
+            stopCurrentPlayback(exitPositionSeconds)
+        }
+
+        function stopCurrentPlayback(positionSeconds) {
+            appViewModel.reportPlaybackStopped(positionSeconds)
             mpvVideo.stop()
             root.exitPlayerFullscreen()
             exitConfirmVisible = false
@@ -5260,6 +5470,18 @@ ApplicationWindow {
             trackMenuVisible = false
             iptvChannelListVisible = false
             appViewModel.closePlayerToDetails()
+        }
+
+        function stopAudioPlayback() {
+            stopCurrentPlayback(mpvVideo.position)
+        }
+
+        function toggleAudioPause() {
+            if (audioPlaybackLoading) {
+                return
+            }
+            mpvVideo.togglePause()
+            appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.paused)
         }
 
         function cancelExitPlayback() {
@@ -5323,7 +5545,9 @@ ApplicationWindow {
                 playerPage.toggleFullscreen()
                 event.accepted = true
             } else if (event.key === Qt.Key_Escape) {
-                if (playerPage.immersive || root.visibility === Window.FullScreen) {
+                if (appViewModel.webDavAudioPlaybackActive) {
+                    appViewModel.minimizeWebDavAudioPlayer()
+                } else if (playerPage.immersive || root.visibility === Window.FullScreen) {
                     root.exitPlayerFullscreen()
                     playerPage.revealControls()
                 } else {
@@ -5551,7 +5775,8 @@ ApplicationWindow {
                 appViewModel.advanceWebDavAudioPlayback(reachedEnd, failed)
             }
             onPlaybackStateChanged: {
-                if (playerPage.rawPlaybackLoading && appViewModel.currentView === "player") {
+                if (!appViewModel.webDavAudioPlaybackActive
+                        && playerPage.rawPlaybackLoading && appViewModel.currentView === "player") {
                     if (!playerPage.playbackLoadingVisible && !playbackLoadingDelay.running) {
                         playbackLoadingDelay.restart()
                     }
@@ -5680,12 +5905,14 @@ ApplicationWindow {
                             }
 
                             AudioTransportButton {
-                                iconKind: mpvVideo.paused ? "play" : "pause"
+                                loading: playerPage.audioPlaybackLoading
+                                iconKind: playerPage.audioPaused ? "play" : "pause"
                                 primaryAction: true
-                                Accessible.name: mpvVideo.paused ? t("action.resume") : t("action.pause")
+                                Accessible.name: loading ? t("player.loading")
+                                    : playerPage.audioPaused ? t("action.resume") : t("action.pause")
                                 ToolTip.visible: hovered
-                                ToolTip.text: mpvVideo.paused ? t("action.resume") : t("action.pause")
-                                onClicked: mpvVideo.togglePause()
+                                ToolTip.text: Accessible.name
+                                onClicked: playerPage.toggleAudioPause()
                             }
 
                             AudioTransportButton {
@@ -5893,7 +6120,8 @@ ApplicationWindow {
             interval: 300
             repeat: false
             onTriggered: {
-                playerPage.playbackLoadingVisible = playerPage.rawPlaybackLoading && appViewModel.currentView === "player"
+                playerPage.playbackLoadingVisible = !appViewModel.webDavAudioPlaybackActive
+                    && playerPage.rawPlaybackLoading && appViewModel.currentView === "player"
                 if (playerPage.playbackLoadingVisible) {
                     Qt.callLater(playerPage.raiseChromeWindows)
                 }
@@ -5912,7 +6140,8 @@ ApplicationWindow {
             color: "transparent"
             flags: Qt.FramelessWindowHint | Qt.Tool | Qt.WindowTransparentForInput
             transientParent: root
-            visible: appViewModel.currentView === "player" && root.visible && playerPage.playbackLoadingVisible
+            visible: appViewModel.currentView === "player" && root.visible
+                && !appViewModel.webDavAudioPlaybackActive && playerPage.playbackLoadingVisible
 
             function syncLoadingGeometry() {
                 if (playerPage.width <= 0 || playerPage.height <= 0) {

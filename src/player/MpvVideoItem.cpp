@@ -419,7 +419,7 @@ void MpvVideoItem::itemChange(ItemChange change, const ItemChangeData& value)
             if (!m_source.isEmpty() && m_pendingPlay) {
                 play();
             }
-        } else {
+        } else if (!m_audioOnly) {
             stop();
         }
     }

@@ -379,6 +379,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.repeatOff"), QStringLiteral("Play in order") },
         { QStringLiteral("webdav.repeatOne"), QStringLiteral("Repeat current track") },
         { QStringLiteral("webdav.repeatAll"), QStringLiteral("Repeat queue") },
+        { QStringLiteral("webdav.openAudioPlayer"), QStringLiteral("Open audio player") },
         { QStringLiteral("webdav.folder"), QStringLiteral("Folder") },
         { QStringLiteral("webdav.video"), QStringLiteral("Video") },
         { QStringLiteral("webdav.audio"), QStringLiteral("Audio") },
@@ -750,6 +751,7 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("webdav.repeatOff"), QStringLiteral("顺序播放") },
         { QStringLiteral("webdav.repeatOne"), QStringLiteral("单曲循环") },
         { QStringLiteral("webdav.repeatAll"), QStringLiteral("列表循环") },
+        { QStringLiteral("webdav.openAudioPlayer"), QStringLiteral("打开音频播放器") },
         { QStringLiteral("webdav.folder"), QStringLiteral("文件夹") },
         { QStringLiteral("webdav.video"), QStringLiteral("视频") },
         { QStringLiteral("webdav.audio"), QStringLiteral("音频") },
@@ -2384,6 +2386,24 @@ void AppViewModel::skipWebDavAudioTrack(int direction)
     m_webDavAudioCurrentIndex = nextIndex;
     emit webDavAudioPlaybackChanged();
     playWebDavAudioTrack(nextIndex);
+}
+
+void AppViewModel::minimizeWebDavAudioPlayer()
+{
+    if (!m_webDavAudioPlaybackActive || m_currentView != QStringLiteral("player")) {
+        return;
+    }
+    setCurrentView(QStringLiteral("webdav"));
+    AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Minimized WebDAV audio player"));
+}
+
+void AppViewModel::restoreWebDavAudioPlayer()
+{
+    if (!m_webDavAudioPlaybackActive || m_currentPlaybackUrl.isEmpty()) {
+        return;
+    }
+    setCurrentView(QStringLiteral("player"));
+    AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Restored WebDAV audio player"));
 }
 
 void AppViewModel::rebuildWebDavAudioQueue(const std::vector<WebDavItem>& items)

@@ -347,6 +347,8 @@ public:
     Q_INVOKABLE void startWebDavAudioPlayback(int row = 0);
     Q_INVOKABLE void advanceWebDavAudioPlayback(bool reachedEnd, bool failed);
     Q_INVOKABLE void skipWebDavAudioTrack(int direction);
+    Q_INVOKABLE void minimizeWebDavAudioPlayer();
+    Q_INVOKABLE void restoreWebDavAudioPlayer();
     Q_INVOKABLE void webDavBack();
     Q_INVOKABLE void refreshWebDavDirectory();
     Q_INVOKABLE void chooseWebDavUploadFiles();

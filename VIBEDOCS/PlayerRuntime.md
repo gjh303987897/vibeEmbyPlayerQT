@@ -89,14 +89,14 @@ In normal mode and immersive player fullscreen, the player chrome auto-hides aft
 
 Exit playback is guarded by an inline confirmation state in the top player chrome. A separate QML dialog is intentionally avoided because the Window Embedding native video window can cover or intercept QML popups on some platforms. If the user confirms, QML reports playback stopped, calls `MpvVideoItem::stop()` and then `AppViewModel::closePlayerToDetails()`. This hides the embedded native video window immediately, stops mpv, destroys the native video window, clears the current playback URL, preserves the selected media item and returns to the media details page.
 
-`MpvVideoItem` also stops and destroys the native mpv window when:
+In embedded-video mode, `MpvVideoItem` also stops and destroys the native mpv window when:
 
 - its `source` becomes empty
 - it leaves the scene
 - it becomes invisible
 - it is destroyed
 
-This prevents `StackLayout` page retention or navigation away from leaving mpv playback running in the background.
+This prevents `StackLayout` page retention or navigation away from leaving video playback running in the background. Audio-only WebDAV playback is the deliberate exception: it has no native video window and remains active when the full player page becomes invisible so the same controller can power the mini player.
 
 `MpvVideoItem` must not initialize libmpv while the item is hidden or has zero size. If a playback URL arrives before the page is visible, the item records a pending playback request and retries when the item becomes visible or its geometry becomes valid. This prevents the second-playback black-screen case where the server stream is loaded but the native child window is not repainted until a later fullscreen geometry change.
 
@@ -105,6 +105,7 @@ Normal playback exit stops mpv and hides the native child window, but it does no
 Esc behavior:
 
 - In immersive player fullscreen or system fullscreen: exit fullscreen first.
+- During WebDAV audio playback: minimize the full audio page and keep playback active.
 - Outside fullscreen: open the exit playback confirmation dialog.
 
 The player page must not print or display token-bearing playback URLs.
@@ -146,6 +147,10 @@ Future work should prefer passing authorization headers to libmpv when practical
 `PlayerController::initializeHeadless()` creates a separate libmpv handle for manually or automatically started Emby keep-alive playback. It does not set `wid` and uses `force-window=no`, `vo=null`, and `ao=null`, so no video surface or audio output is created.
 
 `MpvVideoItem::audioOnly` uses the same initialization path with audio output explicitly enabled for interactive WebDAV music playback. This variant still uses `force-window=no` and `vo=null`, but leaves `ao` on libmpv's normal output so cover art or other video tracks cannot create a native player window while audio remains audible. Switching between audio-only and embedded-video playback tears down and reinitializes the libmpv handle because these options are pre-initialization options.
+
+The full WebDAV audio page and draggable mini player share this single `MpvVideoItem`. Returning from the full page changes only `AppViewModel::currentView`; it does not clear the playback URL or create a second mpv instance. The mini player remains synchronized with pause, position, duration, loading, buffering and queue changes, and only its explicit exit action invokes the normal stop-and-clear path.
+
+Audio loading uses libmpv file lifecycle events instead of the video loading overlay. `MPV_EVENT_START_FILE` resets stale position/duration and starts the indicator; `MPV_EVENT_FILE_LOADED` or `MPV_EVENT_PLAYBACK_RESTART` clears it. When `loadfile replace` switches tracks, the old file's `MPV_END_FILE` with `STOP` reason does not clear the new request's loading state or network accounting.
 
 `PlayerController::playbackEnded` reports the final position together with whether libmpv reached EOF and whether playback failed. The WebDAV audio queue advances only on EOF or failure, so a user-initiated stop or a `loadfile replace` during manual track selection cannot accidentally skip another track.
 

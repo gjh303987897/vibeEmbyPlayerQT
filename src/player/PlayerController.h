@@ -162,6 +162,8 @@ private:
     QTimer m_networkStatsTimer;
     QElapsedTimer m_networkSampleElapsed;
     bool m_networkStatsActive { false };
+    qint64 m_activePlaylistEntryId { -1 };
+    bool m_stopRequested { false };
     TrackListModel m_subtitleTracks;
     TrackListModel m_audioTracks;
 };

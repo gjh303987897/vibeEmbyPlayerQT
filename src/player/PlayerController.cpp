@@ -380,6 +380,7 @@ void PlayerController::playUrl(const QString& url,
     if (!m_mpv || url.isEmpty()) {
         return;
     }
+    m_stopRequested = false;
     if (!httpUsername.isEmpty()) {
         const auto username = httpUsername.toUtf8();
         mpv_set_option_string(m_mpv, "http-header-fields", "");
@@ -406,6 +407,9 @@ void PlayerController::playUrl(const QString& url,
     const QByteArray encoded = url.toUtf8();
     updateVideoInfo({}, {}, {}, {});
     updateCacheDuration(-1.0);
+    m_paused = false;
+    m_position = 0.0;
+    m_duration = 0.0;
     m_loading = true;
     m_buffering = false;
     m_seeking = false;
@@ -464,8 +468,10 @@ void PlayerController::stop()
         return;
     }
     const char* args[] = { "stop", nullptr };
+    m_stopRequested = true;
     command(args);
     m_networkStatsActive = false;
+    m_activePlaylistEntryId = -1;
     resetPlaybackState();
 }
 
@@ -474,11 +480,13 @@ void PlayerController::shutdown()
     m_eventTimer.stop();
     m_networkStatsTimer.stop();
     m_networkStatsActive = false;
+    m_activePlaylistEntryId = -1;
     if (m_mpv) {
         mpv_command_string(m_mpv, "stop");
         mpv_terminate_destroy(m_mpv);
         m_mpv = nullptr;
     }
+    m_stopRequested = false;
     resetPlaybackState();
 }
 
@@ -602,10 +610,29 @@ void PlayerController::processEvents()
                                              text));
                 }
             }
+        } else if (event->event_id == MPV_EVENT_START_FILE) {
+            const auto* startFile = static_cast<mpv_event_start_file*>(event->data);
+            m_activePlaylistEntryId = startFile ? startFile->playlist_entry_id : -1;
+            if (!m_stopRequested) {
+                m_loading = true;
+                m_buffering = false;
+                m_seeking = false;
+                m_bufferingProgress = 0;
+                m_position = 0.0;
+                m_duration = 0.0;
+                m_networkStatsActive = true;
+                m_networkSampleElapsed.restart();
+                emit playbackStateChanged();
+            }
         } else if (event->event_id == MPV_EVENT_END_FILE) {
             const auto* endFile = static_cast<mpv_event_end_file*>(event->data);
             const auto finalPosition = m_position;
             auto failed = false;
+            const auto supersededEntry = endFile && m_activePlaylistEntryId >= 0 &&
+                endFile->playlist_entry_id != m_activePlaylistEntryId;
+            const auto replacementInProgress = endFile &&
+                endFile->reason == MPV_END_FILE_REASON_STOP && !m_stopRequested &&
+                (m_loading || supersededEntry);
             if (endFile) {
                 const auto reason = endFileReasonName(endFile->reason);
                 if (endFile->reason == MPV_END_FILE_REASON_ERROR) {
@@ -619,15 +646,23 @@ void PlayerController::processEvents()
                                     QStringLiteral("libmpv ended file, reason=%1").arg(reason));
                 }
             }
-            m_networkStatsActive = false;
+            if (!replacementInProgress) {
+                m_networkStatsActive = false;
+                m_activePlaylistEntryId = -1;
+            }
             m_position = 0.0;
-            m_loading = false;
+            if (!replacementInProgress) {
+                m_loading = false;
+            }
             m_buffering = false;
             m_seeking = false;
             m_bufferingProgress = 0;
             updateCacheDuration(-1.0);
             emit playbackStateChanged();
             const auto reachedEnd = endFile && endFile->reason == MPV_END_FILE_REASON_EOF;
+            if (endFile && endFile->reason == MPV_END_FILE_REASON_STOP) {
+                m_stopRequested = false;
+            }
             emit playbackEnded(finalPosition, reachedEnd, failed);
         } else if (event->event_id == MPV_EVENT_FILE_LOADED ||
                    event->event_id == MPV_EVENT_VIDEO_RECONFIG ||
