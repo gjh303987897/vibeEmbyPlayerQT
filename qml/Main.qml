@@ -2034,6 +2034,94 @@ ApplicationWindow {
         }
     }
 
+    component RoundedCoverImage: Canvas {
+        id: roundedCoverImage
+        property url source
+        property real cornerRadius: 0
+        property url loadedSource
+        property bool imageReady: false
+        readonly property int status: imageReady
+            ? Image.Ready
+            : coverProbe.status === Image.Error ? Image.Error
+            : source.toString().length === 0 ? Image.Null : Image.Loading
+
+        renderTarget: Canvas.Image
+
+        function reloadSource() {
+            if (loadedSource.toString().length > 0) {
+                unloadImage(loadedSource)
+            }
+            imageReady = false
+            loadedSource = source
+            requestPaint()
+            if (loadedSource.toString().length > 0) {
+                loadImage(loadedSource)
+            }
+        }
+
+        onSourceChanged: reloadSource()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        onCornerRadiusChanged: requestPaint()
+        onImageLoaded: {
+            imageReady = loadedSource.toString().length > 0 && isImageLoaded(loadedSource)
+            requestPaint()
+        }
+
+        onPaint: {
+            var ctx = getContext("2d")
+            ctx.reset()
+            ctx.clearRect(0, 0, width, height)
+            if (!imageReady || width <= 0 || height <= 0) {
+                return
+            }
+
+            var sourceWidth = Math.max(1, coverProbe.implicitWidth)
+            var sourceHeight = Math.max(1, coverProbe.implicitHeight)
+            var targetRatio = width / height
+            var sourceRatio = sourceWidth / sourceHeight
+            var cropX = 0
+            var cropY = 0
+            var cropWidth = sourceWidth
+            var cropHeight = sourceHeight
+            if (sourceRatio > targetRatio) {
+                cropWidth = sourceHeight * targetRatio
+                cropX = (sourceWidth - cropWidth) / 2
+            } else if (sourceRatio < targetRatio) {
+                cropHeight = sourceWidth / targetRatio
+                cropY = (sourceHeight - cropHeight) / 2
+            }
+
+            var radius = Math.max(0, Math.min(cornerRadius, width / 2, height / 2))
+            ctx.beginPath()
+            ctx.moveTo(radius, 0)
+            ctx.lineTo(width - radius, 0)
+            ctx.quadraticCurveTo(width, 0, width, radius)
+            ctx.lineTo(width, height - radius)
+            ctx.quadraticCurveTo(width, height, width - radius, height)
+            ctx.lineTo(radius, height)
+            ctx.quadraticCurveTo(0, height, 0, height - radius)
+            ctx.lineTo(0, radius)
+            ctx.quadraticCurveTo(0, 0, radius, 0)
+            ctx.closePath()
+            ctx.clip()
+            ctx.drawImage(loadedSource,
+                          cropX, cropY, cropWidth, cropHeight,
+                          0, 0, width, height)
+        }
+
+        Image {
+            id: coverProbe
+            source: roundedCoverImage.source
+            asynchronous: true
+            cache: false
+            visible: false
+            onStatusChanged: {
+                roundedCoverImage.requestPaint()
+            }
+        }
+    }
+
     component AudioTransportButton: Button {
         id: transportButton
         property string iconKind: "play"
@@ -2221,24 +2309,25 @@ ApplicationWindow {
 
             Rectangle {
                 id: miniPlayerArtwork
-                Layout.preferredWidth: 58
-                Layout.preferredHeight: 58
+                readonly property real artworkSize: 58
+
+                Layout.minimumWidth: artworkSize
+                Layout.preferredWidth: artworkSize
+                Layout.maximumWidth: artworkSize
+                Layout.minimumHeight: artworkSize
+                Layout.preferredHeight: artworkSize
+                Layout.maximumHeight: artworkSize
                 radius: 9
                 color: root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
                 border.color: root.withAlpha(theme.primary, 0.52)
                 clip: true
 
-                Image {
+                RoundedCoverImage {
                     id: miniPlayerCoverImage
                     anchors.fill: parent
                     anchors.margins: 1
                     source: miniPlayer.playerPage ? miniPlayer.playerPage.audioCoverUrl : ""
-                    sourceSize.width: 116
-                    sourceSize.height: 116
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: false
-                    smooth: true
+                    cornerRadius: 8
                     visible: status === Image.Ready
                 }
 
@@ -5931,8 +6020,14 @@ ApplicationWindow {
 
                         Rectangle {
                             id: audioCoverFrame
-                            Layout.preferredWidth: audioNowPlaying.artworkSize
-                            Layout.preferredHeight: audioNowPlaying.artworkSize
+                            readonly property real boundedSize: audioNowPlaying.artworkSize
+
+                            Layout.minimumWidth: boundedSize
+                            Layout.preferredWidth: boundedSize
+                            Layout.maximumWidth: boundedSize
+                            Layout.minimumHeight: boundedSize
+                            Layout.preferredHeight: boundedSize
+                            Layout.maximumHeight: boundedSize
                             Layout.alignment: Qt.AlignVCenter
                             radius: 14
                             color: root.withAlpha(theme.primary, darkTheme ? 0.20 : 0.10)
@@ -5940,17 +6035,12 @@ ApplicationWindow {
                             border.width: 1
                             clip: true
 
-                            Image {
+                            RoundedCoverImage {
                                 id: audioCoverImage
                                 anchors.fill: parent
                                 anchors.margins: 1
                                 source: playerPage.audioCoverUrl
-                                sourceSize.width: Math.round(audioNowPlaying.artworkSize * 2)
-                                sourceSize.height: Math.round(audioNowPlaying.artworkSize * 2)
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: false
-                                smooth: true
+                                cornerRadius: 13
                                 visible: status === Image.Ready
                             }
 
