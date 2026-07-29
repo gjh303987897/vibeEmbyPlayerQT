@@ -3,6 +3,7 @@
 #include "models/DailyUsageStat.h"
 #include "models/IptvChannel.h"
 #include "models/IptvPlaylist.h"
+#include "models/LinkPlaybackHistoryItem.h"
 #include "models/LocalMediaRoot.h"
 #include "models/ScheduledPlaybackTask.h"
 #include "models/ServiceCard.h"
@@ -19,7 +20,8 @@
 
 class SessionRepository final {
 public:
-    explicit SessionRepository(QString connectionName = QStringLiteral("vibeplayer_session"));
+    explicit SessionRepository(QString connectionName = QStringLiteral("vibeplayer_session"),
+                               QString databasePathOverride = {});
     ~SessionRepository();
 
     std::expected<void, QString> initialize();
@@ -37,6 +39,9 @@ public:
                                                qint64 keepAliveNetworkBytesOut);
     std::expected<std::vector<DailyUsageStat>, QString> loadDailyUsageStats(bool includePrivacyMode);
     std::expected<void, QString> pruneOldDailyUsage();
+    std::expected<void, QString> saveLinkPlaybackHistory(const LinkPlaybackHistoryItem& item);
+    std::expected<std::vector<LinkPlaybackHistoryItem>, QString> loadLinkPlaybackHistory();
+    std::expected<void, QString> deleteLinkPlaybackHistory(const QString& recordId);
     std::expected<std::vector<ServiceCard>, QString> loadServiceCards(bool privacyMode);
     std::expected<std::vector<ServiceCard>, QString> loadAllServiceCards();
     std::expected<std::optional<IptvPlaylist>, QString> loadIptvPlaylist(const QString& serviceId);
@@ -84,6 +89,7 @@ private:
     std::expected<std::optional<UserSession>, QString> sessionFromQuery(QSqlQuery& query);
 
     QString m_connectionName;
+    QString m_databasePathOverride;
     QSqlDatabase m_database;
     QSettings m_settings;
 };

@@ -89,8 +89,9 @@ std::expected<void, QString> createDailyUsageStatsTable(QSqlDatabase& database)
 }
 }
 
-SessionRepository::SessionRepository(QString connectionName)
+SessionRepository::SessionRepository(QString connectionName, QString databasePathOverride)
     : m_connectionName(std::move(connectionName))
+    , m_databasePathOverride(std::move(databasePathOverride))
     , m_settings(QStringLiteral("vibePlayerQT"), QStringLiteral("vibePlayerQT"))
 {
 }
@@ -191,6 +192,22 @@ std::expected<void, QString> SessionRepository::initialize()
                                          QStringLiteral("INTEGER NOT NULL DEFAULT 0"));
         !columnResult) {
         return columnResult;
+    }
+
+    QSqlQuery linkHistoryQuery(m_database);
+    if (!linkHistoryQuery.exec(QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS link_playback_history ("
+            "id TEXT PRIMARY KEY,"
+            "playback_url TEXT NOT NULL,"
+            "played_date TEXT NOT NULL,"
+            "played_at TEXT NOT NULL"
+            ")"))) {
+        return std::unexpected(sqlError(linkHistoryQuery));
+    }
+    if (!linkHistoryQuery.exec(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_link_playback_history_played_at "
+            "ON link_playback_history(played_at DESC)"))) {
+        return std::unexpected(sqlError(linkHistoryQuery));
     }
 
     QSqlQuery scheduledTaskQuery(m_database);
@@ -531,6 +548,79 @@ std::expected<void, QString> SessionRepository::pruneOldDailyUsage()
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral("DELETE FROM daily_usage_stats WHERE stat_date < :cutoff"));
     query.bindValue(QStringLiteral(":cutoff"), cutoff);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::saveLinkPlaybackHistory(const LinkPlaybackHistoryItem& item)
+{
+    if (item.id.trimmed().isEmpty() || !item.playbackUrl.isValid() || item.playbackUrl.isRelative() ||
+        !item.playedDate.isValid() || !item.playedAt.isValid()) {
+        return std::unexpected(QStringLiteral("Invalid link playback history item"));
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "INSERT INTO link_playback_history (id, playback_url, played_date, played_at) "
+        "VALUES (:id, :playback_url, :played_date, :played_at)"));
+    query.bindValue(QStringLiteral(":id"), item.id);
+    query.bindValue(QStringLiteral(":playback_url"), item.playbackUrl.toString(QUrl::FullyEncoded));
+    query.bindValue(QStringLiteral(":played_date"), item.playedDate.toString(Qt::ISODate));
+    query.bindValue(QStringLiteral(":played_at"), item.playedAt.toUTC().toString(Qt::ISODateWithMs));
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<std::vector<LinkPlaybackHistoryItem>, QString> SessionRepository::loadLinkPlaybackHistory()
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral(
+            "SELECT id, playback_url, played_date, played_at "
+            "FROM link_playback_history "
+            "ORDER BY played_at DESC, id DESC"))) {
+        return std::unexpected(sqlError(query));
+    }
+
+    std::vector<LinkPlaybackHistoryItem> items;
+    while (query.next()) {
+        const auto playedAtText = query.value(3).toString();
+        auto playedAt = QDateTime::fromString(playedAtText, Qt::ISODateWithMs);
+        if (!playedAt.isValid()) {
+            playedAt = QDateTime::fromString(playedAtText, Qt::ISODate);
+        }
+        items.push_back(LinkPlaybackHistoryItem {
+            .id = query.value(0).toString(),
+            .playbackUrl = QUrl(query.value(1).toString(), QUrl::StrictMode),
+            .playedDate = QDate::fromString(query.value(2).toString(), Qt::ISODate),
+            .playedAt = playedAt,
+        });
+    }
+    return items;
+}
+
+std::expected<void, QString> SessionRepository::deleteLinkPlaybackHistory(const QString& recordId)
+{
+    if (recordId.trimmed().isEmpty()) {
+        return std::unexpected(QStringLiteral("Invalid link playback history id"));
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral("DELETE FROM link_playback_history WHERE id = :id"));
+    query.bindValue(QStringLiteral(":id"), recordId);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
     }
@@ -1117,6 +1207,11 @@ void SessionRepository::setDefaultDownloadDirectory(const QString& directory)
 
 QString SessionRepository::databasePath() const
 {
+    if (!m_databasePathOverride.isEmpty()) {
+        const QFileInfo overrideInfo(m_databasePathOverride);
+        QDir().mkpath(overrideInfo.absolutePath());
+        return overrideInfo.absoluteFilePath();
+    }
     const auto directory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(directory);
     return QDir(directory).filePath(QStringLiteral("vibeplayer.sqlite3"));

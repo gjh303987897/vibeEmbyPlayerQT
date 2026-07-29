@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QRegularExpression>
 #include <QVariant>
 #include <QStringList>
 #include <cmath>
@@ -30,6 +31,16 @@ constexpr uint64_t propertyIdleActive = 10;
 constexpr uint64_t propertyDemuxerCacheDuration = 11;
 constexpr uint64_t propertyMetadata = 12;
 constexpr uint64_t externalSubtitleCommandReply = 1001;
+
+QString safeMpvLogText(const QString& text)
+{
+    static const QRegularExpression sensitivePattern(
+        QStringLiteral(R"((https?://|\b(api[_-]?key|access[_-]?token|authorization|cookie|password)\b))"),
+        QRegularExpression::CaseInsensitiveOption);
+    return sensitivePattern.match(text).hasMatch()
+        ? QStringLiteral("Network diagnostic redacted")
+        : text;
+}
 
 QString endFileReasonName(mpv_end_file_reason reason)
 {
@@ -688,13 +699,13 @@ void PlayerController::processEvents()
         } else if (event->event_id == MPV_EVENT_LOG_MESSAGE) {
             const auto* message = static_cast<mpv_event_log_message*>(event->data);
             if (message && message->level && message->prefix && message->text) {
-                const auto text = QString::fromUtf8(message->text).trimmed();
-                if (!text.isEmpty()) {
+                const auto logText = QString::fromUtf8(message->text).trimmed();
+                if (!logText.isEmpty()) {
                     AppLogger::info(QStringLiteral("mpv"),
                                     QStringLiteral("[%1/%2] %3")
                                         .arg(QString::fromUtf8(message->level),
                                              QString::fromUtf8(message->prefix),
-                                             text));
+                                             safeMpvLogText(logText)));
                 }
             }
         } else if (event->event_id == MPV_EVENT_START_FILE) {
