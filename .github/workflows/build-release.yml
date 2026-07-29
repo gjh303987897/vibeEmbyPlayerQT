@@ -198,7 +198,12 @@ jobs:
           $maxAssetAttempts = 12
           for ($attempt = 1; $attempt -le $maxAssetAttempts; $attempt++) {
             $assetsUri = "$($release.assets_url)?per_page=100"
-            $releaseAssets = @(Invoke-RestMethod -Uri $assetsUri -Headers $apiHeaders)
+            $releaseAssetsResponse = Invoke-RestMethod -Uri $assetsUri -Headers $apiHeaders
+            $releaseAssets = @(
+              foreach ($releaseAsset in $releaseAssetsResponse) {
+                $releaseAsset
+              }
+            )
             $assets = @($releaseAssets | Where-Object { $_.name -match $env:MPV_WINBUILD_ASSET_PATTERN })
             if ($assets.Count -eq 1) {
               $asset = $assets[0]
