@@ -3,6 +3,7 @@
 #include "models/DailyUsageStat.h"
 #include "models/IptvChannel.h"
 #include "models/IptvPlaylist.h"
+#include "models/LocalMediaRoot.h"
 #include "models/ScheduledPlaybackTask.h"
 #include "models/ServiceCard.h"
 #include "models/UserSession.h"
@@ -40,6 +41,9 @@ public:
     std::expected<std::vector<ServiceCard>, QString> loadAllServiceCards();
     std::expected<std::optional<IptvPlaylist>, QString> loadIptvPlaylist(const QString& serviceId);
     std::expected<std::vector<IptvChannel>, QString> loadIptvChannels(const QString& serviceId);
+    std::expected<std::vector<LocalMediaRoot>, QString> loadLocalMediaRoots();
+    std::expected<void, QString> saveLocalMediaRoot(const LocalMediaRoot& root);
+    std::expected<void, QString> deleteLocalMediaRoot(const QString& rootId);
     std::expected<std::vector<ScheduledPlaybackTask>, QString> loadScheduledPlaybackTasks(bool privacyMode);
     std::expected<void, QString> saveScheduledPlaybackTask(const ScheduledPlaybackTask& task);
     std::expected<void, QString> deleteScheduledPlaybackTask(const QString& taskId);

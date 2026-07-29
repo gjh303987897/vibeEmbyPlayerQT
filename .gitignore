@@ -29,6 +29,7 @@ tests/*
 !tests/ScheduledPlaybackScheduleTest.cpp
 !tests/MediaServerSearchTest.cpp
 !tests/WebDavItemListModelTest.cpp
+!tests/LocalMediaServiceTest.cpp
 test-runtime/
 local-data/
 local-data*/

@@ -711,7 +711,9 @@ void PlayerController::processEvents()
         } else if (event->event_id == MPV_EVENT_FILE_LOADED ||
                    event->event_id == MPV_EVENT_VIDEO_RECONFIG ||
                    event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
-            AppLogger::info(QStringLiteral("player"), QStringLiteral("libmpv video output event %1").arg(static_cast<int>(event->event_id)));
+            AppLogger::info(QStringLiteral("player"), QStringLiteral("libmpv playback event %1").arg(static_cast<int>(event->event_id)));
+            const auto requiresVideoOutputRefresh = event->event_id == MPV_EVENT_FILE_LOADED ||
+                                                    event->event_id == MPV_EVENT_VIDEO_RECONFIG;
             updateTracks();
             if (event->event_id == MPV_EVENT_FILE_LOADED) {
                 updateAudioMetadata();
@@ -727,7 +729,9 @@ void PlayerController::processEvents()
             if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
                 emit playbackRestarted();
             }
-            emit videoOutputChanged();
+            if (requiresVideoOutputRefresh) {
+                emit videoOutputChanged();
+            }
         }
     }
 }

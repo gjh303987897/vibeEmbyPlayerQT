@@ -90,6 +90,15 @@ QString iptvServiceIdFor(const QString& sourcePath)
     return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Sha256).toHex());
 }
 
+QString localMediaRootIdFor(const QString& path)
+{
+    auto normalized = QDir::fromNativeSeparators(QDir::cleanPath(path));
+#ifdef Q_OS_WIN
+    normalized = normalized.toCaseFolded();
+#endif
+    return QString::fromLatin1(QCryptographicHash::hash(normalized.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
 QString iptvPlaylistIdFor(const QString& serviceId)
 {
     return QStringLiteral("iptv-playlist-%1").arg(serviceId);
@@ -439,6 +448,26 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("status.noSession"), QStringLiteral("No session") },
         { QStringLiteral("empty.noServices"), QStringLiteral("No services yet") },
         { QStringLiteral("empty.addService"), QStringLiteral("Add service") },
+        { QStringLiteral("local.title"), QStringLiteral("Local Playback") },
+        { QStringLiteral("local.subtitle"), QStringLiteral("Browse and play videos stored on this device") },
+        { QStringLiteral("local.builtIn"), QStringLiteral("Built in") },
+        { QStringLiteral("local.folderCount"), QStringLiteral("%1 folders") },
+        { QStringLiteral("local.addFolder"), QStringLiteral("Add folder") },
+        { QStringLiteral("local.foldersTitle"), QStringLiteral("Video folders") },
+        { QStringLiteral("local.foldersSubtitle"), QStringLiteral("Only the selected folder is browsed; no metadata or posters are generated") },
+        { QStringLiteral("local.noFolders"), QStringLiteral("No local folders added") },
+        { QStringLiteral("local.noFoldersHint"), QStringLiteral("Add a folder that contains video files") },
+        { QStringLiteral("local.folderUnavailable"), QStringLiteral("This folder is unavailable or cannot be read") },
+        { QStringLiteral("local.fileUnavailable"), QStringLiteral("This video file is no longer available") },
+        { QStringLiteral("local.unavailable"), QStringLiteral("Unavailable") },
+        { QStringLiteral("local.available"), QStringLiteral("Available") },
+        { QStringLiteral("local.remove"), QStringLiteral("Remove") },
+        { QStringLiteral("local.back"), QStringLiteral("Back") },
+        { QStringLiteral("local.noVideos"), QStringLiteral("No folders or videos here") },
+        { QStringLiteral("local.noVideosHint"), QStringLiteral("Supported video files will appear automatically") },
+        { QStringLiteral("local.loading"), QStringLiteral("Reading local folder") },
+        { QStringLiteral("local.folder"), QStringLiteral("Folder") },
+        { QStringLiteral("local.video"), QStringLiteral("Video") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("Continue Watching") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("Resume progress opens the media details page") },
         { QStringLiteral("section.noProgress"), QStringLiteral("Nothing in progress") },
@@ -647,6 +676,26 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("status.noSession"), QStringLiteral("无会话") },
         { QStringLiteral("empty.noServices"), QStringLiteral("还没有服务") },
         { QStringLiteral("empty.addService"), QStringLiteral("添加服务") },
+        { QStringLiteral("local.title"), QStringLiteral("本地播放") },
+        { QStringLiteral("local.subtitle"), QStringLiteral("浏览并播放此设备中保存的视频") },
+        { QStringLiteral("local.builtIn"), QStringLiteral("内置功能") },
+        { QStringLiteral("local.folderCount"), QStringLiteral("%1 个目录") },
+        { QStringLiteral("local.addFolder"), QStringLiteral("添加目录") },
+        { QStringLiteral("local.foldersTitle"), QStringLiteral("视频目录") },
+        { QStringLiteral("local.foldersSubtitle"), QStringLiteral("仅浏览所选目录，不生成元数据或海报") },
+        { QStringLiteral("local.noFolders"), QStringLiteral("尚未添加本地目录") },
+        { QStringLiteral("local.noFoldersHint"), QStringLiteral("添加一个包含视频文件的目录") },
+        { QStringLiteral("local.folderUnavailable"), QStringLiteral("该目录不可用或无法读取") },
+        { QStringLiteral("local.fileUnavailable"), QStringLiteral("该视频文件已不可用") },
+        { QStringLiteral("local.unavailable"), QStringLiteral("不可用") },
+        { QStringLiteral("local.available"), QStringLiteral("可用") },
+        { QStringLiteral("local.remove"), QStringLiteral("移除") },
+        { QStringLiteral("local.back"), QStringLiteral("返回") },
+        { QStringLiteral("local.noVideos"), QStringLiteral("此处没有文件夹或视频") },
+        { QStringLiteral("local.noVideosHint"), QStringLiteral("支持的视频文件会自动显示") },
+        { QStringLiteral("local.loading"), QStringLiteral("正在读取本地目录") },
+        { QStringLiteral("local.folder"), QStringLiteral("文件夹") },
+        { QStringLiteral("local.video"), QStringLiteral("视频") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("继续观看") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("点击后进入媒体详情页") },
         { QStringLiteral("section.noProgress"), QStringLiteral("暂无继续观看内容") },
@@ -1136,6 +1185,36 @@ bool AppViewModel::iptvPlaybackActive() const
 QString AppViewModel::currentIptvChannelId() const
 {
     return m_currentIptvChannelId;
+}
+
+LocalMediaRootListModel* AppViewModel::localMediaRoots()
+{
+    return &m_localMediaRoots;
+}
+
+LocalMediaItemListModel* AppViewModel::localMediaItems()
+{
+    return &m_localMediaItems;
+}
+
+QString AppViewModel::localMediaCurrentPath() const
+{
+    return m_localMediaCurrentPath;
+}
+
+QString AppViewModel::localMediaRootName() const
+{
+    return m_currentLocalMediaRoot ? m_currentLocalMediaRoot->name : QString {};
+}
+
+bool AppViewModel::localMediaDirectoryOpen() const
+{
+    return m_currentLocalMediaRoot.has_value() && !m_localMediaCurrentPath.isEmpty();
+}
+
+bool AppViewModel::localMediaLoading() const
+{
+    return m_localMediaLoading;
 }
 
 WebDavItemListModel* AppViewModel::webDavItems()
@@ -1989,6 +2068,7 @@ void AppViewModel::initialize()
     emit privacyPinChanged();
     emit translationsChanged();
     refreshServiceCards();
+    refreshLocalMediaRoots();
     refreshPrivacyCards();
     refreshUsageStats();
     refreshScheduledEmbySources();
@@ -2227,6 +2307,196 @@ void AppViewModel::selectIptvGroup(const QString& groupName)
     applyIptvFilters();
 }
 
+void AppViewModel::openLocalMedia()
+{
+    clearError();
+    clearCurrentPlayback();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    clearLocalMediaDirectory();
+    refreshLocalMediaRoots();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("local"));
+}
+
+void AppViewModel::chooseLocalMediaRoot()
+{
+    clearError();
+    const auto selected = QFileDialog::getExistingDirectory(
+        nullptr,
+        trText(QStringLiteral("local.addFolder")),
+        QStandardPaths::writableLocation(QStandardPaths::MoviesLocation));
+    if (selected.isEmpty()) {
+        return;
+    }
+
+    const QFileInfo selectedInfo(selected);
+    const auto canonicalPath = selectedInfo.canonicalFilePath();
+    if (canonicalPath.isEmpty() || !selectedInfo.isDir() || !selectedInfo.isReadable()) {
+        setError(trText(QStringLiteral("local.folderUnavailable")));
+        return;
+    }
+
+    const auto normalizedPath = QDir::cleanPath(canonicalPath);
+    const auto id = localMediaRootIdFor(normalizedPath);
+    for (int row = 0; row < m_localMediaRoots.count(); ++row) {
+        const auto existing = m_localMediaRoots.rootAt(row);
+        if (existing && existing->id == id) {
+            openLocalMediaRoot(row);
+            return;
+        }
+    }
+
+    auto displayName = QFileInfo(normalizedPath).fileName();
+    if (displayName.isEmpty()) {
+        displayName = QDir(normalizedPath).dirName();
+    }
+    if (displayName.isEmpty()) {
+        displayName = QDir::toNativeSeparators(normalizedPath);
+    }
+
+    LocalMediaRoot root {
+        .id = id,
+        .name = displayName,
+        .path = normalizedPath,
+        .sortOrder = m_localMediaRoots.count(),
+        .available = true,
+    };
+    if (auto result = m_repository.saveLocalMediaRoot(root); !result) {
+        setError(result.error());
+        return;
+    }
+
+    AppLogger::info(QStringLiteral("local-media"), QStringLiteral("Added a local media folder"));
+    refreshLocalMediaRoots();
+    for (int row = 0; row < m_localMediaRoots.count(); ++row) {
+        const auto saved = m_localMediaRoots.rootAt(row);
+        if (saved && saved->id == id) {
+            openLocalMediaRoot(row);
+            break;
+        }
+    }
+}
+
+void AppViewModel::openLocalMediaRoot(int row)
+{
+    clearError();
+    const auto root = m_localMediaRoots.rootAt(row);
+    if (!root) {
+        return;
+    }
+    if (!root->available) {
+        setError(trText(QStringLiteral("local.folderUnavailable")));
+        return;
+    }
+    m_currentLocalMediaRoot = *root;
+    emit localMediaDirectoryChanged();
+    loadLocalMediaDirectory(root->path);
+}
+
+void AppViewModel::deleteLocalMediaRoot(int row)
+{
+    clearError();
+    const auto root = m_localMediaRoots.rootAt(row);
+    if (!root) {
+        return;
+    }
+    if (auto result = m_repository.deleteLocalMediaRoot(root->id); !result) {
+        setError(result.error());
+        return;
+    }
+    if (m_currentLocalMediaRoot && m_currentLocalMediaRoot->id == root->id) {
+        clearLocalMediaDirectory();
+    }
+    refreshLocalMediaRoots();
+    AppLogger::info(QStringLiteral("local-media"), QStringLiteral("Removed a local media folder configuration"));
+}
+
+void AppViewModel::openLocalMediaItem(int row)
+{
+    clearError();
+    const auto item = m_localMediaItems.itemAt(row);
+    if (!item) {
+        return;
+    }
+    if (!localMediaPathIsInsideRoot(item->path)) {
+        setError(trText(QStringLiteral("local.folderUnavailable")));
+        return;
+    }
+    if (item->directory) {
+        loadLocalMediaDirectory(item->path);
+        return;
+    }
+    if (!QFileInfo::exists(item->path) || !LocalMediaService::isSupportedVideoFile(item->path)) {
+        setError(trText(QStringLiteral("local.fileUnavailable")));
+        return;
+    }
+
+    clearCurrentPlayback();
+    setForegroundPlaybackActive(true);
+    m_playbackOrigin = PlaybackOrigin::Local;
+    m_currentPlaybackUrl = QUrl::fromLocalFile(item->path);
+    m_currentIptvChannelId.clear();
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_playbackHttpUsername.clear();
+    m_playbackHttpPassword.clear();
+    m_playbackAllowInsecureTls = false;
+    m_currentPlaybackStartSeconds = 0.0;
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = false;
+
+    MediaItem media;
+    media.id = item->path;
+    media.name = item->name;
+    media.itemType = QStringLiteral("Local Video");
+    m_selectedItem = std::move(media);
+    clearSeriesDetails();
+    syncSelectedPeople();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("player"));
+    AppLogger::info(QStringLiteral("local-media"), QStringLiteral("Opening local video playback"));
+}
+
+void AppViewModel::localMediaBack()
+{
+    if (!m_currentLocalMediaRoot || m_localMediaCurrentPath.isEmpty()) {
+        backToServices();
+        return;
+    }
+
+    auto current = QDir::fromNativeSeparators(QDir::cleanPath(m_localMediaCurrentPath));
+    const auto root = QDir::fromNativeSeparators(QDir::cleanPath(m_currentLocalMediaRoot->path));
+#ifdef Q_OS_WIN
+    const auto atRoot = current.compare(root, Qt::CaseInsensitive) == 0;
+#else
+    const auto atRoot = current == root;
+#endif
+    if (atRoot) {
+        clearLocalMediaDirectory();
+        return;
+    }
+
+    QDir parent(current);
+    if (!parent.cdUp() || !localMediaPathIsInsideRoot(parent.absolutePath())) {
+        clearLocalMediaDirectory();
+        return;
+    }
+    loadLocalMediaDirectory(parent.absolutePath());
+}
+
+void AppViewModel::refreshLocalMediaDirectory()
+{
+    if (m_currentLocalMediaRoot && !m_localMediaCurrentPath.isEmpty()) {
+        loadLocalMediaDirectory(m_localMediaCurrentPath);
+    } else {
+        refreshLocalMediaRoots();
+    }
+}
+
 void AppViewModel::playIptvChannel(int row)
 {
     clearError();
@@ -2242,6 +2512,7 @@ void AppViewModel::playIptvChannel(int row)
     }
 
     setForegroundPlaybackActive(true);
+    m_playbackOrigin = PlaybackOrigin::Iptv;
     m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(channel->streamUrl) : playbackUrl;
     m_currentIptvChannelId = channel->id;
     m_currentMediaSourceId.clear();
@@ -2292,6 +2563,7 @@ void AppViewModel::openWebDavItem(int row)
         m_webDavPlaybackStreamId.clear();
     }
     const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(m_currentWebDavCard->server, m_webDavPassword, item->url);
+    m_playbackOrigin = PlaybackOrigin::WebDav;
     m_currentPlaybackUrl = proxyUrl;
     m_currentIptvChannelId.clear();
     m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
@@ -2432,6 +2704,7 @@ void AppViewModel::playWebDavAudioTrack(int index)
         m_webDavPlaybackStreamId.clear();
     }
     const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(m_currentWebDavCard->server, m_webDavPassword, item.url);
+    m_playbackOrigin = PlaybackOrigin::WebDav;
     m_currentPlaybackUrl = proxyUrl;
     m_currentIptvChannelId.clear();
     m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
@@ -2977,6 +3250,7 @@ void AppViewModel::backToServices()
     m_pendingServiceCard.reset();
     clearIptvState();
     clearWebDavState();
+    clearLocalMediaDirectory();
     m_currentLibrary.reset();
     clearMediaDirectoryState();
     clearServerSearchState();
@@ -3796,6 +4070,7 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
     m_currentPlaybackStartSeconds = 0.0;
     m_lastPlaybackReportSeconds = -1.0;
     m_playbackStartedReported = false;
+    m_playbackOrigin = PlaybackOrigin::None;
     const auto audioStateChanged = m_webDavAudioPlaybackActive || m_webDavAudioCurrentIndex >= 0;
     m_webDavAudioPlaybackActive = false;
     m_webDavAudioCurrentIndex = -1;
@@ -4045,6 +4320,7 @@ void AppViewModel::playSelectedItem()
         }
 
         m_currentPlaybackUrl = result->url;
+        m_playbackOrigin = PlaybackOrigin::MediaServer;
         m_currentIptvChannelId.clear();
         m_currentMediaSourceId = result->mediaSourceId;
         m_currentPlaySessionId = result->playSessionId;
@@ -4060,8 +4336,11 @@ void AppViewModel::playSelectedItem()
 
 void AppViewModel::reportPlaybackStarted()
 {
+    if (m_playbackOrigin == PlaybackOrigin::Local || m_playbackOrigin == PlaybackOrigin::None) {
+        return;
+    }
     beginPlaybackUsageTracking();
-    if (!m_session || !m_selectedItem || m_playbackStartedReported) {
+    if (m_playbackOrigin != PlaybackOrigin::MediaServer || !m_session || !m_selectedItem || m_playbackStartedReported) {
         return;
     }
     auto* client = clientFor(m_session->server.serviceType);
@@ -4083,6 +4362,9 @@ void AppViewModel::reportPlaybackStarted()
 
 void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
 {
+    if (m_playbackOrigin == PlaybackOrigin::Local || m_playbackOrigin == PlaybackOrigin::None) {
+        return;
+    }
     if (!m_playbackUsageActive) {
         beginPlaybackUsageTracking();
     }
@@ -4091,7 +4373,7 @@ void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
         m_playbackUsagePaused = paused;
     }
 
-    if (!m_session || !m_selectedItem || !m_playbackStartedReported) {
+    if (m_playbackOrigin != PlaybackOrigin::MediaServer || !m_session || !m_selectedItem || !m_playbackStartedReported) {
         return;
     }
     if (positionSeconds < 0 || (!paused && m_lastPlaybackReportSeconds >= 0 && std::abs(positionSeconds - m_lastPlaybackReportSeconds) < 10.0)) {
@@ -4119,7 +4401,7 @@ void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
 void AppViewModel::reportPlaybackStopped(double positionSeconds)
 {
     finishPlaybackUsageTracking();
-    if (!m_session || !m_selectedItem || !m_playbackStartedReported) {
+    if (m_playbackOrigin != PlaybackOrigin::MediaServer || !m_session || !m_selectedItem || !m_playbackStartedReported) {
         return;
     }
 
@@ -4161,8 +4443,14 @@ void AppViewModel::reportPlaybackError(const QString& message)
 
 void AppViewModel::closePlayerToDetails()
 {
+    const auto playbackOrigin = m_playbackOrigin;
+    const auto hasLocalDirectory = m_currentLocalMediaRoot.has_value();
     clearCurrentPlayback();
     emit playbackChanged();
+    if (playbackOrigin == PlaybackOrigin::Local) {
+        setCurrentView(hasLocalDirectory ? QStringLiteral("local") : QStringLiteral("services"));
+        return;
+    }
     if (m_currentWebDavCard) {
         setCurrentView(QStringLiteral("webdav"));
         return;
@@ -4205,13 +4493,14 @@ void AppViewModel::openLocalPlaybackForVerification(const QUrl& url)
 
     clearError();
     setForegroundPlaybackActive(true);
+    m_playbackOrigin = PlaybackOrigin::Local;
     m_currentPlaybackUrl = url;
     m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
     m_currentPlaybackStartSeconds = 0.0;
     m_lastPlaybackReportSeconds = -1.0;
-    m_playbackStartedReported = true;
+    m_playbackStartedReported = false;
 
     MediaItem item;
     item.id = QStringLiteral("local-verification");
@@ -4299,6 +4588,93 @@ void AppViewModel::refreshServiceCards()
     }
     m_services.setCards(*cardsResult);
     refreshScheduledEmbySources();
+}
+
+void AppViewModel::refreshLocalMediaRoots()
+{
+    const auto result = m_repository.loadLocalMediaRoots();
+    if (!result) {
+        setError(result.error());
+        return;
+    }
+
+    auto roots = *result;
+    for (auto& root : roots) {
+        const QFileInfo info(root.path);
+        root.available = info.exists() && info.isDir() && info.isReadable();
+    }
+    m_localMediaRoots.setRoots(std::move(roots));
+}
+
+void AppViewModel::loadLocalMediaDirectory(const QString& path)
+{
+    if (!m_currentLocalMediaRoot || !localMediaPathIsInsideRoot(path)) {
+        setError(trText(QStringLiteral("local.folderUnavailable")));
+        return;
+    }
+
+    const QFileInfo pathInfo(path);
+    const auto canonicalPath = pathInfo.canonicalFilePath();
+    const auto normalizedPath = QDir::cleanPath(canonicalPath.isEmpty() ? pathInfo.absoluteFilePath() : canonicalPath);
+    const auto requestGeneration = ++m_localMediaRequestGeneration;
+    if (!m_localMediaLoading) {
+        m_localMediaLoading = true;
+        emit localMediaLoadingChanged();
+    }
+
+    m_localMediaService.browseDirectoryAsync(normalizedPath, [this, requestGeneration, normalizedPath](LocalMediaService::BrowseResult result) mutable {
+        if (requestGeneration != m_localMediaRequestGeneration) {
+            return;
+        }
+        m_localMediaLoading = false;
+        emit localMediaLoadingChanged();
+        if (!result) {
+            m_localMediaItems.clear();
+            setError(result.error());
+            return;
+        }
+
+        m_localMediaCurrentPath = normalizedPath;
+        m_localMediaItems.setItems(std::move(*result));
+        emit localMediaDirectoryChanged();
+        AppLogger::info(QStringLiteral("local-media"),
+                        QStringLiteral("Loaded %1 local directory entries").arg(m_localMediaItems.count()));
+    });
+}
+
+void AppViewModel::clearLocalMediaDirectory()
+{
+    ++m_localMediaRequestGeneration;
+    m_currentLocalMediaRoot.reset();
+    m_localMediaCurrentPath.clear();
+    m_localMediaItems.clear();
+    if (m_localMediaLoading) {
+        m_localMediaLoading = false;
+        emit localMediaLoadingChanged();
+    }
+    emit localMediaDirectoryChanged();
+}
+
+bool AppViewModel::localMediaPathIsInsideRoot(const QString& path) const
+{
+    if (!m_currentLocalMediaRoot) {
+        return false;
+    }
+
+    const QFileInfo candidateInfo(path);
+    const QFileInfo rootInfo(m_currentLocalMediaRoot->path);
+    const auto candidateCanonical = candidateInfo.canonicalFilePath();
+    const auto rootCanonical = rootInfo.canonicalFilePath();
+    const auto candidate = QDir::fromNativeSeparators(QDir::cleanPath(
+        candidateCanonical.isEmpty() ? candidateInfo.absoluteFilePath() : candidateCanonical));
+    const auto root = QDir::fromNativeSeparators(QDir::cleanPath(
+        rootCanonical.isEmpty() ? rootInfo.absoluteFilePath() : rootCanonical));
+    const auto prefix = root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/');
+#ifdef Q_OS_WIN
+    return candidate.compare(root, Qt::CaseInsensitive) == 0 || candidate.startsWith(prefix, Qt::CaseInsensitive);
+#else
+    return candidate == root || candidate.startsWith(prefix);
+#endif
 }
 
 void AppViewModel::refreshScheduledPlaybackTasks()
@@ -4946,13 +5322,13 @@ std::optional<ServerConfig> AppViewModel::currentServerForUsage(ServiceType type
 
 std::optional<ServerConfig> AppViewModel::currentPlaybackServerForUsage() const
 {
-    if (m_session) {
+    if (m_playbackOrigin == PlaybackOrigin::MediaServer && m_session) {
         return m_session->server;
     }
-    if (m_currentIptvCard) {
+    if (m_playbackOrigin == PlaybackOrigin::Iptv && m_currentIptvCard) {
         return m_currentIptvCard->server;
     }
-    if (m_currentWebDavCard) {
+    if (m_playbackOrigin == PlaybackOrigin::WebDav && m_currentWebDavCard) {
         return m_currentWebDavCard->server;
     }
     return std::nullopt;

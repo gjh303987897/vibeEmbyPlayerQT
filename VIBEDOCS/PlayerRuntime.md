@@ -84,6 +84,8 @@ Controls include:
 - playback speed menu
 - volume slider
 
+Progress sliders keep a local preview position while the pointer is held. They submit one absolute exact seek when the pointer is released instead of sending an exact seek for every drag movement. The preview remains stable until libmpv reports `playback-restart` (or the seek timeout fires), preventing asynchronous `time-pos` updates from pulling the handle back and avoiding repeated native-window refreshes during a drag.
+
 Controls use a semi-transparent player chrome. The native video window keeps a fixed full-page geometry whether controls are visible or hidden, so pause, progress, subtitle, audio, speed and volume controls do not resize the video surface. libmpv keeps the video aspect ratio inside that surface.
 
 In normal mode and immersive player fullscreen, the player chrome auto-hides after a short idle delay. Moving or clicking in the video area shows the chrome again. Immersive fullscreen also hides the app's global header, removes page margins and makes the player fill the application content.
@@ -101,7 +103,7 @@ This prevents `StackLayout` page retention or navigation away from leaving video
 
 `MpvVideoItem` must not initialize libmpv while the item is hidden or has zero size. If a playback URL arrives before the page is visible, the item records a pending playback request and retries when the item becomes visible or its geometry becomes valid. This prevents the second-playback black-screen case where the server stream is loaded but the native child window is not repainted until a later fullscreen geometry change.
 
-Normal playback exit stops mpv and hides the native child window, but it does not destroy the mpv handle or the child window. The window is reused by the next playback session and is destroyed only when the QML item leaves the scene or is destroyed. `PlayerController` emits `videoOutputChanged()` on libmpv file-loaded, video-reconfig and playback-restart events; `MpvVideoItem` responds by syncing geometry and hide/show/raising the child window. Each successful `loadfile` request also schedules extra native-window refreshes at startup, so the repaint that previously only happened after pressing fullscreen happens automatically even if a platform delays video output events.
+Normal playback exit stops mpv and hides the native child window, but it does not destroy the mpv handle or the child window. The window is reused by the next playback session and is destroyed only when the QML item leaves the scene or is destroyed. `PlayerController` emits `videoOutputChanged()` on libmpv file-loaded and video-reconfig events; `MpvVideoItem` responds by syncing geometry and hide/show/raising the child window. A playback-restart event still completes seek/loading state, but it does not invalidate or reposition the native child window because an ordinary seek does not rebuild the video output. Each successful `loadfile` request also schedules extra native-window refreshes at startup, so the repaint that previously only happened after pressing fullscreen happens automatically even if a platform delays video output events.
 
 Esc behavior:
 

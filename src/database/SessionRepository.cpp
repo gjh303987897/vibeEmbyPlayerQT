@@ -223,6 +223,18 @@ std::expected<void, QString> SessionRepository::initialize()
         return columnResult;
     }
 
+    QSqlQuery localMediaRootsQuery(m_database);
+    if (!localMediaRootsQuery.exec(QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS local_media_roots ("
+            "id TEXT PRIMARY KEY,"
+            "name TEXT NOT NULL,"
+            "path TEXT NOT NULL UNIQUE,"
+            "sort_order INTEGER NOT NULL DEFAULT 0,"
+            "created_at TEXT NOT NULL"
+            ")"))) {
+        return std::unexpected(sqlError(localMediaRootsQuery));
+    }
+
     if (auto pruneResult = pruneOldDailyUsage(); !pruneResult) {
         return pruneResult;
     }
@@ -268,6 +280,69 @@ std::expected<void, QString> SessionRepository::saveServer(const ServerConfig& s
     }
 
     return upsertServer(m_database, server);
+}
+
+std::expected<std::vector<LocalMediaRoot>, QString> SessionRepository::loadLocalMediaRoots()
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral(
+            "SELECT id, name, path, sort_order "
+            "FROM local_media_roots ORDER BY sort_order ASC, created_at ASC"))) {
+        return std::unexpected(sqlError(query));
+    }
+
+    std::vector<LocalMediaRoot> roots;
+    while (query.next()) {
+        roots.push_back(LocalMediaRoot {
+            .id = query.value(0).toString(),
+            .name = query.value(1).toString(),
+            .path = query.value(2).toString(),
+            .sortOrder = query.value(3).toInt(),
+        });
+    }
+    return roots;
+}
+
+std::expected<void, QString> SessionRepository::saveLocalMediaRoot(const LocalMediaRoot& root)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "INSERT INTO local_media_roots (id, name, path, sort_order, created_at) "
+        "VALUES (:id, :name, :path, :sort_order, :created_at) "
+        "ON CONFLICT(id) DO UPDATE SET "
+        "name = excluded.name, path = excluded.path, sort_order = excluded.sort_order"));
+    query.bindValue(QStringLiteral(":id"), root.id);
+    query.bindValue(QStringLiteral(":name"), root.name);
+    query.bindValue(QStringLiteral(":path"), root.path);
+    query.bindValue(QStringLiteral(":sort_order"), root.sortOrder);
+    query.bindValue(QStringLiteral(":created_at"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::deleteLocalMediaRoot(const QString& rootId)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral("DELETE FROM local_media_roots WHERE id = :id"));
+    query.bindValue(QStringLiteral(":id"), rootId);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
 }
 
 std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerConfig& server,

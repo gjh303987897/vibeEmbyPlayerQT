@@ -11,8 +11,11 @@
 #include "services/webdav/WebDavPlaybackProxy.h"
 #include "services/emby/EmbyClient.h"
 #include "services/jellyfin/JellyfinClient.h"
+#include "services/local/LocalMediaService.h"
 #include "services/scheduler/ScheduledPlaybackManager.h"
 #include "viewmodels/IptvChannelListModel.h"
+#include "viewmodels/LocalMediaItemListModel.h"
+#include "viewmodels/LocalMediaRootListModel.h"
 #include "viewmodels/DailyUsageStatsListModel.h"
 #include "viewmodels/MediaItemListModel.h"
 #include "viewmodels/MediaLibraryListModel.h"
@@ -53,6 +56,12 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(IptvChannelListModel* iptvChannels READ iptvChannels CONSTANT)
     Q_PROPERTY(bool iptvPlaybackActive READ iptvPlaybackActive NOTIFY playbackChanged)
     Q_PROPERTY(QString currentIptvChannelId READ currentIptvChannelId NOTIFY playbackChanged)
+    Q_PROPERTY(LocalMediaRootListModel* localMediaRoots READ localMediaRoots CONSTANT)
+    Q_PROPERTY(LocalMediaItemListModel* localMediaItems READ localMediaItems CONSTANT)
+    Q_PROPERTY(QString localMediaCurrentPath READ localMediaCurrentPath NOTIFY localMediaDirectoryChanged)
+    Q_PROPERTY(QString localMediaRootName READ localMediaRootName NOTIFY localMediaDirectoryChanged)
+    Q_PROPERTY(bool localMediaDirectoryOpen READ localMediaDirectoryOpen NOTIFY localMediaDirectoryChanged)
+    Q_PROPERTY(bool localMediaLoading READ localMediaLoading NOTIFY localMediaLoadingChanged)
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
@@ -198,6 +207,12 @@ public:
     IptvChannelListModel* iptvChannels();
     bool iptvPlaybackActive() const;
     QString currentIptvChannelId() const;
+    LocalMediaRootListModel* localMediaRoots();
+    LocalMediaItemListModel* localMediaItems();
+    QString localMediaCurrentPath() const;
+    QString localMediaRootName() const;
+    bool localMediaDirectoryOpen() const;
+    bool localMediaLoading() const;
     WebDavItemListModel* webDavItems();
     QString webDavCurrentPath() const;
     QString webDavDisplayMode() const;
@@ -343,6 +358,13 @@ public:
     Q_INVOKABLE void chooseIptvPlaylistFile();
     Q_INVOKABLE void selectIptvGroup(const QString& groupName);
     Q_INVOKABLE void playIptvChannel(int row);
+    Q_INVOKABLE void openLocalMedia();
+    Q_INVOKABLE void chooseLocalMediaRoot();
+    Q_INVOKABLE void openLocalMediaRoot(int row);
+    Q_INVOKABLE void deleteLocalMediaRoot(int row);
+    Q_INVOKABLE void openLocalMediaItem(int row);
+    Q_INVOKABLE void localMediaBack();
+    Q_INVOKABLE void refreshLocalMediaDirectory();
     Q_INVOKABLE void openWebDavItem(int row);
     Q_INVOKABLE void startWebDavAudioPlayback(int row = 0);
     Q_INVOKABLE void advanceWebDavAudioPlayback(bool reachedEnd, bool failed);
@@ -434,6 +456,8 @@ signals:
     void iptvSearchTextChanged();
     void iptvSelectedGroupChanged();
     void iptvGroupsChanged();
+    void localMediaDirectoryChanged();
+    void localMediaLoadingChanged();
     void webDavCurrentPathChanged();
     void webDavDisplayModeChanged();
     void webDavAudioPlaybackChanged();
@@ -475,6 +499,14 @@ signals:
     void downloadSpaceWarningRequested(const QString& title, const QString& message);
 
 private:
+    enum class PlaybackOrigin {
+        None,
+        MediaServer,
+        Iptv,
+        WebDav,
+        Local,
+    };
+
     struct PendingUsageStat {
         ServerConfig server;
         bool privacyMode { false };
@@ -495,6 +527,10 @@ private:
     MediaServiceClient* clientFor(ServiceType type);
     ServerConfig makeServerConfig() const;
     void refreshServiceCards();
+    void refreshLocalMediaRoots();
+    void loadLocalMediaDirectory(const QString& path);
+    void clearLocalMediaDirectory();
+    bool localMediaPathIsInsideRoot(const QString& path) const;
     void startLogin(const ServerConfig& server, const QString& password);
     void loadServiceHome();
     void loadIptvService(const ServiceCard& card);
@@ -606,6 +642,10 @@ private:
     std::optional<ServiceCard> m_currentIptvCard;
     std::optional<IptvPlaylist> m_currentIptvPlaylist;
     QString m_currentIptvChannelId;
+    std::optional<LocalMediaRoot> m_currentLocalMediaRoot;
+    QString m_localMediaCurrentPath;
+    bool m_localMediaLoading { false };
+    quint64 m_localMediaRequestGeneration { 0 };
     std::optional<ServiceCard> m_currentWebDavCard;
     QUrl m_webDavCurrentUrl;
     std::vector<QUrl> m_webDavHistory;
@@ -626,6 +666,7 @@ private:
     double m_currentPlaybackStartSeconds { 0.0 };
     double m_lastPlaybackReportSeconds { -1.0 };
     bool m_playbackStartedReported { false };
+    PlaybackOrigin m_playbackOrigin { PlaybackOrigin::None };
     bool m_playbackUsageActive { false };
     bool m_playbackUsagePaused { false };
     std::optional<ServerConfig> m_playbackUsageServer;
@@ -654,6 +695,7 @@ private:
     WebDavClient m_webDavClient;
     WebDavDownloadPlanner m_webDavDownloadPlanner;
     WebDavPlaybackProxy m_webDavPlaybackProxy;
+    LocalMediaService m_localMediaService;
     TransferManager m_transferManager;
     SessionRepository m_repository;
     ScheduledPlaybackManager m_scheduledPlaybackManager;
@@ -668,6 +710,8 @@ private:
     MediaItemListModel m_seriesSeasons;
     MediaItemListModel m_seriesEpisodes;
     IptvChannelListModel m_iptvChannels;
+    LocalMediaRootListModel m_localMediaRoots;
+    LocalMediaItemListModel m_localMediaItems;
     WebDavItemListModel m_webDavItems;
     DailyUsageStatsListModel m_usageStats;
     qint64 m_historyTotalWatchSeconds { 0 };

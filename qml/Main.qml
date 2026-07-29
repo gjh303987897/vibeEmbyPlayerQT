@@ -114,6 +114,8 @@ ApplicationWindow {
             return Qt.rgba(0.184, 0.561, 1.0, 1.0)
         case "iptv":
             return Qt.rgba(1.0, 0.478, 0.239, 1.0)
+        case "local":
+            return Qt.rgba(0.180, 0.745, 0.690, 1.0)
         default:
             return Qt.rgba(0.392, 0.455, 0.545, 1.0)
         }
@@ -1113,6 +1115,8 @@ ApplicationWindow {
                         appViewModel.minimizeWebDavAudioPlayer()
                     } else if (appViewModel.currentView === "webdav") {
                         appViewModel.webDavBack()
+                    } else if (appViewModel.currentView === "local") {
+                        appViewModel.localMediaBack()
                     } else if (appViewModel.currentView === "search") {
                         appViewModel.clearServerSearch()
                     } else if (appViewModel.currentView === "library") {
@@ -1143,6 +1147,7 @@ ApplicationWindow {
                         text: appViewModel.currentView === "settings" ? t("settings.title")
                             : appViewModel.currentView === "history" ? t("history.title")
                             : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
+                            : appViewModel.currentView === "local" ? t("local.title")
                             : appViewModel.currentView === "services" ? t("nav.services")
                                 : appViewModel.currentServerName
                         color: theme.text
@@ -1182,6 +1187,7 @@ ApplicationWindow {
                     text: appViewModel.currentView === "settings" ? t("settings.subtitle")
                         : appViewModel.currentView === "history" ? (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
                         : appViewModel.currentView === "scheduledTasks" ? t("schedule.subtitle")
+                        : appViewModel.currentView === "local" ? (appViewModel.localMediaDirectoryOpen ? appViewModel.localMediaCurrentPath : t("local.subtitle"))
                         : appViewModel.currentView === "iptv" ? appViewModel.currentUser
                         : appViewModel.loggedIn ? appViewModel.currentUser
                         : t("nav.chooseSource")
@@ -1190,8 +1196,8 @@ ApplicationWindow {
             }
 
             BusyIndicator {
-                running: appViewModel.loading
-                visible: appViewModel.loading
+                running: appViewModel.loading || appViewModel.localMediaLoading
+                visible: running
                 implicitWidth: 28
                 implicitHeight: 28
             }
@@ -1259,9 +1265,21 @@ ApplicationWindow {
 
             ModernButton {
                 text: t("action.refresh")
-                visible: appViewModel.currentView === "home"
-                enabled: !appViewModel.loading
-                onClicked: appViewModel.refreshHome()
+                visible: appViewModel.currentView === "home" || appViewModel.currentView === "local"
+                enabled: !appViewModel.loading && !appViewModel.localMediaLoading
+                onClicked: {
+                    if (appViewModel.currentView === "local") {
+                        appViewModel.refreshLocalMediaDirectory()
+                    } else {
+                        appViewModel.refreshHome()
+                    }
+                }
+            }
+
+            ModernButton {
+                text: t("local.addFolder")
+                visible: appViewModel.currentView === "local"
+                onClicked: appViewModel.chooseLocalMediaRoot()
             }
 
             ModernButton {
@@ -1333,7 +1351,8 @@ ApplicationWindow {
                     : appViewModel.currentView === "transfers" ? 8
                     : appViewModel.currentView === "history" ? 9
                     : appViewModel.currentView === "scheduledTasks" ? 10
-                    : 11
+                    : appViewModel.currentView === "local" ? 11
+                    : 12
 
                 transform: [
                     Translate {
@@ -1414,71 +1433,97 @@ ApplicationWindow {
                 }
 
                 Item {
-                    GridView {
-                        id: serviceGrid
-                        anchors.fill: parent
-                        clip: true
-                        model: appViewModel.services
-                        cellWidth: Math.max(270, width / Math.max(1, Math.floor(width / 300)))
-                        cellHeight: 178
-                        displaced: Transition {
-                            NumberAnimation { properties: "x,y"; duration: 160; easing.type: Easing.OutCubic }
-                        }
-
-                        delegate: ServiceCard {
-                            width: serviceGrid.cellWidth - 16
-                            height: 156
-                            editing: appViewModel.editingServices
-                            serviceName: model.name
-                            serviceType: model.serviceType
-                            username: model.username
-                            host: model.host.length > 0 ? model.host : model.baseUrl
-                            autoLogin: model.autoLogin
-                            hasSession: model.hasSession
-                            privateMode: model.privateMode
-                            dragIndex: index
-                            onActivated: appViewModel.selectServiceCard(index)
-                            onEditRequested: {
-                                appViewModel.editServiceCard(index)
-                                serviceDialog.open()
-                            }
-                            onDeleteRequested: {
-                                root.pendingDeleteRow = index
-                                deleteLocalDataCheck.checked = true
-                                deleteDialog.open()
-                            }
-                            onDragStarted: root.dragFromRow = index
-                            onDroppedOn: function(toRow) {
-                                if (root.dragFromRow >= 0 && root.dragFromRow !== toRow) {
-                                    appViewModel.moveServiceCardTo(root.dragFromRow, toRow)
-                                }
-                                root.dragFromRow = -1
-                            }
-                            onDragEnded: root.dragFromRow = -1
-                        }
-                    }
+                    id: servicePage
 
                     ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 12
-                        visible: serviceGrid.count === 0
+                        anchors.fill: parent
+                        spacing: 16
 
-                        Label {
-                            text: appViewModel.privacyMode ? t("privacy.noCards") : t("empty.noServices")
-                            color: theme.text
-                            font.pixelSize: 24
-                            font.bold: true
+                        ServiceCard {
+                            Layout.preferredWidth: Math.min(420, servicePage.width)
+                            Layout.preferredHeight: 156
+                            editing: false
+                            serviceName: t("local.title")
+                            serviceType: "Local"
+                            host: t("local.subtitle")
+                            leadingStatusText: t("local.builtIn")
+                            leadingStatusColor: theme.success
+                            trailingStatusText: t("local.folderCount").arg(appViewModel.localMediaRoots.count)
+                            trailingStatusColor: theme.primary
+                            onActivated: appViewModel.openLocalMedia()
                         }
 
-                        ModernButton {
-                            text: appViewModel.privacyMode ? t("privacy.editCards") : t("empty.addService")
-                            onClicked: {
-                                if (appViewModel.privacyMode) {
-                                    appViewModel.refreshPrivacyCards()
-                                    privacyCardsDialog.open()
-                                } else {
-                                    appViewModel.beginAddServiceCard()
-                                    serviceDialog.open()
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            GridView {
+                                id: serviceGrid
+                                anchors.fill: parent
+                                clip: true
+                                model: appViewModel.services
+                                cellWidth: Math.max(270, width / Math.max(1, Math.floor(width / 300)))
+                                cellHeight: 178
+                                displaced: Transition {
+                                    NumberAnimation { properties: "x,y"; duration: 160; easing.type: Easing.OutCubic }
+                                }
+
+                                delegate: ServiceCard {
+                                    width: serviceGrid.cellWidth - 16
+                                    height: 156
+                                    editing: appViewModel.editingServices
+                                    serviceName: model.name
+                                    serviceType: model.serviceType
+                                    username: model.username
+                                    host: model.host.length > 0 ? model.host : model.baseUrl
+                                    autoLogin: model.autoLogin
+                                    hasSession: model.hasSession
+                                    privateMode: model.privateMode
+                                    dragIndex: index
+                                    onActivated: appViewModel.selectServiceCard(index)
+                                    onEditRequested: {
+                                        appViewModel.editServiceCard(index)
+                                        serviceDialog.open()
+                                    }
+                                    onDeleteRequested: {
+                                        root.pendingDeleteRow = index
+                                        deleteLocalDataCheck.checked = true
+                                        deleteDialog.open()
+                                    }
+                                    onDragStarted: root.dragFromRow = index
+                                    onDroppedOn: function(toRow) {
+                                        if (root.dragFromRow >= 0 && root.dragFromRow !== toRow) {
+                                            appViewModel.moveServiceCardTo(root.dragFromRow, toRow)
+                                        }
+                                        root.dragFromRow = -1
+                                    }
+                                    onDragEnded: root.dragFromRow = -1
+                                }
+                            }
+
+                            ColumnLayout {
+                                anchors.centerIn: parent
+                                spacing: 12
+                                visible: serviceGrid.count === 0
+
+                                Label {
+                                    text: appViewModel.privacyMode ? t("privacy.noCards") : t("empty.noServices")
+                                    color: theme.text
+                                    font.pixelSize: 20
+                                    font.bold: true
+                                }
+
+                                ModernButton {
+                                    text: appViewModel.privacyMode ? t("privacy.editCards") : t("empty.addService")
+                                    onClicked: {
+                                        if (appViewModel.privacyMode) {
+                                            appViewModel.refreshPrivacyCards()
+                                            privacyCardsDialog.open()
+                                        } else {
+                                            appViewModel.beginAddServiceCard()
+                                            serviceDialog.open()
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1819,6 +1864,8 @@ ApplicationWindow {
                 HistoryPage {}
 
                 ScheduledTasksPage {}
+
+                LocalMediaPage {}
 
                 SettingsPage {}
             }
@@ -3052,6 +3099,25 @@ ApplicationWindow {
                         context.lineTo(22, 18.5)
                         context.closePath()
                         context.fill()
+                    } else if (serviceIcon.normalizedType === "local") {
+                        context.fillStyle = "#ffffff"
+                        context.beginPath()
+                        context.moveTo(4, 10)
+                        context.lineTo(13, 10)
+                        context.lineTo(16, 14)
+                        context.lineTo(30, 14)
+                        context.lineTo(30, 28)
+                        context.lineTo(4, 28)
+                        context.closePath()
+                        context.fill()
+
+                        context.fillStyle = serviceIcon.accentColor
+                        context.beginPath()
+                        context.moveTo(15, 17)
+                        context.lineTo(15, 25)
+                        context.lineTo(22, 21)
+                        context.closePath()
+                        context.fill()
                     } else {
                         context.strokeStyle = "#ffffff"
                         context.fillStyle = "#ffffff"
@@ -3132,6 +3198,10 @@ ApplicationWindow {
         property bool autoLogin: true
         property bool hasSession: false
         property bool privateMode: false
+        property string leadingStatusText: autoLogin ? t("status.autoLogin") : t("status.passwordRequired")
+        property color leadingStatusColor: autoLogin ? theme.success : theme.warning
+        property string trailingStatusText: hasSession ? t("status.ready") : t("status.noSession")
+        property color trailingStatusColor: hasSession ? theme.primary : theme.subtle
         property int dragIndex: -1
         property real dragStartX: 0
         property real dragStartY: 0
@@ -3343,16 +3413,16 @@ ApplicationWindow {
 
                 ServiceStatusChip {
                     Layout.maximumWidth: serviceStatusRow.width * 0.62
-                    text: autoLogin ? t("status.autoLogin") : t("status.passwordRequired")
-                    accentColor: autoLogin ? theme.success : theme.warning
+                    text: card.leadingStatusText
+                    accentColor: card.leadingStatusColor
                 }
 
                 Item { Layout.fillWidth: true }
 
                 ServiceStatusChip {
                     Layout.maximumWidth: serviceStatusRow.width * 0.46
-                    text: hasSession ? t("status.ready") : t("status.noSession")
-                    accentColor: hasSession ? theme.primary : theme.subtle
+                    text: card.trailingStatusText
+                    accentColor: card.trailingStatusColor
                 }
             }
         }
@@ -5526,6 +5596,11 @@ ApplicationWindow {
         property int topChromeHeight: 72
         property int bottomChromeHeight: 146
         property bool seekLoadingActive: false
+        property bool progressSeekActive: false
+        property bool progressSeekDragging: false
+        property real progressSeekPosition: 0
+        readonly property real displayedPlaybackPosition: progressSeekActive
+            ? progressSeekPosition : mpvVideo.position
         property bool rawPlaybackLoading: mpvVideo.loading || mpvVideo.buffering || mpvVideo.seeking || seekLoadingActive
         readonly property bool audioPlaybackLoading: appViewModel.webDavAudioPlaybackActive && rawPlaybackLoading
         readonly property bool audioPaused: mpvVideo.paused
@@ -5633,7 +5708,40 @@ ApplicationWindow {
             seekLoadingTimeout.restart()
         }
 
+        function beginProgressSeek(position) {
+            progressSeekActive = true
+            progressSeekDragging = true
+            progressSeekPosition = Math.max(0, Math.min(mpvVideo.duration, position))
+            revealControls()
+        }
+
+        function updateProgressSeek(position) {
+            if (!progressSeekDragging) {
+                return
+            }
+            progressSeekPosition = Math.max(0, Math.min(mpvVideo.duration, position))
+            revealControls()
+        }
+
+        function commitProgressSeek() {
+            if (!progressSeekDragging) {
+                return
+            }
+            progressSeekDragging = false
+            var target = progressSeekPosition
+            if (Math.abs(target - mpvVideo.position) < 0.05) {
+                progressSeekActive = false
+                return
+            }
+            mpvVideo.seekAbsolute(target)
+            beginSeekLoading()
+            appViewModel.reportPlaybackProgress(target, mpvVideo.paused)
+            revealControls()
+        }
+
         function finishSeekLoading() {
+            progressSeekActive = false
+            progressSeekDragging = false
             if (!seekLoadingActive) {
                 return
             }
@@ -5880,6 +5988,8 @@ ApplicationWindow {
                 } else {
                     playerPage.playbackLoadingVisible = false
                     playerPage.seekLoadingActive = false
+                    playerPage.progressSeekActive = false
+                    playerPage.progressSeekDragging = false
                     playerPage.videoInfoVisible = false
                     playerPage.trackMenuVisible = false
                     playerPage.iptvChannelListVisible = false
@@ -6076,18 +6186,22 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         spacing: 9
 
-                        MutedText { text: playerPage.formatTime(mpvVideo.position) }
+                        MutedText { text: playerPage.formatTime(playerPage.displayedPlaybackPosition) }
 
                         Slider {
                             id: audioProgressSlider
                             Layout.fillWidth: true
                             from: 0
                             to: Math.max(1, mpvVideo.duration)
-                            value: mpvVideo.position
-                            onMoved: {
-                                mpvVideo.seekAbsolute(value)
-                                appViewModel.reportPlaybackProgress(value, mpvVideo.paused)
+                            value: playerPage.displayedPlaybackPosition
+                            onPressedChanged: {
+                                if (pressed) {
+                                    playerPage.beginProgressSeek(value)
+                                } else {
+                                    playerPage.commitProgressSeek()
+                                }
                             }
+                            onMoved: playerPage.updateProgressSeek(value)
                         }
 
                         MutedText { text: playerPage.formatTime(mpvVideo.duration) }
@@ -7432,7 +7546,7 @@ ApplicationWindow {
                     spacing: 12
 
                     MutedText {
-                        text: playerPage.formatTime(mpvVideo.position)
+                        text: playerPage.formatTime(playerPage.displayedPlaybackPosition)
                         color: "#c7d0dd"
                     }
 
@@ -7441,12 +7555,15 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         from: 0
                         to: Math.max(1, mpvVideo.duration)
-                        value: mpvVideo.position
-                        onMoved: {
-                            mpvVideo.seekAbsolute(value)
-                            playerPage.beginSeekLoading()
-                            appViewModel.reportPlaybackProgress(value, mpvVideo.paused)
+                        value: playerPage.displayedPlaybackPosition
+                        onPressedChanged: {
+                            if (pressed) {
+                                playerPage.beginProgressSeek(value)
+                            } else {
+                                playerPage.commitProgressSeek()
+                            }
                         }
+                        onMoved: playerPage.updateProgressSeek(value)
                     }
 
                     MutedText {
@@ -7563,6 +7680,268 @@ ApplicationWindow {
                 }
             }
         }
+            }
+        }
+    }
+
+    component LocalMediaPage: Item {
+        id: localMediaPage
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 14
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                SectionHeader {
+                    Layout.fillWidth: true
+                    title: appViewModel.localMediaDirectoryOpen
+                        ? appViewModel.localMediaRootName : t("local.foldersTitle")
+                    subtitle: appViewModel.localMediaDirectoryOpen
+                        ? appViewModel.localMediaCurrentPath : t("local.foldersSubtitle")
+                }
+
+                ModernButton {
+                    text: appViewModel.localMediaDirectoryOpen
+                        ? t("local.back") : t("local.addFolder")
+                    onClicked: {
+                        if (appViewModel.localMediaDirectoryOpen) {
+                            appViewModel.localMediaBack()
+                        } else {
+                            appViewModel.chooseLocalMediaRoot()
+                        }
+                    }
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+
+                ListView {
+                    id: localRootList
+                    anchors.fill: parent
+                    visible: !appViewModel.localMediaDirectoryOpen
+                    enabled: !appViewModel.localMediaLoading
+                    model: visible ? appViewModel.localMediaRoots : null
+                    spacing: 10
+                    clip: true
+
+                    delegate: Rectangle {
+                        width: localRootList.width
+                        height: 82
+                        radius: 10
+                        color: rootMouse.containsMouse ? theme.elevatedHover : theme.elevated
+                        border.color: model.available ? theme.border : root.withAlpha(theme.warning, 0.62)
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 14
+                            anchors.rightMargin: 14
+                            spacing: 12
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                MouseArea {
+                                    id: rootMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    enabled: model.available
+                                    onClicked: appViewModel.openLocalMediaRoot(index)
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    spacing: 13
+
+                                    ServiceTypeIcon {
+                                        Layout.preferredWidth: 46
+                                        Layout.preferredHeight: 46
+                                        serviceType: "Local"
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 4
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: model.name
+                                            color: theme.text
+                                            font.pixelSize: 15
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                        }
+
+                                        MutedText {
+                                            Layout.fillWidth: true
+                                            text: model.path
+                                            elide: Text.ElideMiddle
+                                        }
+                                    }
+
+                                    ServiceStatusChip {
+                                        text: model.available ? t("local.available") : t("local.unavailable")
+                                        accentColor: model.available ? theme.success : theme.warning
+                                    }
+                                }
+                            }
+
+                            ModernButton {
+                                text: t("local.remove")
+                                onClicked: appViewModel.deleteLocalMediaRoot(index)
+                            }
+                        }
+                    }
+                }
+
+                ListView {
+                    id: localItemList
+                    anchors.fill: parent
+                    visible: appViewModel.localMediaDirectoryOpen
+                    enabled: !appViewModel.localMediaLoading
+                    opacity: appViewModel.localMediaLoading ? 0.32 : 1
+                    model: visible ? appViewModel.localMediaItems : null
+                    spacing: 8
+                    clip: true
+
+                    delegate: Rectangle {
+                        width: localItemList.width
+                        height: 70
+                        radius: 9
+                        color: itemMouse.containsMouse ? theme.elevatedHover : theme.elevated
+                        border.color: itemMouse.containsMouse
+                            ? root.withAlpha(theme.primary, 0.66) : theme.border
+
+                        MouseArea {
+                            id: itemMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: appViewModel.openLocalMediaItem(index)
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 15
+                            anchors.rightMargin: 15
+                            spacing: 14
+
+                            Rectangle {
+                                Layout.preferredWidth: 40
+                                Layout.preferredHeight: 40
+                                radius: 10
+                                color: root.withAlpha(theme.primary, darkTheme ? 0.20 : 0.11)
+                                border.color: root.withAlpha(theme.primary, 0.38)
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: model.directory ? "▰" : "▶"
+                                    color: theme.primary
+                                    font.pixelSize: model.directory ? 20 : 16
+                                    font.bold: true
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: model.name
+                                    color: theme.text
+                                    font.pixelSize: 14
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                MutedText {
+                                    Layout.fillWidth: true
+                                    text: model.directory
+                                        ? t("local.folder")
+                                        : t("local.video") + "  ·  " + root.formatBytes(model.bytes)
+                                            + "  ·  " + Qt.formatDateTime(model.lastModified, "yyyy-MM-dd HH:mm")
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Label {
+                                text: model.directory ? "›" : "▶"
+                                color: theme.primary
+                                font.pixelSize: 20
+                            }
+                        }
+
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                    }
+
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                }
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    visible: !appViewModel.localMediaLoading
+                        && (appViewModel.localMediaDirectoryOpen
+                            ? appViewModel.localMediaItems.count === 0
+                            : appViewModel.localMediaRoots.count === 0)
+                    spacing: 10
+
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: appViewModel.localMediaDirectoryOpen
+                            ? t("local.noVideos") : t("local.noFolders")
+                        color: theme.text
+                        font.pixelSize: 20
+                        font.bold: true
+                    }
+
+                    MutedText {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: appViewModel.localMediaDirectoryOpen
+                            ? t("local.noVideosHint") : t("local.noFoldersHint")
+                    }
+
+                    ModernButton {
+                        visible: !appViewModel.localMediaDirectoryOpen
+                        Layout.alignment: Qt.AlignHCenter
+                        text: t("local.addFolder")
+                        onClicked: appViewModel.chooseLocalMediaRoot()
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    visible: appViewModel.localMediaLoading
+                    color: root.darkTheme ? "#d90f1217" : "#ddf5f7fb"
+                    z: 10
+
+                    MouseArea { anchors.fill: parent }
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 10
+
+                        BusyIndicator {
+                            Layout.alignment: Qt.AlignHCenter
+                            running: parent.parent.visible
+                            implicitWidth: 44
+                            implicitHeight: 44
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: t("local.loading")
+                            color: theme.text
+                            font.pixelSize: 18
+                            font.bold: true
+                        }
+                    }
+                }
             }
         }
     }
