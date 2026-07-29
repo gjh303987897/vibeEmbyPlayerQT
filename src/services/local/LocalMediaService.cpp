@@ -29,6 +29,23 @@ bool LocalMediaService::isSupportedVideoFile(const QString& path)
     return extensions.contains(QFileInfo(path).suffix().toLower());
 }
 
+LocalMediaService::VideoFileResult LocalMediaService::resolveVideoFile(const QUrl& url)
+{
+    if (!url.isLocalFile()) {
+        return std::unexpected(QStringLiteral("Only local video files can be opened"));
+    }
+
+    const QFileInfo fileInfo(url.toLocalFile());
+    const auto canonicalPath = fileInfo.canonicalFilePath();
+    if (canonicalPath.isEmpty() || !fileInfo.isFile() || !fileInfo.isReadable()) {
+        return std::unexpected(QStringLiteral("The local video file is unavailable or unreadable"));
+    }
+    if (!isSupportedVideoFile(canonicalPath)) {
+        return std::unexpected(QStringLiteral("The dropped file is not a supported video"));
+    }
+    return QDir::cleanPath(canonicalPath);
+}
+
 LocalMediaService::BrowseResult LocalMediaService::browseDirectory(const QString& path)
 {
     const QFileInfo directoryInfo(path);

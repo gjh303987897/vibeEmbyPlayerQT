@@ -421,6 +421,15 @@ void MpvVideoItem::setSpeed(double speed)
     m_controller.setSpeed(speed);
 }
 
+void MpvVideoItem::loadExternalSubtitle(const QUrl& url)
+{
+    if (!url.isLocalFile()) {
+        emit errorOccurred(QStringLiteral("Only local subtitle files can be loaded"));
+        return;
+    }
+    m_controller.loadExternalSubtitle(url.toLocalFile());
+}
+
 void MpvVideoItem::selectSubtitleTrack(int row)
 {
     m_controller.selectSubtitleTrack(row);

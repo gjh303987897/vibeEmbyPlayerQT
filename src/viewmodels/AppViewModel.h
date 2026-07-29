@@ -363,6 +363,7 @@ public:
     Q_INVOKABLE void openLocalMediaRoot(int row);
     Q_INVOKABLE void deleteLocalMediaRoot(int row);
     Q_INVOKABLE void openLocalMediaItem(int row);
+    Q_INVOKABLE bool openDroppedLocalVideo(const QUrl& url, double replacedPositionSeconds);
     Q_INVOKABLE void localMediaBack();
     Q_INVOKABLE void refreshLocalMediaDirectory();
     Q_INVOKABLE void openWebDavItem(int row);
@@ -531,6 +532,10 @@ private:
     void loadLocalMediaDirectory(const QString& path);
     void clearLocalMediaDirectory();
     bool localMediaPathIsInsideRoot(const QString& path) const;
+    void startLocalVideoPlayback(const QString& path,
+                                 const QString& displayName,
+                                 bool retainLocalDirectory,
+                                 double replacedPositionSeconds = -1.0);
     void startLogin(const ServerConfig& server, const QString& password);
     void loadServiceHome();
     void loadIptvService(const ServiceCard& card);

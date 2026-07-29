@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtQuick.Window
 import VibePlayer 1.0
@@ -1087,6 +1088,22 @@ ApplicationWindow {
         }
     }
 
+    FileDialog {
+        id: externalSubtitleDialog
+        title: t("player.selectSubtitleFile")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [
+            t("player.subtitleFiles") + " (*.srt *.ass *.ssa *.vtt *.sub *.idx *.sup *.smi *.sami *.lrc *.ttml *.dfxp)",
+            t("player.allFiles") + " (*)"
+        ]
+        onAccepted: playerPageInstance.loadExternalSubtitle(selectedFile)
+        onRejected: {
+            if (appViewModel.currentView === "player") {
+                playerPageInstance.revealControls()
+            }
+        }
+    }
+
     header: ToolBar {
         height: root.playerImmersive || appViewModel.currentView === "details" ? 0 : 64
         visible: !root.playerImmersive && appViewModel.currentView !== "details"
@@ -1885,6 +1902,56 @@ ApplicationWindow {
                 playerPage: playerPageInstance
                 visible: appViewModel.webDavAudioPlaybackActive && appViewModel.currentView !== "player"
                 z: 200
+            }
+        }
+    }
+
+    DropArea {
+        id: localVideoDropArea
+        anchors.fill: parent
+        z: 10000
+        enabled: root.dragFromRow < 0
+
+        onEntered: function(drag) {
+            drag.accepted = drag.hasUrls && drag.urls.length > 0
+        }
+
+        onDropped: function(drop) {
+            if (!drop.hasUrls || drop.urls.length === 0) {
+                drop.accepted = false
+                return
+            }
+            if (appViewModel.openDroppedLocalVideo(drop.urls[0], playerPageInstance.playbackPosition)) {
+                drop.acceptProposedAction()
+            } else {
+                drop.accepted = false
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: localVideoDropArea.containsDrag
+            color: root.withAlpha(theme.bg, 0.9)
+            border.color: theme.primary
+            border.width: 3
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 10
+
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: t("local.dropVideo")
+                    color: theme.text
+                    font.pixelSize: 30
+                    font.bold: true
+                }
+
+                MutedText {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: t("local.dropVideoHint")
+                    font.pixelSize: 16
+                }
             }
         }
     }
@@ -5614,6 +5681,7 @@ ApplicationWindow {
         property bool rawPlaybackLoading: mpvVideo.loading || mpvVideo.buffering || mpvVideo.seeking || seekLoadingActive
         readonly property bool audioPlaybackLoading: appViewModel.webDavAudioPlaybackActive && rawPlaybackLoading
         readonly property bool audioPaused: mpvVideo.paused
+        readonly property real playbackPosition: mpvVideo.position
         readonly property real audioPosition: mpvVideo.position
         readonly property real audioDuration: mpvVideo.duration
         readonly property string audioDisplayTitle: mpvVideo.audioTitle.length > 0
@@ -5902,6 +5970,12 @@ ApplicationWindow {
             revealControls()
         }
 
+        function loadExternalSubtitle(url) {
+            closeTrackMenu(false)
+            mpvVideo.loadExternalSubtitle(url)
+            revealControls()
+        }
+
         function openIptvChannelList() {
             if (!appViewModel.iptvPlaybackActive) {
                 return
@@ -5962,7 +6036,7 @@ ApplicationWindow {
 
         function trackMenuRowCount() {
             if (trackMenuMode === "subtitle") {
-                return mpvVideo.subtitleTracks.count + 1
+                return mpvVideo.subtitleTracks.count + 2
             }
             if (trackMenuMode === "speed") {
                 return playbackSpeedOptions.length
@@ -6906,6 +6980,16 @@ ApplicationWindow {
                         color: "#334b5563"
                     }
 
+                    ModernButton {
+                        Layout.fillWidth: true
+                        visible: playerPage.trackMenuMode === "subtitle"
+                        text: t("player.loadSubtitle")
+                        onClicked: {
+                            playerPage.closeTrackMenu(false)
+                            externalSubtitleDialog.open()
+                        }
+                    }
+
                     ListView {
                         id: trackMenuList
                         Layout.fillWidth: true
@@ -7627,7 +7711,6 @@ ApplicationWindow {
                     ModernButton {
                         id: subtitleTrackButton
                         text: t("player.subtitles")
-                        enabled: mpvVideo.subtitleTracks.count > 0
                         onClicked: {
                             playerPage.openTrackMenu("subtitle", subtitleTrackButton)
                             playerPage.revealControls()

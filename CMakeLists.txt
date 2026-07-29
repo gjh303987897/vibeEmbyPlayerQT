@@ -14,6 +14,7 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Qml
     Quick
     QuickControls2
+    QuickDialogs2
     Network
     Sql
     Widgets
@@ -179,6 +180,7 @@ target_link_libraries(vibePlayerQT PRIVATE
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::QuickDialogs2
     Qt6::Network
     Qt6::Sql
     Qt6::Widgets

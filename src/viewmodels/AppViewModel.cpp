@@ -468,6 +468,9 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("local.loading"), QStringLiteral("Reading local folder") },
         { QStringLiteral("local.folder"), QStringLiteral("Folder") },
         { QStringLiteral("local.video"), QStringLiteral("Video") },
+        { QStringLiteral("local.dropVideo"), QStringLiteral("Drop video to play") },
+        { QStringLiteral("local.dropVideoHint"), QStringLiteral("Release to open this local video") },
+        { QStringLiteral("local.dropUnsupported"), QStringLiteral("Drop a supported local video file") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("Continue Watching") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("Resume progress opens the media details page") },
         { QStringLiteral("section.noProgress"), QStringLiteral("Nothing in progress") },
@@ -494,6 +497,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("details.castCrew"), QStringLiteral("Cast & Crew") },
         { QStringLiteral("details.noCast"), QStringLiteral("No cast information available") },
         { QStringLiteral("player.subtitles"), QStringLiteral("Subtitles") },
+        { QStringLiteral("player.loadSubtitle"), QStringLiteral("Load external subtitle") },
+        { QStringLiteral("player.selectSubtitleFile"), QStringLiteral("Select subtitle file") },
+        { QStringLiteral("player.subtitleFiles"), QStringLiteral("Subtitle files") },
+        { QStringLiteral("player.allFiles"), QStringLiteral("All files") },
         { QStringLiteral("player.noSubtitles"), QStringLiteral("No subtitles") },
         { QStringLiteral("player.subtitleOff"), QStringLiteral("Off") },
         { QStringLiteral("player.audio"), QStringLiteral("Audio") },
@@ -696,6 +703,9 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("local.loading"), QStringLiteral("正在读取本地目录") },
         { QStringLiteral("local.folder"), QStringLiteral("文件夹") },
         { QStringLiteral("local.video"), QStringLiteral("视频") },
+        { QStringLiteral("local.dropVideo"), QStringLiteral("拖放视频以播放") },
+        { QStringLiteral("local.dropVideoHint"), QStringLiteral("松开即可打开此本地视频") },
+        { QStringLiteral("local.dropUnsupported"), QStringLiteral("请拖放受支持的本地视频文件") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("继续观看") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("点击后进入媒体详情页") },
         { QStringLiteral("section.noProgress"), QStringLiteral("暂无继续观看内容") },
@@ -721,6 +731,10 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("details.castCrew"), QStringLiteral("演职人员") },
         { QStringLiteral("details.noCast"), QStringLiteral("暂无演职人员信息") },
         { QStringLiteral("player.subtitles"), QStringLiteral("字幕") },
+        { QStringLiteral("player.loadSubtitle"), QStringLiteral("加载外挂字幕") },
+        { QStringLiteral("player.selectSubtitleFile"), QStringLiteral("选择字幕文件") },
+        { QStringLiteral("player.subtitleFiles"), QStringLiteral("字幕文件") },
+        { QStringLiteral("player.allFiles"), QStringLiteral("所有文件") },
         { QStringLiteral("player.noSubtitles"), QStringLiteral("无字幕") },
         { QStringLiteral("player.subtitleOff"), QStringLiteral("关闭") },
         { QStringLiteral("player.audio"), QStringLiteral("音轨") },
@@ -2434,10 +2448,41 @@ void AppViewModel::openLocalMediaItem(int row)
         return;
     }
 
-    clearCurrentPlayback();
+    startLocalVideoPlayback(item->path, item->name, true);
+    AppLogger::info(QStringLiteral("local-media"), QStringLiteral("Opening local video playback"));
+}
+
+bool AppViewModel::openDroppedLocalVideo(const QUrl& url, double replacedPositionSeconds)
+{
+    clearError();
+    const auto resolved = LocalMediaService::resolveVideoFile(url);
+    if (!resolved) {
+        setError(trText(QStringLiteral("local.dropUnsupported")));
+        AppLogger::warning(QStringLiteral("local-media"), QStringLiteral("Rejected a dropped local video URL"));
+        return false;
+    }
+
+    const auto stopPosition = m_currentPlaybackUrl.isEmpty()
+        ? -1.0
+        : std::max(0.0, replacedPositionSeconds);
+    startLocalVideoPlayback(*resolved, QFileInfo(*resolved).fileName(), false, stopPosition);
+    AppLogger::info(QStringLiteral("local-media"), QStringLiteral("Opening dropped local video playback"));
+    return true;
+}
+
+void AppViewModel::startLocalVideoPlayback(const QString& path,
+                                           const QString& displayName,
+                                           bool retainLocalDirectory,
+                                           double replacedPositionSeconds)
+{
+    clearCurrentPlayback(replacedPositionSeconds);
+    if (!retainLocalDirectory) {
+        clearLocalMediaDirectory();
+    }
+
     setForegroundPlaybackActive(true);
     m_playbackOrigin = PlaybackOrigin::Local;
-    m_currentPlaybackUrl = QUrl::fromLocalFile(item->path);
+    m_currentPlaybackUrl = QUrl::fromLocalFile(path);
     m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
@@ -2449,8 +2494,8 @@ void AppViewModel::openLocalMediaItem(int row)
     m_playbackStartedReported = false;
 
     MediaItem media;
-    media.id = item->path;
-    media.name = item->name;
+    media.id = path;
+    media.name = displayName;
     media.itemType = QStringLiteral("Local Video");
     m_selectedItem = std::move(media);
     clearSeriesDetails();
@@ -2458,7 +2503,6 @@ void AppViewModel::openLocalMediaItem(int row)
     emit selectedItemChanged();
     emit playbackChanged();
     setCurrentView(QStringLiteral("player"));
-    AppLogger::info(QStringLiteral("local-media"), QStringLiteral("Opening local video playback"));
 }
 
 void AppViewModel::localMediaBack()

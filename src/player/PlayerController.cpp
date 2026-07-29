@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <QFile>
+#include <QFileInfo>
 #include <QImage>
 #include <QVariant>
 #include <QStringList>
@@ -28,6 +29,7 @@ constexpr uint64_t propertySeeking = 9;
 constexpr uint64_t propertyIdleActive = 10;
 constexpr uint64_t propertyDemuxerCacheDuration = 11;
 constexpr uint64_t propertyMetadata = 12;
+constexpr uint64_t externalSubtitleCommandReply = 1001;
 
 QString endFileReasonName(mpv_end_file_reason reason)
 {
@@ -572,6 +574,37 @@ void PlayerController::setSpeed(double speed)
     mpv_set_property(m_mpv, "speed", MPV_FORMAT_DOUBLE, &value);
 }
 
+void PlayerController::loadExternalSubtitle(const QString& filePath)
+{
+    if (!m_mpv) {
+        emit errorOccurred(QStringLiteral("The player is not ready to load subtitles"));
+        return;
+    }
+
+    const QFileInfo fileInfo(filePath);
+    const auto canonicalPath = fileInfo.canonicalFilePath();
+    if (canonicalPath.isEmpty() || !fileInfo.isFile() || !fileInfo.isReadable()) {
+        emit errorOccurred(QStringLiteral("The subtitle file is unavailable or unreadable"));
+        AppLogger::warning(QStringLiteral("player"), QStringLiteral("Rejected an unavailable external subtitle file"));
+        return;
+    }
+
+    const auto encodedPath = canonicalPath.toUtf8();
+    auto title = fileInfo.completeBaseName().toUtf8();
+    if (title.isEmpty()) {
+        title = fileInfo.fileName().toUtf8();
+    }
+    const char* args[] = { "sub-add", encodedPath.constData(), "select", title.constData(), nullptr };
+    const auto status = mpv_command_async(m_mpv, externalSubtitleCommandReply, args);
+    if (status < 0) {
+        const auto error = QString::fromUtf8(mpv_error_string(status));
+        emit errorOccurred(QStringLiteral("Unable to load external subtitle: %1").arg(error));
+        AppLogger::warning(QStringLiteral("player"), QStringLiteral("Unable to queue external subtitle loading: %1").arg(error));
+        return;
+    }
+    AppLogger::info(QStringLiteral("player"), QStringLiteral("External subtitle loading requested"));
+}
+
 void PlayerController::selectSubtitleTrack(int row)
 {
     if (!m_mpv) {
@@ -641,6 +674,16 @@ void PlayerController::processEvents()
             const auto* property = static_cast<mpv_event_property*>(event->data);
             if (property) {
                 handlePropertyChange(property->name, property->format, property->data);
+            }
+        } else if (event->event_id == MPV_EVENT_COMMAND_REPLY &&
+                   event->reply_userdata == externalSubtitleCommandReply) {
+            if (event->error < 0) {
+                const auto error = QString::fromUtf8(mpv_error_string(event->error));
+                emit errorOccurred(QStringLiteral("Unable to load external subtitle: %1").arg(error));
+                AppLogger::warning(QStringLiteral("player"), QStringLiteral("External subtitle loading failed: %1").arg(error));
+            } else {
+                updateTracks();
+                AppLogger::info(QStringLiteral("player"), QStringLiteral("External subtitle loaded"));
             }
         } else if (event->event_id == MPV_EVENT_LOG_MESSAGE) {
             const auto* message = static_cast<mpv_event_log_message*>(event->data);

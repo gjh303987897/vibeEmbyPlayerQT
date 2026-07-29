@@ -91,6 +91,7 @@ public:
     Q_INVOKABLE void seekAbsolute(double seconds);
     Q_INVOKABLE void setVolume(int volume);
     Q_INVOKABLE void setSpeed(double speed);
+    Q_INVOKABLE void loadExternalSubtitle(const QUrl& url);
     Q_INVOKABLE void selectSubtitleTrack(int row);
     Q_INVOKABLE void selectAudioTrack(int row);
 

@@ -10,6 +10,7 @@ class LocalMediaServiceTest final : public QObject {
 
 private slots:
     void listsFoldersAndSupportedVideosOnly();
+    void resolvesDroppedVideoFile();
     void rejectsMissingDirectory();
     void invokesAsyncCallback();
 };
@@ -39,6 +40,31 @@ void LocalMediaServiceTest::listsFoldersAndSupportedVideosOnly()
     QCOMPARE(result->at(2).name, QStringLiteral("Trailer.mp4"));
     QVERIFY(LocalMediaService::isSupportedVideoFile(QStringLiteral("VIDEO.WEBM")));
     QVERIFY(!LocalMediaService::isSupportedVideoFile(QStringLiteral("cover.jpg")));
+}
+
+void LocalMediaServiceTest::resolvesDroppedVideoFile()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+
+    const auto videoPath = QDir(temporaryDirectory.path()).filePath(QStringLiteral("Dropped Video.MP4"));
+    QFile videoFile(videoPath);
+    QVERIFY(videoFile.open(QIODevice::WriteOnly));
+    QCOMPARE(videoFile.write("test"), 4);
+    videoFile.close();
+
+    const auto videoResult = LocalMediaService::resolveVideoFile(QUrl::fromLocalFile(videoPath));
+    QVERIFY(videoResult.has_value());
+    QCOMPARE(*videoResult, QFileInfo(videoPath).canonicalFilePath());
+
+    const auto textPath = QDir(temporaryDirectory.path()).filePath(QStringLiteral("notes.txt"));
+    QFile textFile(textPath);
+    QVERIFY(textFile.open(QIODevice::WriteOnly));
+    QCOMPARE(textFile.write("test"), 4);
+    textFile.close();
+
+    QVERIFY(!LocalMediaService::resolveVideoFile(QUrl::fromLocalFile(textPath)).has_value());
+    QVERIFY(!LocalMediaService::resolveVideoFile(QUrl(QStringLiteral("https://example.com/video.mp4"))).has_value());
 }
 
 void LocalMediaServiceTest::rejectsMissingDirectory()

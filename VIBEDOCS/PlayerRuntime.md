@@ -13,12 +13,13 @@ The current implementation covers:
 - basic playback controls: play, pause, stop, relative seek, absolute seek, volume and speed.
 - basic playback state observation: pause state, position, duration, volume, speed and track list.
 - subtitle and audio track list exposure to QML.
+- manual loading and immediate selection of a local external subtitle file.
 - player exit confirmation, immersive player fullscreen toggle and Esc behavior.
 - Emby / Jellyfin playback start, progress and stop reporting.
 
 The current implementation does not yet cover:
 
-- external subtitle discovery and loading
+- automatic external subtitle discovery
 - rich playback error mapping
 - WebDAV / SMB / IPTV playback validation
 
@@ -60,6 +61,7 @@ QML owns only the page layout and buttons. It does not call libmpv directly.
 - subtitle and audio track parsing from `track-list`
 - audio tag parsing from the libmpv `metadata` node map, with stale values cleared before each replacement load
 - subtitle and audio track switching through libmpv properties
+- asynchronous external subtitle loading through libmpv `sub-add`
 
 No other module should include `mpv/client.h`.
 
@@ -82,6 +84,7 @@ Controls include:
 - seek forward 15 seconds
 - progress slider
 - subtitle menu
+- load external subtitle
 - audio track menu
 - playback speed menu
 - volume slider
@@ -89,6 +92,8 @@ Controls include:
 Progress sliders keep a local preview position while the pointer is held. They submit one absolute exact seek when the pointer is released instead of sending an exact seek for every drag movement. The preview remains stable until libmpv reports `playback-restart` (or the seek timeout fires), preventing asynchronous `time-pos` updates from pulling the handle back and avoiding repeated native-window refreshes during a drag.
 
 Controls use a semi-transparent player chrome. The native video window keeps a fixed full-page geometry whether controls are visible or hidden, so pause, progress, subtitle, audio, speed and volume controls do not resize the video surface. libmpv keeps the video aspect ratio inside that surface.
+
+The subtitle menu can open even when the current video has no subtitle tracks. Its load action opens Qt Quick's asynchronous file dialog. `MpvVideoItem` accepts only a local file URL, and `PlayerController` canonicalizes and verifies the file before issuing an asynchronous libmpv `sub-add` command with the `select` flag. libmpv remains responsible for subtitle parsing and adds a successful load to the observed `track-list`; QML never calls libmpv directly.
 
 In normal mode and immersive player fullscreen, the player chrome auto-hides after a short idle delay. Moving or clicking in the video area shows the chrome again. Immersive fullscreen also hides the app's global header, removes page margins and makes the player fill the application content.
 
@@ -139,7 +144,7 @@ During playback, `AppViewModel` reports:
 
 The body includes the current item id, `PositionTicks`, direct-play method, seek capability and pause state where appropriate. Progress is reported periodically and after pause, seek, fast-forward and rewind actions.
 
-This is the minimum direct-play path. More advanced playback should later query media sources and choose between static stream, transcoding, HLS, external subtitles, and stream indexes.
+This is the minimum direct-play path. More advanced server playback should later query media sources and choose between static stream, transcoding, HLS, server-provided external subtitles, and stream indexes.
 
 ## Security Notes
 
