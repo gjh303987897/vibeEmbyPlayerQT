@@ -14,7 +14,7 @@ The project is still under active development. The current codebase focuses on n
 - Playback resume and playback progress reporting for Emby and Jellyfin.
 - WebDAV directory browsing, upload, download, folder transfer and direct playback through a local proxy when needed.
 - IPTV M3U/M3U8 import, group filtering, search and playback.
-- Built-in HTTP/HTTPS direct-media and HLS link playback.
+- Built-in HTTP/HTTPS direct-media and HLS link playback with dated history, replay, deletion and traffic statistics.
 - Saved service cards with multiple accounts per server, optional auto-login and drag sorting.
 - Dark/light/system theme modes, Chinese/English UI text and minimize-to-tray support.
 - CMake-based builds and GitHub Actions packaging for Windows, macOS and Linux.
@@ -27,7 +27,7 @@ The project is still under active development. The current codebase focuses on n
 | Jellyfin | Login, libraries, item browsing, continue watching, details, playback URL creation and playback reporting are implemented. |
 | WebDAV | PROPFIND browsing, MKCOL, GET/PUT transfers, transfer list, storage warning and video playback are implemented. |
 | IPTV | Local M3U/M3U8 import, channel list, groups, search and playback are implemented. |
-| Link playback | Session-only HTTP/HTTPS direct-media and HLS playback is implemented. |
+| Link playback | HTTP/HTTPS direct-media and HLS playback, dated history, individual deletion and traffic statistics are implemented. |
 | SMB | Planned. SMB2/SMB3 should be implemented through a library such as libsmb2, not a custom protocol implementation. |
 | Packaging | CI builds Windows portable ZIP/NSIS/MSI, macOS ZIP/DMG, and Linux tar.gz/AppImage/DEB/RPM/Flatpak artifacts. |
 

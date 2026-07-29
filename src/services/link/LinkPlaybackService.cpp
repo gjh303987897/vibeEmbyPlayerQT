@@ -46,3 +46,11 @@ QString LinkPlaybackService::displayName(const QUrl& url)
     const auto host = url.host().trimmed();
     return host.isEmpty() ? QStringLiteral("Link Playback") : host;
 }
+
+QString LinkPlaybackService::displayAddress(const QUrl& url)
+{
+    auto displayUrl = url;
+    displayUrl.setQuery({});
+    displayUrl.setFragment({});
+    return displayUrl.toDisplayString();
+}

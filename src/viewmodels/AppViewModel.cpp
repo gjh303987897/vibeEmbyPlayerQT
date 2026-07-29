@@ -41,6 +41,15 @@ constexpr qint64 playbackTicksPerSecond = 10'000'000;
 constexpr int recentPlaybackProgressMergeMs = 30000;
 constexpr int continueRefreshAfterStopMs = 1500;
 
+ServerConfig linkPlaybackUsageServer()
+{
+    return ServerConfig {
+        .id = QStringLiteral("builtin-link-playback"),
+        .name = QStringLiteral("Link Playback"),
+        .serviceType = ServiceType::Link,
+    };
+}
+
 double playbackPercentageForTicks(const MediaItem& item, qint64 positionTicks)
 {
     if (item.runTimeTicks > 0) {
@@ -500,7 +509,15 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("link.placeholder"), QStringLiteral("https://media.example.com/video.mp4 or index.m3u8") },
         { QStringLiteral("link.playNow"), QStringLiteral("Play now") },
         { QStringLiteral("link.supportedHint"), QStringLiteral("Direct media URLs and HLS manifests are supported. IPTV channel lists should be added through IPTV.") },
-        { QStringLiteral("link.sessionOnly"), QStringLiteral("The link is kept only for the current app session.") },
+        { QStringLiteral("link.historyStorage"), QStringLiteral("Played links are saved locally so you can open them again from history.") },
+        { QStringLiteral("link.historyTitle"), QStringLiteral("Playback history") },
+        { QStringLiteral("link.historySubtitle"), QStringLiteral("Saved by playback date. Select a record to play it again.") },
+        { QStringLiteral("link.historyEmpty"), QStringLiteral("No link playback history yet") },
+        { QStringLiteral("link.playAgain"), QStringLiteral("Play again") },
+        { QStringLiteral("link.deleteHistory"), QStringLiteral("Delete") },
+        { QStringLiteral("link.historyLoadFailed"), QStringLiteral("Unable to load link playback history") },
+        { QStringLiteral("link.historyDeleteFailed"), QStringLiteral("Unable to delete the history record") },
+        { QStringLiteral("link.historyInvalid"), QStringLiteral("This saved playback link is no longer valid") },
         { QStringLiteral("link.mediaType"), QStringLiteral("Link Stream") },
         { QStringLiteral("link.errorEmpty"), QStringLiteral("Enter a playback link") },
         { QStringLiteral("link.errorTooLong"), QStringLiteral("The playback link is too long") },
@@ -752,7 +769,15 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("link.placeholder"), QStringLiteral("https://media.example.com/video.mp4 或 index.m3u8") },
         { QStringLiteral("link.playNow"), QStringLiteral("立即播放") },
         { QStringLiteral("link.supportedHint"), QStringLiteral("支持直接媒体地址和 HLS 清单；IPTV 频道列表请通过 IPTV 添加。") },
-        { QStringLiteral("link.sessionOnly"), QStringLiteral("链接仅在本次应用运行期间保留。") },
+        { QStringLiteral("link.historyStorage"), QStringLiteral("播放过的链接会保存在本机，可从历史记录中再次打开。") },
+        { QStringLiteral("link.historyTitle"), QStringLiteral("播放历史") },
+        { QStringLiteral("link.historySubtitle"), QStringLiteral("按照播放日期保存，点击记录即可再次播放。") },
+        { QStringLiteral("link.historyEmpty"), QStringLiteral("暂无链接播放历史") },
+        { QStringLiteral("link.playAgain"), QStringLiteral("再次播放") },
+        { QStringLiteral("link.deleteHistory"), QStringLiteral("删除") },
+        { QStringLiteral("link.historyLoadFailed"), QStringLiteral("无法加载链接播放历史") },
+        { QStringLiteral("link.historyDeleteFailed"), QStringLiteral("无法删除这条历史记录") },
+        { QStringLiteral("link.historyInvalid"), QStringLiteral("这条历史记录中的播放链接已失效") },
         { QStringLiteral("link.mediaType"), QStringLiteral("链接视频流") },
         { QStringLiteral("link.errorEmpty"), QStringLiteral("请输入播放链接") },
         { QStringLiteral("link.errorTooLong"), QStringLiteral("播放链接过长") },
@@ -1297,6 +1322,11 @@ void AppViewModel::setLinkPlaybackAddress(const QString& value)
     }
     m_linkPlaybackAddress = value;
     emit linkPlaybackAddressChanged();
+}
+
+LinkPlaybackHistoryListModel* AppViewModel::linkPlaybackHistory()
+{
+    return &m_linkPlaybackHistory;
 }
 
 WebDavItemListModel* AppViewModel::webDavItems()
@@ -2151,6 +2181,7 @@ void AppViewModel::initialize()
     emit translationsChanged();
     refreshServiceCards();
     refreshLocalMediaRoots();
+    refreshLinkPlaybackHistory();
     refreshPrivacyCards();
     refreshUsageStats();
     refreshScheduledEmbySources();
@@ -2613,6 +2644,7 @@ void AppViewModel::openLinkPlayback()
 {
     clearError();
     clearCurrentPlayback();
+    refreshLinkPlaybackHistory();
     m_selectedItem.reset();
     clearSeriesDetails();
     syncSelectedPeople();
@@ -2631,10 +2663,52 @@ bool AppViewModel::playLink()
         return false;
     }
 
+    return startLinkPlayback(*playbackUrl);
+}
+
+bool AppViewModel::playLinkHistory(const QString& recordId)
+{
+    clearError();
+    const auto* historyItem = m_linkPlaybackHistory.itemById(recordId);
+    if (!historyItem) {
+        refreshLinkPlaybackHistory();
+        setError(trText(QStringLiteral("link.historyInvalid")));
+        return false;
+    }
+
+    const auto playbackUrl = LinkPlaybackService::resolvePlaybackUrl(
+        historyItem->playbackUrl.toString(QUrl::FullyEncoded));
+    if (!playbackUrl) {
+        setError(trText(QStringLiteral("link.historyInvalid")));
+        AppLogger::warning(QStringLiteral("link-playback"), QStringLiteral("Rejected an invalid saved playback link"));
+        return false;
+    }
+
+    setLinkPlaybackAddress(playbackUrl->toString(QUrl::FullyEncoded));
+    return startLinkPlayback(*playbackUrl);
+}
+
+void AppViewModel::deleteLinkPlaybackHistory(const QString& recordId)
+{
+    clearError();
+    if (auto result = m_repository.deleteLinkPlaybackHistory(recordId); !result) {
+        AppLogger::warning(QStringLiteral("link-playback"),
+                           QStringLiteral("Delete playback history failed: %1").arg(result.error()));
+        setError(trText(QStringLiteral("link.historyDeleteFailed")));
+        return;
+    }
+    refreshLinkPlaybackHistory();
+    AppLogger::info(QStringLiteral("link-playback"), QStringLiteral("Deleted one playback history record"));
+}
+
+bool AppViewModel::startLinkPlayback(const QUrl& playbackUrl)
+{
+    recordLinkPlaybackHistory(playbackUrl);
+
     clearCurrentPlayback();
     setForegroundPlaybackActive(true);
     m_playbackOrigin = PlaybackOrigin::Link;
-    m_currentPlaybackUrl = *playbackUrl;
+    m_currentPlaybackUrl = playbackUrl;
     m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
@@ -2647,7 +2721,7 @@ bool AppViewModel::playLink()
 
     MediaItem item;
     item.id = QStringLiteral("link-playback");
-    item.name = LinkPlaybackService::displayName(*playbackUrl);
+    item.name = LinkPlaybackService::displayName(playbackUrl);
     item.itemType = trText(QStringLiteral("link.mediaType"));
     m_selectedItem = std::move(item);
     clearSeriesDetails();
@@ -2657,6 +2731,50 @@ bool AppViewModel::playLink()
     setCurrentView(QStringLiteral("player"));
     AppLogger::info(QStringLiteral("link-playback"), QStringLiteral("Opening HTTP media playback"));
     return true;
+}
+
+void AppViewModel::recordLinkPlaybackHistory(const QUrl& playbackUrl)
+{
+    const auto now = QDateTime::currentDateTime();
+    const LinkPlaybackHistoryItem item {
+        .id = QUuid::createUuid().toString(QUuid::WithoutBraces),
+        .playbackUrl = playbackUrl,
+        .playedDate = now.date(),
+        .playedAt = now.toUTC(),
+    };
+    if (auto result = m_repository.saveLinkPlaybackHistory(item); !result) {
+        AppLogger::warning(QStringLiteral("link-playback"),
+                           QStringLiteral("Save playback history failed: %1").arg(result.error()));
+        return;
+    }
+    refreshLinkPlaybackHistory();
+}
+
+void AppViewModel::refreshLinkPlaybackHistory()
+{
+    const auto result = m_repository.loadLinkPlaybackHistory();
+    if (!result) {
+        AppLogger::warning(QStringLiteral("link-playback"),
+                           QStringLiteral("Load playback history failed: %1").arg(result.error()));
+        setError(trText(QStringLiteral("link.historyLoadFailed")));
+        return;
+    }
+
+    std::vector<LinkPlaybackHistoryItem> visibleItems;
+    visibleItems.reserve(result->size());
+    for (auto item : *result) {
+        const auto playbackUrl = LinkPlaybackService::resolvePlaybackUrl(
+            item.playbackUrl.toString(QUrl::FullyEncoded));
+        if (!playbackUrl || !item.playedDate.isValid() || !item.playedAt.isValid()) {
+            AppLogger::warning(QStringLiteral("link-playback"), QStringLiteral("Ignored an invalid playback history record"));
+            continue;
+        }
+        item.playbackUrl = *playbackUrl;
+        item.displayName = LinkPlaybackService::displayName(*playbackUrl);
+        item.displayAddress = LinkPlaybackService::displayAddress(*playbackUrl);
+        visibleItems.push_back(std::move(item));
+    }
+    m_linkPlaybackHistory.setItems(std::move(visibleItems));
 }
 
 void AppViewModel::playIptvChannel(int row)
@@ -4696,6 +4814,8 @@ MediaServiceClient* AppViewModel::clientFor(ServiceType type)
         return nullptr;
     case ServiceType::WebDAV:
         return nullptr;
+    case ServiceType::Link:
+        return nullptr;
     }
     return nullptr;
 }
@@ -5500,6 +5620,9 @@ std::optional<ServerConfig> AppViewModel::currentPlaybackServerForUsage() const
     }
     if (m_playbackOrigin == PlaybackOrigin::WebDav && m_currentWebDavCard) {
         return m_currentWebDavCard->server;
+    }
+    if (m_playbackOrigin == PlaybackOrigin::Link) {
+        return linkPlaybackUsageServer();
     }
     return std::nullopt;
 }

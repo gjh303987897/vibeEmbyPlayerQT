@@ -14,7 +14,7 @@ vibePlayerQT 是一个基于 Qt Quick、C++23 和 libmpv 的跨平台桌面媒�
 - 支持 Emby 和 Jellyfin 断点续播与播放进度上报。
 - 支持 WebDAV 目录浏览、上传、下载、文件夹传输、空间提示和视频播放。
 - 支持 IPTV M3U/M3U8 导入、分组筛选、搜索和播放。
-- 支持内置 HTTP/HTTPS 直接媒体与 HLS 链接播放。
+- 支持内置 HTTP/HTTPS 直接媒体与 HLS 链接播放，并提供按日期展示的历史、单条删除与流量统计。
 - 支持服务卡片保存、同一服务器多账号、可选自动登录和拖拽排序。
 - 支持深色/浅色/跟随系统主题、中英文界面文本和最小化到系统托盘。
 - 使用 CMake 构建，并通过 GitHub Actions 打包 Windows、macOS、Linux 版本。
@@ -27,7 +27,7 @@ vibePlayerQT 是一个基于 Qt Quick、C++23 和 libmpv 的跨平台桌面媒�
 | Jellyfin | 已实现登录、媒体库、媒体列表、继续观看、详情、播放链接生成和播放上报。 |
 | WebDAV | 已实现 PROPFIND 浏览、MKCOL、GET/PUT 传输、传输列表、空间提示和视频播放。 |
 | IPTV | 已实现本地 M3U/M3U8 导入、频道列表、分组、搜索和播放。 |
-| 链接播放 | 已实现仅当前会话保留的 HTTP/HTTPS 直接媒体与 HLS 播放。 |
+| 链接播放 | 已实现 HTTP/HTTPS 直接媒体与 HLS 播放、按日期展示的历史、单条删除与流量统计。 |
 | SMB | 规划中。SMB2/SMB3 应通过 libsmb2 等成熟库实现，不自行实现协议。 |
 | 打包 | CI 会构建 Windows 便携 ZIP/NSIS/MSI、macOS ZIP/DMG，以及 Linux tar.gz/AppImage/DEB/RPM/Flatpak 发布包。 |
 

@@ -20,4 +20,5 @@ public:
 
     static UrlResult resolvePlaybackUrl(const QString& input);
     static QString displayName(const QUrl& url);
+    static QString displayAddress(const QUrl& url);
 };

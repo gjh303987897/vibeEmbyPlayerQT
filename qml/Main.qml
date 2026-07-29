@@ -8082,8 +8082,11 @@ ApplicationWindow {
         }
     }
 
-    component LinkPlaybackPage: Item {
-        id: linkPlaybackPage
+    component LinkPlaybackPage: Flickable {
+        id: linkPlaybackFlick
+        contentWidth: width
+        contentHeight: linkPlaybackColumn.implicitHeight
+        clip: true
 
         onVisibleChanged: {
             if (visible) {
@@ -8092,7 +8095,8 @@ ApplicationWindow {
         }
 
         ColumnLayout {
-            anchors.fill: parent
+            id: linkPlaybackColumn
+            width: linkPlaybackFlick.width
             spacing: 18
 
             SectionHeader {
@@ -8101,109 +8105,241 @@ ApplicationWindow {
                 subtitle: t("link.formSubtitle")
             }
 
-            Item {
+            Rectangle {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.maximumWidth: 760
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredHeight: linkForm.implicitHeight + 48
+                radius: 16
+                color: theme.elevated
+                border.color: theme.border
 
-                Rectangle {
-                    anchors.horizontalCenter: parent.horizontalCenter
+                ColumnLayout {
+                    id: linkForm
+                    anchors.left: parent.left
+                    anchors.right: parent.right
                     anchors.top: parent.top
-                    width: Math.min(760, parent.width)
-                    height: linkForm.implicitHeight + 48
-                    radius: 16
-                    color: theme.elevated
-                    border.color: theme.border
+                    anchors.margins: 24
+                    spacing: 14
 
-                    ColumnLayout {
-                        id: linkForm
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 24
+                    RowLayout {
+                        Layout.fillWidth: true
                         spacing: 14
 
-                        RowLayout {
+                        ServiceTypeIcon {
+                            Layout.preferredWidth: 54
+                            Layout.preferredHeight: 54
+                            serviceType: "Link"
+                        }
+
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 14
+                            spacing: 3
 
-                            ServiceTypeIcon {
-                                Layout.preferredWidth: 54
-                                Layout.preferredHeight: 54
-                                serviceType: "Link"
-                            }
-
-                            ColumnLayout {
+                            Label {
                                 Layout.fillWidth: true
-                                spacing: 3
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: t("link.title")
-                                    color: theme.text
-                                    font.pixelSize: 19
-                                    font.bold: true
-                                }
-
-                                MutedText {
-                                    Layout.fillWidth: true
-                                    text: t("link.protocols")
-                                }
+                                text: t("link.title")
+                                color: theme.text
+                                font.pixelSize: 19
+                                font.bold: true
                             }
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: t("link.address")
-                            color: theme.text
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-
-                        ModernTextField {
-                            id: linkAddressField
-                            Layout.fillWidth: true
-                            placeholderText: t("link.placeholder")
-                            text: appViewModel.linkPlaybackAddress
-                            selectByMouse: true
-                            onTextChanged: appViewModel.linkPlaybackAddress = text
-                            onAccepted: appViewModel.playLink()
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 12
 
                             MutedText {
                                 Layout.fillWidth: true
-                                text: t("link.sessionOnly")
-                                wrapMode: Text.WordWrap
-                            }
-
-                            ModernButton {
-                                text: t("link.playNow")
-                                enabled: linkAddressField.text.trim().length > 0
-                                onClicked: appViewModel.playLink()
+                                text: t("link.protocols")
                             }
                         }
+                    }
 
-                        Rectangle {
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("link.address")
+                        color: theme.text
+                        font.pixelSize: 13
+                        font.bold: true
+                    }
+
+                    ModernTextField {
+                        id: linkAddressField
+                        Layout.fillWidth: true
+                        placeholderText: t("link.placeholder")
+                        text: appViewModel.linkPlaybackAddress
+                        selectByMouse: true
+                        onTextChanged: appViewModel.linkPlaybackAddress = text
+                        onAccepted: appViewModel.playLink()
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        MutedText {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: linkHint.implicitHeight + 22
-                            radius: 10
-                            color: root.withAlpha(root.serviceAccentColor("Link"), darkTheme ? 0.12 : 0.08)
-                            border.color: root.withAlpha(root.serviceAccentColor("Link"), 0.34)
+                            text: t("link.historyStorage")
+                            wrapMode: Text.WordWrap
+                        }
 
-                            MutedText {
-                                id: linkHint
-                                anchors.fill: parent
-                                anchors.margins: 11
-                                text: t("link.supportedHint")
-                                wrapMode: Text.WordWrap
-                            }
+                        ModernButton {
+                            text: t("link.playNow")
+                            enabled: linkAddressField.text.trim().length > 0
+                            onClicked: appViewModel.playLink()
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: linkHint.implicitHeight + 22
+                        radius: 10
+                        color: root.withAlpha(root.serviceAccentColor("Link"), darkTheme ? 0.12 : 0.08)
+                        border.color: root.withAlpha(root.serviceAccentColor("Link"), 0.34)
+
+                        MutedText {
+                            id: linkHint
+                            anchors.fill: parent
+                            anchors.margins: 11
+                            text: t("link.supportedHint")
+                            wrapMode: Text.WordWrap
                         }
                     }
                 }
             }
+
+            SectionHeader {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 900
+                Layout.alignment: Qt.AlignHCenter
+                title: t("link.historyTitle")
+                subtitle: t("link.historySubtitle")
+            }
+
+            ListView {
+                id: linkHistoryList
+                Layout.fillWidth: true
+                Layout.maximumWidth: 900
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredHeight: contentHeight
+                visible: appViewModel.linkPlaybackHistory.count > 0
+                interactive: false
+                spacing: 8
+                clip: false
+                model: appViewModel.linkPlaybackHistory
+                section.property: "playedDate"
+                section.criteria: ViewSection.FullString
+                section.delegate: Item {
+                    required property string section
+                    width: linkHistoryList.width
+                    height: 36
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        text: section
+                        color: theme.muted
+                        font.pixelSize: 13
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                }
+
+                delegate: Rectangle {
+                    required property string recordId
+                    required property string displayName
+                    required property string displayAddress
+                    required property string playedTime
+
+                    width: linkHistoryList.width
+                    height: 84
+                    radius: 12
+                    color: linkHistoryMouse.containsMouse ? theme.elevatedHover : theme.elevated
+                    border.color: linkHistoryMouse.containsMouse ? theme.primary : theme.border
+
+                    MouseArea {
+                        id: linkHistoryMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: appViewModel.playLinkHistory(recordId)
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 12
+
+                        ServiceTypeIcon {
+                            Layout.preferredWidth: 44
+                            Layout.preferredHeight: 44
+                            serviceType: "Link"
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: displayName
+                                color: theme.text
+                                font.pixelSize: 15
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: displayAddress
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        MutedText {
+                            text: playedTime
+                            font.pixelSize: 12
+                        }
+
+                        ModernButton {
+                            text: t("link.playAgain")
+                            onClicked: appViewModel.playLinkHistory(recordId)
+                        }
+
+                        ModernButton {
+                            text: t("link.deleteHistory")
+                            danger: true
+                            onClicked: appViewModel.deleteLinkPlaybackHistory(recordId)
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 900
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredHeight: 128
+                visible: appViewModel.linkPlaybackHistory.count === 0
+                radius: 12
+                color: theme.elevated
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 8
+
+                    ServiceTypeIcon {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 44
+                        Layout.preferredHeight: 44
+                        serviceType: "Link"
+                    }
+
+                    MutedText {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: t("link.historyEmpty")
+                    }
+                }
+            }
+
+            Item { Layout.preferredHeight: 8 }
         }
     }
 
@@ -8944,7 +9080,9 @@ ApplicationWindow {
 
                     Label {
                         Layout.fillWidth: true
-                        text: serviceName.length > 0 ? serviceName : t("history.service")
+                        text: serviceType.toLowerCase() === "link"
+                            ? t("link.title")
+                            : serviceName.length > 0 ? serviceName : t("history.service")
                         color: theme.text
                         font.pixelSize: 16
                         font.bold: true

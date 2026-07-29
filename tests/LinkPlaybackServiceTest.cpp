@@ -47,6 +47,8 @@ void LinkPlaybackServiceTest::derivesDisplayNameWithoutSensitiveQueryData()
 {
     const QUrl media(QStringLiteral("https://media.example.com/path/movie.mp4?token=secret"));
     QCOMPARE(LinkPlaybackService::displayName(media), QStringLiteral("movie.mp4"));
+    QCOMPARE(LinkPlaybackService::displayAddress(media),
+             QStringLiteral("https://media.example.com/path/movie.mp4"));
 
     const QUrl streamRoot(QStringLiteral("https://live.example.com/"));
     QCOMPARE(LinkPlaybackService::displayName(streamRoot), QStringLiteral("live.example.com"));
