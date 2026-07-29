@@ -27,7 +27,7 @@ The project is still under active development. The current codebase focuses on n
 | WebDAV | PROPFIND browsing, MKCOL, GET/PUT transfers, transfer list, storage warning and video playback are implemented. |
 | IPTV | Local M3U/M3U8 import, channel list, groups, search and playback are implemented. |
 | SMB | Planned. SMB2/SMB3 should be implemented through a library such as libsmb2, not a custom protocol implementation. |
-| Packaging | CI builds Windows x86_64, macOS x86_64/arm64 and Linux x86_64/arm64 release artifacts. |
+| Packaging | CI builds Windows portable ZIP/NSIS/MSI, macOS ZIP/DMG, and Linux tar.gz/AppImage/DEB/RPM/Flatpak artifacts. |
 
 ## Architecture
 

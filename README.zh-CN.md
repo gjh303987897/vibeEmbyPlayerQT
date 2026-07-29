@@ -27,7 +27,7 @@ vibePlayerQT 是一个基于 Qt Quick、C++23 和 libmpv 的跨平台桌面媒�
 | WebDAV | 已实现 PROPFIND 浏览、MKCOL、GET/PUT 传输、传输列表、空间提示和视频播放。 |
 | IPTV | 已实现本地 M3U/M3U8 导入、频道列表、分组、搜索和播放。 |
 | SMB | 规划中。SMB2/SMB3 应通过 libsmb2 等成熟库实现，不自行实现协议。 |
-| 打包 | CI 会构建 Windows x86_64、macOS x86_64/arm64、Linux x86_64/arm64 tar.gz 与 AppImage 发布包。 |
+| 打包 | CI 会构建 Windows 便携 ZIP/NSIS/MSI、macOS ZIP/DMG，以及 Linux tar.gz/AppImage/DEB/RPM/Flatpak 发布包。 |
 
 ## 架构
 

@@ -68,10 +68,19 @@ jobs:
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             package_version="$GITHUB_REF_NAME"
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [[ "$tag_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              installer_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+            else
+              echo "Tag does not contain a numeric installer version: $GITHUB_REF_NAME"
+              exit 1
+            fi
           else
             package_version="${GITHUB_SHA::7}"
+            installer_version=""
           fi
           echo "PACKAGE_VERSION=$package_version" >> "$GITHUB_ENV"
+          echo "INSTALLER_VERSION=$installer_version" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -107,10 +116,15 @@ jobs:
             libxcb-xkb1 \
             libxkbcommon-dev \
             libxkbcommon-x11-0 \
+            dpkg-dev \
+            flatpak \
+            imagemagick \
             ninja-build \
+            ostree \
             p7zip-full \
             patchelf \
-            pkg-config
+            pkg-config \
+            rpm
 
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
@@ -210,6 +224,9 @@ jobs:
             "-DCMAKE_CXX_COMPILER=$clang",
             "-DCMAKE_LINKER=$lldLink"
           )
+          if ($env:INSTALLER_VERSION) {
+            $cmakeArgs += "-DVIBEPLAYER_PACKAGE_VERSION=$($env:INSTALLER_VERSION)"
+          }
           cmake @cmakeArgs
 
       - name: Configure CMake on Unix
@@ -225,6 +242,9 @@ jobs:
           )
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             cmake_args+=(-DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake-osx-arch }}")
+          fi
+          if [[ -n "$INSTALLER_VERSION" ]]; then
+            cmake_args+=(-DVIBEPLAYER_PACKAGE_VERSION="$INSTALLER_VERSION")
           fi
           cmake "${cmake_args[@]}"
 
@@ -249,13 +269,6 @@ jobs:
           prefix="$GITHUB_WORKSPACE/package"
           echo "PACKAGE_DIR=$prefix" >> "$GITHUB_ENV"
           cmake --install build --config "$BUILD_TYPE" --prefix "$prefix"
-
-      - name: Sign macOS app
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          app="$PACKAGE_DIR/vibePlayerQT.app"
-          codesign --force --deep --sign - "$app"
 
       - name: Add Linux launcher
         if: runner.os == 'Linux'
@@ -308,7 +321,7 @@ jobs:
           test -f "$PACKAGE_DIR/share/icons/hicolor/1024x1024/apps/vibePlayerQT.png"
           ldd "$PACKAGE_DIR/bin/vibePlayerQT"
 
-      - name: Package Windows artifact
+      - name: Package Windows artifacts
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -318,10 +331,48 @@ jobs:
             -DestinationPath "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}.zip" `
             -Force
 
-      - name: Package macOS artifact
+          $makensis = Get-Command makensis.exe -ErrorAction Stop
+          $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
+          if (!$candle) {
+            $candle = Get-ChildItem `
+              -Path "${env:ProgramFiles(x86)}\WiX Toolset v3*\bin\candle.exe" `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if (!$candle) {
+              throw "WiX Toolset v3 candle.exe was not found"
+            }
+            $env:WIX = Split-Path (Split-Path $candle.FullName -Parent) -Parent
+          }
+          Write-Host "Using NSIS: $($makensis.Source)"
+          $candlePath = $candle.Source
+          if (!$candlePath) {
+            $candlePath = $candle.FullName
+          }
+          Write-Host "Using WiX: $candlePath"
+
+          $nsisOut = Join-Path $env:RUNNER_TEMP "cpack-nsis"
+          $wixOut = Join-Path $env:RUNNER_TEMP "cpack-wix"
+          cpack -G NSIS -C $env:BUILD_TYPE --config build\CPackConfig.cmake -B $nsisOut
+          cpack -G WIX -C $env:BUILD_TYPE --config build\CPackConfig.cmake -B $wixOut
+
+          $nsisPackages = @(Get-ChildItem -LiteralPath $nsisOut -Filter *.exe -File)
+          $wixPackages = @(Get-ChildItem -LiteralPath $wixOut -Filter *.msi -File)
+          if ($nsisPackages.Count -ne 1) {
+            throw "Expected one NSIS installer, found $($nsisPackages.Count)"
+          }
+          if ($wixPackages.Count -ne 1) {
+            throw "Expected one MSI installer, found $($wixPackages.Count)"
+          }
+          Copy-Item $nsisPackages[0].FullName `
+            "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}-installer.exe"
+          Copy-Item $wixPackages[0].FullName `
+            "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}-installer.msi"
+
+      - name: Package macOS artifacts
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
           (
             cd "$PACKAGE_DIR"
@@ -330,12 +381,51 @@ jobs:
               "../dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.zip"
           )
 
-      - name: Package Linux artifact
+          dmg_dir="$RUNNER_TEMP/cpack-dmg"
+          rm -rf "$dmg_dir"
+          cpack -G DragNDrop -C "$BUILD_TYPE" --config build/CPackConfig.cmake -B "$dmg_dir"
+          shopt -s nullglob
+          dmg_files=("$dmg_dir"/*.dmg)
+          shopt -u nullglob
+          if [[ ${#dmg_files[@]} -ne 1 ]]; then
+            echo "Expected one DMG, found ${#dmg_files[@]}"
+            exit 1
+          fi
+          cp "${dmg_files[0]}" "dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.dmg"
+
+      - name: Package Linux archive and native packages
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
           tar -C "$PACKAGE_DIR" -czf "dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.tar.gz" .
+
+          deb_dir="$RUNNER_TEMP/cpack-deb"
+          rpm_dir="$RUNNER_TEMP/cpack-rpm"
+          rm -rf "$deb_dir" "$rpm_dir"
+          cpack -G DEB -C "$BUILD_TYPE" --config build/CPackConfig.cmake -B "$deb_dir"
+          cpack -G RPM -C "$BUILD_TYPE" --config build/CPackConfig.cmake -B "$rpm_dir"
+
+          shopt -s nullglob
+          deb_files=("$deb_dir"/*.deb)
+          rpm_files=("$rpm_dir"/*.rpm)
+          shopt -u nullglob
+          if [[ ${#deb_files[@]} -ne 1 ]]; then
+            echo "Expected one DEB package, found ${#deb_files[@]}"
+            exit 1
+          fi
+          if [[ ${#rpm_files[@]} -ne 1 ]]; then
+            echo "Expected one RPM package, found ${#rpm_files[@]}"
+            exit 1
+          fi
+
+          deb_output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.deb"
+          rpm_output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.rpm"
+          cp "${deb_files[0]}" "$deb_output"
+          cp "${rpm_files[0]}" "$rpm_output"
+          dpkg-deb --info "$deb_output"
+          rpm -qip "$rpm_output"
 
       - name: Package Linux AppImage
         if: runner.os == 'Linux'
@@ -386,6 +476,31 @@ jobs:
           test -s "$output"
           chmod +x "$output"
 
+      - name: Package Linux Flatpak bundle
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.package-suffix }}" in
+            linux-x86_64)
+              flatpak_arch="x86_64"
+              ;;
+            linux-arm64)
+              flatpak_arch="aarch64"
+              ;;
+            *)
+              echo "Unsupported Flatpak package suffix: ${{ matrix.package-suffix }}"
+              exit 1
+              ;;
+          esac
+
+          output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.flatpak"
+          bash packaging/flatpak/build-bundle.sh \
+            "$PACKAGE_DIR" \
+            "$output" \
+            "$flatpak_arch"
+          test -s "$output"
+
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
@@ -397,7 +512,7 @@ jobs:
     name: Publish GitHub release
     runs-on: ubuntu-24.04
     needs: build
-    timeout-minutes: 20
+    timeout-minutes: 30
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
     steps:
@@ -409,6 +524,11 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+
+      - name: Install release inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak msitools ostree p7zip-full rpm
 
       - name: Guard generated source archive
         run: |
@@ -439,6 +559,28 @@ jobs:
                 file "$asset" | grep -E 'ELF|AppImage'
                 continue
                 ;;
+              *.exe|*.dmg)
+                7z l -ba "$asset" > asset-contents.txt
+                ;;
+              *.msi)
+                msiextract -l "$asset" > asset-contents.txt
+                ;;
+              *.deb)
+                dpkg-deb -c "$asset" > asset-contents.txt
+                ;;
+              *.rpm)
+                rpm -qlp "$asset" > asset-contents.txt
+                ;;
+              *.flatpak)
+                bundle_repo="$(mktemp -d)"
+                ostree init --repo="$bundle_repo" --mode=archive-z2
+                flatpak build-import-bundle "$bundle_repo" "$asset" >/dev/null
+                : > asset-contents.txt
+                while IFS= read -r ref; do
+                  ostree --repo="$bundle_repo" ls -R "$ref" /files >> asset-contents.txt
+                done < <(ostree --repo="$bundle_repo" refs)
+                rm -rf "$bundle_repo"
+                ;;
               *)
                 echo "Unsupported release asset: ${asset}"
                 exit 1
@@ -458,11 +600,11 @@ jobs:
           Built from commit ${GITHUB_SHA}.
 
           Assets:
-          - Windows x86_64
-          - macOS x86_64
-          - macOS arm64
-          - Linux x86_64 tar.gz and AppImage
-          - Linux arm64 tar.gz and AppImage
+          - Windows x86_64 portable ZIP, NSIS installer (.exe), and MSI installer
+          - macOS x86_64 ZIP and unsigned DMG
+          - macOS arm64 ZIP and unsigned DMG
+          - Linux x86_64 tar.gz, AppImage, DEB, RPM, and Flatpak bundle
+          - Linux arm64 tar.gz, AppImage, DEB, RPM, and Flatpak bundle
           EOF
 
       - name: Create or update GitHub release

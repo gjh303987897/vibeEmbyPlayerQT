@@ -374,3 +374,5 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 endif()
+
+include(cmake/Packaging.cmake)

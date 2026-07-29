@@ -6,11 +6,11 @@ This document records the automated push build and packaging pipeline.
 
 The pipeline lives at `.github/workflows/build-release.yml` and builds:
 
-- Windows x86_64
-- macOS x86_64
-- macOS arm64
-- Linux x86_64
-- Linux arm64
+- Windows x86_64: portable ZIP, NSIS `.exe`, and MSI
+- macOS x86_64: ZIP and unsigned `.dmg`
+- macOS arm64: ZIP and unsigned `.dmg`
+- Linux x86_64: tar.gz, AppImage, `.deb`, `.rpm`, and `.flatpak`
+- Linux arm64: tar.gz, AppImage, `.deb`, `.rpm`, and `.flatpak`
 
 Each push to `main` builds all packages. Pushing a version tag such as `v1.0.0` builds the same packages and publishes them to the matching GitHub Release.
 
@@ -28,6 +28,14 @@ cmake --install build --config Release --prefix package
 ```
 
 Packaging always starts from the `package` install directory instead of collecting build-tree files manually.
+
+Native installers are configured by `cmake/Packaging.cmake`. CPack runs the same CMake `install()` rules used by the portable packages:
+
+- `NSIS` and `WIX` on Windows
+- `DragNDrop` on macOS
+- `DEB` and `RPM` on Linux
+
+The installer metadata defaults to the numeric version from `project()`. A version tag such as `v1.2.3` overrides it with `1.2.3`; commit builds keep the project version internally while the artifact filename contains the short commit SHA.
 
 ## Qt Deployment
 
@@ -52,9 +60,21 @@ Windows CI configures CMake with `clang-cl` and `lld-link`, matching the local `
 
 macOS and Linux use system libmpv from Homebrew or apt through `pkg-config`.
 
-macOS relies on Qt's generated deployment script to copy `libmpv` and its non-system dependencies into `vibePlayerQT.app/Contents/Frameworks`, then applies ad-hoc signing.
+macOS relies on Qt's generated deployment script to copy `libmpv` and its non-system dependencies into `vibePlayerQT.app/Contents/Frameworks`. ZIP and DMG artifacts are currently unsigned. Apple Developer ID signing and notarization must be added before treating the DMG as a signed public distribution.
 
 Linux sets install RPATH to `$ORIGIN/../lib` so the installed executable can load libraries deployed beside it.
+
+## Native Linux Packages
+
+The DEB and RPM packages install under `/usr` and include the same deployed Qt, QML, plugin, and libmpv runtime files as the portable archive. CPack asks `dpkg-shlibdeps` to derive DEB system dependencies from the installed binaries. RPM keeps its standard automatic requirements/provides scan.
+
+The packages are built on Ubuntu 24.04. They are intended for compatible Debian/Ubuntu and Fedora/RHEL/openSUSE systems, but the oldest supported glibc is therefore bounded by the Ubuntu 24.04 build environment. Broader old-distribution compatibility would require building on an older baseline or in distribution-specific containers.
+
+## Flatpak Bundle
+
+`packaging/flatpak/build-bundle.sh` converts the already deployed Linux package directory into an installable single-file Flatpak bundle. The application ID is `io.github.gjh303987897.vibeEmbyPlayerQT`, the runtime is `org.freedesktop.Platform` 25.08, and the bundle points installers to the Flathub runtime repository. The script renames exported desktop/icon files to the application ID and scales the application icon to Flatpak's 512x512 maximum.
+
+The bundle grants network, IPC, X11, Wayland, PulseAudio, GPU, and host filesystem access. Host filesystem access is required for the current media-source and local-file behavior. The bundle contains the application but not the Flatpak runtime; installation may download the matching runtime.
 
 ## Release Strategy
 
@@ -74,7 +94,7 @@ The release job uses the pushed tag as the GitHub Release tag and uploads the as
 
 GitHub always shows generated "Source code" zip/tar links for a Release tag. The repository uses `.gitattributes` with `export-ignore` so those generated source archives do not include local test fixtures, CI internals, development notes, scripts or VIBEDOCS content.
 
-The release job also inspects the generated source archive and every uploaded binary asset before publishing. If a package contains development or local-data paths such as `tests`, `resources`, `fixtures`, `samples`, `cache`, `VIBEDOCS`, `.github`, or scripts, the release job fails before uploading assets. When updating an existing Release, the job deletes old assets before uploading the newly verified files.
+The release job also inspects the generated source archive and every uploaded binary asset before publishing. It uses format-aware listing for ZIP/tar, NSIS/MSI/DMG, DEB, RPM, and Flatpak artifacts. If a package contains development or local-data paths such as `tests`, `resources`, `fixtures`, `samples`, `cache`, `VIBEDOCS`, `.github`, or scripts, the release job fails before uploading assets. When updating an existing Release, the job deletes old assets before uploading the newly verified files.
 
 ## Notes
 
@@ -94,3 +114,5 @@ Qt packages are installed with `aqtinstall` using Qt 6.7.3:
 - Linux arm64: `linux_gcc_arm64`, installed as `gcc_arm64`
 
 The workflow pins Python 3.13 and `aqtinstall` 3.3.0. Qt archives are extracted with the runner's external `7z` command instead of aqt's default `py7zr` backend. This avoids the intermittent Windows `Bad7zFile: Specified path is bad` failure tracked by [aqtinstall issue #995](https://github.com/miurahr/aqtinstall/issues/995). Linux and macOS install p7zip before the Qt step, while the Windows hosted runner already supplies the same `7z` command used later for the libmpv package.
+
+The Windows 2022 hosted runner supplies NSIS 3 and WiX Toolset 3. Linux installs the `dpkg-dev`, `rpm`, `flatpak`, and `ostree` tools used to generate and validate the additional package formats.
