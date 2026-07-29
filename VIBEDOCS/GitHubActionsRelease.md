@@ -73,7 +73,7 @@ Linux sets install RPATH to `$ORIGIN/../lib` so the installed executable can loa
 
 ## Native Linux Packages
 
-The DEB and RPM packages install under `/usr` and include the same deployed Qt, QML, plugin, and libmpv runtime files as the portable archive. CPack asks `dpkg-shlibdeps` to derive DEB system dependencies from the installed binaries. The staged `usr/lib` directory is passed as a private-library search path so ARM64 Qt and libmpv dependencies are resolved from the package payload instead of an incompatible runner library set. RPM keeps its standard automatic requirements/provides scan.
+The DEB and RPM packages install under `/usr` and include the same deployed Qt, QML, plugin, and libmpv runtime files as the portable archive. CPack asks `dpkg-shlibdeps` to derive DEB system dependencies from the installed binaries. The staged `usr/lib` directory is passed as a private-library search path so ARM64 Qt and libmpv dependencies are resolved from the package payload instead of an incompatible runner library set. Because native packaging runs on a fresh runner, the DEB job also installs `libcjson1` and `libmysofa1`; this lets `dpkg-shlibdeps` resolve the transitive SONAMEs required by the deployed `librist` and `libavfilter` libraries and record the corresponding package dependencies. RPM keeps its standard automatic requirements/provides scan.
 
 The packages are built on Ubuntu 24.04. They are intended for compatible Debian/Ubuntu and Fedora/RHEL/openSUSE systems, but the oldest supported glibc is therefore bounded by the Ubuntu 24.04 build environment. Broader old-distribution compatibility would require building on an older baseline or in distribution-specific containers.
 
@@ -124,4 +124,4 @@ Qt packages are installed with `aqtinstall` using Qt 6.7.3:
 
 The workflow pins Python 3.13 and `aqtinstall` 3.3.0. Qt archives are extracted with the runner's external `7z` command instead of aqt's default `py7zr` backend. This avoids the intermittent Windows `Bad7zFile: Specified path is bad` failure tracked by [aqtinstall issue #995](https://github.com/miurahr/aqtinstall/issues/995). Linux and macOS install p7zip before the Qt step, while the Windows hosted runner already supplies the same `7z` command used later for the libmpv package.
 
-The Windows 2022 hosted runner supplies NSIS 3 and WiX Toolset 3. Each Linux packaging job installs only its format-specific tools: `dpkg-dev` for DEB, `rpm` for RPM, and `flatpak`, `imagemagick`, plus `ostree` for Flatpak. The release inspection job installs the readers needed to validate every published format.
+The Windows 2022 hosted runner supplies NSIS 3 and WiX Toolset 3. Each Linux packaging job installs only its format-specific tools and resolver dependencies: `dpkg-dev`, `libcjson1`, and `libmysofa1` for DEB; `rpm` for RPM; and `flatpak`, `imagemagick`, plus `ostree` for Flatpak. The release inspection job installs the readers needed to validate every published format.

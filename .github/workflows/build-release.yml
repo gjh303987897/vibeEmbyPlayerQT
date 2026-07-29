@@ -531,7 +531,7 @@ jobs:
           sudo apt-get update
           case "${{ matrix.cpack-generator }}" in
             DEB)
-              sudo apt-get install -y dpkg-dev
+              sudo apt-get install -y dpkg-dev libcjson1 libmysofa1
               ;;
             RPM)
               sudo apt-get install -y rpm
