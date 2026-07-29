@@ -10,6 +10,7 @@ The current implementation covers:
 - `PlayerController` as the only class that calls libmpv C APIs.
 - Qt Quick player page integration through `MpvVideoItem`.
 - Emby / Jellyfin direct stream URL generation with resume start position.
+- session-only HTTP/HTTPS direct-media and HLS link playback with strict URL validation.
 - basic playback controls: play, pause, stop, relative seek, absolute seek, volume and speed.
 - basic playback state observation: pause state, position, duration, volume, speed and track list.
 - subtitle and audio track list exposure to QML.
@@ -168,4 +169,4 @@ Audio loading uses libmpv file lifecycle events instead of the video loading ove
 
 The headless player emits the same playback-ended position signal used to accumulate actual elapsed time across multiple media items. It remains owned by `ScheduledPlaybackManager`; no manager or QML code calls libmpv directly.
 
-Foreground playback always has priority. `AppViewModel` marks normal player, WebDAV, IPTV, and local verification playback as foreground activity. The scheduler stops and reports its current item, preserves elapsed seconds, waits, and selects another random item after foreground playback ends.
+Foreground playback always has priority. `AppViewModel` marks normal player, WebDAV, IPTV, link, and local verification playback as foreground activity. The scheduler stops and reports its current item, preserves elapsed seconds, waits, and selects another random item after foreground playback ends.

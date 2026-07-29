@@ -93,6 +93,8 @@ qt_add_executable(vibePlayerQT
     src/services/iptv/IptvParser.h
     src/services/jellyfin/JellyfinClient.cpp
     src/services/jellyfin/JellyfinClient.h
+    src/services/link/LinkPlaybackService.cpp
+    src/services/link/LinkPlaybackService.h
     src/services/local/LocalMediaService.cpp
     src/services/local/LocalMediaService.h
     src/services/media/MediaServiceClient.h
@@ -292,6 +294,23 @@ if(BUILD_TESTING)
 
     add_test(NAME local_media_service COMMAND local_media_service_test)
     set_tests_properties(local_media_service PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(link_playback_service_test
+        tests/LinkPlaybackServiceTest.cpp
+        src/services/link/LinkPlaybackService.cpp
+        src/services/link/LinkPlaybackService.h
+    )
+    target_include_directories(link_playback_service_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(link_playback_service_test PRIVATE
+        Qt6::Test
+    )
+
+    add_test(NAME link_playback_service COMMAND link_playback_service_test)
+    set_tests_properties(link_playback_service PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 

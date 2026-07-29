@@ -62,6 +62,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString localMediaRootName READ localMediaRootName NOTIFY localMediaDirectoryChanged)
     Q_PROPERTY(bool localMediaDirectoryOpen READ localMediaDirectoryOpen NOTIFY localMediaDirectoryChanged)
     Q_PROPERTY(bool localMediaLoading READ localMediaLoading NOTIFY localMediaLoadingChanged)
+    Q_PROPERTY(QString linkPlaybackAddress READ linkPlaybackAddress WRITE setLinkPlaybackAddress NOTIFY linkPlaybackAddressChanged)
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
@@ -213,6 +214,8 @@ public:
     QString localMediaRootName() const;
     bool localMediaDirectoryOpen() const;
     bool localMediaLoading() const;
+    QString linkPlaybackAddress() const;
+    void setLinkPlaybackAddress(const QString& value);
     WebDavItemListModel* webDavItems();
     QString webDavCurrentPath() const;
     QString webDavDisplayMode() const;
@@ -366,6 +369,8 @@ public:
     Q_INVOKABLE bool openDroppedLocalVideo(const QUrl& url, double replacedPositionSeconds);
     Q_INVOKABLE void localMediaBack();
     Q_INVOKABLE void refreshLocalMediaDirectory();
+    Q_INVOKABLE void openLinkPlayback();
+    Q_INVOKABLE bool playLink();
     Q_INVOKABLE void openWebDavItem(int row);
     Q_INVOKABLE void startWebDavAudioPlayback(int row = 0);
     Q_INVOKABLE void advanceWebDavAudioPlayback(bool reachedEnd, bool failed);
@@ -459,6 +464,7 @@ signals:
     void iptvGroupsChanged();
     void localMediaDirectoryChanged();
     void localMediaLoadingChanged();
+    void linkPlaybackAddressChanged();
     void webDavCurrentPathChanged();
     void webDavDisplayModeChanged();
     void webDavAudioPlaybackChanged();
@@ -506,6 +512,7 @@ private:
         Iptv,
         WebDav,
         Local,
+        Link,
     };
 
     struct PendingUsageStat {
@@ -613,6 +620,7 @@ private:
     QString m_iptvSearchText;
     QString m_iptvSelectedGroup;
     QStringList m_iptvGroups;
+    QString m_linkPlaybackAddress;
     QString m_webDavPassword;
     QString m_webDavDisplayMode { QStringLiteral("default") };
     std::vector<WebDavItem> m_webDavAudioQueue;

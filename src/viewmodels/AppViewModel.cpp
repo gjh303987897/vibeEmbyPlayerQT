@@ -2,6 +2,7 @@
 
 #include "services/credentials/CredentialStore.h"
 #include "services/iptv/IptvParser.h"
+#include "services/link/LinkPlaybackService.h"
 #include "services/scheduler/ScheduledPlaybackSchedule.h"
 #include "utils/AppLogger.h"
 
@@ -70,6 +71,25 @@ QString displayNetworkError(const NetworkError& error)
         return QStringLiteral("Network request failed");
     }
     return QStringLiteral("Network request failed");
+}
+
+QString linkPlaybackErrorKey(LinkPlaybackError error)
+{
+    switch (error) {
+    case LinkPlaybackError::Empty:
+        return QStringLiteral("link.errorEmpty");
+    case LinkPlaybackError::TooLong:
+        return QStringLiteral("link.errorTooLong");
+    case LinkPlaybackError::Invalid:
+        return QStringLiteral("link.errorInvalid");
+    case LinkPlaybackError::UnsupportedScheme:
+        return QStringLiteral("link.errorScheme");
+    case LinkPlaybackError::MissingHost:
+        return QStringLiteral("link.errorHost");
+    case LinkPlaybackError::EmbeddedCredentials:
+        return QStringLiteral("link.errorCredentials");
+    }
+    return QStringLiteral("link.errorInvalid");
 }
 
 QString serverIdFor(const QString& baseUrl, ServiceType type)
@@ -354,7 +374,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("dialog.deletePrompt"), QStringLiteral("Remove this service card?") },
         { QStringLiteral("dialog.deleteLocalData"), QStringLiteral("Also delete local token and cached data") },
         { QStringLiteral("dialog.exitPlaybackTitle"), QStringLiteral("Exit playback?") },
-        { QStringLiteral("dialog.exitPlaybackPrompt"), QStringLiteral("Playback will stop and you will return to the media details page.") },
+        { QStringLiteral("dialog.exitPlaybackPrompt"), QStringLiteral("Playback will stop and you will return to the previous page.") },
         { QStringLiteral("dialog.overviewTitle"), QStringLiteral("Overview") },
         { QStringLiteral("form.serviceName"), QStringLiteral("Service name") },
         { QStringLiteral("form.serverUrl"), QStringLiteral("https://server.example.com") },
@@ -471,6 +491,23 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("local.dropVideo"), QStringLiteral("Drop video to play") },
         { QStringLiteral("local.dropVideoHint"), QStringLiteral("Release to open this local video") },
         { QStringLiteral("local.dropUnsupported"), QStringLiteral("Drop a supported local video file") },
+        { QStringLiteral("link.title"), QStringLiteral("Link Playback") },
+        { QStringLiteral("link.subtitle"), QStringLiteral("Play direct HTTP/HTTPS media and HLS streams") },
+        { QStringLiteral("link.protocols"), QStringLiteral("HTTP/HTTPS · HLS") },
+        { QStringLiteral("link.formTitle"), QStringLiteral("Open a media link") },
+        { QStringLiteral("link.formSubtitle"), QStringLiteral("Paste a direct media URL or an HLS manifest and play it with the built-in player") },
+        { QStringLiteral("link.address"), QStringLiteral("Playback link") },
+        { QStringLiteral("link.placeholder"), QStringLiteral("https://media.example.com/video.mp4 or index.m3u8") },
+        { QStringLiteral("link.playNow"), QStringLiteral("Play now") },
+        { QStringLiteral("link.supportedHint"), QStringLiteral("Direct media URLs and HLS manifests are supported. IPTV channel lists should be added through IPTV.") },
+        { QStringLiteral("link.sessionOnly"), QStringLiteral("The link is kept only for the current app session.") },
+        { QStringLiteral("link.mediaType"), QStringLiteral("Link Stream") },
+        { QStringLiteral("link.errorEmpty"), QStringLiteral("Enter a playback link") },
+        { QStringLiteral("link.errorTooLong"), QStringLiteral("The playback link is too long") },
+        { QStringLiteral("link.errorInvalid"), QStringLiteral("Enter a valid absolute HTTP or HTTPS link") },
+        { QStringLiteral("link.errorScheme"), QStringLiteral("Only HTTP and HTTPS playback links are supported") },
+        { QStringLiteral("link.errorHost"), QStringLiteral("The playback link must include a host") },
+        { QStringLiteral("link.errorCredentials"), QStringLiteral("Credentials embedded in playback links are not supported") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("Continue Watching") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("Resume progress opens the media details page") },
         { QStringLiteral("section.noProgress"), QStringLiteral("Nothing in progress") },
@@ -670,7 +707,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("dialog.deletePrompt"), QStringLiteral("移除此服务卡片？") },
         { QStringLiteral("dialog.deleteLocalData"), QStringLiteral("同时删除本地 Token 和缓存数据") },
         { QStringLiteral("dialog.exitPlaybackTitle"), QStringLiteral("退出播放？") },
-        { QStringLiteral("dialog.exitPlaybackPrompt"), QStringLiteral("播放将停止，并返回当前媒体详情页。") },
+        { QStringLiteral("dialog.exitPlaybackPrompt"), QStringLiteral("播放将停止，并返回上一页。") },
         { QStringLiteral("form.serviceName"), QStringLiteral("服务名称") },
         { QStringLiteral("form.serverUrl"), QStringLiteral("https://server.example.com") },
         { QStringLiteral("form.username"), QStringLiteral("用户名") },
@@ -706,6 +743,23 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("local.dropVideo"), QStringLiteral("拖放视频以播放") },
         { QStringLiteral("local.dropVideoHint"), QStringLiteral("松开即可打开此本地视频") },
         { QStringLiteral("local.dropUnsupported"), QStringLiteral("请拖放受支持的本地视频文件") },
+        { QStringLiteral("link.title"), QStringLiteral("链接播放") },
+        { QStringLiteral("link.subtitle"), QStringLiteral("播放 HTTP/HTTPS 直接媒体和 HLS 视频流") },
+        { QStringLiteral("link.protocols"), QStringLiteral("HTTP/HTTPS · HLS") },
+        { QStringLiteral("link.formTitle"), QStringLiteral("打开媒体链接") },
+        { QStringLiteral("link.formSubtitle"), QStringLiteral("粘贴直接媒体地址或 HLS 清单，使用内置播放器播放") },
+        { QStringLiteral("link.address"), QStringLiteral("播放链接") },
+        { QStringLiteral("link.placeholder"), QStringLiteral("https://media.example.com/video.mp4 或 index.m3u8") },
+        { QStringLiteral("link.playNow"), QStringLiteral("立即播放") },
+        { QStringLiteral("link.supportedHint"), QStringLiteral("支持直接媒体地址和 HLS 清单；IPTV 频道列表请通过 IPTV 添加。") },
+        { QStringLiteral("link.sessionOnly"), QStringLiteral("链接仅在本次应用运行期间保留。") },
+        { QStringLiteral("link.mediaType"), QStringLiteral("链接视频流") },
+        { QStringLiteral("link.errorEmpty"), QStringLiteral("请输入播放链接") },
+        { QStringLiteral("link.errorTooLong"), QStringLiteral("播放链接过长") },
+        { QStringLiteral("link.errorInvalid"), QStringLiteral("请输入有效的 HTTP 或 HTTPS 绝对链接") },
+        { QStringLiteral("link.errorScheme"), QStringLiteral("仅支持 HTTP 和 HTTPS 播放链接") },
+        { QStringLiteral("link.errorHost"), QStringLiteral("播放链接必须包含主机地址") },
+        { QStringLiteral("link.errorCredentials"), QStringLiteral("暂不支持在播放链接中嵌入账号或密码") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("继续观看") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("点击后进入媒体详情页") },
         { QStringLiteral("section.noProgress"), QStringLiteral("暂无继续观看内容") },
@@ -1229,6 +1283,20 @@ bool AppViewModel::localMediaDirectoryOpen() const
 bool AppViewModel::localMediaLoading() const
 {
     return m_localMediaLoading;
+}
+
+QString AppViewModel::linkPlaybackAddress() const
+{
+    return m_linkPlaybackAddress;
+}
+
+void AppViewModel::setLinkPlaybackAddress(const QString& value)
+{
+    if (m_linkPlaybackAddress == value) {
+        return;
+    }
+    m_linkPlaybackAddress = value;
+    emit linkPlaybackAddressChanged();
 }
 
 WebDavItemListModel* AppViewModel::webDavItems()
@@ -2539,6 +2607,56 @@ void AppViewModel::refreshLocalMediaDirectory()
     } else {
         refreshLocalMediaRoots();
     }
+}
+
+void AppViewModel::openLinkPlayback()
+{
+    clearError();
+    clearCurrentPlayback();
+    m_selectedItem.reset();
+    clearSeriesDetails();
+    syncSelectedPeople();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("link"));
+}
+
+bool AppViewModel::playLink()
+{
+    clearError();
+    const auto playbackUrl = LinkPlaybackService::resolvePlaybackUrl(m_linkPlaybackAddress);
+    if (!playbackUrl) {
+        setError(trText(linkPlaybackErrorKey(playbackUrl.error())));
+        AppLogger::warning(QStringLiteral("link-playback"), QStringLiteral("Rejected an invalid playback link"));
+        return false;
+    }
+
+    clearCurrentPlayback();
+    setForegroundPlaybackActive(true);
+    m_playbackOrigin = PlaybackOrigin::Link;
+    m_currentPlaybackUrl = *playbackUrl;
+    m_currentIptvChannelId.clear();
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_playbackHttpUsername.clear();
+    m_playbackHttpPassword.clear();
+    m_playbackAllowInsecureTls = false;
+    m_currentPlaybackStartSeconds = 0.0;
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = false;
+
+    MediaItem item;
+    item.id = QStringLiteral("link-playback");
+    item.name = LinkPlaybackService::displayName(*playbackUrl);
+    item.itemType = trText(QStringLiteral("link.mediaType"));
+    m_selectedItem = std::move(item);
+    clearSeriesDetails();
+    syncSelectedPeople();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("player"));
+    AppLogger::info(QStringLiteral("link-playback"), QStringLiteral("Opening HTTP media playback"));
+    return true;
 }
 
 void AppViewModel::playIptvChannel(int row)
@@ -4380,7 +4498,9 @@ void AppViewModel::playSelectedItem()
 
 void AppViewModel::reportPlaybackStarted()
 {
-    if (m_playbackOrigin == PlaybackOrigin::Local || m_playbackOrigin == PlaybackOrigin::None) {
+    if (m_playbackOrigin == PlaybackOrigin::Local ||
+        m_playbackOrigin == PlaybackOrigin::Link ||
+        m_playbackOrigin == PlaybackOrigin::None) {
         return;
     }
     beginPlaybackUsageTracking();
@@ -4406,7 +4526,9 @@ void AppViewModel::reportPlaybackStarted()
 
 void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
 {
-    if (m_playbackOrigin == PlaybackOrigin::Local || m_playbackOrigin == PlaybackOrigin::None) {
+    if (m_playbackOrigin == PlaybackOrigin::Local ||
+        m_playbackOrigin == PlaybackOrigin::Link ||
+        m_playbackOrigin == PlaybackOrigin::None) {
         return;
     }
     if (!m_playbackUsageActive) {
@@ -4493,6 +4615,10 @@ void AppViewModel::closePlayerToDetails()
     emit playbackChanged();
     if (playbackOrigin == PlaybackOrigin::Local) {
         setCurrentView(hasLocalDirectory ? QStringLiteral("local") : QStringLiteral("services"));
+        return;
+    }
+    if (playbackOrigin == PlaybackOrigin::Link) {
+        setCurrentView(QStringLiteral("link"));
         return;
     }
     if (m_currentWebDavCard) {

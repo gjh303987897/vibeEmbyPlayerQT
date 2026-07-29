@@ -117,6 +117,8 @@ ApplicationWindow {
             return Qt.rgba(1.0, 0.478, 0.239, 1.0)
         case "local":
             return Qt.rgba(0.180, 0.745, 0.690, 1.0)
+        case "link":
+            return Qt.rgba(0.376, 0.506, 0.941, 1.0)
         default:
             return Qt.rgba(0.392, 0.455, 0.545, 1.0)
         }
@@ -1134,6 +1136,8 @@ ApplicationWindow {
                         appViewModel.webDavBack()
                     } else if (appViewModel.currentView === "local") {
                         appViewModel.localMediaBack()
+                    } else if (appViewModel.currentView === "link") {
+                        appViewModel.backToServices()
                     } else if (appViewModel.currentView === "search") {
                         appViewModel.clearServerSearch()
                     } else if (appViewModel.currentView === "library") {
@@ -1165,6 +1169,7 @@ ApplicationWindow {
                             : appViewModel.currentView === "history" ? t("history.title")
                             : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
                             : appViewModel.currentView === "local" ? t("local.title")
+                            : appViewModel.currentView === "link" ? t("link.title")
                             : appViewModel.currentView === "services" ? t("nav.services")
                                 : appViewModel.currentServerName
                         color: theme.text
@@ -1205,6 +1210,7 @@ ApplicationWindow {
                         : appViewModel.currentView === "history" ? (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
                         : appViewModel.currentView === "scheduledTasks" ? t("schedule.subtitle")
                         : appViewModel.currentView === "local" ? (appViewModel.localMediaDirectoryOpen ? appViewModel.localMediaCurrentPath : t("local.subtitle"))
+                        : appViewModel.currentView === "link" ? t("link.subtitle")
                         : appViewModel.currentView === "iptv" ? appViewModel.currentUser
                         : appViewModel.loggedIn ? appViewModel.currentUser
                         : t("nav.chooseSource")
@@ -1370,7 +1376,8 @@ ApplicationWindow {
                     : appViewModel.currentView === "history" ? 9
                     : appViewModel.currentView === "scheduledTasks" ? 10
                     : appViewModel.currentView === "local" ? 11
-                    : 12
+                    : appViewModel.currentView === "link" ? 12
+                    : 13
 
                 transform: [
                     Translate {
@@ -1466,18 +1473,41 @@ ApplicationWindow {
                         anchors.fill: parent
                         spacing: 16
 
-                        ServiceCard {
-                            Layout.preferredWidth: Math.min(420, servicePage.width)
-                            Layout.preferredHeight: 156
-                            editing: false
-                            serviceName: t("local.title")
-                            serviceType: "Local"
-                            host: t("local.subtitle")
-                            leadingStatusText: t("local.builtIn")
-                            leadingStatusColor: theme.success
-                            trailingStatusText: t("local.folderCount").arg(appViewModel.localMediaRoots.count)
-                            trailingStatusColor: theme.primary
-                            onActivated: appViewModel.openLocalMedia()
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 16
+
+                            ServiceCard {
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: 520
+                                Layout.preferredHeight: 156
+                                editing: false
+                                serviceName: t("local.title")
+                                serviceType: "Local"
+                                host: t("local.subtitle")
+                                leadingStatusText: t("local.builtIn")
+                                leadingStatusColor: theme.success
+                                trailingStatusText: t("local.folderCount").arg(appViewModel.localMediaRoots.count)
+                                trailingStatusColor: theme.primary
+                                onActivated: appViewModel.openLocalMedia()
+                            }
+
+                            ServiceCard {
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: 520
+                                Layout.preferredHeight: 156
+                                editing: false
+                                serviceName: t("link.title")
+                                serviceType: "Link"
+                                host: t("link.subtitle")
+                                leadingStatusText: t("local.builtIn")
+                                leadingStatusColor: theme.success
+                                trailingStatusText: t("link.protocols")
+                                trailingStatusColor: root.serviceAccentColor("Link")
+                                onActivated: appViewModel.openLinkPlayback()
+                            }
+
+                            Item { Layout.fillWidth: true }
                         }
 
                         Item {
@@ -1893,6 +1923,8 @@ ApplicationWindow {
                 ScheduledTasksPage {}
 
                 LocalMediaPage {}
+
+                LinkPlaybackPage {}
 
                 SettingsPage {}
             }
@@ -3176,6 +3208,17 @@ ApplicationWindow {
                         context.lineTo(22, 18.5)
                         context.closePath()
                         context.fill()
+                    } else if (serviceIcon.normalizedType === "link") {
+                        context.save()
+                        context.translate(17, 17)
+                        context.rotate(-Math.PI / 4)
+                        context.strokeStyle = "#ffffff"
+                        context.lineWidth = 2.6
+                        roundedRectPath(context, -13, -5, 16, 10, 5)
+                        context.stroke()
+                        roundedRectPath(context, -3, -5, 16, 10, 5)
+                        context.stroke()
+                        context.restore()
                     } else if (serviceIcon.normalizedType === "local") {
                         context.fillStyle = "#ffffff"
                         context.beginPath()
@@ -8032,6 +8075,131 @@ ApplicationWindow {
                             color: theme.text
                             font.pixelSize: 18
                             font.bold: true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    component LinkPlaybackPage: Item {
+        id: linkPlaybackPage
+
+        onVisibleChanged: {
+            if (visible) {
+                Qt.callLater(linkAddressField.forceActiveFocus)
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 18
+
+            SectionHeader {
+                Layout.fillWidth: true
+                title: t("link.formTitle")
+                subtitle: t("link.formSubtitle")
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    width: Math.min(760, parent.width)
+                    height: linkForm.implicitHeight + 48
+                    radius: 16
+                    color: theme.elevated
+                    border.color: theme.border
+
+                    ColumnLayout {
+                        id: linkForm
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 24
+                        spacing: 14
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 14
+
+                            ServiceTypeIcon {
+                                Layout.preferredWidth: 54
+                                Layout.preferredHeight: 54
+                                serviceType: "Link"
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 3
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: t("link.title")
+                                    color: theme.text
+                                    font.pixelSize: 19
+                                    font.bold: true
+                                }
+
+                                MutedText {
+                                    Layout.fillWidth: true
+                                    text: t("link.protocols")
+                                }
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: t("link.address")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        ModernTextField {
+                            id: linkAddressField
+                            Layout.fillWidth: true
+                            placeholderText: t("link.placeholder")
+                            text: appViewModel.linkPlaybackAddress
+                            selectByMouse: true
+                            onTextChanged: appViewModel.linkPlaybackAddress = text
+                            onAccepted: appViewModel.playLink()
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("link.sessionOnly")
+                                wrapMode: Text.WordWrap
+                            }
+
+                            ModernButton {
+                                text: t("link.playNow")
+                                enabled: linkAddressField.text.trim().length > 0
+                                onClicked: appViewModel.playLink()
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: linkHint.implicitHeight + 22
+                            radius: 10
+                            color: root.withAlpha(root.serviceAccentColor("Link"), darkTheme ? 0.12 : 0.08)
+                            border.color: root.withAlpha(root.serviceAccentColor("Link"), 0.34)
+
+                            MutedText {
+                                id: linkHint
+                                anchors.fill: parent
+                                anchors.margins: 11
+                                text: t("link.supportedHint")
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }
