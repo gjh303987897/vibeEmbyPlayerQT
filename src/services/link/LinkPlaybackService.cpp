@@ -33,7 +33,7 @@ LinkPlaybackService::UrlResult LinkPlaybackService::resolvePlaybackUrl(const QSt
     }
 
     url.setScheme(scheme);
-    url.setFragment({});
+    url.setFragment(QString {});
     return url;
 }
 
@@ -50,7 +50,7 @@ QString LinkPlaybackService::displayName(const QUrl& url)
 QString LinkPlaybackService::displayAddress(const QUrl& url)
 {
     auto displayUrl = url;
-    displayUrl.setQuery({});
-    displayUrl.setFragment({});
+    displayUrl.setQuery(QString {});
+    displayUrl.setFragment(QString {});
     return displayUrl.toDisplayString();
 }
