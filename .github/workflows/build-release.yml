@@ -19,14 +19,47 @@ env:
   BUILD_TYPE: Release
   QT_VERSION: 6.7.3
   AQT_VERSION: 3.3.0
+  FLATPAK_RUNTIME_VERSION: '25.08'
   MPV_WINBUILD_REPOSITORY: zhongfly/mpv-winbuild
   MPV_WINBUILD_ASSET_PATTERN: '^mpv-dev-x86_64-[0-9]{8}-git-[0-9a-fA-F]+\.7z$'
 
 jobs:
+  metadata:
+    name: Resolve package metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      package-version: ${{ steps.version.outputs.package-version }}
+      installer-version: ${{ steps.version.outputs.installer-version }}
+
+    steps:
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            package_version="$GITHUB_REF_NAME"
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [[ "$tag_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              installer_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+            else
+              echo "Tag does not contain a numeric installer version: $GITHUB_REF_NAME"
+              exit 1
+            fi
+          else
+            package_version="${GITHUB_SHA::7}"
+            installer_version=""
+          fi
+          echo "package-version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "installer-version=$installer_version" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.package-suffix }}
+    needs: metadata
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    env:
+      PACKAGE_VERSION: ${{ needs.metadata.outputs.package-version }}
+      INSTALLER_VERSION: ${{ needs.metadata.outputs.installer-version }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,25 +96,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Export package version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            package_version="$GITHUB_REF_NAME"
-            tag_version="${GITHUB_REF_NAME#v}"
-            if [[ "$tag_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              installer_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-            else
-              echo "Tag does not contain a numeric installer version: $GITHUB_REF_NAME"
-              exit 1
-            fi
-          else
-            package_version="${GITHUB_SHA::7}"
-            installer_version=""
-          fi
-          echo "PACKAGE_VERSION=$package_version" >> "$GITHUB_ENV"
-          echo "INSTALLER_VERSION=$installer_version" >> "$GITHUB_ENV"
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -116,15 +130,10 @@ jobs:
             libxcb-xkb1 \
             libxkbcommon-dev \
             libxkbcommon-x11-0 \
-            dpkg-dev \
-            flatpak \
-            imagemagick \
             ninja-build \
-            ostree \
             p7zip-full \
             patchelf \
-            pkg-config \
-            rpm
+            pkg-config
 
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
@@ -321,17 +330,228 @@ jobs:
           test -f "$PACKAGE_DIR/share/icons/hicolor/1024x1024/apps/vibePlayerQT.png"
           ldd "$PACKAGE_DIR/bin/vibePlayerQT"
 
-      - name: Package Windows artifacts
+      - name: Stage Windows build input
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
+          New-Item -ItemType Directory -Force build-input | Out-Null
           Compress-Archive `
             -Path "$env:PACKAGE_DIR\*" `
-            -DestinationPath "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}.zip" `
+            -DestinationPath "build-input\package.zip" `
             -Force
+          Copy-Item build\CPackConfig.cmake build-input\CPackConfig.cmake
 
-          $makensis = Get-Command makensis.exe -ErrorAction Stop
+      - name: Stage macOS build input
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-input
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$PACKAGE_DIR/vibePlayerQT.app" \
+            build-input/package.zip
+          cp build/CPackConfig.cmake build-input/CPackConfig.cmake
+
+      - name: Stage Linux build input
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-input
+          tar -C "$PACKAGE_DIR" -czf build-input/package.tar.gz .
+          cp build/CPackConfig.cmake build-input/CPackConfig.cmake
+
+      - name: Upload build input
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-input-${{ matrix.package-suffix }}
+          path: build-input/*
+          if-no-files-found: error
+          retention-days: 1
+
+  portable:
+    name: Package portable ${{ matrix.package-suffix }}
+    needs:
+      - metadata
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PACKAGE_VERSION: ${{ needs.metadata.outputs.package-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package-suffix: windows-x86_64
+            input-file: package.zip
+            extension: zip
+          - package-suffix: macos-x86_64
+            input-file: package.zip
+            extension: zip
+          - package-suffix: macos-arm64
+            input-file: package.zip
+            extension: zip
+          - package-suffix: linux-x86_64
+            input-file: package.tar.gz
+            extension: tar.gz
+          - package-suffix: linux-arm64
+            input-file: package.tar.gz
+            extension: tar.gz
+
+    steps:
+      - name: Download build input
+        uses: actions/download-artifact@v4
+        with:
+          name: build-input-${{ matrix.package-suffix }}
+          path: build-input
+
+      - name: Publish portable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp \
+            "build-input/${{ matrix.input-file }}" \
+            "dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.${{ matrix.extension }}"
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-portable-${{ matrix.package-suffix }}
+          path: dist/*
+          if-no-files-found: error
+
+  native:
+    name: Package ${{ matrix.format-label }} ${{ matrix.package-suffix }}
+    needs:
+      - metadata
+      - build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PACKAGE_VERSION: ${{ needs.metadata.outputs.package-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - format-label: NSIS EXE
+            artifact-key: nsis
+            cpack-generator: NSIS
+            extension: exe
+            file-suffix: -installer
+            package-suffix: windows-x86_64
+            os: windows-2022
+          - format-label: MSI
+            artifact-key: msi
+            cpack-generator: WIX
+            extension: msi
+            file-suffix: -installer
+            package-suffix: windows-x86_64
+            os: windows-2022
+          - format-label: DMG
+            artifact-key: dmg
+            cpack-generator: DragNDrop
+            extension: dmg
+            file-suffix: ''
+            package-suffix: macos-x86_64
+            os: macos-15-intel
+          - format-label: DMG
+            artifact-key: dmg
+            cpack-generator: DragNDrop
+            extension: dmg
+            file-suffix: ''
+            package-suffix: macos-arm64
+            os: macos-15
+          - format-label: DEB
+            artifact-key: deb
+            cpack-generator: DEB
+            extension: deb
+            file-suffix: ''
+            package-suffix: linux-x86_64
+            os: ubuntu-24.04
+          - format-label: DEB
+            artifact-key: deb
+            cpack-generator: DEB
+            extension: deb
+            file-suffix: ''
+            package-suffix: linux-arm64
+            os: ubuntu-24.04-arm
+          - format-label: RPM
+            artifact-key: rpm
+            cpack-generator: RPM
+            extension: rpm
+            file-suffix: ''
+            package-suffix: linux-x86_64
+            os: ubuntu-24.04
+          - format-label: RPM
+            artifact-key: rpm
+            cpack-generator: RPM
+            extension: rpm
+            file-suffix: ''
+            package-suffix: linux-arm64
+            os: ubuntu-24.04-arm
+
+    steps:
+      - name: Check out packaging source
+        uses: actions/checkout@v4
+
+      - name: Download build input
+        uses: actions/download-artifact@v4
+        with:
+          name: build-input-${{ matrix.package-suffix }}
+          path: build-input
+
+      - name: Restore Windows package directory
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Expand-Archive build-input\package.zip package -Force
+
+      - name: Restore macOS package directory
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          ditto -x -k build-input/package.zip package
+
+      - name: Restore Linux package directory
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          tar -C package -xzf build-input/package.tar.gz
+
+      - name: Install Linux native packaging tool
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          case "${{ matrix.cpack-generator }}" in
+            DEB)
+              sudo apt-get install -y dpkg-dev
+              ;;
+            RPM)
+              sudo apt-get install -y rpm
+              ;;
+            *)
+              echo "Unsupported Linux native generator: ${{ matrix.cpack-generator }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Locate Windows installer tool
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ("${{ matrix.cpack-generator }}" -eq "NSIS") {
+            $makensis = Get-Command makensis.exe -ErrorAction Stop
+            Write-Host "Using NSIS: $($makensis.Source)"
+            exit 0
+          }
+
           $candle = Get-Command candle.exe -ErrorAction SilentlyContinue
           if (!$candle) {
             $candle = Get-ChildItem `
@@ -342,114 +562,141 @@ jobs:
               throw "WiX Toolset v3 candle.exe was not found"
             }
             $env:WIX = Split-Path (Split-Path $candle.FullName -Parent) -Parent
+            "WIX=$($env:WIX)" | Out-File -FilePath $env:GITHUB_ENV -Append
           }
-          Write-Host "Using NSIS: $($makensis.Source)"
           $candlePath = $candle.Source
           if (!$candlePath) {
             $candlePath = $candle.FullName
           }
           Write-Host "Using WiX: $candlePath"
 
-          $nsisOut = Join-Path $env:RUNNER_TEMP "cpack-nsis"
-          $wixOut = Join-Path $env:RUNNER_TEMP "cpack-wix"
-          cpack -G NSIS -C $env:BUILD_TYPE --config build\CPackConfig.cmake -B $nsisOut
-          cpack -G WIX -C $env:BUILD_TYPE --config build\CPackConfig.cmake -B $wixOut
-
-          $nsisPackages = @(Get-ChildItem -LiteralPath $nsisOut -Filter *.exe -File)
-          $wixPackages = @(Get-ChildItem -LiteralPath $wixOut -Filter *.msi -File)
-          if ($nsisPackages.Count -ne 1) {
-            throw "Expected one NSIS installer, found $($nsisPackages.Count)"
-          }
-          if ($wixPackages.Count -ne 1) {
-            throw "Expected one MSI installer, found $($wixPackages.Count)"
-          }
-          Copy-Item $nsisPackages[0].FullName `
-            "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}-installer.exe"
-          Copy-Item $wixPackages[0].FullName `
-            "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}-installer.msi"
-
-      - name: Package macOS artifacts
-        if: runner.os == 'macOS'
-        shell: bash
+      - name: Package Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          set -euo pipefail
-          mkdir -p dist
-          (
-            cd "$PACKAGE_DIR"
-            ditto -c -k --sequesterRsrc --keepParent \
-              vibePlayerQT.app \
-              "../dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.zip"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $packageDir = (Resolve-Path package).Path.Replace('\', '/')
+          $workspaceDir = $env:GITHUB_WORKSPACE.Replace('\', '/')
+          $outputDir = Join-Path $env:RUNNER_TEMP "cpack-${{ matrix.artifact-key }}"
+          $cpackArgs = @(
+            "-G", "${{ matrix.cpack-generator }}",
+            "-C", "$env:BUILD_TYPE",
+            "--config", "build-input\CPackConfig.cmake",
+            "-B", "$outputDir",
+            "-D", "CPACK_INSTALL_CMAKE_PROJECTS=",
+            "-D", "CPACK_INSTALLED_DIRECTORIES=$packageDir;.",
+            "-D", "CPACK_NSIS_MUI_ICON=$workspaceDir/icon/app_icon.ico",
+            "-D", "CPACK_NSIS_MUI_UNIICON=$workspaceDir/icon/app_icon.ico",
+            "-D", "CPACK_WIX_PRODUCT_ICON=$workspaceDir/icon/app_icon.ico"
           )
+          cpack @cpackArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "CPack exited with code $LASTEXITCODE"
+          }
 
-          dmg_dir="$RUNNER_TEMP/cpack-dmg"
-          rm -rf "$dmg_dir"
-          cpack -G DragNDrop -C "$BUILD_TYPE" --config build/CPackConfig.cmake -B "$dmg_dir"
-          shopt -s nullglob
-          dmg_files=("$dmg_dir"/*.dmg)
-          shopt -u nullglob
-          if [[ ${#dmg_files[@]} -ne 1 ]]; then
-            echo "Expected one DMG, found ${#dmg_files[@]}"
-            exit 1
-          fi
-          cp "${dmg_files[0]}" "dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.dmg"
+          $packages = @(Get-ChildItem -LiteralPath $outputDir -Filter "*.${{ matrix.extension }}" -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected one ${{ matrix.extension }} package, found $($packages.Count)"
+          }
+          Copy-Item $packages[0].FullName `
+            "dist\vibePlayerQT-$($env:PACKAGE_VERSION)-${{ matrix.package-suffix }}${{ matrix.file-suffix }}.${{ matrix.extension }}"
 
-      - name: Package Linux archive and native packages
-        if: runner.os == 'Linux'
+      - name: Package Unix native artifact
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          tar -C "$PACKAGE_DIR" -czf "dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.tar.gz" .
+          package_dir="$(realpath package)"
+          output_dir="$RUNNER_TEMP/cpack-${{ matrix.artifact-key }}"
+          rm -rf "$output_dir"
 
-          deb_dir="$RUNNER_TEMP/cpack-deb"
-          rpm_dir="$RUNNER_TEMP/cpack-rpm"
-          rm -rf "$deb_dir" "$rpm_dir"
-          cpack -G DEB -C "$BUILD_TYPE" --config build/CPackConfig.cmake -B "$deb_dir"
-          cpack -G RPM -C "$BUILD_TYPE" --config build/CPackConfig.cmake -B "$rpm_dir"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            install_subdir="/usr"
+          else
+            install_subdir="."
+          fi
+
+          cpack \
+            -G "${{ matrix.cpack-generator }}" \
+            -C "$BUILD_TYPE" \
+            --config build-input/CPackConfig.cmake \
+            -B "$output_dir" \
+            -D "CPACK_INSTALL_CMAKE_PROJECTS=" \
+            -D "CPACK_INSTALLED_DIRECTORIES=${package_dir};${install_subdir}"
 
           shopt -s nullglob
-          deb_files=("$deb_dir"/*.deb)
-          rpm_files=("$rpm_dir"/*.rpm)
+          packages=("$output_dir"/*.${{ matrix.extension }})
           shopt -u nullglob
-          if [[ ${#deb_files[@]} -ne 1 ]]; then
-            echo "Expected one DEB package, found ${#deb_files[@]}"
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            echo "Expected one ${{ matrix.extension }} package, found ${#packages[@]}"
             exit 1
           fi
-          if [[ ${#rpm_files[@]} -ne 1 ]]; then
-            echo "Expected one RPM package, found ${#rpm_files[@]}"
-            exit 1
-          fi
+          output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}${{ matrix.file-suffix }}.${{ matrix.extension }}"
+          cp "${packages[0]}" "$output"
 
-          deb_output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.deb"
-          rpm_output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.rpm"
-          cp "${deb_files[0]}" "$deb_output"
-          cp "${rpm_files[0]}" "$rpm_output"
-          dpkg-deb --info "$deb_output"
-          rpm -qip "$rpm_output"
-
-      - name: Package Linux AppImage
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          case "${{ matrix.package-suffix }}" in
-            linux-x86_64)
-              appimage_arch="x86_64"
+          case "${{ matrix.cpack-generator }}" in
+            DEB)
+              dpkg-deb --info "$output"
               ;;
-            linux-arm64)
-              appimage_arch="aarch64"
-              ;;
-            *)
-              echo "Unsupported AppImage package suffix: ${{ matrix.package-suffix }}"
-              exit 1
+            RPM)
+              rpm -qip "$output"
               ;;
           esac
 
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.artifact-key }}-${{ matrix.package-suffix }}
+          path: dist/*
+          if-no-files-found: error
+
+  appimage:
+    name: Package AppImage ${{ matrix.package-suffix }}
+    needs:
+      - metadata
+      - build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PACKAGE_VERSION: ${{ needs.metadata.outputs.package-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package-suffix: linux-x86_64
+            os: ubuntu-24.04
+            appimage-arch: x86_64
+          - package-suffix: linux-arm64
+            os: ubuntu-24.04-arm
+            appimage-arch: aarch64
+
+    steps:
+      - name: Check out packaging source
+        uses: actions/checkout@v4
+
+      - name: Download Linux build input
+        uses: actions/download-artifact@v4
+        with:
+          name: build-input-${{ matrix.package-suffix }}
+          path: build-input
+
+      - name: Restore Linux package directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          tar -C package -xzf build-input/package.tar.gz
+
+      - name: Package AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
           appdir="$RUNNER_TEMP/vibePlayerQT.AppDir"
           rm -rf "$appdir"
           mkdir -p "$appdir"
-          cp -a "$PACKAGE_DIR/." "$appdir/"
+          cp -a package/. "$appdir/"
 
           cat > "$appdir/AppRun" <<'EOF'
           #!/usr/bin/env bash
@@ -465,53 +712,122 @@ jobs:
           cp "$appdir/share/icons/hicolor/1024x1024/apps/vibePlayerQT.png" "$appdir/vibePlayerQT.png"
           ln -sf vibePlayerQT.png "$appdir/.DirIcon"
 
-          appimagetool="$RUNNER_TEMP/appimagetool-${appimage_arch}.AppImage"
+          appimagetool="$RUNNER_TEMP/appimagetool-${{ matrix.appimage-arch }}.AppImage"
           curl -L --retry 3 \
-            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${appimage_arch}.AppImage" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage-arch }}.AppImage" \
             -o "$appimagetool"
           chmod +x "$appimagetool"
 
           output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.AppImage"
-          ARCH="$appimage_arch" APPIMAGE_EXTRACT_AND_RUN=1 "$appimagetool" "$appdir" "$output"
+          ARCH="${{ matrix.appimage-arch }}" APPIMAGE_EXTRACT_AND_RUN=1 \
+            "$appimagetool" "$appdir" "$output"
           test -s "$output"
           chmod +x "$output"
 
-      - name: Package Linux Flatpak bundle
-        if: runner.os == 'Linux'
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-appimage-${{ matrix.package-suffix }}
+          path: dist/*
+          if-no-files-found: error
+
+  flatpak:
+    name: Package Flatpak ${{ matrix.package-suffix }}
+    needs:
+      - metadata
+      - build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PACKAGE_VERSION: ${{ needs.metadata.outputs.package-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package-suffix: linux-x86_64
+            os: ubuntu-24.04
+            flatpak-arch: x86_64
+          - package-suffix: linux-arm64
+            os: ubuntu-24.04-arm
+            flatpak-arch: aarch64
+
+    steps:
+      - name: Check out packaging source
+        uses: actions/checkout@v4
+
+      - name: Download Linux build input
+        uses: actions/download-artifact@v4
+        with:
+          name: build-input-${{ matrix.package-suffix }}
+          path: build-input
+
+      - name: Restore Linux package directory
         shell: bash
         run: |
           set -euo pipefail
-          case "${{ matrix.package-suffix }}" in
-            linux-x86_64)
-              flatpak_arch="x86_64"
-              ;;
-            linux-arm64)
-              flatpak_arch="aarch64"
-              ;;
-            *)
-              echo "Unsupported Flatpak package suffix: ${{ matrix.package-suffix }}"
-              exit 1
-              ;;
-          esac
+          mkdir -p package
+          tar -C package -xzf build-input/package.tar.gz
 
+      - name: Install Flatpak packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y flatpak imagemagick ostree
+
+      - name: Install Flatpak SDK and runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          flatpak remote-add \
+            --user \
+            --if-not-exists \
+            flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install \
+            --user \
+            --noninteractive \
+            --arch="${{ matrix.flatpak-arch }}" \
+            flathub \
+            "org.freedesktop.Platform//$FLATPAK_RUNTIME_VERSION" \
+            "org.freedesktop.Sdk//$FLATPAK_RUNTIME_VERSION"
+          flatpak info \
+            --user \
+            --arch="${{ matrix.flatpak-arch }}" \
+            org.freedesktop.Platform \
+            "$FLATPAK_RUNTIME_VERSION"
+          flatpak info \
+            --user \
+            --arch="${{ matrix.flatpak-arch }}" \
+            org.freedesktop.Sdk \
+            "$FLATPAK_RUNTIME_VERSION"
+
+      - name: Package Flatpak bundle
+        shell: bash
+        run: |
+          set -euo pipefail
           output="dist/vibePlayerQT-${PACKAGE_VERSION}-${{ matrix.package-suffix }}.flatpak"
           bash packaging/flatpak/build-bundle.sh \
-            "$PACKAGE_DIR" \
+            package \
             "$output" \
-            "$flatpak_arch"
+            "${{ matrix.flatpak-arch }}"
           test -s "$output"
 
-      - name: Upload packaged artifact
+      - name: Upload Flatpak artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vibePlayerQT-${{ matrix.package-suffix }}
+          name: release-flatpak-${{ matrix.package-suffix }}
           path: dist/*
           if-no-files-found: error
 
   release:
     name: Publish GitHub release
     runs-on: ubuntu-24.04
-    needs: build
+    needs:
+      - portable
+      - native
+      - appimage
+      - flatpak
     timeout-minutes: 30
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
@@ -519,9 +835,10 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
 
-      - name: Download build artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: release-*
           path: release-assets
           merge-multiple: true
 
