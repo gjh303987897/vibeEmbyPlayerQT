@@ -1340,12 +1340,13 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 property int previousIndex: -1
                 property bool transitionReady: false
+                readonly property int playerViewIndex: 5
                 currentIndex: appViewModel.currentView === "services" ? 0
                     : appViewModel.currentView === "home" ? 1
                     : appViewModel.currentView === "library" ? 2
                     : appViewModel.currentView === "search" ? 3
                     : appViewModel.currentView === "details" ? 4
-                    : appViewModel.currentView === "player" ? 5
+                    : appViewModel.currentView === "player" ? playerViewIndex
                     : appViewModel.currentView === "iptv" ? 6
                     : appViewModel.currentView === "webdav" ? 7
                     : appViewModel.currentView === "transfers" ? 8
@@ -1380,6 +1381,15 @@ ApplicationWindow {
                     pageStack.previousIndex = nextIndex
 
                     if (!pageStack.transitionReady) {
+                        return
+                    }
+
+                    // The embedded video surface and player chrome are native windows. They
+                    // cannot follow a Qt Quick parent transform, so keep their global geometry
+                    // stable while entering the player page.
+                    if (nextIndex === pageStack.playerViewIndex) {
+                        pageStack.resetTransition()
+                        Qt.callLater(playerPageInstance.raiseChromeWindows)
                         return
                     }
 

@@ -71,6 +71,8 @@ With libmpv Window Embedding, the video surface is a platform-native child windo
 
 The top and bottom chrome windows cover only their own control-bar heights. The center of the video is not covered by a transparent window, so pointer reveal and double-click fullscreen behavior still come from the main player page. The application enables `QQuickWindow::setDefaultAlphaBuffer(true)` before creating QML windows so the floating chrome remains transparent on Windows.
 
+The player view deliberately skips the application's translated/scaled page-entry animation. The embedded video surface and chrome bars are separate native windows, while the animation transforms only the Qt Quick item hierarchy. Calculating their global geometry during that transform would leave controls offset after opening playback until an unrelated main-window move or resize resynchronized them. Other pages retain the normal transition animation, and the player chrome is raised and resynchronized after the stable player layout is selected.
+
 Controls include:
 
 - exit playback
