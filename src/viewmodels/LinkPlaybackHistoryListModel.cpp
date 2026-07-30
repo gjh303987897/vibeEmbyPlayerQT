@@ -36,6 +36,8 @@ QVariant LinkPlaybackHistoryListModel::data(const QModelIndex& index, int role) 
         return item.playedDate.toString(Qt::ISODate);
     case PlayedTimeRole:
         return item.playedAt.toLocalTime().time().toString(QStringLiteral("HH:mm"));
+    case PrivacyModeRole:
+        return item.privacyMode;
     default:
         return {};
     }
@@ -49,6 +51,7 @@ QHash<int, QByteArray> LinkPlaybackHistoryListModel::roleNames() const
         { DisplayAddressRole, "displayAddress" },
         { PlayedDateRole, "playedDate" },
         { PlayedTimeRole, "playedTime" },
+        { PrivacyModeRole, "privacyMode" },
     };
 }
 

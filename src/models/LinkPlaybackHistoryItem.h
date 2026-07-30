@@ -12,4 +12,5 @@ struct LinkPlaybackHistoryItem {
     QString displayAddress;
     QDate playedDate;
     QDateTime playedAt;
+    bool privacyMode { false };
 };

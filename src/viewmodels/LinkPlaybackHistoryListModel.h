@@ -17,6 +17,7 @@ public:
         DisplayAddressRole,
         PlayedDateRole,
         PlayedTimeRole,
+        PrivacyModeRole,
     };
 
     explicit LinkPlaybackHistoryListModel(QObject* parent = nullptr);

@@ -32,6 +32,7 @@ tests/*
 !tests/LocalMediaServiceTest.cpp
 !tests/LinkPlaybackServiceTest.cpp
 !tests/LinkPlaybackHistoryTest.cpp
+!tests/PlaybackHistoryTest.cpp
 test-runtime/
 local-data/
 local-data*/

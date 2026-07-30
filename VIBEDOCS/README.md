@@ -13,5 +13,6 @@
 - `PlayerRuntime.md`：libmpv runtime、Window Embedding、QML 播放页和播放 URL 流程。
 - `LocalPlayback.md`：轻量本地目录浏览、后台枚举、路径边界与播放来源隔离。
 - `LinkPlayback.md`：HTTP/HTTPS 直接媒体与 HLS 链接校验、按日期保存的播放历史、单条删除、流量统计及安全边界。
+- `GlobalPlaybackHistory.md`：六类播放来源的统一历史、SQLite 数据模型、进度更新、隐私隔离与重播路由。
 - `WebDAV.md`：WebDAV 协议边界、下载规划、总任务/文件明细模型与传输统计口径。
 - `GitHubActionsRelease.md`：跨平台构建、原生安装包、Flatpak 与 GitHub Release 发布流程。

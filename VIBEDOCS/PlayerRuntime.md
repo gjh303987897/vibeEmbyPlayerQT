@@ -17,6 +17,7 @@ The current implementation covers:
 - manual loading and immediate selection of a local external subtitle file.
 - player exit confirmation, immersive player fullscreen toggle and Esc behavior.
 - Emby / Jellyfin playback start, progress and stop reporting.
+- Unified playback history for Emby, Jellyfin, WebDAV, IPTV, local files, and direct links.
 
 The current implementation does not yet cover:
 
@@ -144,6 +145,8 @@ During playback, `AppViewModel` reports:
 - stop: `POST /Sessions/Playing/Stopped`
 
 The body includes the current item id, `PositionTicks`, direct-play method, seek capability and pause state where appropriate. Progress is reported periodically and after pause, seek, fast-forward and rewind actions.
+
+The same player lifecycle feeds Global Playback History. A history occurrence is created only after libmpv reports playback started. Progress updates are throttled before reaching SQLite, while stop and playback-ended events persist the final position. End of file, or reaching at least 97 percent of a known duration, marks the occurrence complete.
 
 This is the minimum direct-play path. More advanced server playback should later query media sources and choose between static stream, transcoding, HLS, server-provided external subtitles, and stream indexes.
 

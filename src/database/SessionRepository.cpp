@@ -200,14 +200,60 @@ std::expected<void, QString> SessionRepository::initialize()
             "id TEXT PRIMARY KEY,"
             "playback_url TEXT NOT NULL,"
             "played_date TEXT NOT NULL,"
-            "played_at TEXT NOT NULL"
+            "played_at TEXT NOT NULL,"
+            "privacy_mode INTEGER NOT NULL DEFAULT 0"
             ")"))) {
         return std::unexpected(sqlError(linkHistoryQuery));
+    }
+    if (auto columnResult = ensureColumn(QStringLiteral("link_playback_history"),
+                                         QStringLiteral("privacy_mode"),
+                                         QStringLiteral("INTEGER NOT NULL DEFAULT 0"));
+        !columnResult) {
+        return columnResult;
     }
     if (!linkHistoryQuery.exec(QStringLiteral(
             "CREATE INDEX IF NOT EXISTS idx_link_playback_history_played_at "
             "ON link_playback_history(played_at DESC)"))) {
         return std::unexpected(sqlError(linkHistoryQuery));
+    }
+
+    QSqlQuery playbackHistoryQuery(m_database);
+    if (!playbackHistoryQuery.exec(QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS playback_history ("
+            "id TEXT PRIMARY KEY,"
+            "source_type TEXT NOT NULL,"
+            "service_id TEXT NOT NULL DEFAULT '',"
+            "service_name TEXT NOT NULL DEFAULT '',"
+            "replay_target TEXT NOT NULL,"
+            "title TEXT NOT NULL,"
+            "subtitle TEXT NOT NULL DEFAULT '',"
+            "played_date TEXT NOT NULL,"
+            "played_at TEXT NOT NULL,"
+            "updated_at TEXT NOT NULL,"
+            "position_seconds INTEGER NOT NULL DEFAULT 0,"
+            "duration_seconds INTEGER NOT NULL DEFAULT 0,"
+            "completed INTEGER NOT NULL DEFAULT 0,"
+            "privacy_mode INTEGER NOT NULL DEFAULT 0"
+            ")"))) {
+        return std::unexpected(sqlError(playbackHistoryQuery));
+    }
+    if (!playbackHistoryQuery.exec(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_playback_history_played_at "
+            "ON playback_history(played_at DESC)"))) {
+        return std::unexpected(sqlError(playbackHistoryQuery));
+    }
+    if (!playbackHistoryQuery.exec(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_playback_history_source "
+            "ON playback_history(source_type, played_at DESC)"))) {
+        return std::unexpected(sqlError(playbackHistoryQuery));
+    }
+    if (!playbackHistoryQuery.exec(QStringLiteral(
+            "INSERT OR IGNORE INTO playback_history "
+            "(id, source_type, service_id, service_name, replay_target, title, subtitle, played_date, played_at, updated_at, "
+            "position_seconds, duration_seconds, completed, privacy_mode) "
+            "SELECT id, 'Link', 'builtin-link-playback', 'Link Playback', playback_url, 'Link Playback', '', "
+            "played_date, played_at, played_at, 0, 0, 0, privacy_mode FROM link_playback_history"))) {
+        return std::unexpected(sqlError(playbackHistoryQuery));
     }
 
     QSqlQuery scheduledTaskQuery(m_database);
@@ -566,29 +612,33 @@ std::expected<void, QString> SessionRepository::saveLinkPlaybackHistory(const Li
 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-        "INSERT INTO link_playback_history (id, playback_url, played_date, played_at) "
-        "VALUES (:id, :playback_url, :played_date, :played_at)"));
+        "INSERT INTO link_playback_history (id, playback_url, played_date, played_at, privacy_mode) "
+        "VALUES (:id, :playback_url, :played_date, :played_at, :privacy_mode)"));
     query.bindValue(QStringLiteral(":id"), item.id);
     query.bindValue(QStringLiteral(":playback_url"), item.playbackUrl.toString(QUrl::FullyEncoded));
     query.bindValue(QStringLiteral(":played_date"), item.playedDate.toString(Qt::ISODate));
     query.bindValue(QStringLiteral(":played_at"), item.playedAt.toUTC().toString(Qt::ISODateWithMs));
+    query.bindValue(QStringLiteral(":privacy_mode"), item.privacyMode ? 1 : 0);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
     }
     return {};
 }
 
-std::expected<std::vector<LinkPlaybackHistoryItem>, QString> SessionRepository::loadLinkPlaybackHistory()
+std::expected<std::vector<LinkPlaybackHistoryItem>, QString> SessionRepository::loadLinkPlaybackHistory(bool includePrivacyMode)
 {
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
 
     QSqlQuery query(m_database);
-    if (!query.exec(QStringLiteral(
-            "SELECT id, playback_url, played_date, played_at "
-            "FROM link_playback_history "
-            "ORDER BY played_at DESC, id DESC"))) {
+    query.prepare(QStringLiteral(
+        "SELECT id, playback_url, played_date, played_at, privacy_mode "
+        "FROM link_playback_history "
+        "WHERE (:include_privacy = 1 OR privacy_mode = 0) "
+        "ORDER BY played_at DESC, id DESC"));
+    query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
+    if (!query.exec()) {
         return std::unexpected(sqlError(query));
     }
 
@@ -604,6 +654,7 @@ std::expected<std::vector<LinkPlaybackHistoryItem>, QString> SessionRepository::
             .playbackUrl = QUrl(query.value(1).toString(), QUrl::StrictMode),
             .playedDate = QDate::fromString(query.value(2).toString(), Qt::ISODate),
             .playedAt = playedAt,
+            .privacyMode = query.value(4).toInt() == 1,
         });
     }
     return items;
@@ -623,6 +674,167 @@ std::expected<void, QString> SessionRepository::deleteLinkPlaybackHistory(const 
     query.bindValue(QStringLiteral(":id"), recordId);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::savePlaybackHistory(const PlaybackHistoryItem& item)
+{
+    if (item.id.trimmed().isEmpty() || item.source == PlaybackHistorySource::Unknown ||
+        item.replayTarget.trimmed().isEmpty() || item.title.trimmed().isEmpty() ||
+        !item.playedDate.isValid() || !item.playedAt.isValid() || !item.updatedAt.isValid()) {
+        return std::unexpected(QStringLiteral("Invalid playback history item"));
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "INSERT INTO playback_history "
+        "(id, source_type, service_id, service_name, replay_target, title, subtitle, played_date, played_at, updated_at, "
+        "position_seconds, duration_seconds, completed, privacy_mode) "
+        "VALUES (:id, :source_type, :service_id, :service_name, :replay_target, :title, :subtitle, :played_date, "
+        ":played_at, :updated_at, :position_seconds, :duration_seconds, :completed, :privacy_mode)"));
+    query.bindValue(QStringLiteral(":id"), item.id);
+    query.bindValue(QStringLiteral(":source_type"), playbackHistorySourceToString(item.source));
+    query.bindValue(QStringLiteral(":service_id"), nonNullText(item.serviceId));
+    query.bindValue(QStringLiteral(":service_name"), nonNullText(item.serviceName));
+    query.bindValue(QStringLiteral(":replay_target"), item.replayTarget);
+    query.bindValue(QStringLiteral(":title"), item.title);
+    query.bindValue(QStringLiteral(":subtitle"), nonNullText(item.subtitle));
+    query.bindValue(QStringLiteral(":played_date"), item.playedDate.toString(Qt::ISODate));
+    query.bindValue(QStringLiteral(":played_at"), item.playedAt.toUTC().toString(Qt::ISODateWithMs));
+    query.bindValue(QStringLiteral(":updated_at"), item.updatedAt.toUTC().toString(Qt::ISODateWithMs));
+    query.bindValue(QStringLiteral(":position_seconds"), std::max<qint64>(0, item.positionSeconds));
+    query.bindValue(QStringLiteral(":duration_seconds"), std::max<qint64>(0, item.durationSeconds));
+    query.bindValue(QStringLiteral(":completed"), item.completed ? 1 : 0);
+    query.bindValue(QStringLiteral(":privacy_mode"), item.privacyMode ? 1 : 0);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::loadPlaybackHistory(
+    bool includePrivacyMode,
+    int startIndex,
+    int limit,
+    PlaybackHistorySource source)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "SELECT history.id, history.source_type, history.service_id, history.service_name, history.replay_target, "
+        "history.title, history.subtitle, history.played_date, history.played_at, history.updated_at, "
+        "history.position_seconds, history.duration_seconds, history.completed, "
+        "COALESCE(servers.private_mode, history.privacy_mode) "
+        "FROM playback_history history "
+        "LEFT JOIN servers ON servers.id = history.service_id "
+        "WHERE (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0) "
+        "AND (:source_type = '' OR history.source_type = :source_type) "
+        "ORDER BY history.played_at DESC, history.id DESC "
+        "LIMIT :limit OFFSET :offset"));
+    query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
+    query.bindValue(QStringLiteral(":source_type"), source == PlaybackHistorySource::Unknown
+            ? QStringLiteral("")
+            : playbackHistorySourceToString(source));
+    query.bindValue(QStringLiteral(":limit"), std::clamp(limit, 1, 500));
+    query.bindValue(QStringLiteral(":offset"), std::max(0, startIndex));
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+
+    std::vector<PlaybackHistoryItem> items;
+    while (query.next()) {
+        const auto parseDateTime = [](const QString& value) {
+            auto dateTime = QDateTime::fromString(value, Qt::ISODateWithMs);
+            if (!dateTime.isValid()) {
+                dateTime = QDateTime::fromString(value, Qt::ISODate);
+            }
+            return dateTime;
+        };
+        items.push_back(PlaybackHistoryItem {
+            .id = query.value(0).toString(),
+            .source = playbackHistorySourceFromString(query.value(1).toString()),
+            .serviceId = query.value(2).toString(),
+            .serviceName = query.value(3).toString(),
+            .replayTarget = query.value(4).toString(),
+            .title = query.value(5).toString(),
+            .subtitle = query.value(6).toString(),
+            .playedDate = QDate::fromString(query.value(7).toString(), Qt::ISODate),
+            .playedAt = parseDateTime(query.value(8).toString()),
+            .updatedAt = parseDateTime(query.value(9).toString()),
+            .positionSeconds = query.value(10).toLongLong(),
+            .durationSeconds = query.value(11).toLongLong(),
+            .completed = query.value(12).toInt() == 1,
+            .privacyMode = query.value(13).toInt() == 1,
+        });
+    }
+    return items;
+}
+
+std::expected<void, QString> SessionRepository::updatePlaybackHistoryProgress(const QString& recordId,
+                                                                               qint64 positionSeconds,
+                                                                               qint64 durationSeconds,
+                                                                               bool completed,
+                                                                               const QDateTime& updatedAt)
+{
+    if (recordId.trimmed().isEmpty() || !updatedAt.isValid()) {
+        return std::unexpected(QStringLiteral("Invalid playback history progress"));
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE playback_history SET position_seconds = :position_seconds, duration_seconds = :duration_seconds, "
+        "completed = :completed, updated_at = :updated_at WHERE id = :id"));
+    query.bindValue(QStringLiteral(":position_seconds"), std::max<qint64>(0, positionSeconds));
+    query.bindValue(QStringLiteral(":duration_seconds"), std::max<qint64>(0, durationSeconds));
+    query.bindValue(QStringLiteral(":completed"), completed ? 1 : 0);
+    query.bindValue(QStringLiteral(":updated_at"), updatedAt.toUTC().toString(Qt::ISODateWithMs));
+    query.bindValue(QStringLiteral(":id"), recordId);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::deletePlaybackHistory(const QString& recordId)
+{
+    if (recordId.trimmed().isEmpty()) {
+        return std::unexpected(QStringLiteral("Invalid playback history id"));
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery transaction(m_database);
+    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        return std::unexpected(sqlError(transaction));
+    }
+    QSqlQuery historyQuery(m_database);
+    historyQuery.prepare(QStringLiteral("DELETE FROM playback_history WHERE id = :id"));
+    historyQuery.bindValue(QStringLiteral(":id"), recordId);
+    if (!historyQuery.exec()) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(historyQuery));
+    }
+    QSqlQuery linkQuery(m_database);
+    linkQuery.prepare(QStringLiteral("DELETE FROM link_playback_history WHERE id = :id"));
+    linkQuery.bindValue(QStringLiteral(":id"), recordId);
+    if (!linkQuery.exec()) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(linkQuery));
+    }
+    QSqlQuery commit(m_database);
+    if (!commit.exec(QStringLiteral("COMMIT"))) {
+        return std::unexpected(sqlError(commit));
     }
     return {};
 }
@@ -990,6 +1202,15 @@ std::expected<void, QString> SessionRepository::deleteServer(const QString& serv
         sessionQuery.bindValue(QStringLiteral(":server_id"), serverId);
         if (!sessionQuery.exec()) {
             return std::unexpected(sqlError(sessionQuery));
+        }
+    }
+
+    {
+        QSqlQuery historyQuery(m_database);
+        historyQuery.prepare(QStringLiteral("DELETE FROM playback_history WHERE service_id = :server_id"));
+        historyQuery.bindValue(QStringLiteral(":server_id"), serverId);
+        if (!historyQuery.exec()) {
+            return std::unexpected(sqlError(historyQuery));
         }
     }
 

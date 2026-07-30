@@ -345,7 +345,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
         { QStringLiteral("nav.services"), QStringLiteral("Services") },
         { QStringLiteral("nav.settings"), QStringLiteral("Settings") },
-        { QStringLiteral("nav.history"), QStringLiteral("History") },
+        { QStringLiteral("nav.history"), QStringLiteral("Stats") },
         { QStringLiteral("nav.privacy"), QStringLiteral("Privacy mode") },
         { QStringLiteral("nav.chooseSource"), QStringLiteral("Choose or add a media source") },
         { QStringLiteral("action.add"), QStringLiteral("Add") },
@@ -525,6 +525,40 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("link.errorScheme"), QStringLiteral("Only HTTP and HTTPS playback links are supported") },
         { QStringLiteral("link.errorHost"), QStringLiteral("The playback link must include a host") },
         { QStringLiteral("link.errorCredentials"), QStringLiteral("Credentials embedded in playback links are not supported") },
+        { QStringLiteral("globalHistory.title"), QStringLiteral("Global History") },
+        { QStringLiteral("globalHistory.subtitle"), QStringLiteral("Playback history across every media source") },
+        { QStringLiteral("globalHistory.cardSubtitle"), QStringLiteral("Continue watching from any connected source") },
+        { QStringLiteral("globalHistory.builtIn"), QStringLiteral("All sources") },
+        { QStringLiteral("globalHistory.localIndex"), QStringLiteral("Local index") },
+        { QStringLiteral("globalHistory.recordCount"), QStringLiteral("%1 loaded") },
+        { QStringLiteral("globalHistory.recentTitle"), QStringLiteral("Recent playback") },
+        { QStringLiteral("globalHistory.recentSubtitle"), QStringLiteral("Newest activity first, with progress kept locally") },
+        { QStringLiteral("globalHistory.filterAll"), QStringLiteral("All") },
+        { QStringLiteral("globalHistory.sourceEmby"), QStringLiteral("Emby") },
+        { QStringLiteral("globalHistory.sourceJellyfin"), QStringLiteral("Jellyfin") },
+        { QStringLiteral("globalHistory.sourceWebDav"), QStringLiteral("WebDAV") },
+        { QStringLiteral("globalHistory.sourceIptv"), QStringLiteral("IPTV") },
+        { QStringLiteral("globalHistory.sourceLocal"), QStringLiteral("Local") },
+        { QStringLiteral("globalHistory.sourceLink"), QStringLiteral("Link") },
+        { QStringLiteral("globalHistory.privateIncluded"), QStringLiteral("Private records included") },
+        { QStringLiteral("globalHistory.privateBadge"), QStringLiteral("PRIVATE") },
+        { QStringLiteral("globalHistory.unavailable"), QStringLiteral("Unavailable") },
+        { QStringLiteral("globalHistory.completed"), QStringLiteral("Completed") },
+        { QStringLiteral("globalHistory.resumeAt"), QStringLiteral("Resume at %1") },
+        { QStringLiteral("globalHistory.started"), QStringLiteral("Started") },
+        { QStringLiteral("globalHistory.empty"), QStringLiteral("No playback history yet") },
+        { QStringLiteral("globalHistory.emptyHint"), QStringLiteral("Items appear here after playback starts") },
+        { QStringLiteral("globalHistory.loading"), QStringLiteral("Loading playback history") },
+        { QStringLiteral("globalHistory.loadingHint"), QStringLiteral("Reading the local history index") },
+        { QStringLiteral("globalHistory.loadMore"), QStringLiteral("Load more") },
+        { QStringLiteral("globalHistory.loadFailed"), QStringLiteral("Playback history could not be loaded") },
+        { QStringLiteral("globalHistory.deleteFailed"), QStringLiteral("This history record could not be deleted") },
+        { QStringLiteral("globalHistory.invalid"), QStringLiteral("This playback history record is no longer valid") },
+        { QStringLiteral("globalHistory.localUnavailable"), QStringLiteral("The local media file is no longer available") },
+        { QStringLiteral("globalHistory.linkExpired"), QStringLiteral("The saved playback link is no longer valid") },
+        { QStringLiteral("globalHistory.serviceUnavailable"), QStringLiteral("The source service is unavailable or has been removed") },
+        { QStringLiteral("globalHistory.channelUnavailable"), QStringLiteral("The IPTV channel is no longer in this playlist") },
+        { QStringLiteral("globalHistory.webDavUnavailable"), QStringLiteral("The WebDAV item is no longer available from this service") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("Continue Watching") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("Resume progress opens the media details page") },
         { QStringLiteral("section.noProgress"), QStringLiteral("Nothing in progress") },
@@ -785,6 +819,40 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("link.errorScheme"), QStringLiteral("仅支持 HTTP 和 HTTPS 播放链接") },
         { QStringLiteral("link.errorHost"), QStringLiteral("播放链接必须包含主机地址") },
         { QStringLiteral("link.errorCredentials"), QStringLiteral("暂不支持在播放链接中嵌入账号或密码") },
+        { QStringLiteral("globalHistory.title"), QStringLiteral("全局历史") },
+        { QStringLiteral("globalHistory.subtitle"), QStringLiteral("汇总各个媒体来源的播放历史") },
+        { QStringLiteral("globalHistory.cardSubtitle"), QStringLiteral("集中查看并继续播放各类来源中的内容") },
+        { QStringLiteral("globalHistory.builtIn"), QStringLiteral("全部来源") },
+        { QStringLiteral("globalHistory.localIndex"), QStringLiteral("本地索引") },
+        { QStringLiteral("globalHistory.recordCount"), QStringLiteral("已加载 %1 条") },
+        { QStringLiteral("globalHistory.recentTitle"), QStringLiteral("最近播放") },
+        { QStringLiteral("globalHistory.recentSubtitle"), QStringLiteral("按时间倒序展示，本地保存播放进度") },
+        { QStringLiteral("globalHistory.filterAll"), QStringLiteral("全部") },
+        { QStringLiteral("globalHistory.sourceEmby"), QStringLiteral("Emby") },
+        { QStringLiteral("globalHistory.sourceJellyfin"), QStringLiteral("Jellyfin") },
+        { QStringLiteral("globalHistory.sourceWebDav"), QStringLiteral("WebDAV") },
+        { QStringLiteral("globalHistory.sourceIptv"), QStringLiteral("IPTV") },
+        { QStringLiteral("globalHistory.sourceLocal"), QStringLiteral("本地") },
+        { QStringLiteral("globalHistory.sourceLink"), QStringLiteral("链接") },
+        { QStringLiteral("globalHistory.privateIncluded"), QStringLiteral("包含隐私记录") },
+        { QStringLiteral("globalHistory.privateBadge"), QStringLiteral("隐私") },
+        { QStringLiteral("globalHistory.unavailable"), QStringLiteral("不可用") },
+        { QStringLiteral("globalHistory.completed"), QStringLiteral("已看完") },
+        { QStringLiteral("globalHistory.resumeAt"), QStringLiteral("从 %1 继续") },
+        { QStringLiteral("globalHistory.started"), QStringLiteral("已开始") },
+        { QStringLiteral("globalHistory.empty"), QStringLiteral("暂无播放历史") },
+        { QStringLiteral("globalHistory.emptyHint"), QStringLiteral("内容开始播放后会记录在这里") },
+        { QStringLiteral("globalHistory.loading"), QStringLiteral("正在加载播放历史") },
+        { QStringLiteral("globalHistory.loadingHint"), QStringLiteral("正在读取本地历史索引") },
+        { QStringLiteral("globalHistory.loadMore"), QStringLiteral("加载更多") },
+        { QStringLiteral("globalHistory.loadFailed"), QStringLiteral("无法加载播放历史") },
+        { QStringLiteral("globalHistory.deleteFailed"), QStringLiteral("无法删除这条历史记录") },
+        { QStringLiteral("globalHistory.invalid"), QStringLiteral("这条播放历史已失效") },
+        { QStringLiteral("globalHistory.localUnavailable"), QStringLiteral("该本地媒体文件已不可用") },
+        { QStringLiteral("globalHistory.linkExpired"), QStringLiteral("保存的播放链接已失效") },
+        { QStringLiteral("globalHistory.serviceUnavailable"), QStringLiteral("来源服务不可用或已被移除") },
+        { QStringLiteral("globalHistory.channelUnavailable"), QStringLiteral("播放列表中已找不到该 IPTV 频道") },
+        { QStringLiteral("globalHistory.webDavUnavailable"), QStringLiteral("该 WebDAV 内容已无法从当前服务访问") },
         { QStringLiteral("section.continueWatching"), QStringLiteral("继续观看") },
         { QStringLiteral("section.continueSubtitle"), QStringLiteral("点击后进入媒体详情页") },
         { QStringLiteral("section.noProgress"), QStringLiteral("暂无继续观看内容") },
@@ -1887,6 +1955,37 @@ DailyUsageStatsListModel* AppViewModel::usageStats()
     return &m_usageStats;
 }
 
+PlaybackHistoryListModel* AppViewModel::globalPlaybackHistory()
+{
+    return &m_globalPlaybackHistory;
+}
+
+QString AppViewModel::globalHistoryFilter() const
+{
+    return m_globalHistoryFilter;
+}
+
+void AppViewModel::setGlobalHistoryFilter(const QString& value)
+{
+    const auto normalized = value.trimmed().isEmpty() ? QStringLiteral("All") : value.trimmed();
+    if (m_globalHistoryFilter.compare(normalized, Qt::CaseInsensitive) == 0) {
+        return;
+    }
+    m_globalHistoryFilter = normalized;
+    emit globalHistoryFilterChanged();
+    refreshGlobalHistory();
+}
+
+bool AppViewModel::globalHistoryHasMore() const
+{
+    return m_globalHistoryHasMore;
+}
+
+bool AppViewModel::globalHistoryLoading() const
+{
+    return m_globalHistoryLoading;
+}
+
 qint64 AppViewModel::historyTotalWatchSeconds() const
 {
     return m_historyTotalWatchSeconds;
@@ -2182,6 +2281,7 @@ void AppViewModel::initialize()
     refreshServiceCards();
     refreshLocalMediaRoots();
     refreshLinkPlaybackHistory();
+    refreshGlobalHistory();
     refreshPrivacyCards();
     refreshUsageStats();
     refreshScheduledEmbySources();
@@ -2191,6 +2291,7 @@ void AppViewModel::initialize()
 
 void AppViewModel::beginAddServiceCard()
 {
+    m_pendingHistoryReplay.reset();
     m_pendingServiceCard.reset();
     setServerName(QString {});
     setServerUrl(QString {});
@@ -2307,6 +2408,7 @@ void AppViewModel::saveServiceCard()
 void AppViewModel::selectServiceCard(int row)
 {
     clearError();
+    m_pendingHistoryReplay.reset();
     const auto card = m_services.cardAt(row);
     if (!card) {
         return;
@@ -2386,6 +2488,15 @@ void AppViewModel::loginSelectedService(const QString& password)
     if (m_pendingServiceCard->server.serviceType == ServiceType::WebDAV) {
         if (m_pendingServiceCard->server.autoLogin && !password.isEmpty()) {
             saveWebDavCredentials(m_pendingServiceCard->server, password);
+        }
+        if (m_pendingHistoryReplay &&
+            m_pendingHistoryReplay->source == PlaybackHistorySource::WebDav &&
+            m_pendingHistoryReplay->serviceId == m_pendingServiceCard->server.id) {
+            const auto historyItem = *m_pendingHistoryReplay;
+            const auto card = *m_pendingServiceCard;
+            m_pendingHistoryReplay.reset();
+            startWebDavHistoryPlayback(card, password, historyItem);
+            return;
         }
         loadWebDavService(*m_pendingServiceCard, password);
         return;
@@ -2572,7 +2683,8 @@ bool AppViewModel::openDroppedLocalVideo(const QUrl& url, double replacedPositio
 void AppViewModel::startLocalVideoPlayback(const QString& path,
                                            const QString& displayName,
                                            bool retainLocalDirectory,
-                                           double replacedPositionSeconds)
+                                           double replacedPositionSeconds,
+                                           double startPositionSeconds)
 {
     clearCurrentPlayback(replacedPositionSeconds);
     if (!retainLocalDirectory) {
@@ -2588,7 +2700,7 @@ void AppViewModel::startLocalVideoPlayback(const QString& path,
     m_playbackHttpUsername.clear();
     m_playbackHttpPassword.clear();
     m_playbackAllowInsecureTls = false;
-    m_currentPlaybackStartSeconds = 0.0;
+    m_currentPlaybackStartSeconds = std::max(0.0, startPositionSeconds);
     m_lastPlaybackReportSeconds = -1.0;
     m_playbackStartedReported = false;
 
@@ -2691,20 +2803,19 @@ bool AppViewModel::playLinkHistory(const QString& recordId)
 void AppViewModel::deleteLinkPlaybackHistory(const QString& recordId)
 {
     clearError();
-    if (auto result = m_repository.deleteLinkPlaybackHistory(recordId); !result) {
+    if (auto result = m_repository.deletePlaybackHistory(recordId); !result) {
         AppLogger::warning(QStringLiteral("link-playback"),
                            QStringLiteral("Delete playback history failed: %1").arg(result.error()));
         setError(trText(QStringLiteral("link.historyDeleteFailed")));
         return;
     }
     refreshLinkPlaybackHistory();
+    refreshGlobalHistory();
     AppLogger::info(QStringLiteral("link-playback"), QStringLiteral("Deleted one playback history record"));
 }
 
-bool AppViewModel::startLinkPlayback(const QUrl& playbackUrl)
+bool AppViewModel::startLinkPlayback(const QUrl& playbackUrl, double startPositionSeconds)
 {
-    recordLinkPlaybackHistory(playbackUrl);
-
     clearCurrentPlayback();
     setForegroundPlaybackActive(true);
     m_playbackOrigin = PlaybackOrigin::Link;
@@ -2715,7 +2826,7 @@ bool AppViewModel::startLinkPlayback(const QUrl& playbackUrl)
     m_playbackHttpUsername.clear();
     m_playbackHttpPassword.clear();
     m_playbackAllowInsecureTls = false;
-    m_currentPlaybackStartSeconds = 0.0;
+    m_currentPlaybackStartSeconds = std::max(0.0, startPositionSeconds);
     m_lastPlaybackReportSeconds = -1.0;
     m_playbackStartedReported = false;
 
@@ -2733,14 +2844,16 @@ bool AppViewModel::startLinkPlayback(const QUrl& playbackUrl)
     return true;
 }
 
-void AppViewModel::recordLinkPlaybackHistory(const QUrl& playbackUrl)
+void AppViewModel::recordLinkPlaybackHistory(const QString& recordId,
+                                             const QUrl& playbackUrl,
+                                             const QDateTime& playedAt)
 {
-    const auto now = QDateTime::currentDateTime();
     const LinkPlaybackHistoryItem item {
-        .id = QUuid::createUuid().toString(QUuid::WithoutBraces),
+        .id = recordId,
         .playbackUrl = playbackUrl,
-        .playedDate = now.date(),
-        .playedAt = now.toUTC(),
+        .playedDate = playedAt.toLocalTime().date(),
+        .playedAt = playedAt.toUTC(),
+        .privacyMode = m_privacyMode,
     };
     if (auto result = m_repository.saveLinkPlaybackHistory(item); !result) {
         AppLogger::warning(QStringLiteral("link-playback"),
@@ -2752,7 +2865,7 @@ void AppViewModel::recordLinkPlaybackHistory(const QUrl& playbackUrl)
 
 void AppViewModel::refreshLinkPlaybackHistory()
 {
-    const auto result = m_repository.loadLinkPlaybackHistory();
+    const auto result = m_repository.loadLinkPlaybackHistory(m_privacyMode);
     if (!result) {
         AppLogger::warning(QStringLiteral("link-playback"),
                            QStringLiteral("Load playback history failed: %1").arg(result.error()));
@@ -2777,6 +2890,369 @@ void AppViewModel::refreshLinkPlaybackHistory()
     m_linkPlaybackHistory.setItems(std::move(visibleItems));
 }
 
+PlaybackHistorySource AppViewModel::selectedGlobalHistorySource() const
+{
+    return playbackHistorySourceFromString(m_globalHistoryFilter);
+}
+
+void AppViewModel::openGlobalHistory()
+{
+    ++m_globalHistoryReplayGeneration;
+    m_pendingHistoryReplay.reset();
+    clearError();
+    clearSeriesDetails();
+    clearCurrentPlayback();
+    refreshGlobalHistory();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("globalHistory"));
+}
+
+void AppViewModel::refreshGlobalHistory()
+{
+    loadGlobalHistoryPage(true);
+}
+
+void AppViewModel::loadMoreGlobalHistory()
+{
+    if (!m_globalHistoryLoading && m_globalHistoryHasMore) {
+        loadGlobalHistoryPage(false);
+    }
+}
+
+void AppViewModel::loadGlobalHistoryPage(bool resetItems)
+{
+    if (m_globalHistoryLoading) {
+        return;
+    }
+    m_globalHistoryLoading = true;
+    emit globalHistoryStateChanged();
+    if (resetItems) {
+        m_globalHistoryNextStartIndex = 0;
+        m_globalPlaybackHistory.clear();
+    }
+
+    const auto result = m_repository.loadPlaybackHistory(m_privacyMode,
+                                                         m_globalHistoryNextStartIndex,
+                                                         m_globalHistoryPageSize,
+                                                         selectedGlobalHistorySource());
+    if (!result) {
+        m_globalHistoryLoading = false;
+        m_globalHistoryHasMore = false;
+        emit globalHistoryStateChanged();
+        AppLogger::warning(QStringLiteral("global-history"),
+                           QStringLiteral("Load playback history failed: %1").arg(result.error()));
+        setError(trText(QStringLiteral("globalHistory.loadFailed")));
+        return;
+    }
+
+    const auto loadedCount = static_cast<int>(result->size());
+    auto items = prepareGlobalHistoryItems(std::move(*result));
+    if (resetItems) {
+        m_globalPlaybackHistory.setItems(std::move(items));
+    } else {
+        m_globalPlaybackHistory.appendItems(std::move(items));
+    }
+    m_globalHistoryNextStartIndex += loadedCount;
+    m_globalHistoryHasMore = loadedCount == m_globalHistoryPageSize;
+    m_globalHistoryLoading = false;
+    emit globalHistoryStateChanged();
+}
+
+std::vector<PlaybackHistoryItem> AppViewModel::prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items)
+{
+    QHash<QString, ServiceCard> serviceCards;
+    if (const auto cards = m_repository.loadAllServiceCards(); cards) {
+        for (const auto& card : *cards) {
+            serviceCards.insert(card.server.id, card);
+        }
+    }
+
+    std::vector<PlaybackHistoryItem> visibleItems;
+    visibleItems.reserve(items.size());
+    for (auto& item : items) {
+        if (item.source == PlaybackHistorySource::Unknown || item.id.isEmpty() ||
+            item.replayTarget.isEmpty() || !item.playedAt.isValid()) {
+            AppLogger::warning(QStringLiteral("global-history"), QStringLiteral("Ignored an invalid playback history record"));
+            continue;
+        }
+
+        const auto serviceCard = serviceCards.constFind(item.serviceId);
+        if (serviceCard != serviceCards.cend()) {
+            item.serviceName = serviceCard->server.name;
+        }
+
+        switch (item.source) {
+        case PlaybackHistorySource::Local: {
+            const QFileInfo fileInfo(item.replayTarget);
+            item.available = fileInfo.exists() && fileInfo.isFile() && fileInfo.isReadable() &&
+                LocalMediaService::isSupportedVideoFile(fileInfo.fileName());
+            item.displayTarget = QDir::toNativeSeparators(item.replayTarget);
+            if (item.title.trimmed().isEmpty()) {
+                item.title = fileInfo.fileName();
+            }
+            if (item.serviceName.isEmpty()) {
+                item.serviceName = trText(QStringLiteral("local.title"));
+            }
+            break;
+        }
+        case PlaybackHistorySource::Link: {
+            const auto url = LinkPlaybackService::resolvePlaybackUrl(item.replayTarget);
+            item.available = url.has_value();
+            if (url) {
+                item.displayTarget = LinkPlaybackService::displayAddress(*url);
+                if (item.title.trimmed().isEmpty() || item.title == QStringLiteral("Link Playback")) {
+                    item.title = LinkPlaybackService::displayName(*url);
+                }
+            }
+            if (item.serviceName.isEmpty() || item.serviceName == QStringLiteral("Link Playback")) {
+                item.serviceName = trText(QStringLiteral("link.title"));
+            }
+            break;
+        }
+        case PlaybackHistorySource::WebDav: {
+            const QUrl target(item.replayTarget, QUrl::StrictMode);
+            item.available = serviceCard != serviceCards.cend() && target.isValid() &&
+                webDavHistoryTargetIsValid(serviceCard->server, target);
+            auto displayUrl = target;
+            displayUrl.setQuery({});
+            displayUrl.setFragment({});
+            displayUrl.setUserInfo({});
+            item.displayTarget = displayUrl.toString(QUrl::FullyDecoded);
+            break;
+        }
+        case PlaybackHistorySource::Iptv:
+        case PlaybackHistorySource::Emby:
+        case PlaybackHistorySource::Jellyfin:
+            item.available = serviceCard != serviceCards.cend();
+            item.displayTarget = item.serviceName;
+            break;
+        case PlaybackHistorySource::Unknown:
+            break;
+        }
+
+        if (item.subtitle.isEmpty()) {
+            item.subtitle = playbackHistorySourceToString(item.source);
+        }
+        visibleItems.push_back(std::move(item));
+    }
+    return visibleItems;
+}
+
+std::optional<ServiceCard> AppViewModel::serviceCardForHistory(const QString& serviceId)
+{
+    const auto cards = m_repository.loadAllServiceCards();
+    if (!cards) {
+        setError(cards.error());
+        return std::nullopt;
+    }
+    const auto card = std::ranges::find(*cards, serviceId, [](const ServiceCard& value) {
+        return value.server.id;
+    });
+    return card == cards->cend() ? std::nullopt : std::optional<ServiceCard> { *card };
+}
+
+bool AppViewModel::webDavHistoryTargetIsValid(const ServerConfig& server, const QUrl& target) const
+{
+    if (!target.isValid() || target.isRelative() || !target.userInfo().isEmpty()) {
+        return false;
+    }
+    const auto base = ensureDirectoryUrl(QUrl(server.baseUrl)).adjusted(QUrl::NormalizePathSegments);
+    const auto normalizedTarget = target.adjusted(QUrl::NormalizePathSegments);
+    const auto defaultPort = [](const QUrl& url) {
+        return url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0 ? 443 : 80;
+    };
+    if (!base.isValid() || normalizedTarget.scheme().compare(base.scheme(), Qt::CaseInsensitive) != 0 ||
+        normalizedTarget.host().compare(base.host(), Qt::CaseInsensitive) != 0 ||
+        normalizedTarget.port(defaultPort(normalizedTarget)) != base.port(defaultPort(base))) {
+        return false;
+    }
+    const auto basePath = ensureDirectoryUrl(base).path(QUrl::FullyEncoded);
+    const auto targetPath = normalizedTarget.path(QUrl::FullyEncoded);
+    return targetPath.startsWith(basePath);
+}
+
+bool AppViewModel::playGlobalHistory(const QString& recordId)
+{
+    ++m_globalHistoryReplayGeneration;
+    m_pendingHistoryReplay.reset();
+    clearError();
+    const auto* storedItem = m_globalPlaybackHistory.itemById(recordId);
+    if (!storedItem) {
+        refreshGlobalHistory();
+        setError(trText(QStringLiteral("globalHistory.invalid")));
+        return false;
+    }
+    const auto item = *storedItem;
+    const auto startPositionSeconds = item.completed ? 0 : item.positionSeconds;
+
+    switch (item.source) {
+    case PlaybackHistorySource::Local: {
+        const auto resolved = LocalMediaService::resolveVideoFile(QUrl::fromLocalFile(item.replayTarget));
+        if (!resolved) {
+            setError(trText(QStringLiteral("globalHistory.localUnavailable")));
+            return false;
+        }
+        startLocalVideoPlayback(*resolved, item.title, false, -1.0, startPositionSeconds);
+        return true;
+    }
+    case PlaybackHistorySource::Link: {
+        const auto playbackUrl = LinkPlaybackService::resolvePlaybackUrl(item.replayTarget);
+        if (!playbackUrl) {
+            setError(trText(QStringLiteral("globalHistory.linkExpired")));
+            return false;
+        }
+        setLinkPlaybackAddress(playbackUrl->toString(QUrl::FullyEncoded));
+        return startLinkPlayback(*playbackUrl, startPositionSeconds);
+    }
+    case PlaybackHistorySource::Iptv: {
+        const auto card = serviceCardForHistory(item.serviceId);
+        if (!card || card->server.serviceType != ServiceType::IPTV) {
+            setError(trText(QStringLiteral("globalHistory.serviceUnavailable")));
+            return false;
+        }
+        loadIptvService(*card);
+        const auto channel = std::ranges::find(m_allIptvChannels, item.replayTarget, &IptvChannel::id);
+        if (channel == m_allIptvChannels.cend()) {
+            setError(trText(QStringLiteral("globalHistory.channelUnavailable")));
+            return false;
+        }
+        startIptvChannelPlayback(*channel);
+        return true;
+    }
+    case PlaybackHistorySource::WebDav: {
+        const auto card = serviceCardForHistory(item.serviceId);
+        const QUrl target(item.replayTarget, QUrl::StrictMode);
+        if (!card || card->server.serviceType != ServiceType::WebDAV ||
+            !webDavHistoryTargetIsValid(card->server, target)) {
+            setError(trText(QStringLiteral("globalHistory.webDavUnavailable")));
+            return false;
+        }
+        const auto password = loadWebDavPassword(card->server);
+        if (!password) {
+            m_pendingHistoryReplay = item;
+            m_pendingServiceCard = *card;
+            setServerUrl(card->server.baseUrl);
+            setServerName(card->server.name);
+            setUsername(card->server.username);
+            setServiceType(serviceTypeToString(card->server.serviceType));
+            emit passwordRequired(card->server.name, card->server.username);
+            return true;
+        }
+        startWebDavHistoryPlayback(*card, *password, item);
+        return true;
+    }
+    case PlaybackHistorySource::Emby:
+    case PlaybackHistorySource::Jellyfin:
+        return replayMediaServerHistory(item);
+    case PlaybackHistorySource::Unknown:
+        break;
+    }
+
+    setError(trText(QStringLiteral("globalHistory.invalid")));
+    return false;
+}
+
+void AppViewModel::deleteGlobalHistory(const QString& recordId)
+{
+    clearError();
+    const auto* item = m_globalPlaybackHistory.itemById(recordId);
+    const auto source = item ? item->source : PlaybackHistorySource::Unknown;
+    if (auto result = m_repository.deletePlaybackHistory(recordId); !result) {
+        AppLogger::warning(QStringLiteral("global-history"),
+                           QStringLiteral("Delete playback history failed: %1").arg(result.error()));
+        setError(trText(QStringLiteral("globalHistory.deleteFailed")));
+        return;
+    }
+    if (source == PlaybackHistorySource::Link) {
+        refreshLinkPlaybackHistory();
+    }
+    refreshGlobalHistory();
+}
+
+void AppViewModel::cancelPendingHistoryReplay()
+{
+    ++m_globalHistoryReplayGeneration;
+    m_pendingHistoryReplay.reset();
+}
+
+bool AppViewModel::replayMediaServerHistory(const PlaybackHistoryItem& historyItem)
+{
+    const auto card = serviceCardForHistory(historyItem.serviceId);
+    const auto expectedType = historyItem.source == PlaybackHistorySource::Jellyfin
+        ? ServiceType::Jellyfin
+        : ServiceType::Emby;
+    if (!card || card->server.serviceType != expectedType) {
+        setError(trText(QStringLiteral("globalHistory.serviceUnavailable")));
+        return false;
+    }
+
+    const auto sessionResult = m_repository.loadSession(card->server.id);
+    if (!sessionResult) {
+        setError(sessionResult.error());
+        return false;
+    }
+    if (!sessionResult->has_value()) {
+        m_pendingHistoryReplay = historyItem;
+        m_pendingServiceCard = *card;
+        setServerUrl(card->server.baseUrl);
+        setServerName(card->server.name);
+        setUsername(card->server.username);
+        setServiceType(serviceTypeToString(card->server.serviceType));
+        setTrustSelfSignedCertificate(card->server.trustSelfSignedCertificate);
+        setAutoLogin(card->server.autoLogin);
+        emit passwordRequired(card->server.name, card->server.username);
+        return true;
+    }
+
+    clearIptvState();
+    clearWebDavState();
+    setSession(**sessionResult);
+    auto* client = clientFor(m_session->server.serviceType);
+    if (!client) {
+        setError(trText(QStringLiteral("globalHistory.serviceUnavailable")));
+        return false;
+    }
+
+    const auto generation = ++m_globalHistoryReplayGeneration;
+    const auto historyCopy = historyItem;
+    setLoading(true);
+    client->fetchItemDetails(*m_session,
+                             historyItem.replayTarget,
+                             [this, generation, historyCopy](std::expected<MediaItem, NetworkError> result) {
+        if (generation != m_globalHistoryReplayGeneration) {
+            return;
+        }
+        setLoading(false);
+        if (!result) {
+            if (result.error().kind == NetworkErrorKind::Http &&
+                (result.error().httpStatus == 401 || result.error().httpStatus == 403)) {
+                const auto card = serviceCardForHistory(historyCopy.serviceId);
+                if (card) {
+                    m_pendingHistoryReplay = historyCopy;
+                    m_pendingServiceCard = *card;
+                    emit passwordRequired(card->server.name, card->server.username);
+                    return;
+                }
+            }
+            AppLogger::warning(QStringLiteral("global-history"),
+                               QStringLiteral("Fetch history media details failed: %1")
+                                   .arg(displayNetworkError(result.error())));
+            setError(displayNetworkError(result.error()));
+            return;
+        }
+
+        result->playbackPositionTicks = historyCopy.completed
+            ? 0
+            : std::max<qint64>(0, historyCopy.positionSeconds) * playbackTicksPerSecond;
+        m_selectedItem = std::move(*result);
+        clearSeriesDetails();
+        syncSelectedPeople();
+        emit selectedItemChanged();
+        playSelectedItem();
+    });
+    return true;
+}
+
 void AppViewModel::playIptvChannel(int row)
 {
     clearError();
@@ -2785,16 +3261,23 @@ void AppViewModel::playIptvChannel(int row)
         return;
     }
 
-    const auto playbackUrl = QUrl(channel->streamUrl);
-    if (!playbackUrl.isValid() && !QFileInfo::exists(channel->streamUrl)) {
+    startIptvChannelPlayback(*channel);
+}
+
+void AppViewModel::startIptvChannelPlayback(const IptvChannel& channel)
+{
+    clearCurrentPlayback();
+
+    const auto playbackUrl = QUrl(channel.streamUrl);
+    if (!playbackUrl.isValid() && !QFileInfo::exists(channel.streamUrl)) {
         setError(QStringLiteral("IPTV channel URL is invalid"));
         return;
     }
 
     setForegroundPlaybackActive(true);
     m_playbackOrigin = PlaybackOrigin::Iptv;
-    m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(channel->streamUrl) : playbackUrl;
-    m_currentIptvChannelId = channel->id;
+    m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(channel.streamUrl) : playbackUrl;
+    m_currentIptvChannelId = channel.id;
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
     m_currentPlaybackStartSeconds = 0.0;
@@ -2802,11 +3285,11 @@ void AppViewModel::playIptvChannel(int row)
     m_playbackStartedReported = false;
 
     MediaItem item;
-    item.id = channel->id;
-    item.name = channel->name;
+    item.id = channel.id;
+    item.name = channel.name;
     item.itemType = QStringLiteral("IPTV");
-    item.imageUrl = channel->logoUrl;
-    item.genres = channel->groupName;
+    item.imageUrl = channel.logoUrl;
+    item.genres = channel.groupName;
     m_selectedItem = std::move(item);
     clearSeriesDetails();
     syncSelectedPeople();
@@ -2837,6 +3320,7 @@ void AppViewModel::openWebDavItem(int row)
         return;
     }
 
+    clearCurrentPlayback();
     setForegroundPlaybackActive(true);
     if (!m_webDavPlaybackStreamId.isEmpty()) {
         m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
@@ -2867,6 +3351,78 @@ void AppViewModel::openWebDavItem(int row)
     emit selectedItemChanged();
     emit playbackChanged();
     setCurrentView(QStringLiteral("player"));
+}
+
+void AppViewModel::startWebDavHistoryPlayback(const ServiceCard& card,
+                                              const QString& password,
+                                              const PlaybackHistoryItem& historyItem)
+{
+    const QUrl remoteUrl(historyItem.replayTarget, QUrl::StrictMode);
+    if (!webDavHistoryTargetIsValid(card.server, remoteUrl)) {
+        setError(trText(QStringLiteral("globalHistory.webDavUnavailable")));
+        return;
+    }
+
+    clearCurrentPlayback();
+    m_session.reset();
+    clearIptvState();
+    m_currentWebDavCard = card;
+    m_webDavPassword = password;
+    m_webDavHistory.clear();
+    m_webDavCurrentUrl = ensureDirectoryUrl(QUrl(card.server.baseUrl));
+    m_webDavDirectoryItems.clear();
+    m_webDavAudioQueue.clear();
+    m_webDavItems.clear();
+
+    const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(card.server, password, remoteUrl);
+    m_playbackOrigin = PlaybackOrigin::WebDav;
+    m_currentPlaybackUrl = proxyUrl;
+    m_currentIptvChannelId.clear();
+    m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
+    m_playbackHttpUsername.clear();
+    m_playbackHttpPassword.clear();
+    m_playbackAllowInsecureTls = false;
+    m_currentMediaSourceId.clear();
+    m_currentPlaySessionId.clear();
+    m_currentPlaybackStartSeconds = historyItem.completed
+        ? 0
+        : std::max<qint64>(0, historyItem.positionSeconds);
+    m_lastPlaybackReportSeconds = -1.0;
+    m_playbackStartedReported = false;
+
+    MediaItem media;
+    media.id = remoteUrl.toString(QUrl::FullyEncoded);
+    media.name = historyItem.title;
+    const auto audioPlayback = historyItem.subtitle.contains(QStringLiteral("Audio"), Qt::CaseInsensitive);
+    media.itemType = audioPlayback
+        ? QStringLiteral("WebDAV Audio")
+        : QStringLiteral("WebDAV");
+    media.overview = historyItem.displayTarget;
+    m_selectedItem = std::move(media);
+    clearSeriesDetails();
+    syncSelectedPeople();
+
+    m_webDavAudioPlaybackActive = audioPlayback;
+    m_webDavAudioCurrentIndex = audioPlayback ? 0 : -1;
+    if (audioPlayback) {
+        m_webDavAudioQueue.push_back(WebDavItem {
+            .name = historyItem.title,
+            .url = remoteUrl,
+            .contentType = QStringLiteral("audio/*"),
+            .playable = true,
+            .audioPlayable = true,
+        });
+    }
+    setForegroundPlaybackActive(true);
+    emit loggedInChanged();
+    emit currentUserChanged();
+    emit currentServerChanged();
+    emit webDavCurrentPathChanged();
+    emit webDavAudioPlaybackChanged();
+    emit selectedItemChanged();
+    emit playbackChanged();
+    setCurrentView(QStringLiteral("player"));
+    AppLogger::info(QStringLiteral("global-history"), QStringLiteral("Replaying a WebDAV history item"));
 }
 
 void AppViewModel::startWebDavAudioPlayback(int row)
@@ -2979,6 +3535,10 @@ void AppViewModel::playWebDavAudioTrack(int index)
         return;
     }
     const auto& item = m_webDavAudioQueue[static_cast<size_t>(index)];
+    finishGlobalPlaybackHistory(m_currentPlaybackPositionSeconds, false);
+    finishPlaybackUsageTracking();
+    m_currentPlaybackPositionSeconds = 0.0;
+    m_currentPlaybackDurationSeconds = 0.0;
     if (!m_webDavPlaybackStreamId.isEmpty()) {
         m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
         m_webDavPlaybackStreamId.clear();
@@ -3250,6 +3810,7 @@ bool AppViewModel::unlockPrivacyMode(const QString& pin)
     refreshServiceCards();
     refreshPrivacyCards();
     refreshUsageStats();
+    refreshGlobalHistory();
     refreshScheduledPlaybackTasks();
     setCurrentView(QStringLiteral("services"));
     AppLogger::info(QStringLiteral("privacy"), QStringLiteral("Privacy mode enabled"));
@@ -3298,6 +3859,7 @@ void AppViewModel::setPrivacyCardPrivate(int row, bool privateMode)
     refreshPrivacyCards();
     refreshServiceCards();
     refreshUsageStats();
+    refreshGlobalHistory();
     refreshScheduledPlaybackTasks();
 }
 
@@ -3496,6 +4058,7 @@ void AppViewModel::deleteServiceCard(int row, bool deleteLocalData)
         }
     }
     refreshServiceCards();
+    refreshGlobalHistory();
 }
 
 void AppViewModel::logout()
@@ -4334,6 +4897,7 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
     if (stopPositionSeconds >= 0.0) {
         reportPlaybackStopped(stopPositionSeconds);
     } else {
+        finishGlobalPlaybackHistory(m_currentPlaybackPositionSeconds, false);
         finishPlaybackUsageTracking();
     }
     m_currentPlaybackUrl = QUrl();
@@ -4348,6 +4912,11 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
         m_webDavPlaybackStreamId.clear();
     }
     m_currentPlaybackStartSeconds = 0.0;
+    m_currentPlaybackPositionSeconds = 0.0;
+    m_currentPlaybackDurationSeconds = 0.0;
+    m_currentPlaybackHistoryId.clear();
+    m_lastHistoryPersistedPositionSeconds = -1.0;
+    m_lastHistoryPersistedAt = {};
     m_lastPlaybackReportSeconds = -1.0;
     m_playbackStartedReported = false;
     m_playbackOrigin = PlaybackOrigin::None;
@@ -4588,9 +5157,18 @@ void AppViewModel::playSelectedItem()
     setLoading(true);
     const auto itemName = m_selectedItem->name;
     const auto allowInsecureTls = m_session->server.trustSelfSignedCertificate;
+    const auto historyReplayGeneration = m_currentView == QStringLiteral("globalHistory")
+        ? m_globalHistoryReplayGeneration
+        : -1;
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Fetching playback info for selected media item"));
-    client->fetchPlaybackUrl(*m_session, *m_selectedItem, [this, itemName, allowInsecureTls](PlaybackUrlResult result) {
+    client->fetchPlaybackUrl(*m_session,
+                             *m_selectedItem,
+                             [this, itemName, allowInsecureTls, historyReplayGeneration](PlaybackUrlResult result) {
         setLoading(false);
+        if (historyReplayGeneration >= 0 && historyReplayGeneration != m_globalHistoryReplayGeneration) {
+            setForegroundPlaybackActive(false);
+            return;
+        }
         if (!result) {
             setForegroundPlaybackActive(false);
             const auto message = displayNetworkError(result.error());
@@ -4614,11 +5192,165 @@ void AppViewModel::playSelectedItem()
     });
 }
 
+void AppViewModel::recordGlobalPlaybackStarted()
+{
+    if (!m_currentPlaybackHistoryId.isEmpty() || m_playbackOrigin == PlaybackOrigin::None ||
+        !m_selectedItem || m_currentPlaybackUrl.isEmpty()) {
+        return;
+    }
+    if (m_playbackOrigin == PlaybackOrigin::Local && m_selectedItem->id == QStringLiteral("local-verification")) {
+        return;
+    }
+
+    PlaybackHistoryItem historyItem;
+    historyItem.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    historyItem.title = m_selectedItem->name.trimmed();
+    historyItem.subtitle = m_selectedItem->itemType.trimmed();
+    historyItem.positionSeconds = std::max<qint64>(0, static_cast<qint64>(m_currentPlaybackStartSeconds));
+    historyItem.durationSeconds = m_selectedItem->runTimeTicks > 0
+        ? m_selectedItem->runTimeTicks / playbackTicksPerSecond
+        : std::max<qint64>(0, static_cast<qint64>(m_currentPlaybackDurationSeconds));
+    const auto localNow = QDateTime::currentDateTime();
+    historyItem.playedDate = localNow.date();
+    historyItem.playedAt = localNow.toUTC();
+    historyItem.updatedAt = historyItem.playedAt;
+
+    switch (m_playbackOrigin) {
+    case PlaybackOrigin::MediaServer:
+        if (!m_session || m_selectedItem->id.isEmpty()) {
+            return;
+        }
+        historyItem.source = m_session->server.serviceType == ServiceType::Jellyfin
+            ? PlaybackHistorySource::Jellyfin
+            : PlaybackHistorySource::Emby;
+        historyItem.serviceId = m_session->server.id;
+        historyItem.serviceName = m_session->server.name;
+        historyItem.replayTarget = m_selectedItem->id;
+        historyItem.privacyMode = m_privacyMode || m_session->server.privateMode;
+        if (!m_selectedItem->seriesName.isEmpty()) {
+            historyItem.subtitle = m_selectedItem->seriesName;
+            const auto seasonEpisode = selectedItemSeasonEpisode();
+            if (!seasonEpisode.isEmpty()) {
+                historyItem.subtitle += QStringLiteral(" · ") + seasonEpisode;
+            }
+        }
+        break;
+    case PlaybackOrigin::Iptv:
+        if (!m_currentIptvCard || m_currentIptvChannelId.isEmpty()) {
+            return;
+        }
+        historyItem.source = PlaybackHistorySource::Iptv;
+        historyItem.serviceId = m_currentIptvCard->server.id;
+        historyItem.serviceName = m_currentIptvCard->server.name;
+        historyItem.replayTarget = m_currentIptvChannelId;
+        historyItem.subtitle = m_selectedItem->genres.isEmpty() ? QStringLiteral("IPTV") : m_selectedItem->genres;
+        historyItem.privacyMode = m_privacyMode || m_currentIptvCard->server.privateMode;
+        break;
+    case PlaybackOrigin::WebDav:
+        if (!m_currentWebDavCard || m_selectedItem->id.isEmpty()) {
+            return;
+        }
+        historyItem.source = PlaybackHistorySource::WebDav;
+        historyItem.serviceId = m_currentWebDavCard->server.id;
+        historyItem.serviceName = m_currentWebDavCard->server.name;
+        historyItem.replayTarget = m_selectedItem->id;
+        historyItem.privacyMode = m_privacyMode || m_currentWebDavCard->server.privateMode;
+        break;
+    case PlaybackOrigin::Local:
+        historyItem.source = PlaybackHistorySource::Local;
+        historyItem.serviceName = trText(QStringLiteral("local.title"));
+        historyItem.replayTarget = m_currentPlaybackUrl.toLocalFile();
+        historyItem.privacyMode = m_privacyMode;
+        break;
+    case PlaybackOrigin::Link:
+        historyItem.source = PlaybackHistorySource::Link;
+        historyItem.serviceId = QStringLiteral("builtin-link-playback");
+        historyItem.serviceName = trText(QStringLiteral("link.title"));
+        historyItem.replayTarget = m_currentPlaybackUrl.toString(QUrl::FullyEncoded);
+        historyItem.privacyMode = m_privacyMode;
+        break;
+    case PlaybackOrigin::None:
+        return;
+    }
+
+    if (historyItem.title.isEmpty() || historyItem.replayTarget.isEmpty()) {
+        return;
+    }
+    if (auto result = m_repository.savePlaybackHistory(historyItem); !result) {
+        AppLogger::warning(QStringLiteral("global-history"),
+                           QStringLiteral("Save playback history failed: %1").arg(result.error()));
+        return;
+    }
+
+    m_currentPlaybackHistoryId = historyItem.id;
+    m_currentPlaybackPositionSeconds = m_currentPlaybackStartSeconds;
+    m_lastHistoryPersistedPositionSeconds = m_currentPlaybackStartSeconds;
+    m_lastHistoryPersistedAt = historyItem.updatedAt;
+    if (historyItem.source == PlaybackHistorySource::Link) {
+        recordLinkPlaybackHistory(historyItem.id, m_currentPlaybackUrl, historyItem.playedAt);
+    }
+    if (m_currentView == QStringLiteral("globalHistory")) {
+        refreshGlobalHistory();
+    }
+    AppLogger::info(QStringLiteral("global-history"),
+                    QStringLiteral("Recorded playback start for %1").arg(playbackHistorySourceToString(historyItem.source)));
+}
+
+void AppViewModel::updateGlobalPlaybackProgress(double positionSeconds,
+                                                double durationSeconds,
+                                                bool forceUpdate,
+                                                bool completed)
+{
+    m_currentPlaybackPositionSeconds = std::max(0.0, positionSeconds);
+    if (durationSeconds > 0.0) {
+        m_currentPlaybackDurationSeconds = durationSeconds;
+    }
+    if (m_currentPlaybackHistoryId.isEmpty()) {
+        return;
+    }
+
+    const auto now = QDateTime::currentDateTimeUtc();
+    const auto positionDelta = std::abs(m_currentPlaybackPositionSeconds - m_lastHistoryPersistedPositionSeconds);
+    const auto elapsedMs = m_lastHistoryPersistedAt.isValid() ? m_lastHistoryPersistedAt.msecsTo(now) : 0;
+    if (!forceUpdate && positionDelta < 10.0 && elapsedMs < 15000) {
+        return;
+    }
+
+    const auto position = static_cast<qint64>(m_currentPlaybackPositionSeconds);
+    const auto duration = static_cast<qint64>(std::max(0.0, m_currentPlaybackDurationSeconds));
+    const auto effectivelyCompleted = completed || (duration > 0 && position >= static_cast<qint64>(duration * 0.97));
+    if (auto result = m_repository.updatePlaybackHistoryProgress(m_currentPlaybackHistoryId,
+                                                                 position,
+                                                                 duration,
+                                                                 effectivelyCompleted,
+                                                                 now);
+        !result) {
+        AppLogger::warning(QStringLiteral("global-history"),
+                           QStringLiteral("Update playback history failed: %1").arg(result.error()));
+        return;
+    }
+    m_lastHistoryPersistedPositionSeconds = m_currentPlaybackPositionSeconds;
+    m_lastHistoryPersistedAt = now;
+}
+
+void AppViewModel::finishGlobalPlaybackHistory(double positionSeconds, bool completed)
+{
+    if (m_currentPlaybackHistoryId.isEmpty()) {
+        return;
+    }
+    updateGlobalPlaybackProgress(positionSeconds, m_currentPlaybackDurationSeconds, true, completed);
+    m_currentPlaybackHistoryId.clear();
+    m_lastHistoryPersistedPositionSeconds = -1.0;
+    m_lastHistoryPersistedAt = {};
+}
+
 void AppViewModel::reportPlaybackStarted()
 {
-    if (m_playbackOrigin == PlaybackOrigin::Local ||
-        m_playbackOrigin == PlaybackOrigin::Link ||
-        m_playbackOrigin == PlaybackOrigin::None) {
+    if (m_playbackOrigin == PlaybackOrigin::None) {
+        return;
+    }
+    recordGlobalPlaybackStarted();
+    if (m_playbackOrigin == PlaybackOrigin::Local || m_playbackOrigin == PlaybackOrigin::Link) {
         return;
     }
     beginPlaybackUsageTracking();
@@ -4642,11 +5374,16 @@ void AppViewModel::reportPlaybackStarted()
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Reported playback start"));
 }
 
-void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
+void AppViewModel::reportPlaybackProgress(double positionSeconds, double durationSeconds, bool paused)
 {
-    if (m_playbackOrigin == PlaybackOrigin::Local ||
-        m_playbackOrigin == PlaybackOrigin::Link ||
-        m_playbackOrigin == PlaybackOrigin::None) {
+    if (m_playbackOrigin == PlaybackOrigin::None) {
+        return;
+    }
+    if (m_currentPlaybackHistoryId.isEmpty() && (durationSeconds > 0.0 || positionSeconds > 0.0)) {
+        recordGlobalPlaybackStarted();
+    }
+    updateGlobalPlaybackProgress(positionSeconds, durationSeconds, paused);
+    if (m_playbackOrigin == PlaybackOrigin::Local || m_playbackOrigin == PlaybackOrigin::Link) {
         return;
     }
     if (!m_playbackUsageActive) {
@@ -4684,6 +5421,7 @@ void AppViewModel::reportPlaybackProgress(double positionSeconds, bool paused)
 
 void AppViewModel::reportPlaybackStopped(double positionSeconds)
 {
+    finishGlobalPlaybackHistory(positionSeconds, false);
     finishPlaybackUsageTracking();
     if (m_playbackOrigin != PlaybackOrigin::MediaServer || !m_session || !m_selectedItem || !m_playbackStartedReported) {
         return;
@@ -4714,6 +5452,12 @@ void AppViewModel::reportPlaybackStopped(double positionSeconds)
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Reported playback stop"));
 }
 
+void AppViewModel::reportPlaybackEnded(double positionSeconds, bool reachedEnd, bool failed)
+{
+    finishGlobalPlaybackHistory(positionSeconds, reachedEnd && !failed);
+    reportPlaybackStopped(positionSeconds);
+}
+
 void AppViewModel::reportPlaybackError(const QString& message)
 {
     const auto normalized = message.trimmed();
@@ -4741,6 +5485,12 @@ void AppViewModel::closePlayerToDetails()
     }
     if (m_currentWebDavCard) {
         setCurrentView(QStringLiteral("webdav"));
+        if (m_webDavItems.count() == 0) {
+            const auto directoryUrl = m_webDavCurrentUrl.isEmpty()
+                ? ensureDirectoryUrl(QUrl(m_currentWebDavCard->server.baseUrl))
+                : m_webDavCurrentUrl;
+            loadWebDavDirectory(directoryUrl);
+        }
         return;
     }
     if (m_currentIptvCard) {
@@ -5036,6 +5786,12 @@ void AppViewModel::startLogin(const ServerConfig& server, const QString& passwor
                             .arg(serviceTypeToString(m_session->server.serviceType), QUrl(m_session->server.baseUrl).host()));
         saveSession();
         refreshServiceCards();
+        if (m_pendingHistoryReplay && m_pendingHistoryReplay->serviceId == m_session->server.id) {
+            const auto historyItem = *m_pendingHistoryReplay;
+            m_pendingHistoryReplay.reset();
+            replayMediaServerHistory(historyItem);
+            return;
+        }
         loadServiceHome();
     });
 }
@@ -5757,6 +6513,12 @@ void AppViewModel::setCurrentView(QString view)
 {
     if (m_currentView == view) {
         return;
+    }
+    if (m_currentView == QStringLiteral("globalHistory") &&
+        view != QStringLiteral("globalHistory") && view != QStringLiteral("player")) {
+        ++m_globalHistoryReplayGeneration;
+        m_pendingHistoryReplay.reset();
+        setLoading(false);
     }
     m_currentView = std::move(view);
     emit currentViewChanged();

@@ -23,13 +23,15 @@ QString uniqueConnectionName()
 LinkPlaybackHistoryItem historyItem(const QString& id,
                                     const QString& url,
                                     const QString& date,
-                                    const QString& timestamp)
+                                    const QString& timestamp,
+                                    bool privacyMode = false)
 {
     return LinkPlaybackHistoryItem {
         .id = id,
         .playbackUrl = QUrl(url, QUrl::StrictMode),
         .playedDate = QDate::fromString(date, Qt::ISODate),
         .playedAt = QDateTime::fromString(timestamp, Qt::ISODate),
+        .privacyMode = privacyMode,
     };
 }
 }
@@ -49,8 +51,14 @@ void LinkPlaybackHistoryTest::persistsOrdersAndDeletesIndividualRecords()
                                    QStringLiteral("https://media.example.com/live/index.m3u8?token=abc%2F123"),
                                    QStringLiteral("2026-07-29"),
                                    QStringLiteral("2026-07-29T09:30:00Z"));
+    const auto privateItem = historyItem(QStringLiteral("private"),
+                                         QStringLiteral("https://media.example.com/private.m3u8"),
+                                         QStringLiteral("2026-07-30"),
+                                         QStringLiteral("2026-07-30T10:00:00Z"),
+                                         true);
     QVERIFY(repository.saveLinkPlaybackHistory(older).has_value());
     QVERIFY(repository.saveLinkPlaybackHistory(newer).has_value());
+    QVERIFY(repository.saveLinkPlaybackHistory(privateItem).has_value());
 
     const auto loaded = repository.loadLinkPlaybackHistory();
     QVERIFY(loaded.has_value());
@@ -59,6 +67,12 @@ void LinkPlaybackHistoryTest::persistsOrdersAndDeletesIndividualRecords()
     QCOMPARE(loaded->at(0).playedDate, QDate(2026, 7, 29));
     QCOMPARE(loaded->at(0).playbackUrl.query(QUrl::FullyEncoded), QStringLiteral("token=abc%2F123"));
     QCOMPARE(loaded->at(1).id, QStringLiteral("older"));
+
+    const auto withPrivate = repository.loadLinkPlaybackHistory(true);
+    QVERIFY(withPrivate.has_value());
+    QCOMPARE(withPrivate->size(), size_t { 3 });
+    QCOMPARE(withPrivate->front().id, QStringLiteral("private"));
+    QVERIFY(withPrivate->front().privacyMode);
 
     LinkPlaybackHistoryListModel model;
     model.setItems(*loaded);

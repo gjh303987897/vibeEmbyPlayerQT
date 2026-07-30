@@ -56,16 +56,19 @@ Application logs record only generic link-playback operations. libmpv messages c
 
 ## Playback History
 
-Each accepted play request creates a separate record in `link_playback_history` with:
+Each link playback that reaches libmpv's started state creates a separate record in `link_playback_history` and the unified `playback_history` table with the same UUID. Invalid URLs and requests that fail before playback starts do not create history.
+
+The legacy link-history row contains:
 
 - A UUID record id.
 - The normalized, fully encoded playback URL.
 - The user's local calendar date at playback time.
 - A UTC timestamp used for deterministic newest-first ordering.
+- The privacy-mode state at playback time.
 
 Selecting a history record validates the stored URL again before playback and creates a new playback occurrence. Deleting a record removes only that occurrence. History is not automatically pruned.
 
-The complete URL is required for replay and can include signed query parameters. QML receives only a display address with query and fragment removed. Full URLs and query data are never written to application logs. Embedded usernames and passwords remain rejected before persistence.
+The complete URL is required for replay and can include signed query parameters. QML receives only a display address with query and fragment removed. Full URLs and query data are never written to application logs. Embedded usernames and passwords remain rejected before persistence. Normal mode excludes private link records; privacy mode includes both normal and private records. Deleting either representation removes both rows in one repository operation so the two history views cannot drift.
 
 ## Usage Statistics
 
@@ -98,6 +101,7 @@ The existing pending-usage buffer, periodic SQLite flush, privacy-mode partition
 
 - SQLite initialization creates the history storage path.
 - Multiple occurrences are loaded newest first and preserve replay URL encoding.
+- Private occurrences remain hidden in normal mode and become visible in privacy mode.
 - One history occurrence can be deleted without removing another.
 - The list model resolves records by their stable id.
 - Link playback download bytes are stored under the `Link` daily usage source.

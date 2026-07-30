@@ -5,6 +5,7 @@
 #include "models/IptvPlaylist.h"
 #include "models/LinkPlaybackHistoryItem.h"
 #include "models/LocalMediaRoot.h"
+#include "models/PlaybackHistoryItem.h"
 #include "models/ScheduledPlaybackTask.h"
 #include "models/ServiceCard.h"
 #include "models/UserSession.h"
@@ -40,8 +41,19 @@ public:
     std::expected<std::vector<DailyUsageStat>, QString> loadDailyUsageStats(bool includePrivacyMode);
     std::expected<void, QString> pruneOldDailyUsage();
     std::expected<void, QString> saveLinkPlaybackHistory(const LinkPlaybackHistoryItem& item);
-    std::expected<std::vector<LinkPlaybackHistoryItem>, QString> loadLinkPlaybackHistory();
+    std::expected<std::vector<LinkPlaybackHistoryItem>, QString> loadLinkPlaybackHistory(bool includePrivacyMode = false);
     std::expected<void, QString> deleteLinkPlaybackHistory(const QString& recordId);
+    std::expected<void, QString> savePlaybackHistory(const PlaybackHistoryItem& item);
+    std::expected<std::vector<PlaybackHistoryItem>, QString> loadPlaybackHistory(bool includePrivacyMode,
+                                                                                 int startIndex,
+                                                                                 int limit,
+                                                                                 PlaybackHistorySource source = PlaybackHistorySource::Unknown);
+    std::expected<void, QString> updatePlaybackHistoryProgress(const QString& recordId,
+                                                               qint64 positionSeconds,
+                                                               qint64 durationSeconds,
+                                                               bool completed,
+                                                               const QDateTime& updatedAt);
+    std::expected<void, QString> deletePlaybackHistory(const QString& recordId);
     std::expected<std::vector<ServiceCard>, QString> loadServiceCards(bool privacyMode);
     std::expected<std::vector<ServiceCard>, QString> loadAllServiceCards();
     std::expected<std::optional<IptvPlaylist>, QString> loadIptvPlaylist(const QString& serviceId);

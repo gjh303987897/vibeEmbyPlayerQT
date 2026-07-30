@@ -21,6 +21,7 @@
 #include "viewmodels/MediaItemListModel.h"
 #include "viewmodels/MediaLibraryListModel.h"
 #include "viewmodels/PersonListModel.h"
+#include "viewmodels/PlaybackHistoryListModel.h"
 #include "viewmodels/ServiceCardListModel.h"
 #include "viewmodels/ScheduledPlaybackTaskListModel.h"
 #include "viewmodels/WebDavItemListModel.h"
@@ -144,6 +145,10 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(MediaItemListModel* seriesSeasons READ seriesSeasons CONSTANT)
     Q_PROPERTY(MediaItemListModel* seriesEpisodes READ seriesEpisodes CONSTANT)
     Q_PROPERTY(DailyUsageStatsListModel* usageStats READ usageStats CONSTANT)
+    Q_PROPERTY(PlaybackHistoryListModel* globalPlaybackHistory READ globalPlaybackHistory CONSTANT)
+    Q_PROPERTY(QString globalHistoryFilter READ globalHistoryFilter WRITE setGlobalHistoryFilter NOTIFY globalHistoryFilterChanged)
+    Q_PROPERTY(bool globalHistoryHasMore READ globalHistoryHasMore NOTIFY globalHistoryStateChanged)
+    Q_PROPERTY(bool globalHistoryLoading READ globalHistoryLoading NOTIFY globalHistoryStateChanged)
     Q_PROPERTY(qint64 historyTotalWatchSeconds READ historyTotalWatchSeconds NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyTotalNetworkBytes READ historyTotalNetworkBytes NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyTotalNetworkBytesIn READ historyTotalNetworkBytesIn NOTIFY historyStatsChanged)
@@ -313,6 +318,11 @@ public:
     MediaItemListModel* seriesSeasons();
     MediaItemListModel* seriesEpisodes();
     DailyUsageStatsListModel* usageStats();
+    PlaybackHistoryListModel* globalPlaybackHistory();
+    QString globalHistoryFilter() const;
+    void setGlobalHistoryFilter(const QString& value);
+    bool globalHistoryHasMore() const;
+    bool globalHistoryLoading() const;
     qint64 historyTotalWatchSeconds() const;
     qint64 historyTotalNetworkBytes() const;
     qint64 historyTotalNetworkBytesIn() const;
@@ -418,6 +428,12 @@ public:
     Q_INVOKABLE void openSettings();
     Q_INVOKABLE void openHistoryStats();
     Q_INVOKABLE void refreshHistoryStats();
+    Q_INVOKABLE void openGlobalHistory();
+    Q_INVOKABLE void refreshGlobalHistory();
+    Q_INVOKABLE void loadMoreGlobalHistory();
+    Q_INVOKABLE bool playGlobalHistory(const QString& recordId);
+    Q_INVOKABLE void deleteGlobalHistory(const QString& recordId);
+    Q_INVOKABLE void cancelPendingHistoryReplay();
     Q_INVOKABLE void openScheduledPlaybackTasks();
     Q_INVOKABLE void beginAddScheduledPlaybackTask();
     Q_INVOKABLE void editScheduledPlaybackTask(int row);
@@ -445,8 +461,9 @@ public:
     Q_INVOKABLE void openEpisode(int row);
     Q_INVOKABLE void playSelectedItem();
     Q_INVOKABLE void reportPlaybackStarted();
-    Q_INVOKABLE void reportPlaybackProgress(double positionSeconds, bool paused);
+    Q_INVOKABLE void reportPlaybackProgress(double positionSeconds, double durationSeconds, bool paused);
     Q_INVOKABLE void reportPlaybackStopped(double positionSeconds);
+    Q_INVOKABLE void reportPlaybackEnded(double positionSeconds, bool reachedEnd, bool failed);
     Q_INVOKABLE void reportPlaybackError(const QString& message);
     Q_INVOKABLE void closePlayerToDetails();
     Q_INVOKABLE void loadMoreItems();
@@ -502,6 +519,8 @@ signals:
     void selectedSeasonChanged();
     void playbackChanged();
     void historyStatsChanged();
+    void globalHistoryFilterChanged();
+    void globalHistoryStateChanged();
     void scheduledPlaybackTasksChanged();
     void scheduledPlaybackStatusChanged();
     void missedScheduledPlaybackTasksChanged();
@@ -547,7 +566,8 @@ private:
     void startLocalVideoPlayback(const QString& path,
                                  const QString& displayName,
                                  bool retainLocalDirectory,
-                                 double replacedPositionSeconds = -1.0);
+                                 double replacedPositionSeconds = -1.0,
+                                 double startPositionSeconds = 0.0);
     void startLogin(const ServerConfig& server, const QString& password);
     void loadServiceHome();
     void loadIptvService(const ServiceCard& card);
@@ -560,6 +580,9 @@ private:
     void loadWebDavDirectory(const QUrl& url);
     void rebuildWebDavAudioQueue(const std::vector<WebDavItem>& items);
     void playWebDavAudioTrack(int index);
+    void startWebDavHistoryPlayback(const ServiceCard& card,
+                                    const QString& password,
+                                    const PlaybackHistoryItem& historyItem);
     void clearWebDavAudioPlayback();
     void saveWebDavCredentials(const ServerConfig& server, const QString& password);
     std::optional<QString> loadWebDavPassword(const ServerConfig& server);
@@ -577,8 +600,18 @@ private:
     void flushPendingUsageStats(bool refreshAfterFlush);
     void refreshUsageStats();
     void refreshLinkPlaybackHistory();
-    void recordLinkPlaybackHistory(const QUrl& playbackUrl);
-    bool startLinkPlayback(const QUrl& playbackUrl);
+    void recordLinkPlaybackHistory(const QString& recordId, const QUrl& playbackUrl, const QDateTime& playedAt);
+    bool startLinkPlayback(const QUrl& playbackUrl, double startPositionSeconds = 0.0);
+    void startIptvChannelPlayback(const IptvChannel& channel);
+    void loadGlobalHistoryPage(bool resetItems);
+    std::vector<PlaybackHistoryItem> prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items);
+    PlaybackHistorySource selectedGlobalHistorySource() const;
+    void recordGlobalPlaybackStarted();
+    void updateGlobalPlaybackProgress(double positionSeconds, double durationSeconds, bool forceUpdate = false, bool completed = false);
+    void finishGlobalPlaybackHistory(double positionSeconds, bool completed);
+    bool replayMediaServerHistory(const PlaybackHistoryItem& historyItem);
+    std::optional<ServiceCard> serviceCardForHistory(const QString& serviceId);
+    bool webDavHistoryTargetIsValid(const ServerConfig& server, const QUrl& target) const;
     void refreshScheduledPlaybackTasks();
     void refreshScheduledEmbySources();
     std::optional<ScheduledPlaybackTask> scheduledPlaybackTaskFromEditor();
@@ -629,6 +662,7 @@ private:
     QString m_iptvSelectedGroup;
     QStringList m_iptvGroups;
     QString m_linkPlaybackAddress;
+    QString m_globalHistoryFilter { QStringLiteral("All") };
     QString m_webDavPassword;
     QString m_webDavDisplayMode { QStringLiteral("default") };
     std::vector<WebDavItem> m_webDavAudioQueue;
@@ -687,6 +721,11 @@ private:
     double m_currentPlaybackStartSeconds { 0.0 };
     double m_lastPlaybackReportSeconds { -1.0 };
     bool m_playbackStartedReported { false };
+    QString m_currentPlaybackHistoryId;
+    double m_currentPlaybackPositionSeconds { 0.0 };
+    double m_currentPlaybackDurationSeconds { 0.0 };
+    double m_lastHistoryPersistedPositionSeconds { -1.0 };
+    QDateTime m_lastHistoryPersistedAt;
     PlaybackOrigin m_playbackOrigin { PlaybackOrigin::None };
     bool m_playbackUsageActive { false };
     bool m_playbackUsagePaused { false };
@@ -698,6 +737,12 @@ private:
     bool m_hasMoreMediaItems { true };
     int m_seriesRequestGeneration { 0 };
     int m_episodeDetailRequestGeneration { 0 };
+    int m_globalHistoryReplayGeneration { 0 };
+    int m_globalHistoryNextStartIndex { 0 };
+    int m_globalHistoryPageSize { 60 };
+    bool m_globalHistoryHasMore { false };
+    bool m_globalHistoryLoading { false };
+    std::optional<PlaybackHistoryItem> m_pendingHistoryReplay;
     QString m_scheduledTaskEditingId;
     int m_scheduledTaskSourceIndex { -1 };
     int m_scheduledTaskDurationMinutes { 90 };
@@ -736,6 +781,7 @@ private:
     WebDavItemListModel m_webDavItems;
     LinkPlaybackHistoryListModel m_linkPlaybackHistory;
     DailyUsageStatsListModel m_usageStats;
+    PlaybackHistoryListModel m_globalPlaybackHistory;
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
     qint64 m_historyTotalNetworkBytesIn { 0 };

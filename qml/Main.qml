@@ -119,6 +119,9 @@ ApplicationWindow {
             return Qt.rgba(0.180, 0.745, 0.690, 1.0)
         case "link":
             return Qt.rgba(0.376, 0.506, 0.941, 1.0)
+        case "history":
+        case "globalhistory":
+            return Qt.rgba(0.910, 0.620, 0.220, 1.0)
         default:
             return Qt.rgba(0.392, 0.455, 0.545, 1.0)
         }
@@ -129,6 +132,19 @@ ApplicationWindow {
             return value
         }
         return value.substring(5, 10)
+    }
+
+    function formatPlaybackTime(seconds) {
+        if (!Number.isFinite(seconds) || seconds < 0) {
+            return "0:00"
+        }
+        var total = Math.floor(seconds)
+        var hours = Math.floor(total / 3600)
+        var minutes = Math.floor((total % 3600) / 60)
+        var remainingSeconds = total % 60
+        var minuteText = hours > 0 && minutes < 10 ? "0" + minutes : String(minutes)
+        var secondText = remainingSeconds < 10 ? "0" + remainingSeconds : String(remainingSeconds)
+        return hours > 0 ? hours + ":" + minuteText + ":" + secondText : minuteText + ":" + secondText
     }
 
     function enterPlayerFullscreen() {
@@ -392,6 +408,7 @@ ApplicationWindow {
 
         onOpened: passwordField.forceActiveFocus()
         onAccepted: appViewModel.loginSelectedService(passwordDialog.password)
+        onRejected: appViewModel.cancelPendingHistoryReplay()
     }
 
     ModernDialog {
@@ -1126,7 +1143,7 @@ ApplicationWindow {
                 visible: appViewModel.currentView !== "services" && appViewModel.currentView !== "settings"
                 font.pixelSize: 28
                 onClicked: {
-                    if (appViewModel.currentView === "history") {
+                    if (appViewModel.currentView === "history" || appViewModel.currentView === "globalHistory") {
                         appViewModel.backToServices()
                     } else if (appViewModel.currentView === "scheduledTasks") {
                         appViewModel.backToServices()
@@ -1167,6 +1184,7 @@ ApplicationWindow {
                             - (privacyModeBadge.visible ? pageTitleRow.privacyBadgeWidth + pageTitleRow.spacing : 0))
                         text: appViewModel.currentView === "settings" ? t("settings.title")
                             : appViewModel.currentView === "history" ? t("history.title")
+                            : appViewModel.currentView === "globalHistory" ? t("globalHistory.title")
                             : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
                             : appViewModel.currentView === "local" ? t("local.title")
                             : appViewModel.currentView === "link" ? t("link.title")
@@ -1208,6 +1226,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: appViewModel.currentView === "settings" ? t("settings.subtitle")
                         : appViewModel.currentView === "history" ? (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
+                        : appViewModel.currentView === "globalHistory" ? t("globalHistory.subtitle")
                         : appViewModel.currentView === "scheduledTasks" ? t("schedule.subtitle")
                         : appViewModel.currentView === "local" ? (appViewModel.localMediaDirectoryOpen ? appViewModel.localMediaCurrentPath : t("local.subtitle"))
                         : appViewModel.currentView === "link" ? t("link.subtitle")
@@ -1377,7 +1396,8 @@ ApplicationWindow {
                     : appViewModel.currentView === "scheduledTasks" ? 10
                     : appViewModel.currentView === "local" ? 11
                     : appViewModel.currentView === "link" ? 12
-                    : 13
+                    : appViewModel.currentView === "globalHistory" ? 13
+                    : 14
 
                 transform: [
                     Translate {
@@ -1473,12 +1493,16 @@ ApplicationWindow {
                         anchors.fill: parent
                         spacing: 16
 
-                        RowLayout {
+                        GridLayout {
                             Layout.fillWidth: true
-                            spacing: 16
+                            columns: servicePage.width < 1080 ? 2 : 3
+                            columnSpacing: 16
+                            rowSpacing: 16
 
                             ServiceCard {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 Layout.maximumWidth: 520
                                 Layout.preferredHeight: 156
                                 editing: false
@@ -1494,6 +1518,8 @@ ApplicationWindow {
 
                             ServiceCard {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
                                 Layout.maximumWidth: 520
                                 Layout.preferredHeight: 156
                                 editing: false
@@ -1507,7 +1533,22 @@ ApplicationWindow {
                                 onActivated: appViewModel.openLinkPlayback()
                             }
 
-                            Item { Layout.fillWidth: true }
+                            ServiceCard {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.preferredWidth: 1
+                                Layout.maximumWidth: 520
+                                Layout.preferredHeight: 156
+                                editing: false
+                                serviceName: t("globalHistory.title")
+                                serviceType: "History"
+                                host: t("globalHistory.cardSubtitle")
+                                leadingStatusText: t("globalHistory.builtIn")
+                                leadingStatusColor: theme.success
+                                trailingStatusText: t("globalHistory.localIndex")
+                                trailingStatusColor: root.serviceAccentColor("History")
+                                onActivated: appViewModel.openGlobalHistory()
+                            }
                         }
 
                         Item {
@@ -1925,6 +1966,8 @@ ApplicationWindow {
                 LocalMediaPage {}
 
                 LinkPlaybackPage {}
+
+                GlobalHistoryPage {}
 
                 SettingsPage {}
             }
@@ -3219,6 +3262,25 @@ ApplicationWindow {
                         roundedRectPath(context, -3, -5, 16, 10, 5)
                         context.stroke()
                         context.restore()
+                    } else if (serviceIcon.normalizedType === "history"
+                               || serviceIcon.normalizedType === "globalhistory") {
+                        context.strokeStyle = "#ffffff"
+                        context.fillStyle = "#ffffff"
+                        context.lineWidth = 2.4
+                        context.beginPath()
+                        context.arc(17, 17, 10.5, -Math.PI * 0.15, Math.PI * 1.55)
+                        context.stroke()
+                        context.beginPath()
+                        context.moveTo(6.2, 10.2)
+                        context.lineTo(5.4, 17.1)
+                        context.lineTo(11.8, 14.6)
+                        context.closePath()
+                        context.fill()
+                        context.beginPath()
+                        context.moveTo(17, 10.5)
+                        context.lineTo(17, 17)
+                        context.lineTo(22.2, 20.1)
+                        context.stroke()
                     } else if (serviceIcon.normalizedType === "local") {
                         context.fillStyle = "#ffffff"
                         context.beginPath()
@@ -5815,7 +5877,7 @@ ApplicationWindow {
                 return
             }
             mpvVideo.togglePause()
-            appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.paused)
+            appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.duration, mpvVideo.paused)
         }
 
         function cancelExitPlayback() {
@@ -5856,7 +5918,7 @@ ApplicationWindow {
             }
             mpvVideo.seekAbsolute(target)
             beginSeekLoading()
-            appViewModel.reportPlaybackProgress(target, mpvVideo.paused)
+            appViewModel.reportPlaybackProgress(target, mpvVideo.duration, mpvVideo.paused)
             revealControls()
         }
 
@@ -5893,19 +5955,19 @@ ApplicationWindow {
                 event.accepted = true
             } else if (event.key === Qt.Key_Space) {
                 mpvVideo.togglePause()
-                appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.paused)
+                appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.duration, mpvVideo.paused)
                 playerPage.revealControls()
                 event.accepted = true
             } else if (event.key === Qt.Key_Right) {
                 mpvVideo.seekRelative(15)
                 playerPage.beginSeekLoading()
-                appViewModel.reportPlaybackProgress(mpvVideo.position + 15, mpvVideo.paused)
+                appViewModel.reportPlaybackProgress(mpvVideo.position + 15, mpvVideo.duration, mpvVideo.paused)
                 playerPage.revealControls()
                 event.accepted = true
             } else if (event.key === Qt.Key_Left) {
                 mpvVideo.seekRelative(-15)
                 playerPage.beginSeekLoading()
-                appViewModel.reportPlaybackProgress(Math.max(0, mpvVideo.position - 15), mpvVideo.paused)
+                appViewModel.reportPlaybackProgress(Math.max(0, mpvVideo.position - 15), mpvVideo.duration, mpvVideo.paused)
                 playerPage.revealControls()
                 event.accepted = true
             } else if (event.key === Qt.Key_F) {
@@ -6145,8 +6207,12 @@ ApplicationWindow {
             onPlaybackNetworkBytes: function(bytesReceived) {
                 appViewModel.recordPlaybackNetworkBytes(bytesReceived)
             }
-            onPlaybackRestarted: playerPage.finishSeekLoading()
+            onPlaybackRestarted: {
+                playerPage.finishSeekLoading()
+                appViewModel.reportPlaybackStarted()
+            }
             onPlaybackEnded: function(positionSeconds, reachedEnd, failed) {
+                appViewModel.reportPlaybackEnded(positionSeconds, reachedEnd, failed)
                 appViewModel.advanceWebDavAudioPlayback(reachedEnd, failed)
             }
             onPlaybackStateChanged: {
@@ -6162,7 +6228,7 @@ ApplicationWindow {
                 if (duration > 0 || position > 0) {
                     appViewModel.reportPlaybackStarted()
                 }
-                appViewModel.reportPlaybackProgress(position, paused)
+                appViewModel.reportPlaybackProgress(position, duration, paused)
             }
             Component.onCompleted: {
                 play()
@@ -6560,7 +6626,7 @@ ApplicationWindow {
             interval: 15000
             running: appViewModel.currentView === "player"
             repeat: true
-            onTriggered: appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.paused)
+            onTriggered: appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.duration, mpvVideo.paused)
         }
 
         Timer {
@@ -7718,7 +7784,7 @@ ApplicationWindow {
                         onClicked: {
                             mpvVideo.seekRelative(-15)
                             playerPage.beginSeekLoading()
-                            appViewModel.reportPlaybackProgress(Math.max(0, mpvVideo.position - 15), mpvVideo.paused)
+                            appViewModel.reportPlaybackProgress(Math.max(0, mpvVideo.position - 15), mpvVideo.duration, mpvVideo.paused)
                             playerPage.revealControls()
                         }
                     }
@@ -7727,7 +7793,7 @@ ApplicationWindow {
                         text: mpvVideo.paused ? t("action.resume") : t("action.pause")
                         onClicked: {
                             mpvVideo.togglePause()
-                            appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.paused)
+                            appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.duration, mpvVideo.paused)
                             playerPage.revealControls()
                         }
                     }
@@ -7737,7 +7803,7 @@ ApplicationWindow {
                         onClicked: {
                             mpvVideo.seekRelative(15)
                             playerPage.beginSeekLoading()
-                            appViewModel.reportPlaybackProgress(mpvVideo.position + 15, mpvVideo.paused)
+                            appViewModel.reportPlaybackProgress(mpvVideo.position + 15, mpvVideo.duration, mpvVideo.paused)
                             playerPage.revealControls()
                         }
                     }
@@ -8247,6 +8313,7 @@ ApplicationWindow {
                     required property string displayName
                     required property string displayAddress
                     required property string playedTime
+                    required property bool privacyMode
 
                     width: linkHistoryList.width
                     height: 84
@@ -8276,13 +8343,26 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             spacing: 4
 
-                            Label {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: displayName
-                                color: theme.text
-                                font.pixelSize: 15
-                                font.bold: true
-                                elide: Text.ElideRight
+                                spacing: 7
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: displayName
+                                    color: theme.text
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Label {
+                                    visible: privacyMode
+                                    text: t("globalHistory.privateBadge")
+                                    color: theme.primary
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                }
                             }
 
                             MutedText {
@@ -8337,6 +8417,432 @@ ApplicationWindow {
                         text: t("link.historyEmpty")
                     }
                 }
+            }
+
+            Item { Layout.preferredHeight: 8 }
+        }
+    }
+
+    component GlobalHistoryPage: Flickable {
+        id: globalHistoryFlick
+        contentWidth: width
+        contentHeight: globalHistoryColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollIndicator.vertical: ScrollIndicator {}
+
+        property var sourceFilters: [
+            { value: "All", labelKey: "globalHistory.filterAll" },
+            { value: "Emby", labelKey: "globalHistory.sourceEmby" },
+            { value: "Jellyfin", labelKey: "globalHistory.sourceJellyfin" },
+            { value: "WebDAV", labelKey: "globalHistory.sourceWebDav" },
+            { value: "IPTV", labelKey: "globalHistory.sourceIptv" },
+            { value: "Local", labelKey: "globalHistory.sourceLocal" },
+            { value: "Link", labelKey: "globalHistory.sourceLink" }
+        ]
+
+        function sourceLabel(sourceType) {
+            switch (String(sourceType).toLowerCase()) {
+            case "emby": return t("globalHistory.sourceEmby")
+            case "jellyfin": return t("globalHistory.sourceJellyfin")
+            case "webdav": return t("globalHistory.sourceWebDav")
+            case "iptv": return t("globalHistory.sourceIptv")
+            case "local": return t("globalHistory.sourceLocal")
+            case "link": return t("globalHistory.sourceLink")
+            default: return sourceType
+            }
+        }
+
+        ColumnLayout {
+            id: globalHistoryColumn
+            width: globalHistoryFlick.width
+            spacing: 16
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                SectionHeader {
+                    Layout.fillWidth: true
+                    title: t("globalHistory.recentTitle")
+                    subtitle: t("globalHistory.recentSubtitle")
+                }
+
+                IconButton {
+                    text: "↻"
+                    font.pixelSize: 20
+                    enabled: !appViewModel.globalHistoryLoading
+                    ToolTip.visible: hovered
+                    ToolTip.text: t("action.refresh")
+                    onClicked: appViewModel.refreshGlobalHistory()
+                }
+            }
+
+            Flickable {
+                id: globalHistoryFilterFlick
+                Layout.fillWidth: true
+                Layout.preferredHeight: 40
+                contentWidth: globalHistoryFilters.implicitWidth
+                contentHeight: height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.HorizontalFlick
+
+                Row {
+                    id: globalHistoryFilters
+                    height: parent.height
+                    spacing: 7
+
+                    Repeater {
+                        model: globalHistoryFlick.sourceFilters
+
+                        delegate: Button {
+                            id: historyFilterButton
+                            required property var modelData
+                            readonly property bool selected: appViewModel.globalHistoryFilter.toLowerCase()
+                                === String(modelData.value).toLowerCase()
+                            height: 36
+                            width: Math.max(68, historyFilterLabel.implicitWidth + 26)
+                            leftPadding: 13
+                            rightPadding: 13
+                            onClicked: appViewModel.globalHistoryFilter = modelData.value
+
+                            contentItem: Label {
+                                id: historyFilterLabel
+                                text: t(historyFilterButton.modelData.labelKey)
+                                color: historyFilterButton.selected ? "#ffffff" : theme.text
+                                font.pixelSize: 13
+                                font.bold: historyFilterButton.selected
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                radius: 8
+                                color: historyFilterButton.selected
+                                    ? root.serviceAccentColor("History")
+                                    : historyFilterButton.hovered ? theme.elevatedHover : theme.elevated
+                                border.color: historyFilterButton.selected
+                                    ? root.serviceAccentColor("History")
+                                    : historyFilterButton.hovered ? root.withAlpha(root.serviceAccentColor("History"), 0.72)
+                                    : theme.border
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 24
+                spacing: 8
+
+                Label {
+                    text: t("globalHistory.recordCount").arg(appViewModel.globalPlaybackHistory.count)
+                    color: theme.muted
+                    font.pixelSize: 13
+                    font.bold: true
+                }
+
+                Rectangle {
+                    visible: appViewModel.privacyMode
+                    Layout.preferredWidth: globalHistoryPrivacyLabel.implicitWidth + 16
+                    Layout.preferredHeight: 22
+                    radius: 7
+                    color: root.withAlpha(theme.primary, darkTheme ? 0.20 : 0.11)
+                    border.color: root.withAlpha(theme.primary, 0.48)
+
+                    Label {
+                        id: globalHistoryPrivacyLabel
+                        anchors.centerIn: parent
+                        text: t("globalHistory.privateIncluded")
+                        color: theme.primary
+                        font.pixelSize: 10
+                        font.bold: true
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                BusyIndicator {
+                    visible: appViewModel.globalHistoryLoading && appViewModel.globalPlaybackHistory.count > 0
+                    running: visible
+                    implicitWidth: 22
+                    implicitHeight: 22
+                }
+            }
+
+            ListView {
+                id: globalHistoryList
+                Layout.fillWidth: true
+                Layout.preferredHeight: contentHeight
+                visible: appViewModel.globalPlaybackHistory.count > 0
+                interactive: false
+                spacing: 9
+                clip: false
+                model: appViewModel.globalPlaybackHistory
+                section.property: "playedDate"
+                section.criteria: ViewSection.FullString
+                section.delegate: Item {
+                    required property string section
+                    width: globalHistoryList.width
+                    height: 38
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        text: root.formatHistoryDate(section)
+                        color: theme.muted
+                        font.pixelSize: 13
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                }
+
+                delegate: Rectangle {
+                    id: globalHistoryRow
+                    required property string recordId
+                    required property string sourceType
+                    required property string serviceName
+                    required property string title
+                    required property string subtitle
+                    required property string displayTarget
+                    required property string playedTime
+                    required property real positionSeconds
+                    required property real durationSeconds
+                    required property real progress
+                    required property bool completed
+                    required property bool privacyMode
+                    required property bool available
+                    readonly property color accentColor: root.serviceAccentColor(sourceType)
+
+                    width: globalHistoryList.width
+                    height: 126
+                    radius: 8
+                    color: globalHistoryMouse.containsMouse ? theme.elevatedHover : theme.elevated
+                    border.color: !available ? root.withAlpha(theme.danger, 0.50)
+                        : globalHistoryMouse.containsMouse ? root.withAlpha(accentColor, 0.78) : theme.border
+                    opacity: available ? 1.0 : 0.76
+
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                    MouseArea {
+                        id: globalHistoryMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: globalHistoryRow.available
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: appViewModel.playGlobalHistory(globalHistoryRow.recordId)
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 13
+
+                        ServiceTypeIcon {
+                            Layout.preferredWidth: 48
+                            Layout.preferredHeight: 48
+                            Layout.alignment: Qt.AlignTop
+                            serviceType: globalHistoryRow.sourceType
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            spacing: 4
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: globalHistoryRow.title
+                                color: theme.text
+                                font.pixelSize: 16
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 7
+
+                                Rectangle {
+                                    Layout.preferredWidth: globalHistorySourceLabel.implicitWidth + 14
+                                    Layout.preferredHeight: 21
+                                    radius: 7
+                                    color: root.withAlpha(globalHistoryRow.accentColor, darkTheme ? 0.20 : 0.11)
+                                    border.color: root.withAlpha(globalHistoryRow.accentColor, 0.46)
+
+                                    Label {
+                                        id: globalHistorySourceLabel
+                                        anchors.centerIn: parent
+                                        text: globalHistoryFlick.sourceLabel(globalHistoryRow.sourceType)
+                                        color: globalHistoryRow.accentColor
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                    }
+                                }
+
+                                MutedText {
+                                    Layout.fillWidth: true
+                                    text: globalHistoryRow.subtitle.length > 0 && globalHistoryRow.serviceName.length > 0
+                                        ? globalHistoryRow.subtitle + " · " + globalHistoryRow.serviceName
+                                        : globalHistoryRow.subtitle.length > 0 ? globalHistoryRow.subtitle : globalHistoryRow.serviceName
+                                    elide: Text.ElideRight
+                                }
+
+                                Label {
+                                    visible: globalHistoryRow.privacyMode
+                                    text: t("globalHistory.privateBadge")
+                                    color: theme.primary
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                }
+
+                                Label {
+                                    visible: !globalHistoryRow.available
+                                    text: t("globalHistory.unavailable")
+                                    color: theme.danger
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                }
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: globalHistoryRow.displayTarget
+                                font.pixelSize: 12
+                                elide: Text.ElideMiddle
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 20
+                                spacing: 10
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 4
+                                    radius: 2
+                                    color: theme.border
+                                    visible: globalHistoryRow.durationSeconds > 0
+
+                                    Rectangle {
+                                        width: parent.width * globalHistoryRow.progress
+                                        height: parent.height
+                                        radius: parent.radius
+                                        color: globalHistoryRow.accentColor
+                                    }
+                                }
+
+                                Label {
+                                    text: globalHistoryRow.completed
+                                        ? t("globalHistory.completed")
+                                        : globalHistoryRow.positionSeconds > 0
+                                            ? t("globalHistory.resumeAt").arg(root.formatPlaybackTime(globalHistoryRow.positionSeconds))
+                                            : t("globalHistory.started")
+                                    color: globalHistoryRow.completed ? theme.success : theme.muted
+                                    font.pixelSize: 11
+                                    font.bold: globalHistoryRow.completed
+                                }
+
+                                MutedText {
+                                    visible: globalHistoryRow.durationSeconds > 0
+                                    text: root.formatPlaybackTime(globalHistoryRow.positionSeconds)
+                                        + " / " + root.formatPlaybackTime(globalHistoryRow.durationSeconds)
+                                    font.pixelSize: 11
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.preferredWidth: 92
+                            Layout.fillHeight: true
+                            spacing: 7
+
+                            MutedText {
+                                Layout.alignment: Qt.AlignRight
+                                text: globalHistoryRow.playedTime
+                                font.pixelSize: 11
+                            }
+
+                            Item { Layout.fillHeight: true }
+
+                            ModernButton {
+                                Layout.fillWidth: true
+                                text: globalHistoryRow.available
+                                    ? (globalHistoryRow.positionSeconds > 0 && !globalHistoryRow.completed
+                                        ? t("action.continue") : t("action.play"))
+                                    : t("globalHistory.unavailable")
+                                enabled: globalHistoryRow.available
+                                onClicked: appViewModel.playGlobalHistory(globalHistoryRow.recordId)
+                            }
+
+                            IconButton {
+                                Layout.alignment: Qt.AlignRight
+                                implicitWidth: 34
+                                implicitHeight: 30
+                                text: "×"
+                                danger: true
+                                ToolTip.visible: hovered
+                                ToolTip.text: t("action.delete")
+                                onClicked: appViewModel.deleteGlobalHistory(globalHistoryRow.recordId)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 190
+                visible: appViewModel.globalPlaybackHistory.count === 0 && !appViewModel.globalHistoryLoading
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 48, 440)
+                    spacing: 9
+
+                    ServiceTypeIcon {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 52
+                        Layout.preferredHeight: 52
+                        serviceType: "History"
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("globalHistory.empty")
+                        color: theme.text
+                        font.pixelSize: 17
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: t("globalHistory.emptyHint")
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            PageLoadingPanel {
+                Layout.alignment: Qt.AlignHCenter
+                visible: appViewModel.globalHistoryLoading && appViewModel.globalPlaybackHistory.count === 0
+                title: t("globalHistory.loading")
+                subtitle: t("globalHistory.loadingHint")
+            }
+
+            ModernButton {
+                Layout.alignment: Qt.AlignHCenter
+                visible: appViewModel.globalHistoryHasMore
+                enabled: !appViewModel.globalHistoryLoading
+                text: t("globalHistory.loadMore")
+                onClicked: appViewModel.loadMoreGlobalHistory()
             }
 
             Item { Layout.preferredHeight: 8 }

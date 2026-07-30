@@ -68,6 +68,7 @@ qt_add_executable(vibePlayerQT
     src/models/MediaItem.h
     src/models/MediaLibrary.h
     src/models/MediaPerson.h
+    src/models/PlaybackHistoryItem.h
     src/models/ScheduledPlaybackTask.h
     src/models/ServiceCard.h
     src/models/ServerConfig.h
@@ -136,6 +137,8 @@ qt_add_executable(vibePlayerQT
     src/viewmodels/MediaLibraryListModel.h
     src/viewmodels/PersonListModel.cpp
     src/viewmodels/PersonListModel.h
+    src/viewmodels/PlaybackHistoryListModel.cpp
+    src/viewmodels/PlaybackHistoryListModel.h
     src/viewmodels/ServiceCardListModel.cpp
     src/viewmodels/ServiceCardListModel.h
     src/viewmodels/ScheduledPlaybackTaskListModel.cpp
@@ -335,6 +338,37 @@ if(BUILD_TESTING)
 
     add_test(NAME link_playback_history COMMAND link_playback_history_test)
     set_tests_properties(link_playback_history PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(playback_history_test
+        tests/PlaybackHistoryTest.cpp
+        src/database/SessionRepository.cpp
+        src/database/SessionRepository.h
+        src/models/DailyUsageStat.h
+        src/models/IptvChannel.h
+        src/models/IptvPlaylist.h
+        src/models/LinkPlaybackHistoryItem.h
+        src/models/LocalMediaRoot.h
+        src/models/PlaybackHistoryItem.h
+        src/models/ScheduledPlaybackTask.h
+        src/models/ServiceCard.h
+        src/models/ServerConfig.h
+        src/models/ServiceType.h
+        src/models/UserSession.h
+        src/viewmodels/PlaybackHistoryListModel.cpp
+        src/viewmodels/PlaybackHistoryListModel.h
+    )
+    target_include_directories(playback_history_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(playback_history_test PRIVATE
+        Qt6::Sql
+        Qt6::Test
+    )
+
+    add_test(NAME playback_history COMMAND playback_history_test)
+    set_tests_properties(playback_history PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 
