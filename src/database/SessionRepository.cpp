@@ -216,6 +216,21 @@ std::expected<void, QString> SessionRepository::initialize()
             "ON link_playback_history(played_at DESC)"))) {
         return std::unexpected(sqlError(linkHistoryQuery));
     }
+    if (!linkHistoryQuery.exec(QStringLiteral(
+            "DELETE FROM link_playback_history "
+            "WHERE EXISTS ("
+            "SELECT 1 FROM link_playback_history newer "
+            "WHERE newer.playback_url = link_playback_history.playback_url "
+            "AND (newer.played_at > link_playback_history.played_at "
+            "OR (newer.played_at = link_playback_history.played_at AND newer.id > link_playback_history.id))"
+            ")"))) {
+        return std::unexpected(sqlError(linkHistoryQuery));
+    }
+    if (!linkHistoryQuery.exec(QStringLiteral(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_link_playback_history_unique_url "
+            "ON link_playback_history(playback_url)"))) {
+        return std::unexpected(sqlError(linkHistoryQuery));
+    }
 
     QSqlQuery playbackHistoryQuery(m_database);
     if (!playbackHistoryQuery.exec(QStringLiteral(
@@ -253,6 +268,23 @@ std::expected<void, QString> SessionRepository::initialize()
             "position_seconds, duration_seconds, completed, privacy_mode) "
             "SELECT id, 'Link', 'builtin-link-playback', 'Link Playback', playback_url, 'Link Playback', '', "
             "played_date, played_at, played_at, 0, 0, 0, privacy_mode FROM link_playback_history"))) {
+        return std::unexpected(sqlError(playbackHistoryQuery));
+    }
+    if (!playbackHistoryQuery.exec(QStringLiteral(
+            "DELETE FROM playback_history "
+            "WHERE EXISTS ("
+            "SELECT 1 FROM playback_history newer "
+            "WHERE newer.source_type = playback_history.source_type "
+            "AND newer.service_id = playback_history.service_id "
+            "AND newer.replay_target = playback_history.replay_target "
+            "AND (newer.played_at > playback_history.played_at "
+            "OR (newer.played_at = playback_history.played_at AND newer.id > playback_history.id))"
+            ")"))) {
+        return std::unexpected(sqlError(playbackHistoryQuery));
+    }
+    if (!playbackHistoryQuery.exec(QStringLiteral(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_playback_history_unique_item "
+            "ON playback_history(source_type, service_id, replay_target)"))) {
         return std::unexpected(sqlError(playbackHistoryQuery));
     }
 
@@ -612,7 +644,7 @@ std::expected<void, QString> SessionRepository::saveLinkPlaybackHistory(const Li
 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-        "INSERT INTO link_playback_history (id, playback_url, played_date, played_at, privacy_mode) "
+        "INSERT OR REPLACE INTO link_playback_history (id, playback_url, played_date, played_at, privacy_mode) "
         "VALUES (:id, :playback_url, :played_date, :played_at, :privacy_mode)"));
     query.bindValue(QStringLiteral(":id"), item.id);
     query.bindValue(QStringLiteral(":playback_url"), item.playbackUrl.toString(QUrl::FullyEncoded));
@@ -691,7 +723,7 @@ std::expected<void, QString> SessionRepository::savePlaybackHistory(const Playba
 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-        "INSERT INTO playback_history "
+        "INSERT OR REPLACE INTO playback_history "
         "(id, source_type, service_id, service_name, replay_target, title, subtitle, played_date, played_at, updated_at, "
         "position_seconds, duration_seconds, completed, privacy_mode) "
         "VALUES (:id, :source_type, :service_id, :service_name, :replay_target, :title, :subtitle, :played_date, "

@@ -56,14 +56,19 @@ void LinkPlaybackHistoryTest::persistsOrdersAndDeletesIndividualRecords()
                                          QStringLiteral("2026-07-30"),
                                          QStringLiteral("2026-07-30T10:00:00Z"),
                                          true);
+    const auto latestSameLink = historyItem(QStringLiteral("latest-same-link"),
+                                            QStringLiteral("https://media.example.com/live/index.m3u8?token=abc%2F123"),
+                                            QStringLiteral("2026-07-29"),
+                                            QStringLiteral("2026-07-29T11:00:00Z"));
     QVERIFY(repository.saveLinkPlaybackHistory(older).has_value());
     QVERIFY(repository.saveLinkPlaybackHistory(newer).has_value());
+    QVERIFY(repository.saveLinkPlaybackHistory(latestSameLink).has_value());
     QVERIFY(repository.saveLinkPlaybackHistory(privateItem).has_value());
 
     const auto loaded = repository.loadLinkPlaybackHistory();
     QVERIFY(loaded.has_value());
     QCOMPARE(loaded->size(), size_t { 2 });
-    QCOMPARE(loaded->at(0).id, QStringLiteral("newer"));
+    QCOMPARE(loaded->at(0).id, QStringLiteral("latest-same-link"));
     QCOMPARE(loaded->at(0).playedDate, QDate(2026, 7, 29));
     QCOMPARE(loaded->at(0).playbackUrl.query(QUrl::FullyEncoded), QStringLiteral("token=abc%2F123"));
     QCOMPARE(loaded->at(1).id, QStringLiteral("older"));
@@ -77,9 +82,9 @@ void LinkPlaybackHistoryTest::persistsOrdersAndDeletesIndividualRecords()
     LinkPlaybackHistoryListModel model;
     model.setItems(*loaded);
     QCOMPARE(model.count(), 2);
-    QVERIFY(model.itemById(QStringLiteral("newer")) != nullptr);
+    QVERIFY(model.itemById(QStringLiteral("latest-same-link")) != nullptr);
 
-    QVERIFY(repository.deleteLinkPlaybackHistory(QStringLiteral("newer")).has_value());
+    QVERIFY(repository.deleteLinkPlaybackHistory(QStringLiteral("latest-same-link")).has_value());
     const auto afterDelete = repository.loadLinkPlaybackHistory();
     QVERIFY(afterDelete.has_value());
     QCOMPARE(afterDelete->size(), size_t { 1 });

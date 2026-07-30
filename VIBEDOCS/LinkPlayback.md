@@ -66,7 +66,7 @@ The legacy link-history row contains:
 - A UTC timestamp used for deterministic newest-first ordering.
 - The privacy-mode state at playback time.
 
-Selecting a history record validates the stored URL again before playback and creates a new playback occurrence. Deleting a record removes only that occurrence. History is not automatically pruned.
+Selecting a history record validates the stored URL again before playback. Replaying the same normalized URL replaces its previous row with the latest occurrence, while different URLs remain independent. Deleting a record removes that URL's latest occurrence. History is not time-pruned.
 
 The complete URL is required for replay and can include signed query parameters. QML receives only a display address with query and fragment removed. Full URLs and query data are never written to application logs. Embedded usernames and passwords remain rejected before persistence. Normal mode excludes private link records; privacy mode includes both normal and private records. Deleting either representation removes both rows in one repository operation so the two history views cannot drift.
 
@@ -100,7 +100,8 @@ The existing pending-usage buffer, periodic SQLite flush, privacy-mode partition
 `LinkPlaybackHistoryTest` verifies:
 
 - SQLite initialization creates the history storage path.
-- Multiple occurrences are loaded newest first and preserve replay URL encoding.
+- Distinct URLs are loaded newest first and preserve replay URL encoding.
+- Replaying the same normalized URL keeps only its latest occurrence.
 - Private occurrences remain hidden in normal mode and become visible in privacy mode.
 - One history occurrence can be deleted without removing another.
 - The list model resolves records by their stable id.

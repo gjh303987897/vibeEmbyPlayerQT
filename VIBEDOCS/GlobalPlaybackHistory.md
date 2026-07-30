@@ -11,7 +11,7 @@ Global Playback History is the third built-in entry beside Local Playback and Li
 - Local Playback
 - Link Playback
 
-An occurrence is persisted only after libmpv reports that playback actually started. A URL validation attempt, media-details request, password prompt, or playback request that fails before that point does not create history.
+An occurrence is persisted only after libmpv reports that playback actually started. A URL validation attempt, media-details request, password prompt, or playback request that fails before that point does not create history. Replaying the same stable media target replaces its previous global-history row, so only the latest occurrence remains.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ QML never queries SQLite, constructs service API requests, handles credentials, 
 
 ## Persistence Model
 
-The `playback_history` table stores one row per playback occurrence:
+The `playback_history` table stores one row per stable media identity. Identity is the combination of source type, service id, and replay target, so equal titles on different services remain independent:
 
 - Stable UUID record id.
 - Source type and source service id/name.
@@ -38,7 +38,7 @@ The `playback_history` table stores one row per playback occurrence:
 - Last known position, duration, and completion state.
 - Privacy classification.
 
-Rows are ordered by playback timestamp and id, newest first. Queries are bounded to 60 records per page and use indexes on timestamp and source type. Existing `link_playback_history` rows are migrated with `INSERT OR IGNORE`; both tables keep the same record id for coordinated deletion and backward compatibility with the dedicated Link Playback page.
+Rows are ordered by playback timestamp and id, newest first. Queries are bounded to 60 records per page and use indexes on timestamp and source type. A unique SQLite index enforces the stable-media identity, and a new playback uses `INSERT OR REPLACE` to reset the row to the latest occurrence. Database initialization removes pre-existing duplicates by keeping the newest timestamp before creating the unique index. Existing `link_playback_history` rows are migrated with `INSERT OR IGNORE`; both tables keep the same record id for coordinated deletion and backward compatibility with the dedicated Link Playback page.
 
 Progress writes are throttled in `AppViewModel` instead of writing on every libmpv position signal. Stop and end-of-file events force a final update. A row is complete when playback reaches EOF or at least 97 percent of a known duration. Replaying a completed row starts at zero; an incomplete row resumes from its stored position.
 
@@ -87,5 +87,6 @@ Official references:
 - Stable-id lookup in `PlaybackHistoryListModel`.
 - Coordinated deletion.
 - Migration of existing Link Playback history without losing encoded replay URLs.
+- Replacement of repeated playback for the same stable media target and cleanup of pre-existing duplicates.
 
 `LinkPlaybackHistoryTest` additionally verifies privacy filtering for the legacy page. Manual verification should cover all six sources, completed and resumable rows, unavailable local/source states, private-mode switching, source filters, pagination, deletion, and both mouse and keyboard/remote activation.

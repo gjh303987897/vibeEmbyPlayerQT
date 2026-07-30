@@ -1,6 +1,8 @@
 #include "database/SessionRepository.h"
 #include "viewmodels/PlaybackHistoryListModel.h"
 
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtTest>
@@ -10,7 +12,9 @@ class PlaybackHistoryTest final : public QObject {
 
 private slots:
     void persistsFiltersUpdatesAndDeletesRecords();
+    void keepsSameTargetFromDifferentServices();
     void migratesExistingLinkHistory();
+    void deduplicatesExistingGlobalHistory();
 };
 
 namespace {
@@ -63,14 +67,19 @@ void PlaybackHistoryTest::persistsFiltersUpdatesAndDeletesRecords()
                                          QStringLiteral("https://example.com/private.m3u8"),
                                          QStringLiteral("2026-07-30T10:00:00Z"),
                                          true);
+    const auto latestSameItem = historyItem(QStringLiteral("latest-same-item"),
+                                            PlaybackHistorySource::Emby,
+                                            QStringLiteral("item-42"),
+                                            QStringLiteral("2026-07-29T11:00:00Z"));
     QVERIFY(repository.savePlaybackHistory(older).has_value());
     QVERIFY(repository.savePlaybackHistory(newer).has_value());
+    QVERIFY(repository.savePlaybackHistory(latestSameItem).has_value());
     QVERIFY(repository.savePlaybackHistory(privateItem).has_value());
 
     const auto normalItems = repository.loadPlaybackHistory(false, 0, 20);
     QVERIFY(normalItems.has_value());
     QCOMPARE(normalItems->size(), size_t { 2 });
-    QCOMPARE(normalItems->front().id, QStringLiteral("newer"));
+    QCOMPARE(normalItems->front().id, QStringLiteral("latest-same-item"));
 
     const auto allItems = repository.loadPlaybackHistory(true, 0, 20);
     QVERIFY(allItems.has_value());
@@ -89,13 +98,13 @@ void PlaybackHistoryTest::persistsFiltersUpdatesAndDeletesRecords()
     QCOMPARE(firstPage->size(), size_t { 1 });
     QCOMPARE(secondPage->size(), size_t { 1 });
     QCOMPARE(firstPage->front().id, QStringLiteral("private"));
-    QCOMPARE(secondPage->front().id, QStringLiteral("newer"));
+    QCOMPARE(secondPage->front().id, QStringLiteral("latest-same-item"));
 
-    QVERIFY(repository.updatePlaybackHistoryProgress(QStringLiteral("newer"),
+    QVERIFY(repository.updatePlaybackHistoryProgress(QStringLiteral("latest-same-item"),
                                                      315,
                                                      600,
                                                      true,
-                                                     QDateTime::fromString(QStringLiteral("2026-07-29T09:36:00Z"), Qt::ISODate))
+                                                     QDateTime::fromString(QStringLiteral("2026-07-29T11:06:00Z"), Qt::ISODate))
                 .has_value());
     const auto updated = repository.loadPlaybackHistory(true, 0, 20, PlaybackHistorySource::Emby);
     QVERIFY(updated.has_value());
@@ -106,12 +115,45 @@ void PlaybackHistoryTest::persistsFiltersUpdatesAndDeletesRecords()
     PlaybackHistoryListModel model;
     model.setItems(*allItems);
     QCOMPARE(model.count(), 3);
-    QVERIFY(model.itemById(QStringLiteral("newer")) != nullptr);
+    QVERIFY(model.itemById(QStringLiteral("latest-same-item")) != nullptr);
 
-    QVERIFY(repository.deletePlaybackHistory(QStringLiteral("newer")).has_value());
+    QVERIFY(repository.deletePlaybackHistory(QStringLiteral("latest-same-item")).has_value());
     const auto afterDelete = repository.loadPlaybackHistory(true, 0, 20);
     QVERIFY(afterDelete.has_value());
     QCOMPARE(afterDelete->size(), size_t { 2 });
+}
+
+void PlaybackHistoryTest::keepsSameTargetFromDifferentServices()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    SessionRepository repository(uniqueConnectionName(), directory.filePath(QStringLiteral("history.sqlite3")));
+    QVERIFY(repository.initialize().has_value());
+
+    PlaybackHistoryItem first = historyItem(
+        QStringLiteral("first-service"),
+        PlaybackHistorySource::Emby,
+        QStringLiteral("item-42"),
+        QStringLiteral("2026-07-29T10:00:00Z"));
+    first.serviceId = QStringLiteral("emby-service-1");
+    first.serviceName = QStringLiteral("Emby One");
+    first.title = QStringLiteral("Shared Movie");
+
+    PlaybackHistoryItem second = first;
+    second.id = QStringLiteral("second-service");
+    second.serviceId = QStringLiteral("emby-service-2");
+    second.serviceName = QStringLiteral("Emby Two");
+    second.playedAt = QDateTime::fromString(QStringLiteral("2026-07-29T11:00:00Z"), Qt::ISODate);
+
+    QVERIFY(repository.savePlaybackHistory(first).has_value());
+    QVERIFY(repository.savePlaybackHistory(second).has_value());
+
+    const auto loaded = repository.loadPlaybackHistory(false, 0, 20);
+    QVERIFY(loaded.has_value());
+    QCOMPARE(loaded->size(), size_t { 2 });
+    QCOMPARE(loaded->at(0).id, QStringLiteral("second-service"));
+    QCOMPARE(loaded->at(1).id, QStringLiteral("first-service"));
 }
 
 void PlaybackHistoryTest::migratesExistingLinkHistory()
@@ -119,17 +161,35 @@ void PlaybackHistoryTest::migratesExistingLinkHistory()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const auto databasePath = directory.filePath(QStringLiteral("migration.sqlite3"));
-    const auto playedAt = QDateTime::fromString(QStringLiteral("2026-07-29T09:30:00Z"), Qt::ISODate);
+    const auto olderPlayedAt = QDateTime::fromString(QStringLiteral("2026-07-28T09:30:00Z"), Qt::ISODate);
+    const auto latestPlayedAt = QDateTime::fromString(QStringLiteral("2026-07-29T09:30:00Z"), Qt::ISODate);
 
     {
-        SessionRepository repository(uniqueConnectionName(), databasePath);
-        QVERIFY(repository.initialize().has_value());
-        QVERIFY(repository.saveLinkPlaybackHistory(LinkPlaybackHistoryItem {
-            .id = QStringLiteral("legacy-link"),
-            .playbackUrl = QUrl(QStringLiteral("https://media.example.com/movie.mp4?token=abc%2F123")),
-            .playedDate = playedAt.toLocalTime().date(),
-            .playedAt = playedAt,
-        }).has_value());
+        const auto connectionName = uniqueConnectionName();
+        {
+            auto database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+            database.setDatabaseName(databasePath);
+            QVERIFY(database.open());
+            QSqlQuery query(database);
+            QVERIFY(query.exec(QStringLiteral(
+                "CREATE TABLE link_playback_history ("
+                "id TEXT PRIMARY KEY, playback_url TEXT NOT NULL, played_date TEXT NOT NULL, played_at TEXT NOT NULL)")));
+            query.prepare(QStringLiteral(
+                "INSERT INTO link_playback_history (id, playback_url, played_date, played_at) "
+                "VALUES (:id, :url, :date, :timestamp)"));
+            const auto insertLink = [&](const QString& id, const QDateTime& playedAt) {
+                query.bindValue(QStringLiteral(":id"), id);
+                query.bindValue(QStringLiteral(":url"),
+                                QStringLiteral("https://media.example.com/movie.mp4?token=abc%2F123"));
+                query.bindValue(QStringLiteral(":date"), playedAt.toLocalTime().date().toString(Qt::ISODate));
+                query.bindValue(QStringLiteral(":timestamp"), playedAt.toUTC().toString(Qt::ISODateWithMs));
+                return query.exec();
+            };
+            QVERIFY(insertLink(QStringLiteral("legacy-link-older"), olderPlayedAt));
+            QVERIFY(insertLink(QStringLiteral("legacy-link-latest"), latestPlayedAt));
+            database.close();
+        }
+        QSqlDatabase::removeDatabase(connectionName);
     }
 
     SessionRepository migratedRepository(uniqueConnectionName(), databasePath);
@@ -137,14 +197,53 @@ void PlaybackHistoryTest::migratesExistingLinkHistory()
     const auto items = migratedRepository.loadPlaybackHistory(false, 0, 20, PlaybackHistorySource::Link);
     QVERIFY(items.has_value());
     QCOMPARE(items->size(), size_t { 1 });
-    QCOMPARE(items->front().id, QStringLiteral("legacy-link"));
+    QCOMPARE(items->front().id, QStringLiteral("legacy-link-latest"));
     QCOMPARE(items->front().replayTarget,
              QStringLiteral("https://media.example.com/movie.mp4?token=abc%2F123"));
 
-    QVERIFY(migratedRepository.deletePlaybackHistory(QStringLiteral("legacy-link")).has_value());
+    QVERIFY(migratedRepository.deletePlaybackHistory(QStringLiteral("legacy-link-latest")).has_value());
     const auto linkItems = migratedRepository.loadLinkPlaybackHistory();
     QVERIFY(linkItems.has_value());
     QVERIFY(linkItems->empty());
+}
+
+void PlaybackHistoryTest::deduplicatesExistingGlobalHistory()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto databasePath = directory.filePath(QStringLiteral("existing-duplicates.sqlite3"));
+    const auto connectionName = uniqueConnectionName();
+
+    {
+        auto database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(databasePath);
+        QVERIFY(database.open());
+        QSqlQuery query(database);
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE playback_history ("
+            "id TEXT PRIMARY KEY, source_type TEXT NOT NULL, service_id TEXT NOT NULL DEFAULT '', "
+            "service_name TEXT NOT NULL DEFAULT '', replay_target TEXT NOT NULL, title TEXT NOT NULL, "
+            "subtitle TEXT NOT NULL DEFAULT '', played_date TEXT NOT NULL, played_at TEXT NOT NULL, "
+            "updated_at TEXT NOT NULL, position_seconds INTEGER NOT NULL DEFAULT 0, "
+            "duration_seconds INTEGER NOT NULL DEFAULT 0, completed INTEGER NOT NULL DEFAULT 0, "
+            "privacy_mode INTEGER NOT NULL DEFAULT 0)")));
+        QVERIFY(query.exec(QStringLiteral(
+            "INSERT INTO playback_history VALUES "
+            "('duplicate-older', 'Emby', 'service-1', 'Server One', 'item-42', 'Older title', '', "
+            "'2026-07-28', '2026-07-28T08:00:00.000Z', '2026-07-28T08:00:00.000Z', 120, 600, 0, 0), "
+            "('duplicate-latest', 'Emby', 'service-1', 'Server One', 'item-42', 'Latest title', '', "
+            "'2026-07-29', '2026-07-29T08:00:00.000Z', '2026-07-29T08:00:00.000Z', 240, 600, 0, 0)")));
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    SessionRepository repository(uniqueConnectionName(), databasePath);
+    QVERIFY(repository.initialize().has_value());
+    const auto items = repository.loadPlaybackHistory(true, 0, 20, PlaybackHistorySource::Emby);
+    QVERIFY(items.has_value());
+    QCOMPARE(items->size(), size_t { 1 });
+    QCOMPARE(items->front().id, QStringLiteral("duplicate-latest"));
+    QCOMPARE(items->front().title, QStringLiteral("Latest title"));
 }
 
 QTEST_GUILESS_MAIN(PlaybackHistoryTest)
