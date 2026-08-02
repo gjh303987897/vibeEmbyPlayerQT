@@ -3014,9 +3014,9 @@ std::vector<PlaybackHistoryItem> AppViewModel::prepareGlobalHistoryItems(std::ve
             item.available = serviceCard != serviceCards.cend() && target.isValid() &&
                 webDavHistoryTargetIsValid(serviceCard->server, target);
             auto displayUrl = target;
-            displayUrl.setQuery({});
-            displayUrl.setFragment({});
-            displayUrl.setUserInfo({});
+            displayUrl.setQuery(QString {});
+            displayUrl.setFragment(QString {});
+            displayUrl.setUserInfo(QString {});
             item.displayTarget = displayUrl.toString(QUrl::FullyDecoded);
             break;
         }

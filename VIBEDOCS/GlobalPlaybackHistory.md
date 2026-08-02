@@ -62,6 +62,8 @@ Deleting a service with local data also deletes its global history. Hiding a ser
 
 Replay targets never enter the QML model. Display addresses remove query and fragment data, media-server tokens are not stored, WebDAV passwords remain in `CredentialStore`, and logs contain only generic lifecycle/error messages.
 
+When clearing `QUrl` components, use explicit `QString {}` arguments. Empty braced arguments are ambiguous between the `QString` and `QUrlQuery` overloads of `QUrl::setQuery` on GCC and break Linux x86_64 and ARM64 builds.
+
 ## Media-Server API Basis
 
 Media-server replay reuses the APIs already documented in `EmbyJellyfinApi.md`:
