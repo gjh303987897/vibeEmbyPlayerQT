@@ -16,17 +16,14 @@
 #include <QWindow>
 
 namespace {
-QIcon iconForTheme(const QString& effectiveTheme)
+QIcon applicationIcon()
 {
-    const auto path = effectiveTheme == QStringLiteral("light")
-        ? QStringLiteral(":/app/icons/icon_black.png")
-        : QStringLiteral(":/app/icons/icon_white.png");
-    return QIcon(path);
+    return QIcon(QStringLiteral(":/app/icons/icon_black.png"));
 }
 
-void applyApplicationIcon(const QString& effectiveTheme, TrayController& trayController)
+void applyApplicationIcon(TrayController& trayController)
 {
-    const auto icon = iconForTheme(effectiveTheme);
+    const auto icon = applicationIcon();
     if (icon.isNull()) {
         AppLogger::warning(QStringLiteral("app"), QStringLiteral("Application icon resource is missing"));
         return;
@@ -54,16 +51,12 @@ int main(int argc, char* argv[])
     AppViewModel appViewModel;
     TrayController trayController;
     WindowAppearanceController windowAppearanceController;
-    applyApplicationIcon(appViewModel.effectiveTheme(), trayController);
+    applyApplicationIcon(trayController);
     trayController.setMinimizeToTray(appViewModel.minimizeToTray());
 
     QObject::connect(&appViewModel, &AppViewModel::minimizeToTrayChanged, &trayController, [&]() {
         trayController.setMinimizeToTray(appViewModel.minimizeToTray());
     });
-    QObject::connect(&appViewModel, &AppViewModel::effectiveThemeChanged, &trayController, [&]() {
-        applyApplicationIcon(appViewModel.effectiveTheme(), trayController);
-    });
-
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("appViewModel"), &appViewModel);
     engine.rootContext()->setContextProperty(QStringLiteral("trayController"), &trayController);
@@ -80,6 +73,10 @@ int main(int argc, char* argv[])
     }, Qt::QueuedConnection);
 
     engine.loadFromModule(QStringLiteral("VibePlayer"), QStringLiteral("Main"));
+    applyApplicationIcon(trayController);
+    QTimer::singleShot(0, &app, [&trayController]() {
+        applyApplicationIcon(trayController);
+    });
     const auto testVideo = qEnvironmentVariable("VIBEPLAYER_TEST_VIDEO");
     if (!testVideo.isEmpty()) {
         QTimer::singleShot(300, &appViewModel, [&appViewModel, testVideo]() {

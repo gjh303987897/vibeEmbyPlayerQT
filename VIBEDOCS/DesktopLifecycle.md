@@ -28,6 +28,7 @@ Current behavior:
 - Restore main window from tray activation or tray menu.
 - Quit from tray menu.
 - If the platform does not report tray availability, window close is allowed to quit normally instead of hiding an unreachable window.
+- Window and tray surfaces always use the light-theme application icon (`icon_black.png`). Theme changes affect the interface palette only and do not replace the application icon. Startup applies the icon both before QML loading and after the root native window exists so Windows receives a concrete taskbar `HICON` instead of relying only on the application default.
 
 ## Settings
 

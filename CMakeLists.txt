@@ -170,7 +170,6 @@ qt_add_resources(vibePlayerQT "app_icons"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/icon"
     FILES
         icon/icon_black.png
-        icon/icon_white.png
 )
 
 if(WIN32)
