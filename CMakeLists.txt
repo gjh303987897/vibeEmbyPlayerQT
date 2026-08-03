@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS
+    Concurrent
     Qml
     Quick
     QuickControls2
@@ -114,6 +115,14 @@ qt_add_executable(vibePlayerQT
     src/services/webdav/WebDavClient.h
     src/services/webdav/WebDavPlaybackProxy.cpp
     src/services/webdav/WebDavPlaybackProxy.h
+    src/services/webdav/AesGcmDecryptor.cpp
+    src/services/webdav/AesGcmDecryptor.h
+    src/services/webdav/EncryptedHlsPlaybackProxy.cpp
+    src/services/webdav/EncryptedHlsPlaybackProxy.h
+    src/services/webdav/HlsManifestValidator.cpp
+    src/services/webdav/HlsManifestValidator.h
+    src/services/webdav/TsslStore.cpp
+    src/services/webdav/TsslStore.h
     src/settings/AppSettings.h
     src/utils/AppLogger.cpp
     src/utils/AppLogger.h
@@ -185,6 +194,7 @@ target_include_directories(vibePlayerQT PRIVATE
 )
 
 target_link_libraries(vibePlayerQT PRIVATE
+    Qt6::Concurrent
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
@@ -410,6 +420,54 @@ if(BUILD_TESTING)
 
     add_test(NAME webdav_item_list_model COMMAND webdav_item_list_model_test)
     set_tests_properties(webdav_item_list_model PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(encrypted_hls_format_test
+        tests/EncryptedHlsFormatTest.cpp
+        src/services/webdav/AesGcmDecryptor.cpp
+        src/services/webdav/AesGcmDecryptor.h
+        src/services/webdav/HlsManifestValidator.cpp
+        src/services/webdav/HlsManifestValidator.h
+        src/services/webdav/TsslStore.cpp
+        src/services/webdav/TsslStore.h
+    )
+    target_include_directories(encrypted_hls_format_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(encrypted_hls_format_test PRIVATE
+        Qt6::Test
+    )
+
+    add_test(NAME encrypted_hls_format COMMAND encrypted_hls_format_test)
+    set_tests_properties(encrypted_hls_format PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(encrypted_hls_playback_proxy_test
+        tests/EncryptedHlsPlaybackProxyTest.cpp
+        src/services/webdav/AesGcmDecryptor.cpp
+        src/services/webdav/AesGcmDecryptor.h
+        src/services/webdav/EncryptedHlsPlaybackProxy.cpp
+        src/services/webdav/EncryptedHlsPlaybackProxy.h
+        src/services/webdav/HlsManifestValidator.cpp
+        src/services/webdav/HlsManifestValidator.h
+        src/services/webdav/TsslStore.cpp
+        src/services/webdav/TsslStore.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+    )
+    target_include_directories(encrypted_hls_playback_proxy_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(encrypted_hls_playback_proxy_test PRIVATE
+        Qt6::Concurrent
+        Qt6::Network
+        Qt6::Test
+    )
+
+    add_test(NAME encrypted_hls_playback_proxy COMMAND encrypted_hls_playback_proxy_test)
+    set_tests_properties(encrypted_hls_playback_proxy PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 

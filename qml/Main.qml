@@ -4095,10 +4095,12 @@ ApplicationWindow {
         id: fileRow
         signal activated()
         signal downloadRequested()
+        signal exportTsslRequested()
         property string title: ""
         property string subtitle: ""
         property bool directory: false
         property bool playable: false
+        property bool encryptedHls: false
 
         radius: 8
         color: fileMouse.containsMouse ? theme.elevatedHover : theme.elevated
@@ -4143,6 +4145,12 @@ ApplicationWindow {
                     text: fileRow.subtitle
                     elide: Text.ElideRight
                 }
+            }
+
+            ModernButton {
+                visible: fileRow.encryptedHls
+                text: t("webdav.tsslExport")
+                onClicked: fileRow.exportTsslRequested()
             }
 
             ModernButton {
@@ -4194,10 +4202,12 @@ ApplicationWindow {
         id: mediaCard
         signal activated()
         signal downloadRequested()
+        signal exportTsslRequested()
         property string title: ""
         property string contentType: ""
         property real bytes: -1
         property bool directory: false
+        property bool encryptedHls: false
         readonly property color accentColor: directory ? theme.primary : theme.success
 
         function badgeText() {
@@ -4364,6 +4374,16 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: mediaCard.detailText()
                     elide: Text.ElideRight
+                }
+
+                IconButton {
+                    visible: mediaCard.encryptedHls
+                    implicitWidth: 30
+                    implicitHeight: 28
+                    text: "K"
+                    ToolTip.visible: hovered
+                    ToolTip.text: t("webdav.tsslExport")
+                    onClicked: mediaCard.exportTsslRequested()
                 }
 
                 IconButton {
@@ -8986,7 +9006,17 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 spacing: 10
 
-                Item { Layout.fillWidth: true }
+                MutedText {
+                    Layout.fillWidth: true
+                    visible: appViewModel.webDavTsslStatus.length > 0
+                    text: appViewModel.webDavTsslStatus
+                    elide: Text.ElideRight
+                }
+
+                ModernButton {
+                    text: t("webdav.tsslRestore")
+                    onClicked: appViewModel.restoreTssl()
+                }
 
                 ModernButton {
                     text: t("action.refresh")
@@ -9036,8 +9066,10 @@ ApplicationWindow {
                                 + (model.bytes >= 0 ? root.formatBytes(model.bytes) : "")
                         directory: model.directory
                         playable: model.playable
+                        encryptedHls: model.encryptedHls
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
+                        onExportTsslRequested: appViewModel.exportWebDavTssl(index)
                     }
                     Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 }
@@ -9058,8 +9090,10 @@ ApplicationWindow {
                         contentType: model.contentType
                         bytes: model.bytes
                         directory: model.directory
+                        encryptedHls: model.encryptedHls
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
+                        onExportTsslRequested: appViewModel.exportWebDavTssl(index)
                     }
                     Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 }

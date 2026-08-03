@@ -8,6 +8,8 @@
 #include "services/webdav/TransferManager.h"
 #include "services/webdav/WebDavClient.h"
 #include "services/webdav/WebDavDownloadPlanner.h"
+#include "services/webdav/EncryptedHlsPlaybackProxy.h"
+#include "services/webdav/TsslStore.h"
 #include "services/webdav/WebDavPlaybackProxy.h"
 #include "services/emby/EmbyClient.h"
 #include "services/jellyfin/JellyfinClient.h"
@@ -69,6 +71,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
+    Q_PROPERTY(QString webDavTsslStatus READ webDavTsslStatus NOTIFY webDavTsslStatusChanged)
     Q_PROPERTY(bool webDavAudioPlaybackActive READ webDavAudioPlaybackActive NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioCurrentIndex READ webDavAudioCurrentIndex NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioQueueCount READ webDavAudioQueueCount NOTIFY webDavAudioPlaybackChanged)
@@ -227,6 +230,7 @@ public:
     WebDavItemListModel* webDavItems();
     QString webDavCurrentPath() const;
     QString webDavDisplayMode() const;
+    QString webDavTsslStatus() const;
     void setWebDavDisplayMode(const QString& value);
     bool webDavAudioPlaybackActive() const;
     int webDavAudioCurrentIndex() const;
@@ -397,6 +401,8 @@ public:
     Q_INVOKABLE void chooseWebDavUploadFiles();
     Q_INVOKABLE void chooseWebDavUploadFolder();
     Q_INVOKABLE void downloadWebDavItem(int row);
+    Q_INVOKABLE void restoreTssl();
+    Q_INVOKABLE void exportWebDavTssl(int row);
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
     Q_INVOKABLE void openTransfers();
     Q_INVOKABLE void cancelTransfer(const QString& taskId);
@@ -489,6 +495,7 @@ signals:
     void linkPlaybackAddressChanged();
     void webDavCurrentPathChanged();
     void webDavDisplayModeChanged();
+    void webDavTsslStatusChanged();
     void webDavAudioPlaybackChanged();
     void webDavAudioRepeatModeChanged();
     void defaultDownloadDirectoryChanged();
@@ -583,6 +590,15 @@ private:
     void startWebDavHistoryPlayback(const ServiceCard& card,
                                     const QString& password,
                                     const PlaybackHistoryItem& historyItem);
+    void finishWebDavHistoryPlayback(const ServiceCard& card,
+                                     const QString& password,
+                                     const PlaybackHistoryItem& historyItem,
+                                     const QUrl& remoteUrl,
+                                     const QUrl& proxyUrl,
+                                     const QString& encryptedSessionId = {});
+    void startWebDavVideoPlayback(const WebDavItem& item,
+                                  const QUrl& proxyUrl,
+                                  const QString& encryptedSessionId = {});
     void clearWebDavAudioPlayback();
     void saveWebDavCredentials(const ServerConfig& server, const QString& password);
     std::optional<QString> loadWebDavPassword(const ServerConfig& server);
@@ -646,6 +662,7 @@ private:
     void endHomeLoading();
     void setLibraryItemsLoading(bool value);
     void setError(QString message);
+    void setWebDavTsslStatus(QString message);
     void setSession(UserSession session);
     void saveSession();
     void wireCertificatePrompt(MediaServiceClient& client);
@@ -665,6 +682,7 @@ private:
     QString m_globalHistoryFilter { QStringLiteral("All") };
     QString m_webDavPassword;
     QString m_webDavDisplayMode { QStringLiteral("default") };
+    QString m_webDavTsslStatus;
     std::vector<WebDavItem> m_webDavAudioQueue;
     int m_webDavAudioCurrentIndex { -1 };
     bool m_webDavAudioPlaybackActive { false };
@@ -718,6 +736,9 @@ private:
     QString m_playbackHttpPassword;
     bool m_playbackAllowInsecureTls { false };
     QString m_webDavPlaybackStreamId;
+    QString m_encryptedHlsPlaybackSessionId;
+    quint64 m_encryptedHlsPrepareGeneration { 0 };
+    bool m_encryptedHlsPreparing { false };
     double m_currentPlaybackStartSeconds { 0.0 };
     double m_lastPlaybackReportSeconds { -1.0 };
     bool m_playbackStartedReported { false };
@@ -761,6 +782,8 @@ private:
     WebDavClient m_webDavClient;
     WebDavDownloadPlanner m_webDavDownloadPlanner;
     WebDavPlaybackProxy m_webDavPlaybackProxy;
+    TsslStore m_tsslStore;
+    EncryptedHlsPlaybackProxy m_encryptedHlsPlaybackProxy;
     LocalMediaService m_localMediaService;
     TransferManager m_transferManager;
     SessionRepository m_repository;

@@ -29,6 +29,8 @@ tests/*
 !tests/ScheduledPlaybackScheduleTest.cpp
 !tests/MediaServerSearchTest.cpp
 !tests/WebDavItemListModelTest.cpp
+!tests/EncryptedHlsFormatTest.cpp
+!tests/EncryptedHlsPlaybackProxyTest.cpp
 !tests/LocalMediaServiceTest.cpp
 !tests/LinkPlaybackServiceTest.cpp
 !tests/LinkPlaybackHistoryTest.cpp

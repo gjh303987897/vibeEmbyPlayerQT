@@ -21,6 +21,7 @@ public:
         DirectoryRole,
         PlayableRole,
         AudioPlayableRole,
+        EncryptedHlsRole,
     };
 
     explicit WebDavItemListModel(QObject* parent = nullptr);

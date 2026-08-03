@@ -45,6 +45,8 @@ QVariant WebDavItemListModel::data(const QModelIndex& index, int role) const
         return item.playable;
     case AudioPlayableRole:
         return item.audioPlayable;
+    case EncryptedHlsRole:
+        return item.encryptedHls;
     default:
         return {};
     }
@@ -62,6 +64,7 @@ QHash<int, QByteArray> WebDavItemListModel::roleNames() const
         { DirectoryRole, "directory" },
         { PlayableRole, "playable" },
         { AudioPlayableRole, "audioPlayable" },
+        { EncryptedHlsRole, "encryptedHls" },
     };
 }
 

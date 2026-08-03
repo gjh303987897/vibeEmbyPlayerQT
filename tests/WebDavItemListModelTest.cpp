@@ -33,6 +33,7 @@ private slots:
     void videoModeShowsOnlyFoldersAndVideos();
     void newDirectoryContentsRespectCurrentMode();
     void audioModeShowsOnlyAudioFiles();
+    void encryptedHlsRoleIsExposed();
 };
 
 void WebDavItemListModelTest::defaultModeShowsEveryItem()
@@ -119,6 +120,19 @@ void WebDavItemListModelTest::audioModeShowsOnlyAudioFiles()
     });
     QCOMPARE(model.count(), 1);
     QCOMPARE(model.itemAt(0)->name, QStringLiteral("next-folder-track.ogg"));
+}
+
+void WebDavItemListModelTest::encryptedHlsRoleIsExposed()
+{
+    auto encrypted = item(QStringLiteral("movie.m3u8s"), false, true);
+    encrypted.encryptedHls = true;
+    WebDavItemListModel model;
+    model.setItems({ encrypted });
+
+    const auto index = model.index(0, 0);
+    QVERIFY(model.data(index, WebDavItemListModel::EncryptedHlsRole).toBool());
+    QCOMPARE(model.roleNames().value(WebDavItemListModel::EncryptedHlsRole),
+             QByteArrayLiteral("encryptedHls"));
 }
 
 QTEST_MAIN(WebDavItemListModelTest)

@@ -428,6 +428,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.spaceWarningTitle"), QStringLiteral("Storage check") },
         { QStringLiteral("webdav.spaceWarning"), QStringLiteral("Download size is %1, available disk space is %2. Continue anyway?") },
         { QStringLiteral("webdav.unknownSizeWarning"), QStringLiteral("The total download size could not be confirmed. Continue anyway?") },
+        { QStringLiteral("webdav.tsslRestore"), QStringLiteral("Restore TSSL") },
+        { QStringLiteral("webdav.tsslExport"), QStringLiteral("Export TSSL") },
+        { QStringLiteral("webdav.tsslRestored"), QStringLiteral("TSSL restored to local secure storage") },
+        { QStringLiteral("webdav.tsslExported"), QStringLiteral("TSSL export completed") },
         { QStringLiteral("transfers.title"), QStringLiteral("Transfers") },
         { QStringLiteral("transfers.subtitle"), QStringLiteral("Download queue and recent activity") },
         { QStringLiteral("transfers.detailsSubtitle"), QStringLiteral("File progress for this download") },
@@ -972,6 +976,10 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("webdav.spaceWarningTitle"), QStringLiteral("存储空间检查") },
         { QStringLiteral("webdav.spaceWarning"), QStringLiteral("下载大小为 %1，可用磁盘空间为 %2。仍要继续吗？") },
         { QStringLiteral("webdav.unknownSizeWarning"), QStringLiteral("无法确认下载总大小。仍要继续吗？") },
+        { QStringLiteral("webdav.tsslRestore"), QStringLiteral("恢复 TSSL") },
+        { QStringLiteral("webdav.tsslExport"), QStringLiteral("导出 TSSL") },
+        { QStringLiteral("webdav.tsslRestored"), QStringLiteral("TSSL 已恢复到本机存储") },
+        { QStringLiteral("webdav.tsslExported"), QStringLiteral("TSSL 导出完成") },
     };
     return texts;
 }
@@ -1145,6 +1153,7 @@ AppViewModel::AppViewModel(QObject* parent)
     , m_embyClient(m_embyNetworkClient, this)
     , m_jellyfinClient(m_jellyfinNetworkClient, this)
     , m_webDavDownloadPlanner(m_webDavClient)
+    , m_encryptedHlsPlaybackProxy(m_tsslStore, this)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
     wireCertificatePrompt(m_embyClient);
@@ -1410,6 +1419,11 @@ QString AppViewModel::webDavCurrentPath() const
 QString AppViewModel::webDavDisplayMode() const
 {
     return m_webDavDisplayMode;
+}
+
+QString AppViewModel::webDavTsslStatus() const
+{
+    return m_webDavTsslStatus;
 }
 
 bool AppViewModel::webDavAudioPlaybackActive() const
@@ -3320,17 +3334,62 @@ void AppViewModel::openWebDavItem(int row)
         return;
     }
 
+    if (!m_currentWebDavCard) {
+        return;
+    }
+    if (item->encryptedHls) {
+        const auto generation = ++m_encryptedHlsPrepareGeneration;
+        const auto serverId = m_currentWebDavCard->server.id;
+        m_encryptedHlsPreparing = true;
+        setLoading(true);
+        m_encryptedHlsPlaybackProxy.prepareStream(
+            m_currentWebDavCard->server,
+            m_webDavPassword,
+            item->url,
+            [this, generation, serverId, item = *item](EncryptedHlsPrepareResult result) {
+                const bool isCurrentGeneration = generation == m_encryptedHlsPrepareGeneration;
+                if (!isCurrentGeneration || !m_currentWebDavCard ||
+                    m_currentWebDavCard->server.id != serverId) {
+                    if (result) {
+                        m_encryptedHlsPlaybackProxy.revoke(result->sessionId);
+                    }
+                    if (isCurrentGeneration) {
+                        m_encryptedHlsPreparing = false;
+                        setLoading(false);
+                    }
+                    return;
+                }
+                m_encryptedHlsPreparing = false;
+                setLoading(false);
+                if (!result) {
+                    setError(result.error());
+                    return;
+                }
+                startWebDavVideoPlayback(item, result->url, result->sessionId);
+            });
+        return;
+    }
+
+    const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(m_currentWebDavCard->server,
+                                                              m_webDavPassword,
+                                                              item->url);
+    startWebDavVideoPlayback(*item, proxyUrl);
+}
+
+void AppViewModel::startWebDavVideoPlayback(const WebDavItem& item,
+                                            const QUrl& proxyUrl,
+                                            const QString& encryptedSessionId)
+{
     clearCurrentPlayback();
     setForegroundPlaybackActive(true);
-    if (!m_webDavPlaybackStreamId.isEmpty()) {
-        m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
-        m_webDavPlaybackStreamId.clear();
-    }
-    const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(m_currentWebDavCard->server, m_webDavPassword, item->url);
     m_playbackOrigin = PlaybackOrigin::WebDav;
     m_currentPlaybackUrl = proxyUrl;
     m_currentIptvChannelId.clear();
-    m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
+    if (encryptedSessionId.isEmpty()) {
+        m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
+    } else {
+        m_encryptedHlsPlaybackSessionId = encryptedSessionId;
+    }
     m_playbackHttpUsername.clear();
     m_playbackHttpPassword.clear();
     m_playbackAllowInsecureTls = false;
@@ -3341,10 +3400,10 @@ void AppViewModel::openWebDavItem(int row)
     m_playbackStartedReported = false;
 
     MediaItem media;
-    media.id = item->url.toString();
-    media.name = item->name;
+    media.id = item.url.toString();
+    media.name = item.name;
     media.itemType = QStringLiteral("WebDAV");
-    media.overview = item->contentType;
+    media.overview = item.contentType;
     m_selectedItem = std::move(media);
     clearSeriesDetails();
     syncSelectedPeople();
@@ -3363,6 +3422,48 @@ void AppViewModel::startWebDavHistoryPlayback(const ServiceCard& card,
         return;
     }
 
+    if (remoteUrl.path().endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive)) {
+        const auto generation = ++m_encryptedHlsPrepareGeneration;
+        m_encryptedHlsPreparing = true;
+        setLoading(true);
+        m_encryptedHlsPlaybackProxy.prepareStream(
+            card.server,
+            password,
+            remoteUrl,
+            [this, generation, card, password, historyItem, remoteUrl](EncryptedHlsPrepareResult result) {
+                if (generation != m_encryptedHlsPrepareGeneration) {
+                    if (result) {
+                        m_encryptedHlsPlaybackProxy.revoke(result->sessionId);
+                    }
+                    return;
+                }
+                m_encryptedHlsPreparing = false;
+                setLoading(false);
+                if (!result) {
+                    setError(result.error());
+                    return;
+                }
+                finishWebDavHistoryPlayback(card,
+                                            password,
+                                            historyItem,
+                                            remoteUrl,
+                                            result->url,
+                                            result->sessionId);
+            });
+        return;
+    }
+
+    const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(card.server, password, remoteUrl);
+    finishWebDavHistoryPlayback(card, password, historyItem, remoteUrl, proxyUrl);
+}
+
+void AppViewModel::finishWebDavHistoryPlayback(const ServiceCard& card,
+                                               const QString& password,
+                                               const PlaybackHistoryItem& historyItem,
+                                               const QUrl& remoteUrl,
+                                               const QUrl& proxyUrl,
+                                               const QString& encryptedSessionId)
+{
     clearCurrentPlayback();
     m_session.reset();
     clearIptvState();
@@ -3374,11 +3475,14 @@ void AppViewModel::startWebDavHistoryPlayback(const ServiceCard& card,
     m_webDavAudioQueue.clear();
     m_webDavItems.clear();
 
-    const auto proxyUrl = m_webDavPlaybackProxy.streamUrlFor(card.server, password, remoteUrl);
     m_playbackOrigin = PlaybackOrigin::WebDav;
     m_currentPlaybackUrl = proxyUrl;
     m_currentIptvChannelId.clear();
-    m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
+    if (encryptedSessionId.isEmpty()) {
+        m_webDavPlaybackStreamId = proxyUrl.path().section(QLatin1Char('/'), 1, 1);
+    } else {
+        m_encryptedHlsPlaybackSessionId = encryptedSessionId;
+    }
     m_playbackHttpUsername.clear();
     m_playbackHttpPassword.clear();
     m_playbackAllowInsecureTls = false;
@@ -3732,6 +3836,74 @@ void AppViewModel::downloadWebDavItem(int row)
         };
         emit downloadSpaceWarningRequested(title, message);
     });
+}
+
+void AppViewModel::restoreTssl()
+{
+    clearError();
+    setWebDavTsslStatus({});
+    const auto selected = QFileDialog::getOpenFileName(nullptr,
+                                                       trText(QStringLiteral("webdav.tsslRestore")),
+                                                       {},
+                                                       QStringLiteral("TSSL key packages (*.tssl)"));
+    if (selected.isEmpty()) {
+        return;
+    }
+    const auto restored = m_tsslStore.restoreFromFile(selected);
+    if (!restored) {
+        setError(restored.error());
+        return;
+    }
+    AppLogger::info(QStringLiteral("encrypted-hls"),
+                    QStringLiteral("Restored a local TSSL key package"));
+    setWebDavTsslStatus(trText(QStringLiteral("webdav.tsslRestored")));
+}
+
+void AppViewModel::exportWebDavTssl(int row)
+{
+    clearError();
+    setWebDavTsslStatus({});
+    const auto item = m_webDavItems.itemAt(row);
+    if (!item || !item->encryptedHls || !m_currentWebDavCard) {
+        return;
+    }
+
+    const auto serverId = m_currentWebDavCard->server.id;
+    setLoading(true);
+    m_encryptedHlsPlaybackProxy.resolveRootDigest(
+        m_currentWebDavCard->server,
+        m_webDavPassword,
+        item->url,
+        [this, serverId, itemName = item->name](EncryptedHlsDigestResult result) {
+            setLoading(false);
+            if (!m_currentWebDavCard || m_currentWebDavCard->server.id != serverId) {
+                return;
+            }
+            if (!result) {
+                setError(result.error());
+                return;
+            }
+
+            auto exportDirectory = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+            auto exportName = QFileInfo(itemName).completeBaseName() + QStringLiteral(".tssl");
+            auto destination = QFileDialog::getSaveFileName(nullptr,
+                                                            trText(QStringLiteral("webdav.tsslExport")),
+                                                            QDir(exportDirectory).filePath(exportName),
+                                                            QStringLiteral("TSSL key packages (*.tssl)"));
+            if (destination.isEmpty()) {
+                return;
+            }
+            if (!destination.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive)) {
+                destination += QStringLiteral(".tssl");
+            }
+            if (auto exported = m_tsslStore.exportByRootDigest(*result, destination); !exported) {
+                setError(exported.error());
+                return;
+            }
+            AppLogger::info(QStringLiteral("encrypted-hls"),
+                            QStringLiteral("Exported a local TSSL key package"));
+            setWebDavTsslStatus(trText(QStringLiteral("webdav.tsslExported")));
+        });
 }
 
 void AppViewModel::chooseDefaultDownloadDirectory()
@@ -4894,6 +5066,11 @@ void AppViewModel::loadSeasonEpisodes(const MediaItem& season)
 
 void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
 {
+    ++m_encryptedHlsPrepareGeneration;
+    if (m_encryptedHlsPreparing) {
+        m_encryptedHlsPreparing = false;
+        setLoading(false);
+    }
     if (stopPositionSeconds >= 0.0) {
         reportPlaybackStopped(stopPositionSeconds);
     } else {
@@ -4910,6 +5087,10 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
     if (!m_webDavPlaybackStreamId.isEmpty()) {
         m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
         m_webDavPlaybackStreamId.clear();
+    }
+    if (!m_encryptedHlsPlaybackSessionId.isEmpty()) {
+        m_encryptedHlsPlaybackProxy.revoke(m_encryptedHlsPlaybackSessionId);
+        m_encryptedHlsPlaybackSessionId.clear();
     }
     m_currentPlaybackStartSeconds = 0.0;
     m_currentPlaybackPositionSeconds = 0.0;
@@ -6206,6 +6387,10 @@ void AppViewModel::wireUsageSignals()
     connect(&m_webDavClient, &WebDavClient::networkTrafficSample, this, wireWebDavTraffic);
     connect(&m_transferManager, &TransferManager::networkTrafficSample, this, wireWebDavTraffic);
     connect(&m_webDavPlaybackProxy, &WebDavPlaybackProxy::networkTrafficSample, this, wireWebDavTraffic);
+    connect(&m_encryptedHlsPlaybackProxy,
+            &EncryptedHlsPlaybackProxy::networkTrafficSample,
+            this,
+            wireWebDavTraffic);
 }
 
 bool AppViewModel::accumulateUsage(const ServerConfig& server,
@@ -6581,6 +6766,15 @@ void AppViewModel::setError(QString message)
     }
     m_errorMessage = std::move(message);
     emit errorMessageChanged();
+}
+
+void AppViewModel::setWebDavTsslStatus(QString message)
+{
+    if (m_webDavTsslStatus == message) {
+        return;
+    }
+    m_webDavTsslStatus = std::move(message);
+    emit webDavTsslStatusChanged();
 }
 
 void AppViewModel::setSession(UserSession session)

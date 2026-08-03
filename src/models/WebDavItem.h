@@ -13,4 +13,5 @@ struct WebDavItem {
     bool directory { false };
     bool playable { false };
     bool audioPlayable { false };
+    bool encryptedHls { false };
 };

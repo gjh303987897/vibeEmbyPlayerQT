@@ -117,6 +117,13 @@ No network work is performed by QML.
 
 SQLite access is small and synchronous in this phase. Larger cache/index operations should move to a worker in later phases.
 
+## Encrypted WebDAV HLS
+
+- `.m3u8s` WebDAV items use a dedicated loopback proxy and do not change the existing single-file proxy.
+- Root and child playlists are digest-verified and returned without URI rewriting.
+- AES-256-GCM TS decryption runs through Qt Concurrent, and plaintext is released only after tag verification succeeds.
+- TSSL parsing, local storage, restore/export behavior and package constraints are documented in `EncryptedHlsM3u8s.md`.
+
 ## Security
 
 - Password is kept only in the login form and cleared after successful login.
