@@ -6,9 +6,55 @@
 #include <QTimer>
 #include <QtMath>
 
+#include <algorithm>
+#include <cmath>
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
+
+namespace {
+constexpr auto nativeResizeFrameIntervalMs = 16;
+constexpr auto nativeResizeSmoothTimeSeconds = 0.075;
+constexpr auto nativeResizeMaximumFrameSeconds = 0.05;
+constexpr auto nativeResizeSnapDistance = 0.5;
+constexpr auto nativeResizeSnapVelocity = 2.0;
+
+qreal smoothDamp(qreal current, qreal target, qreal& velocity, qreal deltaSeconds)
+{
+    if (qFuzzyCompare(current + 1.0, target + 1.0)) {
+        velocity = 0.0;
+        return target;
+    }
+
+    const auto omega = 2.0 / nativeResizeSmoothTimeSeconds;
+    const auto scaledDelta = omega * deltaSeconds;
+    const auto decay = 1.0 /
+        (1.0 + scaledDelta + 0.48 * scaledDelta * scaledDelta +
+         0.235 * scaledDelta * scaledDelta * scaledDelta);
+    const auto difference = current - target;
+    const auto step = (velocity + omega * difference) * deltaSeconds;
+    velocity = (velocity - omega * step) * decay;
+    const auto next = target + (difference + step) * decay;
+    const auto crossedTarget = (target > current && next > target) ||
+        (target < current && next < target);
+    if (crossedTarget) {
+        velocity = 0.0;
+        return target;
+    }
+    return next;
+}
+
+QRect roundedGeometry(const QRectF& geometry)
+{
+    return {
+        qRound(geometry.x()),
+        qRound(geometry.y()),
+        qMax(1, qRound(geometry.width())),
+        qMax(1, qRound(geometry.height())),
+    };
+}
+}
 
 #ifdef Q_OS_WIN
 namespace {
@@ -30,7 +76,7 @@ void registerMpvHostWindowClass()
     static const bool registered = [] {
         WNDCLASSEXW windowClass {};
         windowClass.cbSize = sizeof(WNDCLASSEXW);
-        windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+        windowClass.style = CS_OWNDC;
         windowClass.lpfnWndProc = mpvHostWindowProc;
         windowClass.hInstance = GetModuleHandleW(nullptr);
         windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -69,25 +115,15 @@ struct NativeVideoGeometry {
     qreal devicePixelRatio { 1.0 };
 };
 
-NativeVideoGeometry nativeVideoGeometry(HWND parentHwnd, QQuickWindow* window, QQuickItem* item)
+NativeVideoGeometry nativeVideoGeometry(QQuickWindow* window, QQuickItem* item)
 {
     const auto dpr = qMax<qreal>(1.0, window ? window->devicePixelRatio() : 1.0);
     const auto sceneTopLeft = item->mapToScene(QPointF(0, 0));
     const auto logicalTopLeft = QPoint(qRound(sceneTopLeft.x()), qRound(sceneTopLeft.y()));
     const auto logicalSize = QSize(qMax(1, qRound(item->width())), qMax(1, qRound(item->height())));
 
-    POINT nativeTopLeft {
-        qRound(sceneTopLeft.x() * dpr),
-        qRound(sceneTopLeft.y() * dpr),
-    };
-    if (!ClientToScreen(parentHwnd, &nativeTopLeft) && window) {
-        const auto fallbackTopLeft = window->mapToGlobal(logicalTopLeft);
-        nativeTopLeft.x = fallbackTopLeft.x();
-        nativeTopLeft.y = fallbackTopLeft.y();
-    }
-
     return {
-        QPoint(nativeTopLeft.x, nativeTopLeft.y),
+        QPoint(qRound(sceneTopLeft.x() * dpr), qRound(sceneTopLeft.y() * dpr)),
         QSize(qMax(1, qRound(item->width() * dpr)), qMax(1, qRound(item->height() * dpr))),
         logicalTopLeft,
         logicalSize,
@@ -102,6 +138,13 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
     : QQuickItem(parent)
 {
     setFlag(ItemHasContents, false);
+    m_geometryAnimationTimer.setInterval(nativeResizeFrameIntervalMs);
+    m_geometryAnimationTimer.setSingleShot(false);
+    m_geometryAnimationTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_geometryAnimationTimer,
+            &QTimer::timeout,
+            this,
+            &MpvVideoItem::advanceWindowGeometryAnimation);
     connect(&m_controller, &PlayerController::errorOccurred, this, &MpvVideoItem::errorOccurred);
     connect(&m_controller, &PlayerController::playbackStateChanged, this, &MpvVideoItem::playbackStateChanged);
     connect(&m_controller, &PlayerController::volumeChanged, this, &MpvVideoItem::volumeChanged);
@@ -497,16 +540,16 @@ void MpvVideoItem::ensureNativeWindow()
 
     if (!m_nativeWindowId) {
         registerMpvHostWindowClass();
-        const auto geometry = nativeVideoGeometry(parentHwnd, sceneWindow, this);
-        auto hwnd = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_NOPARENTNOTIFY,
+        const auto geometry = nativeVideoGeometry(sceneWindow, this);
+        auto hwnd = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY,
                                     mpvHostWindowClassName,
                                     L"",
-                                    WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                                    WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
                                     geometry.topLeft.x(),
                                     geometry.topLeft.y(),
                                     geometry.size.width(),
                                     geometry.size.height(),
-                                    nullptr,
+                                    parentHwnd,
                                     nullptr,
                                     GetModuleHandleW(nullptr),
                                     nullptr);
@@ -515,9 +558,8 @@ void MpvVideoItem::ensureNativeWindow()
             return;
         }
         m_nativeWindowId = reinterpret_cast<quintptr>(hwnd);
-        SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(parentHwnd));
         AppLogger::info(QStringLiteral("player"),
-                        QStringLiteral("Created native mpv popup HWND id=%1 owner=%2 geometry=%3,%4 %5x%6 logical=%7,%8 %9x%10 dpr=%11")
+                        QStringLiteral("Created native mpv child HWND id=%1 parent=%2 geometry=%3,%4 %5x%6 logical=%7,%8 %9x%10 dpr=%11")
                             .arg(m_nativeWindowId)
                             .arg(parentWindowId)
                             .arg(geometry.topLeft.x())
@@ -550,19 +592,18 @@ void MpvVideoItem::ensureNativeWindow()
     connect(sceneWindow, &QWindow::yChanged, this, &MpvVideoItem::syncWindowGeometry, Qt::UniqueConnection);
     connect(sceneWindow, &QWindow::widthChanged, this, &MpvVideoItem::syncWindowGeometry, Qt::UniqueConnection);
     connect(sceneWindow, &QWindow::heightChanged, this, &MpvVideoItem::syncWindowGeometry, Qt::UniqueConnection);
-    connect(sceneWindow, &QWindow::visibilityChanged, this, [this](QWindow::Visibility) {
-        syncWindowGeometry();
-    });
+    connect(sceneWindow, &QWindow::visibilityChanged, this, &MpvVideoItem::syncWindowGeometry, Qt::UniqueConnection);
 
     if (!m_initialized) {
         AppLogger::info(QStringLiteral("player"), QStringLiteral("Initializing libmpv for native window id=%1").arg(m_nativeWindowId));
         m_initialized = m_controller.initialize(static_cast<qintptr>(m_nativeWindowId));
     }
-    QTimer::singleShot(0, this, &MpvVideoItem::syncWindowGeometry);
+    syncWindowGeometry();
 }
 
 void MpvVideoItem::destroyNativeWindow()
 {
+    m_geometryAnimationTimer.stop();
 #ifdef Q_OS_WIN
     if (m_nativeWindowId) {
         DestroyWindow(hwndFromId(m_nativeWindowId));
@@ -578,6 +619,10 @@ void MpvVideoItem::destroyNativeWindow()
 #endif
     m_lastNativeGeometry = {};
     m_lastNativeDevicePixelRatio = 0.0;
+    m_targetNativeDevicePixelRatio = 1.0;
+    m_currentNativeGeometry = {};
+    m_targetNativeGeometry = {};
+    m_nativeGeometryVelocity.fill(0.0);
     m_controller.shutdown();
     m_initialized = false;
 }
@@ -607,45 +652,119 @@ void MpvVideoItem::syncWindowGeometry()
     if (!parentHwnd) {
         return;
     }
-    const auto geometry = nativeVideoGeometry(parentHwnd, sceneWindow, this);
-    auto hwnd = hwndFromId(m_nativeWindowId);
-    const auto flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_SHOWWINDOW;
-    SetWindowPos(hwnd, nullptr, geometry.topLeft.x(), geometry.topLeft.y(), geometry.size.width(), geometry.size.height(), flags);
-    RECT actualRect {};
-    if (GetWindowRect(hwnd, &actualRect)) {
-        const auto actualGeometry = QRect(actualRect.left,
-                                          actualRect.top,
-                                          actualRect.right - actualRect.left,
-                                          actualRect.bottom - actualRect.top);
-        if (actualGeometry != m_lastNativeGeometry
-            || !qFuzzyCompare(m_lastNativeDevicePixelRatio + 1.0, geometry.devicePixelRatio + 1.0)) {
-            m_lastNativeGeometry = actualGeometry;
-            m_lastNativeDevicePixelRatio = geometry.devicePixelRatio;
-            AppLogger::info(QStringLiteral("player"),
-                            QStringLiteral("Synced native mpv popup HWND geometry=%1,%2 %3x%4 logical=%5,%6 %7x%8 dpr=%9")
-                                .arg(actualRect.left)
-                                .arg(actualRect.top)
-                                .arg(actualRect.right - actualRect.left)
-                                .arg(actualRect.bottom - actualRect.top)
-                                .arg(geometry.logicalTopLeft.x())
-                                .arg(geometry.logicalTopLeft.y())
-                                .arg(geometry.logicalSize.width())
-                                .arg(geometry.logicalSize.height())
-                                .arg(geometry.devicePixelRatio, 0, 'f', 2));
-        }
-    }
-    if (isVisible() && width() > 0 && height() > 0) {
-        ShowWindow(hwnd, SW_SHOWNA);
-        InvalidateRect(hwnd, nullptr, FALSE);
-    } else {
-        ShowWindow(hwnd, SW_HIDE);
-    }
+    const auto geometry = nativeVideoGeometry(sceneWindow, this);
+    const auto targetGeometry = QRectF(QRect(geometry.topLeft, geometry.size));
+    const auto targetDevicePixelRatio = geometry.devicePixelRatio;
 #else
     const auto size = QSize(qMax(1, qRound(width())), qMax(1, qRound(height())));
     const auto topLeft = mapToScene(QPointF(0, 0)).toPoint();
-    m_nativeWindow->setGeometry(QRect(topLeft, size));
-    m_nativeWindow->setVisible(isVisible() && width() > 0 && height() > 0);
-    if (m_nativeWindow->isVisible()) {
+    const auto targetGeometry = QRectF(QRect(topLeft, size));
+    const auto targetDevicePixelRatio = qreal { 1.0 };
+#endif
+
+    const auto shouldBeVisible = isVisible() && width() > 0 && height() > 0;
+    if (!shouldBeVisible) {
+        m_geometryAnimationTimer.stop();
+        hideNativeWindow();
+        return;
+    }
+
+    m_targetNativeGeometry = targetGeometry;
+    m_targetNativeDevicePixelRatio = targetDevicePixelRatio;
+    if (m_currentNativeGeometry.isEmpty() || m_lastNativeGeometry.isEmpty()) {
+        m_currentNativeGeometry = targetGeometry;
+        m_nativeGeometryVelocity.fill(0.0);
+        applyWindowGeometry(roundedGeometry(m_currentNativeGeometry), m_targetNativeDevicePixelRatio);
+        return;
+    }
+
+    const auto geometryAtTarget = roundedGeometry(m_currentNativeGeometry) == roundedGeometry(m_targetNativeGeometry);
+    if (!geometryAtTarget && !m_geometryAnimationTimer.isActive()) {
+        m_geometryAnimationClock.restart();
+        m_geometryAnimationTimer.start();
+    }
+    applyWindowGeometry(roundedGeometry(m_currentNativeGeometry), m_targetNativeDevicePixelRatio);
+}
+
+void MpvVideoItem::advanceWindowGeometryAnimation()
+{
+    if (!m_nativeWindowId || m_targetNativeGeometry.isEmpty()) {
+        m_geometryAnimationTimer.stop();
+        return;
+    }
+
+    const auto elapsedSeconds = m_geometryAnimationClock.isValid()
+        ? static_cast<qreal>(m_geometryAnimationClock.restart()) / 1000.0
+        : static_cast<qreal>(nativeResizeFrameIntervalMs) / 1000.0;
+    const auto deltaSeconds = std::clamp(elapsedSeconds,
+                                         static_cast<qreal>(0.001),
+                                         static_cast<qreal>(nativeResizeMaximumFrameSeconds));
+
+    const std::array currentValues {
+        m_currentNativeGeometry.x(),
+        m_currentNativeGeometry.y(),
+        m_currentNativeGeometry.width(),
+        m_currentNativeGeometry.height(),
+    };
+    const std::array targetValues {
+        m_targetNativeGeometry.x(),
+        m_targetNativeGeometry.y(),
+        m_targetNativeGeometry.width(),
+        m_targetNativeGeometry.height(),
+    };
+    std::array<qreal, 4> nextValues {};
+    auto settled = true;
+    for (std::size_t index = 0; index < nextValues.size(); ++index) {
+        nextValues[index] = smoothDamp(currentValues[index],
+                                       targetValues[index],
+                                       m_nativeGeometryVelocity[index],
+                                       deltaSeconds);
+        settled = settled &&
+            std::abs(nextValues[index] - targetValues[index]) <= nativeResizeSnapDistance &&
+            std::abs(m_nativeGeometryVelocity[index]) <= nativeResizeSnapVelocity;
+    }
+
+    if (settled) {
+        nextValues = targetValues;
+        m_nativeGeometryVelocity.fill(0.0);
+        m_geometryAnimationTimer.stop();
+    }
+    m_currentNativeGeometry = QRectF(nextValues[0], nextValues[1], nextValues[2], nextValues[3]);
+    applyWindowGeometry(roundedGeometry(m_currentNativeGeometry), m_targetNativeDevicePixelRatio);
+}
+
+void MpvVideoItem::applyWindowGeometry(const QRect& geometry, qreal devicePixelRatio)
+{
+#ifdef Q_OS_WIN
+    auto hwnd = hwndFromId(m_nativeWindowId);
+    const auto windowWasVisible = IsWindowVisible(hwnd) != FALSE;
+    const auto geometryChanged = geometry != m_lastNativeGeometry ||
+        !qFuzzyCompare(m_lastNativeDevicePixelRatio + 1.0, devicePixelRatio + 1.0);
+    if (!geometryChanged && windowWasVisible) {
+        return;
+    }
+
+    auto flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER;
+    if (!windowWasVisible) {
+        flags |= SWP_SHOWWINDOW;
+    }
+    if (SetWindowPos(hwnd,
+                     nullptr,
+                     geometry.x(),
+                     geometry.y(),
+                     geometry.width(),
+                     geometry.height(),
+                     flags)) {
+        m_lastNativeGeometry = geometry;
+        m_lastNativeDevicePixelRatio = devicePixelRatio;
+    }
+#else
+    const auto windowWasVisible = m_nativeWindow->isVisible();
+    if (m_nativeWindow->geometry() != geometry) {
+        m_nativeWindow->setGeometry(geometry);
+    }
+    if (!windowWasVisible) {
+        m_nativeWindow->show();
         m_nativeWindow->raise();
     }
 #endif

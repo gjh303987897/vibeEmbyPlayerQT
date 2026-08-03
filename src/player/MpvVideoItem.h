@@ -2,9 +2,13 @@
 
 #include "player/PlayerController.h"
 
+#include <array>
+#include <QElapsedTimer>
 #include <QQuickItem>
 #include <QPointer>
 #include <QRect>
+#include <QRectF>
+#include <QTimer>
 #include <QUrl>
 #include <QWindow>
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -123,12 +127,19 @@ private:
     void destroyNativeWindow();
     void hideNativeWindow();
     void syncWindowGeometry();
+    void advanceWindowGeometryAnimation();
+    void applyWindowGeometry(const QRect& geometry, qreal devicePixelRatio);
     void refreshNativeWindow();
     void scheduleNativeWindowRefresh();
     QString sourceString() const;
 
     PlayerController m_controller;
     QPointer<QWindow> m_nativeWindow;
+    QTimer m_geometryAnimationTimer;
+    QElapsedTimer m_geometryAnimationClock;
+    QRectF m_currentNativeGeometry;
+    QRectF m_targetNativeGeometry;
+    std::array<qreal, 4> m_nativeGeometryVelocity {};
     QRect m_lastNativeGeometry;
     quintptr m_nativeWindowId { 0 };
     QUrl m_source;
@@ -138,6 +149,7 @@ private:
     bool m_audioOnly { false };
     double m_startPosition { 0.0 };
     qreal m_lastNativeDevicePixelRatio { 0.0 };
+    qreal m_targetNativeDevicePixelRatio { 1.0 };
     bool m_initialized { false };
     bool m_pendingPlay { false };
 };

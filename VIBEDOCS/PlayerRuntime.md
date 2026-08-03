@@ -47,7 +47,7 @@ CMake links `libmpv.dll.a` and copies `libmpv-2.dll` into the executable output 
 
 The project uses libmpv Window Embedding through the `wid` option.
 
-`MpvVideoItem` is a QML-facing `QQuickItem` that creates a native child `QWindow`, keeps it aligned to the Qt Quick item geometry, and passes the child window id to `PlayerController`.
+`MpvVideoItem` is a QML-facing `QQuickItem` that creates a platform-native video host, keeps it aligned to the Qt Quick item geometry, and passes the host window id to `PlayerController`. Windows uses a real `WS_CHILD` HWND owned by the main Qt Quick window; other platforms use a child `QWindow`.
 
 QML owns only the page layout and buttons. It does not call libmpv directly.
 
@@ -76,6 +76,8 @@ With libmpv Window Embedding, the video surface is a platform-native child windo
 The top and bottom chrome windows cover only their own control-bar heights. The center of the video is not covered by a transparent window, so pointer reveal and double-click fullscreen behavior still come from the main player page. The application enables `QQuickWindow::setDefaultAlphaBuffer(true)` before creating QML windows so the floating chrome remains transparent on Windows.
 
 The player view deliberately skips the application's translated/scaled page-entry animation. The embedded video surface and chrome bars are separate native windows, while the animation transforms only the Qt Quick item hierarchy. Calculating their global geometry during that transform would leave controls offset after opening playback until an unrelated main-window move or resize resynchronized them. Other pages retain the normal transition animation, and the player chrome is raised and resynchronized after the stable player layout is selected.
+
+Interactive window resizing uses a retargetable, critically damped native geometry animation. Qt Quick and `QWindow` geometry notifications update one continuously running target; the host follows at approximately 60 frames per second with a short 75 ms smoothing constant, then snaps to the final pixel when both distance and velocity are negligible. The motion has no overshoot or bounce, remains responsive when the user reverses direction, and uses a black QML backing surface so growth never exposes the normal page background. On Windows the host class deliberately omits `CS_HREDRAW` and `CS_VREDRAW`, and ordinary animation frames do not force invalidation; this lets mpv resize its own child surface without a full-window erase between frames. Initial visibility, file-load, and video-reconfiguration events retain the immediate refresh path needed for delayed video-output initialization.
 
 Controls include:
 

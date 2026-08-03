@@ -6188,6 +6188,12 @@ ApplicationWindow {
             }
         }
 
+        Rectangle {
+            anchors.fill: parent
+            visible: !appViewModel.webDavAudioPlaybackActive
+            color: "#000000"
+        }
+
         MpvVideoItem {
             id: mpvVideo
             anchors.fill: parent
