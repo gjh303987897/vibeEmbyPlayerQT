@@ -429,12 +429,22 @@ void PlayerController::playUrl(const QString& url,
                                double startSeconds,
                                const QString& httpUsername,
                                const QString& httpPassword,
-                               bool allowInsecureTls)
+                               bool allowInsecureTls,
+                               int preferredSubtitleStreamIndex)
 {
     if (!m_mpv || url.isEmpty()) {
         return;
     }
     m_stopRequested = false;
+    m_preferredSubtitleStreamIndex = std::max(-1, preferredSubtitleStreamIndex);
+    m_preferredSubtitleSelectionApplied = m_preferredSubtitleStreamIndex < 0;
+    m_preferredSubtitleFileLoaded = false;
+    const auto subtitleResetResult = mpv_set_property_string(m_mpv, "sid", "auto");
+    if (subtitleResetResult < 0) {
+        AppLogger::warning(QStringLiteral("player"),
+                           QStringLiteral("Unable to reset libmpv subtitle selection: %1")
+                               .arg(QString::fromUtf8(mpv_error_string(subtitleResetResult))));
+    }
     if (!httpUsername.isEmpty()) {
         const auto username = httpUsername.toUtf8();
         mpv_set_option_string(m_mpv, "http-header-fields", "");
@@ -622,6 +632,7 @@ void PlayerController::selectSubtitleTrack(int row)
         return;
     }
 
+    m_preferredSubtitleSelectionApplied = true;
     if (row < 0) {
         const char* none = "no";
         mpv_set_property_string(m_mpv, "sid", none);
@@ -768,6 +779,9 @@ void PlayerController::processEvents()
             AppLogger::info(QStringLiteral("player"), QStringLiteral("libmpv playback event %1").arg(static_cast<int>(event->event_id)));
             const auto requiresVideoOutputRefresh = event->event_id == MPV_EVENT_FILE_LOADED ||
                                                     event->event_id == MPV_EVENT_VIDEO_RECONFIG;
+            if (event->event_id == MPV_EVENT_FILE_LOADED) {
+                m_preferredSubtitleFileLoaded = true;
+            }
             updateTracks();
             if (event->event_id == MPV_EVENT_FILE_LOADED) {
                 updateAudioMetadata();
@@ -916,6 +930,8 @@ void PlayerController::updateTracks()
                 const auto& value = entry.u.list->values[j];
                 if (key == QStringLiteral("id")) {
                     track.id = nodeInt(value);
+                } else if (key == QStringLiteral("ff-index")) {
+                    track.ffmpegIndex = nodeInt(value);
                 } else if (key == QStringLiteral("type")) {
                     track.type = nodeString(value);
                 } else if (key == QStringLiteral("title")) {
@@ -964,6 +980,30 @@ void PlayerController::updateTracks()
     }
 
     mpv_free_node_contents(&root);
+
+    if (m_preferredSubtitleFileLoaded && !m_preferredSubtitleSelectionApplied) {
+        const auto preferred = std::ranges::find(
+            subtitles,
+            m_preferredSubtitleStreamIndex,
+            &TrackInfo::ffmpegIndex);
+        if (preferred != subtitles.end()) {
+            int64_t subtitleId = preferred->id;
+            const auto selectResult = mpv_set_property(m_mpv, "sid", MPV_FORMAT_INT64, &subtitleId);
+            if (selectResult >= 0) {
+                m_preferredSubtitleSelectionApplied = true;
+                for (auto& subtitle : subtitles) {
+                    subtitle.selected = subtitle.id == preferred->id;
+                }
+                AppLogger::info(QStringLiteral("player"),
+                                QStringLiteral("Selected preferred embedded subtitle stream index %1")
+                                    .arg(m_preferredSubtitleStreamIndex));
+            } else {
+                AppLogger::warning(QStringLiteral("player"),
+                                   QStringLiteral("Unable to select preferred embedded subtitle: %1")
+                                       .arg(QString::fromUtf8(mpv_error_string(selectResult))));
+            }
+        }
+    }
     m_subtitleTracks.setTracks(std::move(subtitles));
     m_audioTracks.setTracks(std::move(audioTracks));
     updateAudioCoverTrack(videoTrack.available && videoTrack.albumArt);

@@ -205,6 +205,21 @@ void MpvVideoItem::setStartPosition(double value)
     emit startPositionChanged();
 }
 
+int MpvVideoItem::preferredSubtitleStreamIndex() const
+{
+    return m_preferredSubtitleStreamIndex;
+}
+
+void MpvVideoItem::setPreferredSubtitleStreamIndex(int value)
+{
+    const auto normalized = qMax(-1, value);
+    if (m_preferredSubtitleStreamIndex == normalized) {
+        return;
+    }
+    m_preferredSubtitleStreamIndex = normalized;
+    emit preferredSubtitleStreamIndexChanged();
+}
+
 QString MpvVideoItem::httpUsername() const
 {
     return m_httpUsername;
@@ -412,7 +427,12 @@ void MpvVideoItem::play()
         AppLogger::warning(QStringLiteral("player"), QStringLiteral("Deferring playback because native mpv window is not initialized"));
         return;
     }
-    m_controller.playUrl(sourceString(), m_startPosition, m_httpUsername, m_httpPassword, m_allowInsecureTls);
+    m_controller.playUrl(sourceString(),
+                         m_startPosition,
+                         m_httpUsername,
+                         m_httpPassword,
+                         m_allowInsecureTls,
+                         m_preferredSubtitleStreamIndex);
     m_startPosition = 0.0;
     emit startPositionChanged();
     m_pendingPlay = false;

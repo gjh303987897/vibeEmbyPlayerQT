@@ -550,7 +550,8 @@ void ScheduledPlaybackManager::beginPlayback(MediaItem item, PlaybackRequest req
                      0.0,
                      {},
                      {},
-                     m_currentSession && m_currentSession->server.trustSelfSignedCertificate);
+                     m_currentSession && m_currentSession->server.trustSelfSignedCertificate,
+                     m_currentRequest->subtitleStreamIndex);
 }
 
 void ScheduledPlaybackManager::handlePlaybackRestarted()

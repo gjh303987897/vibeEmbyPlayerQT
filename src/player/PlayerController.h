@@ -14,6 +14,7 @@ struct mpv_handle;
 
 struct TrackInfo {
     int id { -1 };
+    int ffmpegIndex { -1 };
     QString type;
     QString title;
     QString language;
@@ -113,7 +114,8 @@ public:
                              double startSeconds = 0.0,
                              const QString& httpUsername = {},
                              const QString& httpPassword = {},
-                             bool allowInsecureTls = false);
+                             bool allowInsecureTls = false,
+                             int preferredSubtitleStreamIndex = -1);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
@@ -209,6 +211,9 @@ private:
     bool m_networkStatsActive { false };
     qint64 m_activePlaylistEntryId { -1 };
     bool m_stopRequested { false };
+    int m_preferredSubtitleStreamIndex { -1 };
+    bool m_preferredSubtitleSelectionApplied { false };
+    bool m_preferredSubtitleFileLoaded { false };
     TrackListModel m_subtitleTracks;
     TrackListModel m_audioTracks;
 };

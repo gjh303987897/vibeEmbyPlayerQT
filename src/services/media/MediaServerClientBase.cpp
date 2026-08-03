@@ -175,7 +175,64 @@ std::expected<QJsonObject, NetworkError> parseObject(const QByteArray& body)
     return document.object();
 }
 
-std::expected<std::pair<QString, QString>, NetworkError> parsePlaybackInfo(const QByteArray& body)
+struct PlaybackInfoDetails {
+    QString mediaSourceId;
+    QString playSessionId;
+    int subtitleStreamIndex { -1 };
+};
+
+struct SubtitleStreamDetails {
+    int index { -1 };
+    bool isDefault { false };
+    bool isForced { false };
+};
+
+int selectSubtitleStream(const QJsonObject& mediaSource)
+{
+    const auto serverDefaultIndex = jsonIntAny(
+        mediaSource,
+        { QStringLiteral("DefaultSubtitleStreamIndex"), QStringLiteral("defaultSubtitleStreamIndex") },
+        -1);
+    const auto streams = mediaSource.value(QStringLiteral("MediaStreams"))
+                             .toArray(mediaSource.value(QStringLiteral("mediaStreams")).toArray());
+
+    std::vector<SubtitleStreamDetails> subtitles;
+    subtitles.reserve(static_cast<size_t>(streams.size()));
+    for (const auto& value : streams) {
+        if (!value.isObject()) {
+            continue;
+        }
+        const auto stream = value.toObject();
+        const auto type = jsonStringAny(stream, { QStringLiteral("Type"), QStringLiteral("type") });
+        const auto index = jsonIntAny(stream, { QStringLiteral("Index"), QStringLiteral("index") }, -1);
+        const auto isExternal = jsonBoolAny(
+            stream,
+            { QStringLiteral("IsExternal"), QStringLiteral("isExternal") });
+        if (type.compare(QStringLiteral("Subtitle"), Qt::CaseInsensitive) != 0 || index < 0 || isExternal) {
+            continue;
+        }
+        subtitles.push_back(SubtitleStreamDetails {
+            .index = index,
+            .isDefault = jsonBoolAny(stream, { QStringLiteral("IsDefault"), QStringLiteral("isDefault") }),
+            .isForced = jsonBoolAny(stream, { QStringLiteral("IsForced"), QStringLiteral("isForced") }),
+        });
+    }
+
+    const auto selectedByServer = std::ranges::find(subtitles, serverDefaultIndex, &SubtitleStreamDetails::index);
+    if (selectedByServer != subtitles.end() && !selectedByServer->isForced) {
+        return selectedByServer->index;
+    }
+
+    const auto fullDefault = std::ranges::find_if(subtitles, [](const SubtitleStreamDetails& subtitle) {
+        return subtitle.isDefault && !subtitle.isForced;
+    });
+    if (fullDefault != subtitles.end()) {
+        return fullDefault->index;
+    }
+    return selectedByServer != subtitles.end() ? selectedByServer->index : -1;
+}
+
+std::expected<PlaybackInfoDetails, NetworkError> parsePlaybackInfo(const QByteArray& body)
 {
     const auto root = parseObject(body);
     if (!root) {
@@ -194,7 +251,11 @@ std::expected<std::pair<QString, QString>, NetworkError> parsePlaybackInfo(const
         return std::unexpected(parseError(QStringLiteral("Playback info is missing MediaSourceId or PlaySessionId")));
     }
 
-    return std::pair { mediaSourceId, playSessionId };
+    return PlaybackInfoDetails {
+        .mediaSourceId = mediaSourceId,
+        .playSessionId = playSessionId,
+        .subtitleStreamIndex = selectSubtitleStream(source),
+    };
 }
 }
 
@@ -411,7 +472,8 @@ QString MediaServerClientBase::backdropImageUrl(const QString& baseUrl,
 PlaybackUrlResult MediaServerClientBase::streamUrl(const UserSession& session,
                                                    const MediaItem& item,
                                                    const QString& mediaSourceId,
-                                                   const QString& playSessionId)
+                                                   const QString& playSessionId,
+                                                   int subtitleStreamIndex)
 {
     if (session.server.baseUrl.isEmpty() ||
         item.id.isEmpty() ||
@@ -436,6 +498,7 @@ PlaybackUrlResult MediaServerClientBase::streamUrl(const UserSession& session,
         .startSeconds = item.playbackPositionTicks > 0 ? static_cast<double>(item.playbackPositionTicks) / 10'000'000.0 : 0.0,
         .mediaSourceId = mediaSourceId,
         .playSessionId = playSessionId,
+        .subtitleStreamIndex = subtitleStreamIndex,
     };
 }
 
@@ -472,7 +535,11 @@ void MediaServerClientBase::fetchPlaybackUrlWithScheme(const QString& authScheme
             return;
         }
 
-        callback(streamUrl(session, item, playbackInfo->first, playbackInfo->second));
+        callback(streamUrl(session,
+                           item,
+                           playbackInfo->mediaSourceId,
+                           playbackInfo->playSessionId,
+                           playbackInfo->subtitleStreamIndex));
     });
 }
 

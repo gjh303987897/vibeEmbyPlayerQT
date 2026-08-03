@@ -23,6 +23,7 @@ struct PlaybackRequest {
     double startSeconds { 0.0 };
     QString mediaSourceId;
     QString playSessionId;
+    int subtitleStreamIndex { -1 };
 };
 
 struct PlaybackReport {

@@ -40,7 +40,8 @@ protected:
     static PlaybackUrlResult streamUrl(const UserSession& session,
                                        const MediaItem& item,
                                        const QString& mediaSourceId,
-                                       const QString& playSessionId);
+                                       const QString& playSessionId,
+                                       int subtitleStreamIndex);
     void fetchPlaybackUrlWithScheme(const QString& authScheme,
                                     const UserSession& session,
                                     const MediaItem& item,

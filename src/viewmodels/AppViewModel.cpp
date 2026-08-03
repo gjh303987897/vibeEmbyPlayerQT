@@ -1914,6 +1914,11 @@ double AppViewModel::currentPlaybackStartSeconds() const
     return m_currentPlaybackStartSeconds;
 }
 
+int AppViewModel::currentPlaybackSubtitleStreamIndex() const
+{
+    return m_currentPlaybackSubtitleStreamIndex;
+}
+
 ServiceCardListModel* AppViewModel::services()
 {
     return &m_services;
@@ -5081,6 +5086,7 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
     m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
+    m_currentPlaybackSubtitleStreamIndex = -1;
     m_playbackHttpUsername.clear();
     m_playbackHttpPassword.clear();
     m_playbackAllowInsecureTls = false;
@@ -5363,6 +5369,7 @@ void AppViewModel::playSelectedItem()
         m_currentIptvChannelId.clear();
         m_currentMediaSourceId = result->mediaSourceId;
         m_currentPlaySessionId = result->playSessionId;
+        m_currentPlaybackSubtitleStreamIndex = result->subtitleStreamIndex;
         m_playbackAllowInsecureTls = allowInsecureTls;
         m_currentPlaybackStartSeconds = result->startSeconds;
         m_lastPlaybackReportSeconds = -1.0;

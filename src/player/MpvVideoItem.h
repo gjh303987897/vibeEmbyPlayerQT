@@ -18,6 +18,7 @@ class MpvVideoItem : public QQuickItem {
     QML_ELEMENT
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
     Q_PROPERTY(double startPosition READ startPosition WRITE setStartPosition NOTIFY startPositionChanged)
+    Q_PROPERTY(int preferredSubtitleStreamIndex READ preferredSubtitleStreamIndex WRITE setPreferredSubtitleStreamIndex NOTIFY preferredSubtitleStreamIndexChanged)
     Q_PROPERTY(QString httpUsername READ httpUsername WRITE setHttpUsername NOTIFY httpAuthChanged)
     Q_PROPERTY(QString httpPassword READ httpPassword WRITE setHttpPassword NOTIFY httpAuthChanged)
     Q_PROPERTY(bool allowInsecureTls READ allowInsecureTls WRITE setAllowInsecureTls NOTIFY httpAuthChanged)
@@ -54,6 +55,8 @@ public:
     void setSource(const QUrl& value);
     double startPosition() const;
     void setStartPosition(double value);
+    int preferredSubtitleStreamIndex() const;
+    void setPreferredSubtitleStreamIndex(int value);
     QString httpUsername() const;
     void setHttpUsername(const QString& value);
     QString httpPassword() const;
@@ -102,6 +105,7 @@ public:
 signals:
     void sourceChanged();
     void startPositionChanged();
+    void preferredSubtitleStreamIndexChanged();
     void httpAuthChanged();
     void audioOnlyChanged();
     void errorOccurred(const QString& message);
@@ -148,6 +152,7 @@ private:
     bool m_allowInsecureTls { false };
     bool m_audioOnly { false };
     double m_startPosition { 0.0 };
+    int m_preferredSubtitleStreamIndex { -1 };
     qreal m_lastNativeDevicePixelRatio { 0.0 };
     qreal m_targetNativeDevicePixelRatio { 1.0 };
     bool m_initialized { false };

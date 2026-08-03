@@ -137,6 +137,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString selectedSeasonName READ selectedSeasonName NOTIFY selectedSeasonChanged)
     Q_PROPERTY(QUrl currentPlaybackUrl READ currentPlaybackUrl NOTIFY playbackChanged)
     Q_PROPERTY(double currentPlaybackStartSeconds READ currentPlaybackStartSeconds NOTIFY playbackChanged)
+    Q_PROPERTY(int currentPlaybackSubtitleStreamIndex READ currentPlaybackSubtitleStreamIndex NOTIFY playbackChanged)
     Q_PROPERTY(ServiceCardListModel* services READ services CONSTANT)
     Q_PROPERTY(ServiceCardListModel* privacyCards READ privacyCards CONSTANT)
     Q_PROPERTY(bool privacyMode READ privacyMode NOTIFY privacyModeChanged)
@@ -310,6 +311,7 @@ public:
     QString selectedSeasonName() const;
     QUrl currentPlaybackUrl() const;
     double currentPlaybackStartSeconds() const;
+    int currentPlaybackSubtitleStreamIndex() const;
 
     ServiceCardListModel* services();
     ServiceCardListModel* privacyCards();
@@ -732,6 +734,7 @@ private:
     QUrl m_currentPlaybackUrl;
     QString m_currentMediaSourceId;
     QString m_currentPlaySessionId;
+    int m_currentPlaybackSubtitleStreamIndex { -1 };
     QString m_playbackHttpUsername;
     QString m_playbackHttpPassword;
     bool m_playbackAllowInsecureTls { false };

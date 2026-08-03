@@ -134,6 +134,9 @@ private slots:
     void embyDetailsPreferItemLogoArtwork();
     void embyEpisodeDetailsUseInheritedSeriesLogoArtwork();
     void rejectsBlankSearchTermsWithoutRequests();
+    void embyPlaybackPrefersFullDefaultSubtitleOverForcedSelection();
+    void jellyfinPlaybackKeepsNonForcedServerSubtitleSelection();
+    void playbackWithoutValidSubtitleUsesPlayerAutomaticSelection();
 };
 
 void MediaServerSearchTest::embySearchesCurrentUserRootRecursively()
@@ -285,6 +288,95 @@ void MediaServerSearchTest::rejectsBlankSearchTermsWithoutRequests()
     QVERIFY(!jellyfinResult->has_value());
     QCOMPARE(jellyfinResult->error().kind, NetworkErrorKind::InvalidUrl);
     QCOMPARE(server.requestCount(), 0);
+}
+
+void MediaServerSearchTest::embyPlaybackPrefersFullDefaultSubtitleOverForcedSelection()
+{
+    LocalMediaServer server(QByteArrayLiteral(R"({
+        "PlaySessionId":"play-session",
+        "MediaSources":[{
+            "Id":"source-1",
+            "DefaultSubtitleStreamIndex":3,
+            "MediaStreams":[
+                {"Index":3,"Type":"Subtitle","IsDefault":false,"IsForced":true},
+                {"Index":8,"Type":"Subtitle","IsDefault":true,"IsForced":false}
+            ]
+        }]
+    })"));
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    EmbyClient client(networkClient);
+    std::optional<PlaybackUrlResult> result;
+    MediaItem item;
+    item.id = QStringLiteral("episode-1");
+
+    client.fetchPlaybackUrl(sessionFor(server, ServiceType::Emby), item, [&result](PlaybackUrlResult value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    QCOMPARE(result->value().subtitleStreamIndex, 8);
+    QCOMPARE(QUrl(result->value().url).path(), QStringLiteral("/Videos/episode-1/stream"));
+    QVERIFY(!QUrlQuery(result->value().url).hasQueryItem(QStringLiteral("SubtitleStreamIndex")));
+}
+
+void MediaServerSearchTest::jellyfinPlaybackKeepsNonForcedServerSubtitleSelection()
+{
+    LocalMediaServer server(QByteArrayLiteral(R"({
+        "playSessionId":"play-session",
+        "mediaSources":[{
+            "id":"source-1",
+            "defaultSubtitleStreamIndex":5,
+            "mediaStreams":[
+                {"index":5,"type":"Subtitle","isDefault":false,"isForced":false},
+                {"index":8,"type":"Subtitle","isDefault":true,"isForced":false}
+            ]
+        }]
+    })"));
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    JellyfinClient client(networkClient);
+    std::optional<PlaybackUrlResult> result;
+    MediaItem item;
+    item.id = QStringLiteral("movie-1");
+
+    client.fetchPlaybackUrl(sessionFor(server, ServiceType::Jellyfin), item, [&result](PlaybackUrlResult value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    QCOMPARE(result->value().subtitleStreamIndex, 5);
+}
+
+void MediaServerSearchTest::playbackWithoutValidSubtitleUsesPlayerAutomaticSelection()
+{
+    LocalMediaServer server(QByteArrayLiteral(R"({
+        "PlaySessionId":"play-session",
+        "MediaSources":[{
+            "Id":"source-1",
+            "DefaultSubtitleStreamIndex":4,
+            "MediaStreams":[
+                {"Index":2,"Type":"Audio","IsDefault":true},
+                {"Index":4,"Type":"Subtitle","IsDefault":true,"IsExternal":true}
+            ]
+        }]
+    })"));
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    EmbyClient client(networkClient);
+    std::optional<PlaybackUrlResult> result;
+    MediaItem item;
+    item.id = QStringLiteral("movie-1");
+
+    client.fetchPlaybackUrl(sessionFor(server, ServiceType::Emby), item, [&result](PlaybackUrlResult value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    QCOMPARE(result->value().subtitleStreamIndex, -1);
 }
 
 QTEST_MAIN(MediaServerSearchTest)

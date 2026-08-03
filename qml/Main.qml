@@ -6219,6 +6219,7 @@ ApplicationWindow {
             anchors.fill: parent
             audioOnly: appViewModel.webDavAudioPlaybackActive
             startPosition: appViewModel.currentPlaybackStartSeconds
+            preferredSubtitleStreamIndex: appViewModel.currentPlaybackSubtitleStreamIndex
             httpUsername: appViewModel.playbackHttpUsername
             httpPassword: appViewModel.playbackHttpPassword
             allowInsecureTls: appViewModel.playbackAllowInsecureTls

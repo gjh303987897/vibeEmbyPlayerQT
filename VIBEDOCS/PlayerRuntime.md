@@ -14,6 +14,7 @@ The current implementation covers:
 - basic playback controls: play, pause, stop, relative seek, absolute seek, volume and speed.
 - basic playback state observation: pause state, position, duration, volume, speed and track list.
 - subtitle and audio track list exposure to QML.
+- Emby / Jellyfin embedded-subtitle preference propagation from playback metadata to libmpv.
 - manual loading and immediate selection of a local external subtitle file.
 - player exit confirmation, immersive player fullscreen toggle and Esc behavior.
 - Emby / Jellyfin playback start, progress and stop reporting.
@@ -137,6 +138,16 @@ The detail page calls `AppViewModel::playSelectedItem()`.
 - `api_key=<token>`
 
 The playback request also carries a resume start position derived from `UserData.PlaybackPositionTicks`. `MpvVideoItem` passes this to libmpv as a file-local `start=<seconds>` option when loading the URL.
+
+The same request carries the preferred embedded subtitle stream index from the selected media source. A valid non-forced `DefaultSubtitleStreamIndex` remains authoritative. If that index points only to a forced track while the container declares a non-forced default subtitle, the full default track is preferred so sparse forced captions are not presented as normal subtitles. Invalid or absent subtitle metadata leaves selection on libmpv's `auto` behavior.
+
+Media-server stream indexes are FFmpeg indexes, not libmpv `sid` values. After `MPV_EVENT_FILE_LOADED`, `PlayerController` matches the preferred stream against libmpv's `track-list/N/ff-index`, then assigns the corresponding `track-list/N/id` to `sid`. Selection is delayed until the replacement file is loaded so stale track events from the previous file cannot apply the preference early. A user's later subtitle-menu action always overrides this automatic selection.
+
+Reference contracts:
+
+- Emby PlaybackInfo: <https://dev.emby.media/reference/RestAPI/MediaInfoService/getItemsByIdPlaybackinfo.html>
+- Jellyfin stable OpenAPI: <https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json>
+- mpv track selection and `track-list`: <https://mpv.io/manual/master/>
 
 For HTTPS playback, `PlayerController` configures libmpv with the PEM bundle produced by `TlsCertificateStore`. The bundle mirrors the operating-system trusted CA certificates exposed by Qt, allowing libmpv's FFmpeg/OpenSSL backend to validate the same public certificate authorities used by the application network layer. TLS verification remains enabled by default. A server saved with the explicit self-signed-certificate trust option disables verification only for that server's foreground or scheduled playback request.
 
