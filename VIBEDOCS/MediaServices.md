@@ -50,6 +50,7 @@ QML does not make network requests and does not parse JSON.
 - App launch opens the service-card page.
 - Service cards derive their visual identity from the existing `serviceType` role. Emby, Jellyfin, WebDAV and IPTV each use a local vector-style mark and a stable accent color, so card rendering never depends on remote image assets.
 - The reusable QML service icon and status-chip components keep the card hierarchy consistent across light and dark themes: service identity and account details stay in the primary row, while login and session state remain in a fixed footer row.
+- Built-in entry cards and saved service cards share the same responsive size contract. The service page selects two or three columns from the available width, calculates one common card width and keeps every card at a fixed 156-pixel height; both the `GridLayout` and `GridView` consume those values so separate sections remain aligned while the window resizes.
 - Hover, drag and edit states reuse the same service accent without changing the card's information layout or invoking service-layer logic.
 - Adding a card stores service name, base URL, username, service type, certificate policy and auto-login preference.
 - If a password is provided while saving, the card is logged in immediately and the token is persisted through `SessionRepository`.

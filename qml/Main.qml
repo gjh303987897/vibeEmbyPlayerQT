@@ -1488,6 +1488,11 @@ ApplicationWindow {
 
                 Item {
                     id: servicePage
+                    readonly property int cardColumnCount: width < 1080 ? 2 : 3
+                    readonly property real cardSpacing: 16
+                    readonly property real cardCellWidth: (width + cardSpacing) / cardColumnCount
+                    readonly property real cardWidth: Math.max(0, cardCellWidth - cardSpacing)
+                    readonly property real cardHeight: 156
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1495,16 +1500,17 @@ ApplicationWindow {
 
                         GridLayout {
                             Layout.fillWidth: true
-                            columns: servicePage.width < 1080 ? 2 : 3
-                            columnSpacing: 16
-                            rowSpacing: 16
+                            columns: servicePage.cardColumnCount
+                            columnSpacing: servicePage.cardSpacing
+                            rowSpacing: servicePage.cardSpacing
 
                             ServiceCard {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                                Layout.preferredWidth: 1
-                                Layout.maximumWidth: 520
-                                Layout.preferredHeight: 156
+                                Layout.minimumWidth: servicePage.cardWidth
+                                Layout.preferredWidth: servicePage.cardWidth
+                                Layout.maximumWidth: servicePage.cardWidth
+                                Layout.minimumHeight: servicePage.cardHeight
+                                Layout.preferredHeight: servicePage.cardHeight
+                                Layout.maximumHeight: servicePage.cardHeight
                                 editing: false
                                 serviceName: t("local.title")
                                 serviceType: "Local"
@@ -1517,11 +1523,12 @@ ApplicationWindow {
                             }
 
                             ServiceCard {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                                Layout.preferredWidth: 1
-                                Layout.maximumWidth: 520
-                                Layout.preferredHeight: 156
+                                Layout.minimumWidth: servicePage.cardWidth
+                                Layout.preferredWidth: servicePage.cardWidth
+                                Layout.maximumWidth: servicePage.cardWidth
+                                Layout.minimumHeight: servicePage.cardHeight
+                                Layout.preferredHeight: servicePage.cardHeight
+                                Layout.maximumHeight: servicePage.cardHeight
                                 editing: false
                                 serviceName: t("link.title")
                                 serviceType: "Link"
@@ -1534,11 +1541,12 @@ ApplicationWindow {
                             }
 
                             ServiceCard {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                                Layout.preferredWidth: 1
-                                Layout.maximumWidth: 520
-                                Layout.preferredHeight: 156
+                                Layout.minimumWidth: servicePage.cardWidth
+                                Layout.preferredWidth: servicePage.cardWidth
+                                Layout.maximumWidth: servicePage.cardWidth
+                                Layout.minimumHeight: servicePage.cardHeight
+                                Layout.preferredHeight: servicePage.cardHeight
+                                Layout.maximumHeight: servicePage.cardHeight
                                 editing: false
                                 serviceName: t("globalHistory.title")
                                 serviceType: "History"
@@ -1554,21 +1562,25 @@ ApplicationWindow {
                         Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            clip: true
 
                             GridView {
                                 id: serviceGrid
-                                anchors.fill: parent
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                width: parent.width + servicePage.cardSpacing
                                 clip: true
                                 model: appViewModel.services
-                                cellWidth: Math.max(270, width / Math.max(1, Math.floor(width / 300)))
-                                cellHeight: 178
+                                cellWidth: servicePage.cardCellWidth
+                                cellHeight: servicePage.cardHeight + servicePage.cardSpacing
                                 displaced: Transition {
                                     NumberAnimation { properties: "x,y"; duration: 160; easing.type: Easing.OutCubic }
                                 }
 
                                 delegate: ServiceCard {
-                                    width: serviceGrid.cellWidth - 16
-                                    height: 156
+                                    width: servicePage.cardWidth
+                                    height: servicePage.cardHeight
                                     editing: appViewModel.editingServices
                                     serviceName: model.name
                                     serviceType: model.serviceType
