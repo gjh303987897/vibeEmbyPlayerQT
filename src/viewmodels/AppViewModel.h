@@ -5,6 +5,7 @@
 #include "models/IptvPlaylist.h"
 #include "models/UserSession.h"
 #include "network/NetworkClient.h"
+#include "services/encryptedhls/EncryptedHlsPackager.h"
 #include "services/webdav/TransferManager.h"
 #include "services/webdav/WebDavClient.h"
 #include "services/webdav/WebDavDownloadPlanner.h"
@@ -26,6 +27,7 @@
 #include "viewmodels/PlaybackHistoryListModel.h"
 #include "viewmodels/ServiceCardListModel.h"
 #include "viewmodels/ScheduledPlaybackTaskListModel.h"
+#include "viewmodels/TsslPackageListModel.h"
 #include "viewmodels/WebDavItemListModel.h"
 
 #include <QDateTime>
@@ -72,6 +74,14 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
     Q_PROPERTY(QString webDavTsslStatus READ webDavTsslStatus NOTIFY webDavTsslStatusChanged)
+    Q_PROPERTY(TsslPackageListModel* tsslPackages READ tsslPackages CONSTANT)
+    Q_PROPERTY(bool m3u8sPackaging READ m3u8sPackaging NOTIFY m3u8sPackagingChanged)
+    Q_PROPERTY(double m3u8sPackagingProgress READ m3u8sPackagingProgress NOTIFY m3u8sPackagingChanged)
+    Q_PROPERTY(QString m3u8sPackagingPhase READ m3u8sPackagingPhase NOTIFY m3u8sPackagingChanged)
+    Q_PROPERTY(QString m3u8sStatus READ m3u8sStatus NOTIFY m3u8sStatusChanged)
+    Q_PROPERTY(QString m3u8sLastOutputDirectory READ m3u8sLastOutputDirectory NOTIFY m3u8sStatusChanged)
+    Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
+    Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
     Q_PROPERTY(bool webDavAudioPlaybackActive READ webDavAudioPlaybackActive NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioCurrentIndex READ webDavAudioCurrentIndex NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioQueueCount READ webDavAudioQueueCount NOTIFY webDavAudioPlaybackChanged)
@@ -232,6 +242,15 @@ public:
     QString webDavCurrentPath() const;
     QString webDavDisplayMode() const;
     QString webDavTsslStatus() const;
+    TsslPackageListModel* tsslPackages();
+    bool m3u8sPackaging() const;
+    double m3u8sPackagingProgress() const;
+    QString m3u8sPackagingPhase() const;
+    QString m3u8sStatus() const;
+    QString m3u8sLastOutputDirectory() const;
+    bool m3u8sFfmpegAvailable() const;
+    int m3u8sSegmentDuration() const;
+    void setM3u8sSegmentDuration(int value);
     void setWebDavDisplayMode(const QString& value);
     bool webDavAudioPlaybackActive() const;
     int webDavAudioCurrentIndex() const;
@@ -405,6 +424,15 @@ public:
     Q_INVOKABLE void downloadWebDavItem(int row);
     Q_INVOKABLE void restoreTssl();
     Q_INVOKABLE void exportWebDavTssl(int row);
+    Q_INVOKABLE void openM3u8sManager();
+    Q_INVOKABLE void refreshTsslPackages();
+    Q_INVOKABLE void restoreManagedTssl();
+    Q_INVOKABLE void exportManagedTssl(int row);
+    Q_INVOKABLE void deleteManagedTssl(int row);
+    Q_INVOKABLE void chooseM3u8sVideo();
+    Q_INVOKABLE void cancelM3u8sPackaging();
+    Q_INVOKABLE void openM3u8sOutputDirectory();
+    Q_INVOKABLE void openTsslStorageDirectory();
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
     Q_INVOKABLE void openTransfers();
     Q_INVOKABLE void cancelTransfer(const QString& taskId);
@@ -498,6 +526,9 @@ signals:
     void webDavCurrentPathChanged();
     void webDavDisplayModeChanged();
     void webDavTsslStatusChanged();
+    void m3u8sPackagingChanged();
+    void m3u8sStatusChanged();
+    void m3u8sSegmentDurationChanged();
     void webDavAudioPlaybackChanged();
     void webDavAudioRepeatModeChanged();
     void defaultDownloadDirectoryChanged();
@@ -787,6 +818,7 @@ private:
     WebDavPlaybackProxy m_webDavPlaybackProxy;
     TsslStore m_tsslStore;
     EncryptedHlsPlaybackProxy m_encryptedHlsPlaybackProxy;
+    EncryptedHlsPackager m_m3u8sPackager;
     LocalMediaService m_localMediaService;
     TransferManager m_transferManager;
     SessionRepository m_repository;
@@ -808,6 +840,10 @@ private:
     LinkPlaybackHistoryListModel m_linkPlaybackHistory;
     DailyUsageStatsListModel m_usageStats;
     PlaybackHistoryListModel m_globalPlaybackHistory;
+    TsslPackageListModel m_tsslPackages;
+    QString m_m3u8sStatus;
+    QString m_m3u8sLastOutputDirectory;
+    int m_m3u8sSegmentDuration { 6 };
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
     qint64 m_historyTotalNetworkBytesIn { 0 };

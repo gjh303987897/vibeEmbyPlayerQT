@@ -125,6 +125,23 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
 - AES-256-GCM TS decryption runs through Qt Concurrent, and plaintext is released only after tag verification succeeds.
 - TSSL parsing, local storage, restore/export behavior and package constraints are documented in `EncryptedHlsM3u8s.md`.
 
+## M3U8S Manager
+
+- The service page includes a built-in `M3U8S Video Manager` entry. It is a
+  local tool and does not create a saved remote-service card.
+- `AppViewModel` owns file dialogs, manager navigation, progress state, and
+  TSSL actions. `EncryptedHlsPackager` owns FFmpeg and encryption work, while
+  `TsslPackageListModel` exposes only non-secret package metadata to QML.
+- Video conversion is asynchronous. FFmpeg runs through `QProcess`, and the
+  AES-GCM phase runs through Qt Concurrent, so neither operation blocks the UI
+  thread.
+- The manager can create a package, cancel active work, open its latest output,
+  list local TSSL files, restore/import a TSSL, export a recovery copy, and
+  delete a local package.
+- TSSL v2 and the root `.m3u8s` carry the same strict 4096-character identifier.
+  Playback additionally checks the root-manifest digest before accepting the
+  pair.
+
 ## Security
 
 - Password is kept only in the login form and cleared after successful login.

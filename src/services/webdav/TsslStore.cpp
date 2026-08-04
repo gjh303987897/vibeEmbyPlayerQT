@@ -24,6 +24,25 @@ const QRegularExpression& sha256Pattern()
     return pattern;
 }
 
+const QRegularExpression& identifierPattern()
+{
+    static const QRegularExpression pattern(QStringLiteral("^[A-Za-z0-9_-]{4096}$"));
+    return pattern;
+}
+
+std::expected<QByteArray, QString> parseIdentifier(const QJsonValue& value)
+{
+    if (!value.isString()) {
+        return std::unexpected(QStringLiteral("identifier must be a string"));
+    }
+    const auto text = value.toString();
+    if (text.size() != TsslPackage::identifierLength ||
+        !identifierPattern().match(text).hasMatch()) {
+        return std::unexpected(QStringLiteral("identifier must contain exactly 4096 Base64URL characters"));
+    }
+    return text.toLatin1();
+}
+
 std::expected<QByteArray, QString> parseDigest(const QJsonValue& value, const QString& field)
 {
     const auto text = value.toString();
@@ -160,9 +179,14 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
     const auto root = json.object();
     const auto version = root.value(QStringLiteral("version"));
     if (root.value(QStringLiteral("format")).toString() != QStringLiteral("TSSL") ||
-        !version.isDouble() || version.toDouble() != 1.0 ||
+        !version.isDouble() || version.toDouble() != 2.0 ||
         root.value(QStringLiteral("algorithm")).toString() != QStringLiteral("AES-256-GCM")) {
         return std::unexpected(QStringLiteral("Unsupported TSSL format, version, or algorithm"));
+    }
+
+    auto identifier = parseIdentifier(root.value(QStringLiteral("identifier")));
+    if (!identifier) {
+        return std::unexpected(identifier.error());
     }
 
     auto rootDigest = parseDigest(root.value(QStringLiteral("rootManifestSha256")),
@@ -217,6 +241,7 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
     }
 
     return TsslPackage {
+        .identifier = std::move(*identifier),
         .rootManifestDigest = std::move(*rootDigest),
         .manifestDigests = std::move(*manifests),
         .segmentKeys = std::move(*segments),
@@ -228,14 +253,28 @@ QByteArray TsslPackage::toJson() const
 {
     const QJsonObject root {
         { QStringLiteral("format"), QStringLiteral("TSSL") },
-        { QStringLiteral("version"), 1 },
+        { QStringLiteral("version"), 2 },
         { QStringLiteral("algorithm"), QStringLiteral("AES-256-GCM") },
+        { QStringLiteral("identifier"), QString::fromLatin1(identifier) },
         { QStringLiteral("rootManifestSha256"), QString::fromLatin1(rootManifestDigest.toHex()) },
         { QStringLiteral("manifests"), digestEntries(manifestDigests) },
         { QStringLiteral("segments"), keyEntries(segmentKeys) },
         { QStringLiteral("resources"), digestEntries(resourceDigests) },
     };
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
+}
+
+std::expected<void, QString> TsslStore::savePackage(const TsslPackage& package) const
+{
+    const auto encoded = package.toJson();
+    auto validated = TsslPackage::parse(encoded);
+    if (!validated) {
+        return std::unexpected(validated.error());
+    }
+    if (auto ensured = ensureStorageDirectory(); !ensured) {
+        return std::unexpected(ensured.error());
+    }
+    return writeSecretFile(packagePath(package.rootManifestDigest), encoded);
 }
 
 TsslStore::TsslStore(QString storageDirectory)
@@ -275,6 +314,68 @@ std::expected<std::optional<TsslPackage>, QString> TsslStore::packageForRootDige
     return std::optional<TsslPackage> { std::move(*package) };
 }
 
+std::expected<std::vector<TsslPackageInfo>, QString> TsslStore::listPackages() const
+{
+    std::vector<TsslPackageInfo> result;
+    if (m_storageDirectory.isEmpty() || !QFileInfo::exists(m_storageDirectory)) {
+        return result;
+    }
+
+    const QDir directory(m_storageDirectory);
+    const auto files = directory.entryInfoList({ QStringLiteral("*.tssl") },
+                                               QDir::Files | QDir::Readable,
+                                               QDir::Time | QDir::Reversed);
+    result.reserve(static_cast<size_t>(files.size()));
+    for (const auto& fileInfo : files) {
+        const auto fileDigestText = fileInfo.completeBaseName();
+        if (!sha256Pattern().match(fileDigestText).hasMatch()) {
+            continue;
+        }
+        const auto fileDigest = QByteArray::fromHex(fileDigestText.toLatin1());
+        const auto appendInvalid = [&](QString error) {
+            result.push_back(TsslPackageInfo {
+                .rootManifestDigest = fileDigest,
+                .filePath = fileInfo.absoluteFilePath(),
+                .modifiedAt = fileInfo.lastModified(),
+                .fileSize = fileInfo.size(),
+                .valid = false,
+                .validationError = std::move(error),
+            });
+        };
+        QFile file(fileInfo.absoluteFilePath());
+        if (!file.open(QIODevice::ReadOnly)) {
+            appendInvalid(QStringLiteral("Unable to open local TSSL package: %1").arg(file.errorString()));
+            continue;
+        }
+        if (file.size() <= 0 || file.size() > maximumTsslBytes) {
+            appendInvalid(QStringLiteral("Local TSSL package is empty or exceeds the 64 MiB limit"));
+            continue;
+        }
+        auto package = TsslPackage::parse(file.readAll());
+        if (!package) {
+            appendInvalid(package.error());
+            continue;
+        }
+        const auto expectedName = QString::fromLatin1(package->rootManifestDigest.toHex()) + QStringLiteral(".tssl");
+        if (fileInfo.fileName().compare(expectedName, Qt::CaseInsensitive) != 0) {
+            appendInvalid(QStringLiteral("Local TSSL filename and manifest digest do not match"));
+            continue;
+        }
+        result.push_back(TsslPackageInfo {
+            .identifier = package->identifier,
+            .rootManifestDigest = package->rootManifestDigest,
+            .filePath = fileInfo.absoluteFilePath(),
+            .modifiedAt = fileInfo.lastModified(),
+            .fileSize = fileInfo.size(),
+            .manifestCount = static_cast<int>(package->manifestDigests.size()),
+            .segmentCount = static_cast<int>(package->segmentKeys.size()),
+            .resourceCount = static_cast<int>(package->resourceDigests.size()),
+            .valid = true,
+        });
+    }
+    return result;
+}
+
 std::expected<QByteArray, QString> TsslStore::restoreFromFile(const QString& sourcePath) const
 {
     QFile source(sourcePath);
@@ -288,13 +389,25 @@ std::expected<QByteArray, QString> TsslStore::restoreFromFile(const QString& sou
     if (!package) {
         return std::unexpected(package.error());
     }
-    if (auto ensured = ensureStorageDirectory(); !ensured) {
-        return std::unexpected(ensured.error());
-    }
-    if (auto written = writeSecretFile(packagePath(package->rootManifestDigest), package->toJson()); !written) {
-        return std::unexpected(written.error());
+    if (auto saved = savePackage(*package); !saved) {
+        return std::unexpected(saved.error());
     }
     return package->rootManifestDigest;
+}
+
+std::expected<void, QString> TsslStore::deleteByRootDigest(QByteArrayView digest) const
+{
+    if (digest.size() != 32) {
+        return std::unexpected(QStringLiteral("Manifest digest must contain 32 bytes"));
+    }
+    const auto path = packagePath(digest);
+    if (!QFileInfo::exists(path)) {
+        return std::unexpected(QStringLiteral("No local TSSL package matches this manifest"));
+    }
+    if (!QFile::remove(path)) {
+        return std::unexpected(QStringLiteral("Unable to delete the local TSSL package"));
+    }
+    return {};
 }
 
 std::expected<void, QString> TsslStore::exportByRootDigest(QByteArrayView digest, const QString& destinationPath) const

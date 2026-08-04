@@ -5,9 +5,27 @@
 #include <QStringDecoder>
 #include <QUrl>
 
+#include <algorithm>
+#include <optional>
+#include <string>
+
 namespace HlsManifestValidator {
 namespace {
 constexpr qsizetype maximumManifestBytes = 4 * 1024 * 1024;
+constexpr auto identifierPrefix = "#M3U8S-IDENTIFIER:";
+
+bool isValidIdentifier(QByteArrayView identifier)
+{
+    if (identifier.size() != m3u8sIdentifierLength) {
+        return false;
+    }
+    return std::ranges::all_of(identifier, [](char character) {
+        return (character >= 'A' && character <= 'Z') ||
+            (character >= 'a' && character <= 'z') ||
+            (character >= '0' && character <= '9') ||
+            character == '_' || character == '-';
+    });
+}
 
 std::expected<void, QString> validateUri(const QString& uriText, const QString& manifestPath)
 {
@@ -60,6 +78,7 @@ std::expected<void, QString> validate(QByteArrayView manifest, const QString& ma
     }
 
     static const QRegularExpression uriAttribute(QStringLiteral("(?:^|[:,])URI=\"([^\"]*)\""));
+    bool foundIdentifier = false;
     for (qsizetype index = firstContentLine + 1; index < lines.size(); ++index) {
         const auto line = lines.at(index).trimmed();
         if (line.isEmpty()) {
@@ -68,6 +87,17 @@ std::expected<void, QString> validate(QByteArrayView manifest, const QString& ma
         if (line.startsWith(QStringLiteral("#EXT-X-KEY:")) ||
             line.startsWith(QStringLiteral("#EXT-X-SESSION-KEY:"))) {
             return std::unexpected(QStringLiteral("TSSL playlists must not contain HLS key tags"));
+        }
+        if (line.startsWith(QLatin1String(identifierPrefix))) {
+            if (foundIdentifier) {
+                return std::unexpected(QStringLiteral("M3U8S manifest contains more than one identifier"));
+            }
+            foundIdentifier = true;
+            const auto identifier = line.sliced(QLatin1String(identifierPrefix).size()).toLatin1();
+            if (!isValidIdentifier(identifier)) {
+                return std::unexpected(QStringLiteral("M3U8S identifier must contain exactly 4096 Base64URL characters"));
+            }
+            continue;
         }
         if (!line.startsWith(QLatin1Char('#'))) {
             if (auto result = validateUri(line, manifestPath); !result) {
@@ -90,6 +120,65 @@ std::expected<void, QString> validate(QByteArrayView manifest, const QString& ma
         }
     }
     return {};
+}
+
+std::expected<QByteArray, QString> extractM3u8sIdentifier(QByteArrayView manifest)
+{
+    if (auto validated = validate(manifest); !validated) {
+        return std::unexpected(validated.error());
+    }
+
+    const QByteArray bytes(manifest.data(), manifest.size());
+    const auto lines = bytes.split('\n');
+    std::optional<QByteArray> identifier;
+    for (auto line : lines) {
+        if (line.endsWith('\r')) {
+            line.chop(1);
+        }
+        if (!line.startsWith(identifierPrefix)) {
+            continue;
+        }
+        if (identifier) {
+            return std::unexpected(QStringLiteral("M3U8S manifest contains more than one identifier"));
+        }
+        identifier = line.sliced(static_cast<qsizetype>(std::char_traits<char>::length(identifierPrefix)));
+    }
+    if (!identifier) {
+        return std::unexpected(QStringLiteral("M3U8S manifest does not contain an identifier"));
+    }
+    if (!isValidIdentifier(*identifier)) {
+        return std::unexpected(QStringLiteral("M3U8S identifier must contain exactly 4096 Base64URL characters"));
+    }
+    return *identifier;
+}
+
+std::expected<QByteArray, QString> insertM3u8sIdentifier(QByteArrayView manifest,
+                                                        QByteArrayView identifier)
+{
+    if (!isValidIdentifier(identifier)) {
+        return std::unexpected(QStringLiteral("M3U8S identifier must contain exactly 4096 Base64URL characters"));
+    }
+    if (auto validated = validate(manifest); !validated) {
+        return std::unexpected(validated.error());
+    }
+
+    const QByteArray bytes(manifest.data(), manifest.size());
+    if (bytes.contains(identifierPrefix)) {
+        return std::unexpected(QStringLiteral("HLS manifest already contains an M3U8S identifier"));
+    }
+    const auto firstLineEnd = bytes.indexOf('\n');
+    if (firstLineEnd < 0) {
+        return std::unexpected(QStringLiteral("HLS manifest must contain content after #EXTM3U"));
+    }
+    QByteArray result;
+    result.reserve(bytes.size() + static_cast<qsizetype>(std::char_traits<char>::length(identifierPrefix)) +
+                   identifier.size() + 1);
+    result.append(bytes.first(firstLineEnd + 1));
+    result.append(identifierPrefix);
+    result.append(identifier.data(), identifier.size());
+    result.append('\n');
+    result.append(bytes.sliced(firstLineEnd + 1));
+    return result;
 }
 
 }

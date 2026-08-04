@@ -16,6 +16,7 @@ ApplicationWindow {
     color: theme.bg
 
     property int pendingDeleteRow: -1
+    property int pendingTsslDeleteRow: -1
     property int pendingScheduledDeleteRow: -1
     property int dragFromRow: -1
     property bool playerImmersive: false
@@ -122,6 +123,8 @@ ApplicationWindow {
         case "history":
         case "globalhistory":
             return Qt.rgba(0.910, 0.620, 0.220, 1.0)
+        case "m3u8s":
+            return Qt.rgba(0.055, 0.627, 0.447, 1.0)
         default:
             return Qt.rgba(0.392, 0.455, 0.545, 1.0)
         }
@@ -645,6 +648,25 @@ ApplicationWindow {
     }
 
     ModernDialog {
+        id: tsslDeleteDialog
+        title: t("m3u8s.deleteTitle")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        width: Math.min(root.width - 64, 480)
+
+        BodyText {
+            width: parent.width
+            text: t("m3u8s.deletePrompt")
+            wrapMode: Text.WordWrap
+        }
+
+        onAccepted: {
+            appViewModel.deleteManagedTssl(root.pendingTsslDeleteRow)
+            root.pendingTsslDeleteRow = -1
+        }
+        onRejected: root.pendingTsslDeleteRow = -1
+    }
+
+    ModernDialog {
         id: scheduledTaskEditorDialog
         property bool editing: false
         title: editing ? t("schedule.edit") : t("schedule.add")
@@ -1143,7 +1165,8 @@ ApplicationWindow {
                 visible: appViewModel.currentView !== "services" && appViewModel.currentView !== "settings"
                 font.pixelSize: 28
                 onClicked: {
-                    if (appViewModel.currentView === "history" || appViewModel.currentView === "globalHistory") {
+                    if (appViewModel.currentView === "history" || appViewModel.currentView === "globalHistory"
+                            || appViewModel.currentView === "m3u8sManager") {
                         appViewModel.backToServices()
                     } else if (appViewModel.currentView === "scheduledTasks") {
                         appViewModel.backToServices()
@@ -1185,6 +1208,7 @@ ApplicationWindow {
                         text: appViewModel.currentView === "settings" ? t("settings.title")
                             : appViewModel.currentView === "history" ? t("history.title")
                             : appViewModel.currentView === "globalHistory" ? t("globalHistory.title")
+                            : appViewModel.currentView === "m3u8sManager" ? t("m3u8s.title")
                             : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
                             : appViewModel.currentView === "local" ? t("local.title")
                             : appViewModel.currentView === "link" ? t("link.title")
@@ -1227,6 +1251,7 @@ ApplicationWindow {
                     text: appViewModel.currentView === "settings" ? t("settings.subtitle")
                         : appViewModel.currentView === "history" ? (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
                         : appViewModel.currentView === "globalHistory" ? t("globalHistory.subtitle")
+                        : appViewModel.currentView === "m3u8sManager" ? t("m3u8s.subtitle")
                         : appViewModel.currentView === "scheduledTasks" ? t("schedule.subtitle")
                         : appViewModel.currentView === "local" ? (appViewModel.localMediaDirectoryOpen ? appViewModel.localMediaCurrentPath : t("local.subtitle"))
                         : appViewModel.currentView === "link" ? t("link.subtitle")
@@ -1397,7 +1422,8 @@ ApplicationWindow {
                     : appViewModel.currentView === "local" ? 11
                     : appViewModel.currentView === "link" ? 12
                     : appViewModel.currentView === "globalHistory" ? 13
-                    : 14
+                    : appViewModel.currentView === "m3u8sManager" ? 14
+                    : 15
 
                 transform: [
                     Translate {
@@ -1556,6 +1582,24 @@ ApplicationWindow {
                                 trailingStatusText: t("globalHistory.localIndex")
                                 trailingStatusColor: root.serviceAccentColor("History")
                                 onActivated: appViewModel.openGlobalHistory()
+                            }
+
+                            ServiceCard {
+                                Layout.minimumWidth: servicePage.cardWidth
+                                Layout.preferredWidth: servicePage.cardWidth
+                                Layout.maximumWidth: servicePage.cardWidth
+                                Layout.minimumHeight: servicePage.cardHeight
+                                Layout.preferredHeight: servicePage.cardHeight
+                                Layout.maximumHeight: servicePage.cardHeight
+                                editing: false
+                                serviceName: t("m3u8s.title")
+                                serviceType: "M3u8s"
+                                host: t("m3u8s.cardSubtitle")
+                                leadingStatusText: t("m3u8s.builtIn")
+                                leadingStatusColor: theme.success
+                                trailingStatusText: t("m3u8s.packageCount").arg(appViewModel.tsslPackages.count)
+                                trailingStatusColor: root.serviceAccentColor("M3u8s")
+                                onActivated: appViewModel.openM3u8sManager()
                             }
                         }
 
@@ -1980,6 +2024,8 @@ ApplicationWindow {
                 LinkPlaybackPage {}
 
                 GlobalHistoryPage {}
+
+                M3u8sManagerPage {}
 
                 SettingsPage {}
             }
@@ -3293,6 +3339,35 @@ ApplicationWindow {
                         context.lineTo(17, 17)
                         context.lineTo(22.2, 20.1)
                         context.stroke()
+                    } else if (serviceIcon.normalizedType === "m3u8s") {
+                        context.strokeStyle = "#ffffff"
+                        context.fillStyle = "#ffffff"
+                        context.lineWidth = 2.1
+                        roundedRectPath(context, 3.5, 7, 27, 20, 4)
+                        context.stroke()
+                        context.beginPath()
+                        context.moveTo(8.5, 7)
+                        context.lineTo(8.5, 27)
+                        context.moveTo(25.5, 7)
+                        context.lineTo(25.5, 27)
+                        context.stroke()
+                        for (var frameIndex = 0; frameIndex < 3; ++frameIndex) {
+                            var frameY = 10 + frameIndex * 6.5
+                            context.fillRect(5.5, frameY, 1.8, 2.5)
+                            context.fillRect(26.7, frameY, 1.8, 2.5)
+                        }
+                        context.fillStyle = serviceIcon.accentColor
+                        roundedRectPath(context, 12, 16, 10, 8, 2)
+                        context.fill()
+                        context.strokeStyle = "#ffffff"
+                        context.lineWidth = 1.8
+                        context.beginPath()
+                        context.arc(17, 16, 3.2, Math.PI, 0)
+                        context.stroke()
+                        context.fillStyle = "#ffffff"
+                        context.beginPath()
+                        context.arc(17, 20, 1.2, 0, Math.PI * 2)
+                        context.fill()
                     } else if (serviceIcon.normalizedType === "local") {
                         context.fillStyle = "#ffffff"
                         context.beginPath()
@@ -10221,6 +10296,417 @@ ApplicationWindow {
                     }
                 }
             }
+        }
+    }
+
+    component M3u8sManagerPage: Flickable {
+        id: m3u8sFlick
+        readonly property color accentColor: root.serviceAccentColor("M3u8s")
+        contentWidth: width
+        contentHeight: m3u8sColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+
+        function phaseText(phase) {
+            var key = "m3u8s.phase." + phase
+            var translated = t(key)
+            return translated === key ? t("m3u8s.processingStatus") : translated
+        }
+
+        ColumnLayout {
+            id: m3u8sColumn
+            width: m3u8sFlick.width
+            spacing: 18
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: packageCreatorContent.implicitHeight + 34
+                radius: 8
+                color: theme.surface
+                border.color: appViewModel.m3u8sPackaging
+                    ? root.withAlpha(m3u8sFlick.accentColor, 0.82) : theme.border
+
+                ColumnLayout {
+                    id: packageCreatorContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 17
+                    spacing: 14
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 14
+
+                        ServiceTypeIcon {
+                            Layout.preferredWidth: 52
+                            Layout.preferredHeight: 52
+                            Layout.alignment: Qt.AlignTop
+                            serviceType: "M3u8s"
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("m3u8s.createTitle")
+                                color: theme.text
+                                font.pixelSize: 19
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("m3u8s.createSubtitle")
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: ffmpegStatusLabel.implicitWidth + 26
+                            Layout.preferredHeight: 30
+                            radius: 8
+                            color: root.withAlpha(appViewModel.m3u8sFfmpegAvailable
+                                ? theme.success : theme.danger, darkTheme ? 0.16 : 0.09)
+                            border.color: root.withAlpha(appViewModel.m3u8sFfmpegAvailable
+                                ? theme.success : theme.danger, 0.52)
+
+                            Label {
+                                id: ffmpegStatusLabel
+                                anchors.centerIn: parent
+                                text: appViewModel.m3u8sFfmpegAvailable
+                                    ? t("m3u8s.ffmpegReady") : t("m3u8s.ffmpegMissing")
+                                color: appViewModel.m3u8sFfmpegAvailable ? theme.success : theme.danger
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
+                            text: t("m3u8s.segmentDuration")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        ModernSpinBox {
+                            from: 2
+                            to: 30
+                            stepSize: 1
+                            value: appViewModel.m3u8sSegmentDuration
+                            enabled: !appViewModel.m3u8sPackaging
+                            onValueModified: appViewModel.m3u8sSegmentDuration = value
+                            textFromValue: function(value, locale) {
+                                return t("m3u8s.seconds").arg(value)
+                            }
+                            valueFromText: function(text, locale) {
+                                var parsed = parseInt(text)
+                                return isNaN(parsed) ? appViewModel.m3u8sSegmentDuration : parsed
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ModernButton {
+                            visible: appViewModel.m3u8sLastOutputDirectory.length > 0
+                            text: t("m3u8s.openOutput")
+                            onClicked: appViewModel.openM3u8sOutputDirectory()
+                        }
+
+                        ModernButton {
+                            visible: appViewModel.m3u8sPackaging
+                            text: t("action.cancel")
+                            danger: true
+                            onClicked: appViewModel.cancelM3u8sPackaging()
+                        }
+
+                        ModernButton {
+                            visible: !appViewModel.m3u8sPackaging
+                            enabled: appViewModel.m3u8sFfmpegAvailable
+                            text: t("m3u8s.createAction")
+                            onClicked: appViewModel.chooseM3u8sVideo()
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: appViewModel.m3u8sPackaging
+                        spacing: 7
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: m3u8sFlick.phaseText(appViewModel.m3u8sPackagingPhase)
+                                color: m3u8sFlick.accentColor
+                                font.pixelSize: 12
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                text: Math.round(appViewModel.m3u8sPackagingProgress * 100) + "%"
+                                color: theme.text
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 7
+                            radius: 3
+                            color: theme.input
+                            clip: true
+
+                            Rectangle {
+                                width: parent.width * Math.max(0, Math.min(1, appViewModel.m3u8sPackagingProgress))
+                                height: parent.height
+                                radius: parent.radius
+                                color: m3u8sFlick.accentColor
+
+                                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            }
+                        }
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: appViewModel.m3u8sStatus.length > 0
+                        text: appViewModel.m3u8sStatus
+                        color: appViewModel.m3u8sPackaging ? theme.muted : m3u8sFlick.accentColor
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                SectionHeader {
+                    Layout.fillWidth: true
+                    title: t("m3u8s.savedTitle")
+                    subtitle: t("m3u8s.savedSubtitle")
+                }
+
+                ModernButton {
+                    text: t("action.refresh")
+                    onClicked: appViewModel.refreshTsslPackages()
+                }
+
+                ModernButton {
+                    text: t("m3u8s.openStorage")
+                    onClicked: appViewModel.openTsslStorageDirectory()
+                }
+
+                ModernButton {
+                    text: t("m3u8s.importTssl")
+                    onClicked: appViewModel.restoreManagedTssl()
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                visible: appViewModel.tsslPackages.count > 0
+
+                Repeater {
+                    model: appViewModel.tsslPackages
+
+                    delegate: Rectangle {
+                        id: tsslRow
+                        required property int index
+                        required property string rootDigest
+                        required property string identifierPreview
+                        required property int identifierLength
+                        required property var modifiedAt
+                        required property real fileSize
+                        required property int manifestCount
+                        required property int segmentCount
+                        required property int resourceCount
+                        required property bool validPackage
+                        required property string validationError
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 122
+                        radius: 8
+                        color: tsslMouse.containsMouse ? theme.elevatedHover : theme.elevated
+                        border.color: !tsslRow.validPackage ? root.withAlpha(theme.danger, 0.66)
+                            : tsslMouse.containsMouse
+                            ? root.withAlpha(m3u8sFlick.accentColor, 0.72) : theme.border
+                        opacity: tsslRow.validPackage ? 1.0 : 0.82
+
+                        MouseArea {
+                            id: tsslMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 15
+                            spacing: 14
+
+                            ServiceTypeIcon {
+                                Layout.preferredWidth: 48
+                                Layout.preferredHeight: 48
+                                Layout.alignment: Qt.AlignTop
+                                serviceType: "M3u8s"
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                spacing: 5
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: tsslRow.validPackage
+                                            ? t("m3u8s.identifier") + "  " + tsslRow.identifierPreview
+                                            : t("m3u8s.invalidSavedPackage")
+                                        color: theme.text
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                        font.family: "monospace"
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    Rectangle {
+                                        visible: tsslRow.validPackage
+                                        Layout.preferredWidth: identifierLengthLabel.implicitWidth + 18
+                                        Layout.preferredHeight: 23
+                                        radius: 7
+                                        color: root.withAlpha(m3u8sFlick.accentColor, darkTheme ? 0.18 : 0.10)
+                                        border.color: root.withAlpha(m3u8sFlick.accentColor, 0.48)
+
+                                        Label {
+                                            id: identifierLengthLabel
+                                            anchors.centerIn: parent
+                                            text: t("m3u8s.identifierLength").arg(tsslRow.identifierLength)
+                                            color: m3u8sFlick.accentColor
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                        }
+                                    }
+                                }
+
+                                MutedText {
+                                    Layout.fillWidth: true
+                                    text: "SHA-256  " + tsslRow.rootDigest
+                                    font.family: "monospace"
+                                    font.pixelSize: 11
+                                    elide: Text.ElideMiddle
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 14
+
+                                    Label {
+                                        Layout.fillWidth: !tsslRow.validPackage
+                                        text: tsslRow.validPackage
+                                            ? t("m3u8s.segments").arg(tsslRow.segmentCount)
+                                            : tsslRow.validationError
+                                        color: tsslRow.validPackage ? theme.muted : theme.danger
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+
+                                    MutedText {
+                                        text: root.formatBytes(tsslRow.fileSize)
+                                        font.pixelSize: 12
+                                    }
+
+                                    MutedText {
+                                        text: Qt.formatDateTime(tsslRow.modifiedAt, "yyyy-MM-dd  HH:mm")
+                                        font.pixelSize: 12
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.preferredWidth: 108
+                                Layout.fillHeight: true
+                                spacing: 8
+
+                                ModernButton {
+                                    Layout.fillWidth: true
+                                    text: t("m3u8s.exportTssl")
+                                    enabled: tsslRow.validPackage
+                                    onClicked: appViewModel.exportManagedTssl(tsslRow.index)
+                                }
+
+                                ModernButton {
+                                    Layout.fillWidth: true
+                                    text: t("action.delete")
+                                    danger: true
+                                    onClicked: {
+                                        root.pendingTsslDeleteRow = tsslRow.index
+                                        tsslDeleteDialog.open()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 170
+                visible: appViewModel.tsslPackages.count === 0
+                radius: 8
+                color: theme.surface
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 48, 460)
+                    spacing: 9
+
+                    ServiceTypeIcon {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 50
+                        Layout.preferredHeight: 50
+                        serviceType: "M3u8s"
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("m3u8s.noPackages")
+                        color: theme.text
+                        font.pixelSize: 17
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: t("m3u8s.noPackagesHint")
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Item { Layout.preferredHeight: 8 }
         }
     }
 

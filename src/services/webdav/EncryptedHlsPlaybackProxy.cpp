@@ -320,6 +320,15 @@ void EncryptedHlsPlaybackProxy::resolvePackage(
             callback(std::unexpected(QStringLiteral("No matching local TSSL package was found. Restore it and try again.")));
             return;
         }
+        auto manifestIdentifier = HlsManifestValidator::extractM3u8sIdentifier(*manifest);
+        if (!manifestIdentifier) {
+            callback(std::unexpected(manifestIdentifier.error()));
+            return;
+        }
+        if ((**package).identifier != *manifestIdentifier) {
+            callback(std::unexpected(QStringLiteral("The M3U8S manifest and local TSSL identifier do not match")));
+            return;
+        }
         callback(ResolvedPackage {
             .rootManifest = std::move(*manifest),
             .package = std::move(**package),

@@ -90,6 +90,8 @@ qt_add_executable(vibePlayerQT
     src/player/PlayerController.h
     src/services/emby/EmbyClient.cpp
     src/services/emby/EmbyClient.h
+    src/services/encryptedhls/EncryptedHlsPackager.cpp
+    src/services/encryptedhls/EncryptedHlsPackager.h
     src/services/credentials/CredentialStore.cpp
     src/services/credentials/CredentialStore.h
     src/services/iptv/IptvParser.cpp
@@ -154,6 +156,8 @@ qt_add_executable(vibePlayerQT
     src/viewmodels/ScheduledPlaybackTaskListModel.h
     src/viewmodels/TransferTaskListModel.cpp
     src/viewmodels/TransferTaskListModel.h
+    src/viewmodels/TsslPackageListModel.cpp
+    src/viewmodels/TsslPackageListModel.h
     src/viewmodels/WebDavItemListModel.cpp
     src/viewmodels/WebDavItemListModel.h
 )
@@ -467,6 +471,32 @@ if(BUILD_TESTING)
 
     add_test(NAME encrypted_hls_playback_proxy COMMAND encrypted_hls_playback_proxy_test)
     set_tests_properties(encrypted_hls_playback_proxy PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(encrypted_hls_packager_test
+        tests/EncryptedHlsPackagerTest.cpp
+        src/services/encryptedhls/EncryptedHlsPackager.cpp
+        src/services/encryptedhls/EncryptedHlsPackager.h
+        src/services/webdav/AesGcmDecryptor.cpp
+        src/services/webdav/AesGcmDecryptor.h
+        src/services/webdav/HlsManifestValidator.cpp
+        src/services/webdav/HlsManifestValidator.h
+        src/services/webdav/TsslStore.cpp
+        src/services/webdav/TsslStore.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+    )
+    target_include_directories(encrypted_hls_packager_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(encrypted_hls_packager_test PRIVATE
+        Qt6::Concurrent
+        Qt6::Test
+    )
+
+    add_test(NAME encrypted_hls_packager COMMAND encrypted_hls_packager_test)
+    set_tests_properties(encrypted_hls_packager PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 

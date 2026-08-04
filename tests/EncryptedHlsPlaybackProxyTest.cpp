@@ -16,6 +16,11 @@
 #include <optional>
 
 namespace {
+QByteArray identifierBytes(char value = 'A')
+{
+    return QByteArray(TsslPackage::identifierLength, value);
+}
+
 class FakeWebDavServer final : public QObject {
 public:
     explicit FakeWebDavServer(QObject* parent = nullptr)
@@ -64,7 +69,10 @@ public:
     }
 
     QTcpServer server;
-    QByteArray manifest { "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n" };
+    QByteArray manifest {
+        QByteArrayLiteral("#EXTM3U\n#M3U8S-IDENTIFIER:") + identifierBytes() +
+        QByteArrayLiteral("\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n")
+    };
     QByteArray encryptedSegment {
         QByteArray::fromHex("000102030405060708090a0b0c0d0e0f") +
         QByteArray::fromHex("2202c30440943e4df9df8f7a75d44dca38dc0ac547ebbc31646a1e86c2") +
@@ -107,6 +115,7 @@ class EncryptedHlsPlaybackProxyTest final : public QObject {
 
 private slots:
     void verifiedPlaintextIsServedAndTamperedTagIsRejected();
+    void mismatchedIdentifierIsRejectedBeforePlayback();
 };
 
 void EncryptedHlsPlaybackProxyTest::verifiedPlaintextIsServedAndTamperedTagIsRejected()
@@ -118,6 +127,7 @@ void EncryptedHlsPlaybackProxyTest::verifiedPlaintextIsServedAndTamperedTagIsRej
 
     const auto key = QByteArray::fromHex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     const TsslPackage package {
+        .identifier = identifierBytes(),
         .rootManifestDigest = QCryptographicHash::hash(origin.manifest, QCryptographicHash::Sha256),
         .segmentKeys = {
             { QStringLiteral("segment.ts"), key },
@@ -171,6 +181,46 @@ void EncryptedHlsPlaybackProxyTest::verifiedPlaintextIsServedAndTamperedTagIsRej
     const auto tamperedResponse = get(segmentUrl, QByteArrayLiteral("bytes=10-15"));
     QCOMPARE(tamperedResponse.status, 502);
     QVERIFY(!tamperedResponse.body.contains(QByteArrayLiteral("Encrypted TS payload for TSSL")));
+}
+
+void EncryptedHlsPlaybackProxyTest::mismatchedIdentifierIsRejectedBeforePlayback()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    FakeWebDavServer origin;
+    QVERIFY(origin.listen());
+
+    const TsslPackage package {
+        .identifier = identifierBytes('B'),
+        .rootManifestDigest = QCryptographicHash::hash(origin.manifest, QCryptographicHash::Sha256),
+        .segmentKeys = {
+            { QStringLiteral("segment.ts"), QByteArray(32, '\x11') },
+        },
+    };
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    QVERIFY(store.savePackage(package).has_value());
+    EncryptedHlsPlaybackProxy proxy(store);
+    ServerConfig server;
+    server.id = QStringLiteral("test-webdav");
+    server.name = QStringLiteral("Test WebDAV");
+    server.baseUrl = origin.manifestUrl().adjusted(QUrl::RemoveFilename).toString();
+    server.serviceType = ServiceType::WebDAV;
+
+    std::optional<EncryptedHlsPrepareResult> prepared;
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    proxy.prepareStream(server, {}, origin.manifestUrl(), [&](EncryptedHlsPrepareResult result) {
+        prepared.emplace(std::move(result));
+        loop.quit();
+    });
+    timer.start(5000);
+    loop.exec();
+
+    QVERIFY(prepared.has_value());
+    QVERIFY(!prepared->has_value());
+    QVERIFY(prepared->error().contains(QStringLiteral("identifier"), Qt::CaseInsensitive));
 }
 
 QTEST_GUILESS_MAIN(EncryptedHlsPlaybackProxyTest)

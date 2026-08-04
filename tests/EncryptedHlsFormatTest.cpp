@@ -3,6 +3,7 @@
 #include "services/webdav/TsslStore.h"
 
 #include <QCryptographicHash>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -11,14 +12,21 @@
 #include <QTest>
 
 namespace {
+QByteArray identifierBytes(char value = 'A')
+{
+    return QByteArray(TsslPackage::identifierLength, value);
+}
+
 QByteArray manifestBytes()
 {
-    return QByteArrayLiteral("#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegments/0001.ts\n#EXT-X-ENDLIST\n");
+    const QByteArray manifest = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegments/0001.ts\n#EXT-X-ENDLIST\n";
+    return *HlsManifestValidator::insertM3u8sIdentifier(manifest, identifierBytes());
 }
 
 TsslPackage packageFor(const QByteArray& manifest)
 {
     return TsslPackage {
+        .identifier = identifierBytes(),
         .rootManifestDigest = QCryptographicHash::hash(manifest, QCryptographicHash::Sha256),
         .manifestDigests = {
             { QStringLiteral("variants/720p.m3u8"), QByteArray(32, '\x22') },
@@ -50,9 +58,11 @@ private slots:
     void tsslRoundTripsDeterministically();
     void tsslRestoreLookupAndExport();
     void tsslRejectsUnsafePathsAndInvalidKeys();
+    void m3u8sIdentifierIsStrictAndRoundTrips();
     void manifestValidatorAcceptsPackageRelativeUris();
     void manifestValidatorRejectsExternalUrisAndKeyTags();
     void aesGcmRequiresAValidAuthenticationTag();
+    void aesGcmEncryptionMatchesTheAuthenticatedLayout();
 };
 
 void EncryptedHlsFormatTest::tsslRoundTripsDeterministically()
@@ -65,6 +75,7 @@ void EncryptedHlsFormatTest::tsslRoundTripsDeterministically()
         QFAIL(qPrintable(parsed.error()));
     }
     QCOMPARE(parsed->rootManifestDigest, original.rootManifestDigest);
+    QCOMPARE(parsed->identifier, original.identifier);
     QCOMPARE(parsed->manifestDigests, original.manifestDigests);
     QCOMPARE(parsed->segmentKeys, original.segmentKeys);
     QCOMPARE(parsed->resourceDigests, original.resourceDigests);
@@ -105,6 +116,30 @@ void EncryptedHlsFormatTest::tsslRestoreLookupAndExport()
         QFAIL(qPrintable(exportedPackage.error()));
     }
     QCOMPARE(exportedPackage->rootManifestDigest, package.rootManifestDigest);
+
+    const auto listed = store.listPackages();
+    if (!listed) {
+        QFAIL(qPrintable(listed.error()));
+    }
+    QCOMPARE(listed->size(), size_t(1));
+    QCOMPARE(listed->front().identifier, package.identifier);
+    QCOMPARE(listed->front().segmentCount, 1);
+
+    QVERIFY(store.deleteByRootDigest(package.rootManifestDigest).has_value());
+    const auto afterDelete = store.listPackages();
+    QVERIFY(afterDelete.has_value());
+    QVERIFY(afterDelete->empty());
+
+    const QByteArray invalidDigest(32, '\x44');
+    const auto invalidPath = QDir(store.storageDirectory())
+                                 .filePath(QString::fromLatin1(invalidDigest.toHex()) + QStringLiteral(".tssl"));
+    QVERIFY(!writeFile(invalidPath, QByteArrayLiteral("{}")).isEmpty());
+    const auto withInvalid = store.listPackages();
+    QVERIFY(withInvalid.has_value());
+    QCOMPARE(withInvalid->size(), size_t(1));
+    QVERIFY(!withInvalid->front().valid);
+    QVERIFY(!withInvalid->front().validationError.isEmpty());
+    QVERIFY(store.deleteByRootDigest(invalidDigest).has_value());
 }
 
 void EncryptedHlsFormatTest::tsslRejectsUnsafePathsAndInvalidKeys()
@@ -124,6 +159,26 @@ void EncryptedHlsFormatTest::tsslRejectsUnsafePathsAndInvalidKeys()
     segments.replace(0, segment);
     object.insert(QStringLiteral("segments"), segments);
     QVERIFY(!TsslPackage::parse(QJsonDocument(object).toJson()).has_value());
+
+    object = QJsonDocument::fromJson(packageFor(manifestBytes()).toJson()).object();
+    object.insert(QStringLiteral("identifier"), QStringLiteral("too-short"));
+    QVERIFY(!TsslPackage::parse(QJsonDocument(object).toJson()).has_value());
+}
+
+void EncryptedHlsFormatTest::m3u8sIdentifierIsStrictAndRoundTrips()
+{
+    const QByteArray plain = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-ENDLIST\n";
+    const auto inserted = HlsManifestValidator::insertM3u8sIdentifier(plain, identifierBytes('Z'));
+    QVERIFY(inserted.has_value());
+    const auto extracted = HlsManifestValidator::extractM3u8sIdentifier(*inserted);
+    QVERIFY(extracted.has_value());
+    QCOMPARE(*extracted, identifierBytes('Z'));
+    QVERIFY(HlsManifestValidator::validate(*inserted).has_value());
+    QVERIFY(!HlsManifestValidator::extractM3u8sIdentifier(plain).has_value());
+    QVERIFY(!HlsManifestValidator::insertM3u8sIdentifier(plain, QByteArray(4095, 'A')).has_value());
+
+    const auto duplicate = *inserted + QByteArrayLiteral("#M3U8S-IDENTIFIER:") + identifierBytes('Y') + '\n';
+    QVERIFY(!HlsManifestValidator::validate(duplicate).has_value());
 }
 
 void EncryptedHlsFormatTest::manifestValidatorAcceptsPackageRelativeUris()
@@ -162,6 +217,33 @@ void EncryptedHlsFormatTest::aesGcmRequiresAValidAuthenticationTag()
     tampered.back() ^= 0x01;
     QVERIFY(!AesGcmDecryptor::decryptTsSegment(tampered, key).has_value());
     QVERIFY(!AesGcmDecryptor::decryptTsSegment(encrypted.chopped(1), key).has_value());
+}
+
+void EncryptedHlsFormatTest::aesGcmEncryptionMatchesTheAuthenticatedLayout()
+{
+    const auto key = QByteArray::fromHex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    const auto iv = QByteArray::fromHex("000102030405060708090a0b0c0d0e0f");
+    const auto plaintext = QByteArrayLiteral("Encrypted TS payload for TSSL");
+    const auto expected = iv +
+        QByteArray::fromHex("2202c30440943e4df9df8f7a75d44dca38dc0ac547ebbc31646a1e86c2") +
+        QByteArray::fromHex("4607c2b2d88008a628da3a3f92378a13");
+
+    const auto encrypted = AesGcmDecryptor::encryptTsSegment(plaintext, key, iv);
+    if (!encrypted) {
+        QFAIL(qPrintable(encrypted.error()));
+    }
+    QCOMPARE(*encrypted, expected);
+    const auto decrypted = AesGcmDecryptor::decryptTsSegment(*encrypted, key);
+    QVERIFY(decrypted.has_value());
+    QCOMPARE(*decrypted, plaintext);
+
+    const auto randomized = AesGcmDecryptor::encryptTsSegment(plaintext);
+    QVERIFY(randomized.has_value());
+    QCOMPARE(randomized->key.size(), 32);
+    QCOMPARE(randomized->bytes.size(), plaintext.size() + 32);
+    const auto randomizedDecrypted = AesGcmDecryptor::decryptTsSegment(randomized->bytes, randomized->key);
+    QVERIFY(randomizedDecrypted.has_value());
+    QCOMPARE(*randomizedDecrypted, plaintext);
 }
 
 QTEST_GUILESS_MAIN(EncryptedHlsFormatTest)

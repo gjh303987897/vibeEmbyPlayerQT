@@ -3,6 +3,7 @@
 #include <QLibrary>
 #include <QtGlobal>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 
@@ -20,6 +21,10 @@ public:
     using ContextControl = int (*)(EvpCipherContext*, int, int, void*);
     using DecryptUpdate = int (*)(EvpCipherContext*, unsigned char*, int*, const unsigned char*, int);
     using DecryptFinal = int (*)(EvpCipherContext*, unsigned char*, int*);
+    using EncryptInit = int (*)(EvpCipherContext*, const EvpCipher*, void*, const unsigned char*, const unsigned char*);
+    using EncryptUpdate = int (*)(EvpCipherContext*, unsigned char*, int*, const unsigned char*, int);
+    using EncryptFinal = int (*)(EvpCipherContext*, unsigned char*, int*);
+    using RandomBytes = int (*)(unsigned char*, int);
 
     OpenSslEvp()
     {
@@ -55,7 +60,8 @@ public:
     bool available() const
     {
         return m_library.isLoaded() && newContext && freeContext && aes256Gcm && decryptInit &&
-               contextControl && decryptUpdate && decryptFinal;
+               contextControl && decryptUpdate && decryptFinal && encryptInit && encryptUpdate &&
+               encryptFinal && randomBytes;
     }
 
     NewContext newContext { nullptr };
@@ -65,6 +71,10 @@ public:
     ContextControl contextControl { nullptr };
     DecryptUpdate decryptUpdate { nullptr };
     DecryptFinal decryptFinal { nullptr };
+    EncryptInit encryptInit { nullptr };
+    EncryptUpdate encryptUpdate { nullptr };
+    EncryptFinal encryptFinal { nullptr };
+    RandomBytes randomBytes { nullptr };
 
 private:
     template<typename Function>
@@ -82,6 +92,10 @@ private:
         contextControl = resolve<ContextControl>("EVP_CIPHER_CTX_ctrl");
         decryptUpdate = resolve<DecryptUpdate>("EVP_DecryptUpdate");
         decryptFinal = resolve<DecryptFinal>("EVP_DecryptFinal_ex");
+        encryptInit = resolve<EncryptInit>("EVP_EncryptInit_ex");
+        encryptUpdate = resolve<EncryptUpdate>("EVP_EncryptUpdate");
+        encryptFinal = resolve<EncryptFinal>("EVP_EncryptFinal_ex");
+        randomBytes = resolve<RandomBytes>("RAND_bytes");
         return available();
     }
 
@@ -92,7 +106,14 @@ constexpr qsizetype ivBytes = 16;
 constexpr qsizetype tagBytes = 16;
 // These are the stable public EVP control values used by OpenSSL's GCM API.
 constexpr int setIvLengthControl = 0x9;
+constexpr int getTagControl = 0x10;
 constexpr int setTagControl = 0x11;
+
+OpenSslEvp& openssl()
+{
+    static OpenSslEvp api;
+    return api;
+}
 }
 
 std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegment, QByteArrayView key)
@@ -108,7 +129,7 @@ std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegm
         return std::unexpected(QStringLiteral("Encrypted TS segment exceeds the EVP size limit"));
     }
 
-    static OpenSslEvp api;
+    auto& api = openssl();
     if (!api.available()) {
         return std::unexpected(QStringLiteral("OpenSSL EVP AES-256-GCM support is unavailable"));
     }
@@ -150,6 +171,104 @@ std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegm
     }
     plaintext.resize(produced + finalBytes);
     return plaintext;
+}
+
+std::expected<QByteArray, QString> secureRandomBytes(qsizetype size)
+{
+    if (size <= 0 || size > std::numeric_limits<int>::max()) {
+        return std::unexpected(QStringLiteral("Secure random byte count is outside the supported range"));
+    }
+    auto& api = openssl();
+    if (!api.available()) {
+        return std::unexpected(QStringLiteral("OpenSSL secure random support is unavailable"));
+    }
+
+    QByteArray bytes(size, Qt::Uninitialized);
+    if (api.randomBytes(reinterpret_cast<unsigned char*>(bytes.data()), static_cast<int>(size)) != 1) {
+        bytes.fill('\0');
+        return std::unexpected(QStringLiteral("OpenSSL failed to generate secure random bytes"));
+    }
+    return bytes;
+}
+
+std::expected<QByteArray, QString> encryptTsSegment(QByteArrayView plaintext,
+                                                    QByteArrayView key,
+                                                    QByteArrayView iv)
+{
+    if (key.size() != 32) {
+        return std::unexpected(QStringLiteral("AES-256-GCM requires a 32-byte key"));
+    }
+    if (iv.size() != ivBytes) {
+        return std::unexpected(QStringLiteral("AES-256-GCM TS segments require a 16-byte IV"));
+    }
+    if (plaintext.isEmpty() || plaintext.size() > std::numeric_limits<int>::max()) {
+        return std::unexpected(QStringLiteral("Plaintext TS segment is empty or exceeds the EVP size limit"));
+    }
+
+    auto& api = openssl();
+    if (!api.available()) {
+        return std::unexpected(QStringLiteral("OpenSSL EVP AES-256-GCM support is unavailable"));
+    }
+    std::unique_ptr<EvpCipherContext, OpenSslEvp::FreeContext> context(api.newContext(), api.freeContext);
+    if (!context) {
+        return std::unexpected(QStringLiteral("Unable to allocate an OpenSSL cipher context"));
+    }
+
+    const auto* keyBytes = reinterpret_cast<const unsigned char*>(key.data());
+    const auto* ivBytesPointer = reinterpret_cast<const unsigned char*>(iv.data());
+    if (api.encryptInit(context.get(), api.aes256Gcm(), nullptr, nullptr, nullptr) != 1 ||
+        api.contextControl(context.get(), setIvLengthControl, static_cast<int>(iv.size()), nullptr) != 1 ||
+        api.encryptInit(context.get(), nullptr, nullptr, keyBytes, ivBytesPointer) != 1) {
+        return std::unexpected(QStringLiteral("Unable to initialize AES-256-GCM encryption"));
+    }
+
+    QByteArray encrypted(iv.size() + plaintext.size() + tagBytes, Qt::Uninitialized);
+    std::copy(iv.begin(), iv.end(), encrypted.begin());
+    auto* output = reinterpret_cast<unsigned char*>(encrypted.data() + iv.size());
+    int produced = 0;
+    if (api.encryptUpdate(context.get(),
+                          output,
+                          &produced,
+                          reinterpret_cast<const unsigned char*>(plaintext.data()),
+                          static_cast<int>(plaintext.size())) != 1) {
+        encrypted.fill('\0');
+        return std::unexpected(QStringLiteral("AES-256-GCM segment encryption failed"));
+    }
+    int finalBytes = 0;
+    if (api.encryptFinal(context.get(), output + produced, &finalBytes) != 1 ||
+        produced + finalBytes != plaintext.size()) {
+        encrypted.fill('\0');
+        return std::unexpected(QStringLiteral("AES-256-GCM segment encryption finalization failed"));
+    }
+    auto* tag = encrypted.data() + iv.size() + plaintext.size();
+    if (api.contextControl(context.get(), getTagControl, static_cast<int>(tagBytes), tag) != 1) {
+        encrypted.fill('\0');
+        return std::unexpected(QStringLiteral("Unable to read the AES-256-GCM authentication tag"));
+    }
+    return encrypted;
+}
+
+std::expected<EncryptedTsSegment, QString> encryptTsSegment(QByteArrayView plaintext)
+{
+    auto key = secureRandomBytes(32);
+    if (!key) {
+        return std::unexpected(key.error());
+    }
+    auto iv = secureRandomBytes(ivBytes);
+    if (!iv) {
+        key->fill('\0');
+        return std::unexpected(iv.error());
+    }
+    auto encrypted = encryptTsSegment(plaintext, *key, *iv);
+    iv->fill('\0');
+    if (!encrypted) {
+        key->fill('\0');
+        return std::unexpected(encrypted.error());
+    }
+    return EncryptedTsSegment {
+        .bytes = std::move(*encrypted),
+        .key = std::move(*key),
+    };
 }
 
 }

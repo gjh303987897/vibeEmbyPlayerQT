@@ -9,6 +9,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -533,6 +534,48 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("globalHistory.subtitle"), QStringLiteral("Playback history across every media source") },
         { QStringLiteral("globalHistory.cardSubtitle"), QStringLiteral("Continue watching from any connected source") },
         { QStringLiteral("globalHistory.builtIn"), QStringLiteral("All sources") },
+        { QStringLiteral("m3u8s.title"), QStringLiteral("M3U8S Video Manager") },
+        { QStringLiteral("m3u8s.subtitle"), QStringLiteral("Create encrypted HLS packages and manage local TSSL keys") },
+        { QStringLiteral("m3u8s.cardSubtitle"), QStringLiteral("AES-256-GCM packaging and local key storage") },
+        { QStringLiteral("m3u8s.builtIn"), QStringLiteral("Secure HLS") },
+        { QStringLiteral("m3u8s.packageCount"), QStringLiteral("%1 TSSL packages") },
+        { QStringLiteral("m3u8s.createTitle"), QStringLiteral("Create encrypted video package") },
+        { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("Choose a local video. The output contains an M3U8S manifest, authenticated TS segments and a TSSL key package.") },
+        { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose video and create") },
+        { QStringLiteral("m3u8s.segmentDuration"), QStringLiteral("Segment duration") },
+        { QStringLiteral("m3u8s.seconds"), QStringLiteral("%1 seconds") },
+        { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg ready") },
+        { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("FFmpeg not found") },
+        { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("Transcoding and segmenting video") },
+        { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("Encrypting and verifying TS segments") },
+        { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("Writing manifest and TSSL package") },
+        { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("Canceling and cleaning temporary files") },
+        { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("Packaging is in progress. The source video will not be modified.") },
+        { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("Package completed with %1 encrypted TS segments") },
+        { QStringLiteral("m3u8s.failedStatus"), QStringLiteral("Package creation failed") },
+        { QStringLiteral("m3u8s.canceledStatus"), QStringLiteral("Package creation canceled") },
+        { QStringLiteral("m3u8s.savedTitle"), QStringLiteral("Saved TSSL packages") },
+        { QStringLiteral("m3u8s.savedSubtitle"), QStringLiteral("Keys remain on this device and are matched to M3U8S manifests by a 4096-character identifier") },
+        { QStringLiteral("m3u8s.noPackages"), QStringLiteral("No TSSL packages saved") },
+        { QStringLiteral("m3u8s.noPackagesHint"), QStringLiteral("Create an encrypted video package or import a TSSL backup") },
+        { QStringLiteral("m3u8s.identifier"), QStringLiteral("Identifier") },
+        { QStringLiteral("m3u8s.identifierLength"), QStringLiteral("%1 characters") },
+        { QStringLiteral("m3u8s.segments"), QStringLiteral("%1 TS segments") },
+        { QStringLiteral("m3u8s.importTssl"), QStringLiteral("Import TSSL") },
+        { QStringLiteral("m3u8s.exportTssl"), QStringLiteral("Export TSSL") },
+        { QStringLiteral("m3u8s.deleteTssl"), QStringLiteral("Delete TSSL") },
+        { QStringLiteral("m3u8s.deleteTitle"), QStringLiteral("Delete local TSSL?") },
+        { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("The encrypted video cannot be decrypted on this device without this key package.") },
+        { QStringLiteral("m3u8s.openStorage"), QStringLiteral("Open key storage") },
+        { QStringLiteral("m3u8s.openOutput"), QStringLiteral("Open output folder") },
+        { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL imported into local key storage") },
+        { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL backup exported") },
+        { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("Local TSSL package deleted") },
+        { QStringLiteral("m3u8s.invalidPackage"), QStringLiteral("The selected TSSL package is no longer available") },
+        { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("Legacy or invalid TSSL package") },
+        { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("Choose a video to package") },
+        { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("Choose an output folder") },
+        { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("The folder could not be opened") },
         { QStringLiteral("globalHistory.localIndex"), QStringLiteral("Local index") },
         { QStringLiteral("globalHistory.recordCount"), QStringLiteral("%1 loaded") },
         { QStringLiteral("globalHistory.recentTitle"), QStringLiteral("Recent playback") },
@@ -827,6 +870,48 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("globalHistory.subtitle"), QStringLiteral("汇总各个媒体来源的播放历史") },
         { QStringLiteral("globalHistory.cardSubtitle"), QStringLiteral("集中查看并继续播放各类来源中的内容") },
         { QStringLiteral("globalHistory.builtIn"), QStringLiteral("全部来源") },
+        { QStringLiteral("m3u8s.title"), QStringLiteral("M3U8S 视频管理") },
+        { QStringLiteral("m3u8s.subtitle"), QStringLiteral("创建加密 HLS 视频包并管理本机 TSSL 密钥") },
+        { QStringLiteral("m3u8s.cardSubtitle"), QStringLiteral("AES-256-GCM 打包与本机密钥存储") },
+        { QStringLiteral("m3u8s.builtIn"), QStringLiteral("安全 HLS") },
+        { QStringLiteral("m3u8s.packageCount"), QStringLiteral("%1 个 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.createTitle"), QStringLiteral("创建加密视频包") },
+        { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("选择本地视频，输出 M3U8S 清单、经过认证的 TS 分片和 TSSL 密钥包。") },
+        { QStringLiteral("m3u8s.createAction"), QStringLiteral("选择视频并创建") },
+        { QStringLiteral("m3u8s.segmentDuration"), QStringLiteral("分片时长") },
+        { QStringLiteral("m3u8s.seconds"), QStringLiteral("%1 秒") },
+        { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg 已就绪") },
+        { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("未找到 FFmpeg") },
+        { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("正在转码并切分视频") },
+        { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("正在加密并验证 TS 分片") },
+        { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("正在写入清单和 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("正在取消并清理临时文件") },
+        { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("正在打包，原始视频不会被修改。") },
+        { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("打包完成，共生成 %1 个加密 TS 分片") },
+        { QStringLiteral("m3u8s.failedStatus"), QStringLiteral("视频包创建失败") },
+        { QStringLiteral("m3u8s.canceledStatus"), QStringLiteral("已取消视频包创建") },
+        { QStringLiteral("m3u8s.savedTitle"), QStringLiteral("已保存的 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.savedSubtitle"), QStringLiteral("密钥仅保存在本机，并通过 4096 字符识别码与 M3U8S 清单匹配") },
+        { QStringLiteral("m3u8s.noPackages"), QStringLiteral("尚未保存 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.noPackagesHint"), QStringLiteral("创建加密视频包或导入 TSSL 备份") },
+        { QStringLiteral("m3u8s.identifier"), QStringLiteral("识别码") },
+        { QStringLiteral("m3u8s.identifierLength"), QStringLiteral("%1 个字符") },
+        { QStringLiteral("m3u8s.segments"), QStringLiteral("%1 个 TS 分片") },
+        { QStringLiteral("m3u8s.importTssl"), QStringLiteral("导入 TSSL") },
+        { QStringLiteral("m3u8s.exportTssl"), QStringLiteral("导出 TSSL") },
+        { QStringLiteral("m3u8s.deleteTssl"), QStringLiteral("删除 TSSL") },
+        { QStringLiteral("m3u8s.deleteTitle"), QStringLiteral("删除本机 TSSL？") },
+        { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("删除后，本机将无法解密与该密钥包对应的视频。") },
+        { QStringLiteral("m3u8s.openStorage"), QStringLiteral("打开密钥目录") },
+        { QStringLiteral("m3u8s.openOutput"), QStringLiteral("打开输出目录") },
+        { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL 已导入本机密钥存储") },
+        { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL 备份已导出") },
+        { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("本机 TSSL 密钥包已删除") },
+        { QStringLiteral("m3u8s.invalidPackage"), QStringLiteral("所选 TSSL 密钥包已不可用") },
+        { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("旧版或无效的 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("选择要打包的视频") },
+        { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("选择输出目录") },
+        { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("无法打开该目录") },
         { QStringLiteral("globalHistory.localIndex"), QStringLiteral("本地索引") },
         { QStringLiteral("globalHistory.recordCount"), QStringLiteral("已加载 %1 条") },
         { QStringLiteral("globalHistory.recentTitle"), QStringLiteral("最近播放") },
@@ -1154,6 +1239,7 @@ AppViewModel::AppViewModel(QObject* parent)
     , m_jellyfinClient(m_jellyfinNetworkClient, this)
     , m_webDavDownloadPlanner(m_webDavClient)
     , m_encryptedHlsPlaybackProxy(m_tsslStore, this)
+    , m_m3u8sPackager(m_tsslStore, this)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
     wireCertificatePrompt(m_embyClient);
@@ -1175,6 +1261,27 @@ AppViewModel::AppViewModel(QObject* parent)
     }
     connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
     connect(&m_transferManager, &TransferManager::selectionChanged, this, &AppViewModel::transferSelectionChanged);
+    connect(&m_m3u8sPackager, &EncryptedHlsPackager::runningChanged, this, &AppViewModel::m3u8sPackagingChanged);
+    connect(&m_m3u8sPackager, &EncryptedHlsPackager::progressChanged, this, &AppViewModel::m3u8sPackagingChanged);
+    connect(&m_m3u8sPackager, &EncryptedHlsPackager::phaseChanged, this, &AppViewModel::m3u8sPackagingChanged);
+    connect(&m_m3u8sPackager,
+            &EncryptedHlsPackager::completed,
+            this,
+            [this](const EncryptedHlsPackageResult& result) {
+                m_m3u8sLastOutputDirectory = result.outputDirectory;
+                m_m3u8sStatus = trText(QStringLiteral("m3u8s.completedStatus")).arg(result.segmentCount);
+                refreshTsslPackages();
+                emit m3u8sStatusChanged();
+            });
+    connect(&m_m3u8sPackager, &EncryptedHlsPackager::failed, this, [this](const QString& error) {
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
+        emit m3u8sStatusChanged();
+        setError(error);
+    });
+    connect(&m_m3u8sPackager, &EncryptedHlsPackager::canceled, this, [this]() {
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.canceledStatus"));
+        emit m3u8sStatusChanged();
+    });
     connect(&m_transferManager, &TransferManager::taskFinished, this, [this](const QString&, bool, const QString&) {
         if (m_currentWebDavCard && m_currentView == QStringLiteral("webdav")) {
             refreshWebDavDirectory();
@@ -1424,6 +1531,56 @@ QString AppViewModel::webDavDisplayMode() const
 QString AppViewModel::webDavTsslStatus() const
 {
     return m_webDavTsslStatus;
+}
+
+TsslPackageListModel* AppViewModel::tsslPackages()
+{
+    return &m_tsslPackages;
+}
+
+bool AppViewModel::m3u8sPackaging() const
+{
+    return m_m3u8sPackager.isRunning();
+}
+
+double AppViewModel::m3u8sPackagingProgress() const
+{
+    return m_m3u8sPackager.progress();
+}
+
+QString AppViewModel::m3u8sPackagingPhase() const
+{
+    return m_m3u8sPackager.phase();
+}
+
+QString AppViewModel::m3u8sStatus() const
+{
+    return m_m3u8sStatus;
+}
+
+QString AppViewModel::m3u8sLastOutputDirectory() const
+{
+    return m_m3u8sLastOutputDirectory;
+}
+
+bool AppViewModel::m3u8sFfmpegAvailable() const
+{
+    return !m_m3u8sPackager.ffmpegExecutable().isEmpty();
+}
+
+int AppViewModel::m3u8sSegmentDuration() const
+{
+    return m_m3u8sSegmentDuration;
+}
+
+void AppViewModel::setM3u8sSegmentDuration(int value)
+{
+    const auto normalized = std::clamp(value, 2, 30);
+    if (m_m3u8sSegmentDuration == normalized) {
+        return;
+    }
+    m_m3u8sSegmentDuration = normalized;
+    emit m3u8sSegmentDurationChanged();
 }
 
 bool AppViewModel::webDavAudioPlaybackActive() const
@@ -2300,6 +2457,7 @@ void AppViewModel::initialize()
     refreshServiceCards();
     refreshLocalMediaRoots();
     refreshLinkPlaybackHistory();
+    refreshTsslPackages();
     refreshGlobalHistory();
     refreshPrivacyCards();
     refreshUsageStats();
@@ -3861,6 +4019,7 @@ void AppViewModel::restoreTssl()
     }
     AppLogger::info(QStringLiteral("encrypted-hls"),
                     QStringLiteral("Restored a local TSSL key package"));
+    refreshTsslPackages();
     setWebDavTsslStatus(trText(QStringLiteral("webdav.tsslRestored")));
 }
 
@@ -3909,6 +4068,152 @@ void AppViewModel::exportWebDavTssl(int row)
                             QStringLiteral("Exported a local TSSL key package"));
             setWebDavTsslStatus(trText(QStringLiteral("webdav.tsslExported")));
         });
+}
+
+void AppViewModel::openM3u8sManager()
+{
+    clearError();
+    refreshTsslPackages();
+    setCurrentView(QStringLiteral("m3u8sManager"));
+}
+
+void AppViewModel::refreshTsslPackages()
+{
+    auto packages = m_tsslStore.listPackages();
+    if (!packages) {
+        setError(packages.error());
+        return;
+    }
+    m_tsslPackages.setPackages(std::move(*packages));
+}
+
+void AppViewModel::restoreManagedTssl()
+{
+    clearError();
+    const auto selected = QFileDialog::getOpenFileName(
+        nullptr,
+        trText(QStringLiteral("m3u8s.importTssl")),
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+        QStringLiteral("TSSL key packages (*.tssl)"));
+    if (selected.isEmpty()) {
+        return;
+    }
+    const auto restored = m_tsslStore.restoreFromFile(selected);
+    if (!restored) {
+        setError(restored.error());
+        return;
+    }
+    refreshTsslPackages();
+    m_m3u8sStatus = trText(QStringLiteral("m3u8s.restoredStatus"));
+    emit m3u8sStatusChanged();
+    AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Imported a managed TSSL package"));
+}
+
+void AppViewModel::exportManagedTssl(int row)
+{
+    clearError();
+    const auto package = m_tsslPackages.packageAt(row);
+    if (!package) {
+        setError(trText(QStringLiteral("m3u8s.invalidPackage")));
+        return;
+    }
+    const auto suggestedName = QString::fromLatin1(package->rootManifestDigest.toHex().first(16)) +
+        QStringLiteral(".tssl");
+    auto destination = QFileDialog::getSaveFileName(
+        nullptr,
+        trText(QStringLiteral("m3u8s.exportTssl")),
+        QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(suggestedName),
+        QStringLiteral("TSSL key packages (*.tssl)"));
+    if (destination.isEmpty()) {
+        return;
+    }
+    if (!destination.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive)) {
+        destination += QStringLiteral(".tssl");
+    }
+    if (auto exported = m_tsslStore.exportByRootDigest(package->rootManifestDigest, destination); !exported) {
+        setError(exported.error());
+        return;
+    }
+    m_m3u8sStatus = trText(QStringLiteral("m3u8s.exportedStatus"));
+    emit m3u8sStatusChanged();
+    AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Exported a managed TSSL package"));
+}
+
+void AppViewModel::deleteManagedTssl(int row)
+{
+    clearError();
+    const auto package = m_tsslPackages.packageAt(row);
+    if (!package) {
+        setError(trText(QStringLiteral("m3u8s.invalidPackage")));
+        return;
+    }
+    if (auto deleted = m_tsslStore.deleteByRootDigest(package->rootManifestDigest); !deleted) {
+        setError(deleted.error());
+        return;
+    }
+    refreshTsslPackages();
+    m_m3u8sStatus = trText(QStringLiteral("m3u8s.deletedStatus"));
+    emit m3u8sStatusChanged();
+    AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Deleted a managed TSSL package"));
+}
+
+void AppViewModel::chooseM3u8sVideo()
+{
+    clearError();
+    if (m_m3u8sPackager.isRunning()) {
+        return;
+    }
+    const auto source = QFileDialog::getOpenFileName(
+        nullptr,
+        trText(QStringLiteral("m3u8s.chooseVideo")),
+        QStandardPaths::writableLocation(QStandardPaths::MoviesLocation),
+        QStringLiteral("Video files (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts);;All files (*)"));
+    if (source.isEmpty()) {
+        return;
+    }
+    const auto outputDirectory = QFileDialog::getExistingDirectory(
+        nullptr,
+        trText(QStringLiteral("m3u8s.chooseOutput")),
+        QFileInfo(source).absolutePath());
+    if (outputDirectory.isEmpty()) {
+        return;
+    }
+
+    m_m3u8sStatus = trText(QStringLiteral("m3u8s.processingStatus"));
+    m_m3u8sLastOutputDirectory.clear();
+    emit m3u8sStatusChanged();
+    const auto started = m_m3u8sPackager.start(EncryptedHlsPackageRequest {
+        .sourcePath = source,
+        .outputDirectory = outputDirectory,
+        .segmentDurationSeconds = m_m3u8sSegmentDuration,
+    });
+    if (!started) {
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
+        emit m3u8sStatusChanged();
+        setError(started.error());
+    }
+}
+
+void AppViewModel::cancelM3u8sPackaging()
+{
+    m_m3u8sPackager.cancel();
+}
+
+void AppViewModel::openM3u8sOutputDirectory()
+{
+    if (m_m3u8sLastOutputDirectory.isEmpty() ||
+        !QDesktopServices::openUrl(QUrl::fromLocalFile(m_m3u8sLastOutputDirectory))) {
+        setError(trText(QStringLiteral("m3u8s.openFolderFailed")));
+    }
+}
+
+void AppViewModel::openTsslStorageDirectory()
+{
+    const auto directory = m_tsslStore.storageDirectory();
+    if (directory.isEmpty() || !QDir().mkpath(directory) ||
+        !QDesktopServices::openUrl(QUrl::fromLocalFile(directory))) {
+        setError(trText(QStringLiteral("m3u8s.openFolderFailed")));
+    }
 }
 
 void AppViewModel::chooseDefaultDownloadDirectory()
