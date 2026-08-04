@@ -193,7 +193,6 @@ std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
     return EncryptedHlsPreparedPackage {
         .tsslPackage = std::move(package),
         .manifestFileName = manifestFileName,
-        .tsslFileName = outputStem + QStringLiteral(".tssl"),
         .segmentCount = static_cast<int>(segmentFiles.size()),
     };
 }
@@ -443,12 +442,12 @@ void EncryptedHlsPackager::handleEncryptionFinished()
         return;
     }
     auto prepared = m_encryptionWatcher.result();
+    if (m_cancelRequested.load(std::memory_order_relaxed)) {
+        finishCanceled();
+        return;
+    }
     if (!prepared) {
-        if (m_cancelRequested.load(std::memory_order_relaxed)) {
-            finishCanceled();
-        } else {
-            finishFailure(prepared.error());
-        }
+        finishFailure(prepared.error());
         return;
     }
 
@@ -456,13 +455,6 @@ void EncryptedHlsPackager::handleEncryptionFinished()
     setProgress(0.96);
     if (auto saved = m_store.savePackage(prepared->tsslPackage); !saved) {
         finishFailure(saved.error());
-        return;
-    }
-    const auto stagedTsslPath = QDir(m_stagingDirectory->path()).filePath(prepared->tsslFileName);
-    if (auto exported = m_store.exportByRootDigest(prepared->tsslPackage.rootManifestDigest, stagedTsslPath);
-        !exported) {
-        m_store.deleteByRootDigest(prepared->tsslPackage.rootManifestDigest);
-        finishFailure(exported.error());
         return;
     }
     if (QFileInfo::exists(m_finalOutputPath) || !QDir().rename(m_stagingDirectory->path(), m_finalOutputPath)) {
@@ -474,7 +466,6 @@ void EncryptedHlsPackager::handleEncryptionFinished()
     const EncryptedHlsPackageResult result {
         .outputDirectory = m_finalOutputPath,
         .manifestPath = QDir(m_finalOutputPath).filePath(prepared->manifestFileName),
-        .tsslPath = QDir(m_finalOutputPath).filePath(prepared->tsslFileName),
         .identifier = prepared->tsslPackage.identifier,
         .rootManifestDigest = prepared->tsslPackage.rootManifestDigest,
         .segmentCount = prepared->segmentCount,

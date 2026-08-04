@@ -177,7 +177,9 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
     QVERIFY(!packager.isRunning());
     QCOMPARE(packager.progress(), 1.0);
     QVERIFY(QFileInfo::exists(completed->manifestPath));
-    QVERIFY(QFileInfo::exists(completed->tsslPath));
+    QCOMPARE(QDir(completed->outputDirectory).entryList(
+                 QStringList { QStringLiteral("*.tssl") }, QDir::Files).size(),
+             0);
     QVERIFY(completed->segmentCount > 0);
     QCOMPARE(completed->identifier.size(), TsslPackage::identifierLength);
 
@@ -187,18 +189,12 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
     QVERIFY(manifestIdentifier.has_value());
     QCOMPARE(*manifestIdentifier, completed->identifier);
 
-    QFile tsslFile(completed->tsslPath);
-    QVERIFY(tsslFile.open(QIODevice::ReadOnly));
-    const auto package = TsslPackage::parse(tsslFile.readAll());
-    QVERIFY(package.has_value());
-    QCOMPARE(package->identifier, completed->identifier);
-    QCOMPARE(package->rootManifestDigest, completed->rootManifestDigest);
-    QCOMPARE(package->segmentKeys.size(), completed->segmentCount);
-
     const auto stored = store.packageForRootDigest(completed->rootManifestDigest);
     QVERIFY(stored.has_value());
     QVERIFY(stored->has_value());
     QCOMPARE((**stored).identifier, completed->identifier);
+    QCOMPARE((**stored).rootManifestDigest, completed->rootManifestDigest);
+    QCOMPARE((**stored).segmentKeys.size(), completed->segmentCount);
 }
 
 QTEST_GUILESS_MAIN(EncryptedHlsPackagerTest)

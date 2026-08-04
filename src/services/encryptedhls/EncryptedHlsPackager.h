@@ -23,14 +23,12 @@ struct EncryptedHlsPackageRequest final {
 struct EncryptedHlsPreparedPackage final {
     TsslPackage tsslPackage;
     QString manifestFileName;
-    QString tsslFileName;
     int segmentCount { 0 };
 };
 
 struct EncryptedHlsPackageResult final {
     QString outputDirectory;
     QString manifestPath;
-    QString tsslPath;
     QByteArray identifier;
     QByteArray rootManifestDigest;
     int segmentCount { 0 };

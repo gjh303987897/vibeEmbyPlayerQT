@@ -84,13 +84,14 @@ The workflow is:
    replaced.
 4. The identifier is inserted into the root playlist, which is renamed to
    `.m3u8s`; matching TSSL metadata is generated and validated.
-5. TSSL is saved atomically in local application storage and exported beside
-   the media package. Only then is the staging directory renamed to its final
-   output name.
+5. TSSL is saved atomically only in local application storage. Only then is
+   the media staging directory renamed to its final output name.
 
 Cancellation or failure removes the staging directory. It does not publish a
-partially encrypted package. A completed output directory contains the
-`.m3u8s`, encrypted `.ts` files, and an exported `.tssl` recovery file.
+partially encrypted package. A completed upload-ready directory contains only
+the `.m3u8s` and encrypted `.ts` files. A TSSL recovery copy is created only
+through the manager's explicit export action, so uploading the media directory
+cannot accidentally disclose its keys.
 
 ## Segment encryption
 
