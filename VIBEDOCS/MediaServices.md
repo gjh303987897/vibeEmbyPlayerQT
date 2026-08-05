@@ -118,11 +118,13 @@ No network work is performed by QML.
 
 SQLite access is small and synchronous in this phase. Larger cache/index operations should move to a worker in later phases.
 
-## Encrypted WebDAV HLS
+## Encrypted HLS
 
-- `.m3u8s` WebDAV items use a dedicated loopback proxy and do not change the existing single-file proxy.
+- Local and WebDAV `.m3u8s` items use a dedicated loopback proxy and do not change the existing single-file proxy.
 - Root and child playlists are digest-verified and returned without URI rewriting.
 - AES-256-GCM TS decryption runs through Qt Concurrent, and plaintext is released only after tag verification succeeds.
+- Local package resources are canonicalized, constrained to the package root, and read outside the UI thread.
+- TSSL v3 authenticates and recovers the original source basename; v2 remains playback-compatible without name recovery.
 - TSSL parsing, local storage, restore/export behavior and package constraints are documented in `EncryptedHlsM3u8s.md`.
 
 ## M3U8S Manager
@@ -138,7 +140,7 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
 - The manager can create a package, cancel active work, open its latest output,
   list local TSSL files, restore/import a TSSL, export a recovery copy, and
   delete a local package.
-- TSSL v2 and the root `.m3u8s` carry the same strict 4096-character identifier.
+- TSSL v2/v3 and the root `.m3u8s` carry the same strict 4096-character identifier.
   Playback additionally checks the root-manifest digest before accepting the
   pair.
 

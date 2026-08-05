@@ -5,7 +5,7 @@
 The encrypted HLS module has two entry points:
 
 - The local M3U8S manager packages a normal video as an HLS VOD package.
-- WebDAV playback opens a selected `.m3u8s` file through a loopback-only HTTP
+- Local and WebDAV playback open a selected `.m3u8s` file through a loopback-only HTTP
   session for libmpv and decrypts registered MPEG-TS segments before returning
   them.
 
@@ -16,17 +16,21 @@ The format protects media stored on a remote or cloud service. TSSL files are
 local secret material. They are never uploaded automatically, and export is an
 explicit user operation.
 
-## TSSL v2
+## TSSL v3
 
 TSSL is UTF-8 JSON with this shape:
 
 ```json
 {
   "format": "TSSL",
-  "version": 2,
+  "version": 3,
   "algorithm": "AES-256-GCM",
   "identifier": "exactly 4096 Base64URL characters",
   "rootManifestSha256": "64 lowercase hexadecimal characters",
+  "sourceName": {
+    "encrypted": "base64 encoded IV, ciphertext, and authentication tag",
+    "key": "base64 encoded 32-byte key"
+  },
   "manifests": [
     { "path": "variants/720p.m3u8", "sha256": "..." }
   ],
@@ -39,18 +43,34 @@ TSSL is UTF-8 JSON with this shape:
 }
 ```
 
+TSSL v2 remains readable for packages created before source-filename
+encryption was introduced. A v2 package has no `sourceName` object and falls
+back to the selected manifest name for display. New packages are always v3.
+Mixing v2 and v3 fields is rejected instead of silently downgrading security.
+
 The packager creates the identifier from 3072 cryptographically secure random
 bytes and encodes it as unpadded Base64URL. This produces exactly 4096
 characters in the `[A-Za-z0-9_-]` alphabet. The root `.m3u8s` carries the same
-value in exactly one line immediately after `#EXTM3U`:
+value in exactly one metadata line near the start of the playlist:
 
 ```
 #M3U8S-IDENTIFIER:<4096-character identifier>
+#M3U8S-SOURCE-NAME:<unpadded Base64URL authenticated ciphertext>
 ```
 
 Playback requires both the exact root-manifest digest and the identifier to
 match the local TSSL package. A missing, malformed, duplicate, or mismatched
 identifier stops playback before segment data is exposed.
+
+The exact original basename, including its extension and UTF-8 characters, is
+encrypted with a separate random 256-bit key and 128-bit IV. The identifier is
+included as AES-GCM additional authenticated data, binding the name to the
+package. The manifest stores only `16-byte IV | ciphertext | 16-byte tag`; its
+key is present only in local TSSL. TSSL stores the same ciphertext so
+restore/export is self-contained. Playback requires the manifest and TSSL
+ciphertexts to match, verifies the GCM tag, validates strict UTF-8 and a safe
+basename, and only then exposes the recovered name for display and history.
+The recovered name is never used to resolve a filesystem path.
 
 `rootManifestSha256` hashes the exact HTTP entity bytes of the selected
 `.m3u8s` file. `manifests` contains every child playlist and its exact digest.
@@ -82,16 +102,23 @@ The workflow is:
 3. The TS is encrypted with AES-256-GCM and immediately decrypted in memory to
    verify its authentication tag and plaintext before the original is
    replaced.
-4. The identifier is inserted into the root playlist, which is renamed to
-   `.m3u8s`; matching TSSL metadata is generated and validated.
+4. The source basename is encrypted and immediately authenticated, then the
+   identifier and filename ciphertext are inserted into the root playlist.
+   The upload-facing playlist is always named `index.m3u8s`.
 5. TSSL is saved atomically only in local application storage. Only then is
-   the media staging directory renamed to its final output name.
+   the media staging directory renamed using the root-manifest digest rather
+   than the source name.
 
 Cancellation or failure removes the staging directory. It does not publish a
 partially encrypted package. A completed upload-ready directory contains only
 the `.m3u8s` and encrypted `.ts` files. A TSSL recovery copy is created only
 through the manager's explicit export action, so uploading the media directory
 cannot accidentally disclose its keys.
+
+Neither the completed directory name nor the root playlist name contains the
+source basename. Ciphertext is deliberately kept inside the manifest rather
+than used as a filename, avoiding cross-platform filename length and character
+constraints.
 
 ## Segment encryption
 
@@ -128,18 +155,35 @@ package root. The following restrictions make resolution deterministic:
 - Child playlists and auxiliary resources are served only when their digest is
   registered. Unknown paths are denied.
 
+## Local playback
+
+`LocalMediaService` recognizes `.m3u8s` for configured folders, drag-and-drop,
+and history replay. Generated `segment_NNNNNN.ts` files are hidden when the
+directory contains an M3U8S manifest so encrypted segments are not offered as
+standalone videos.
+
+`EncryptedHlsPlaybackProxy` uses one verification and HTTP-serving path for
+local and WebDAV packages. Local files are read on worker threads. Every
+requested resource must be registered by TSSL, resolve to a canonical readable
+file, and remain inside the canonical package directory after symbolic-link
+resolution. libmpv still receives an ordinary localhost HLS URL; no player-core
+changes are required. Playback history stores the real local `.m3u8s` path,
+never the temporary localhost session URL.
+
 ## Local storage, restore, and export
 
 The M3U8S manager lists local TSSL packages and supports import/restore,
 export, deletion, and opening the storage directory. The list exposes only a
-short identifier preview; full keys and identifiers are not passed to QML.
+recovered source basename and a short identifier preview; full keys and
+identifiers are not passed to QML.
 
 Restore validates the entire TSSL document before atomically writing it to the
 application-local `tssl` directory. The filename is derived from the root
 manifest digest, not from untrusted input. Stored and exported files are set to
 owner read/write permissions where supported. Invalid legacy or damaged files
-remain visible for diagnosis and deletion but cannot be exported as valid v2
-packages.
+remain visible for diagnosis and deletion but cannot be exported as valid
+packages. Import and export preserve v2/v3 and the complete authenticated
+source-name metadata.
 
 TSSL is not encrypted at rest because the current threat model is remote/cloud
 storage, not a compromised local OS account. Exported files contain every
@@ -151,6 +195,7 @@ media key and must be handled as secrets.
 - Playlists are limited to 4 MiB.
 - Encrypted TS objects are limited to 512 MiB.
 - Auxiliary resources are limited to 128 MiB.
+- Decrypted source basenames are limited to 4096 UTF-8 bytes.
 - Packaging segment duration is limited to 2 through 30 seconds.
 - Missing TSSL packages, digest or identifier mismatches, unregistered paths,
   unavailable OpenSSL EVP support, network failures, and authentication
@@ -158,11 +203,14 @@ media key and must be handled as secrets.
 
 ## Verification
 
-`EncryptedHlsFormatTest` covers TSSL v2 parsing, storage, strict identifiers,
-AES-GCM vectors, randomized encryption, and malformed packages.
-`EncryptedHlsPlaybackProxyTest` covers identifier matching and authenticated
-playback. `EncryptedHlsPackagerTest` covers in-place HLS encryption,
-cancellation, tag-tamper rejection, and an end-to-end FFmpeg package.
+`EncryptedHlsFormatTest` covers TSSL v2 compatibility, TSSL v3 source-name
+authentication, restore/export, strict identifiers, AES-GCM vectors,
+randomized encryption, and malformed packages. `EncryptedHlsPlaybackProxyTest`
+covers identifier matching plus authenticated WebDAV and local playback.
+`EncryptedHlsPackagerTest` covers in-place HLS encryption, opaque output names,
+source-name recovery, cancellation, tag-tamper rejection, and an end-to-end
+FFmpeg package. `LocalMediaServiceTest` covers local M3U8S discovery and
+generated-segment filtering.
 
 ## Standards references
 

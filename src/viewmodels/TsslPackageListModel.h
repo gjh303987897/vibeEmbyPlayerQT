@@ -14,6 +14,7 @@ class TsslPackageListModel final : public QAbstractListModel {
 public:
     enum Role {
         RootDigestRole = Qt::UserRole + 1,
+        SourceFileNameRole,
         IdentifierPreviewRole,
         IdentifierLengthRole,
         FilePathRole,

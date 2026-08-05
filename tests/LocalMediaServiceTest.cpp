@@ -5,6 +5,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <algorithm>
+
 class LocalMediaServiceTest final : public QObject {
     Q_OBJECT
 
@@ -28,16 +30,33 @@ void LocalMediaServiceTest::listsFoldersAndSupportedVideosOnly()
     };
     createFile(QStringLiteral("Movie.MKV"));
     createFile(QStringLiteral("Trailer.mp4"));
+    createFile(QStringLiteral("index.m3u8s"));
+    createFile(QStringLiteral("segment_000000.ts"));
+    createFile(QStringLiteral("Independent.ts"));
     createFile(QStringLiteral("notes.txt"));
     createFile(QStringLiteral("soundtrack.mp3"));
 
     const auto result = LocalMediaService::browseDirectory(temporaryDirectory.path());
     QVERIFY(result.has_value());
-    QCOMPARE(result->size(), size_t { 3 });
+    QCOMPARE(result->size(), size_t { 5 });
     QVERIFY(result->at(0).directory);
     QCOMPARE(result->at(0).name, QStringLiteral("Season 1"));
-    QCOMPARE(result->at(1).name, QStringLiteral("Movie.MKV"));
-    QCOMPARE(result->at(2).name, QStringLiteral("Trailer.mp4"));
+    QVERIFY(std::ranges::any_of(*result, [](const LocalMediaItem& item) {
+        return item.name == QStringLiteral("Movie.MKV");
+    }));
+    QVERIFY(std::ranges::any_of(*result, [](const LocalMediaItem& item) {
+        return item.name == QStringLiteral("Trailer.mp4");
+    }));
+    QVERIFY(std::ranges::any_of(*result, [](const LocalMediaItem& item) {
+        return item.name == QStringLiteral("index.m3u8s");
+    }));
+    QVERIFY(std::ranges::any_of(*result, [](const LocalMediaItem& item) {
+        return item.name == QStringLiteral("Independent.ts");
+    }));
+    QVERIFY(std::ranges::none_of(*result, [](const LocalMediaItem& item) {
+        return item.name == QStringLiteral("segment_000000.ts");
+    }));
+    QVERIFY(LocalMediaService::isEncryptedHlsManifest(QStringLiteral("INDEX.M3U8S")));
     QVERIFY(LocalMediaService::isSupportedVideoFile(QStringLiteral("VIDEO.WEBM")));
     QVERIFY(!LocalMediaService::isSupportedVideoFile(QStringLiteral("cover.jpg")));
 }
@@ -65,6 +84,15 @@ void LocalMediaServiceTest::resolvesDroppedVideoFile()
 
     QVERIFY(!LocalMediaService::resolveVideoFile(QUrl::fromLocalFile(textPath)).has_value());
     QVERIFY(!LocalMediaService::resolveVideoFile(QUrl(QStringLiteral("https://example.com/video.mp4"))).has_value());
+
+    const auto manifestPath = QDir(temporaryDirectory.path()).filePath(QStringLiteral("index.m3u8s"));
+    QFile manifestFile(manifestPath);
+    QVERIFY(manifestFile.open(QIODevice::WriteOnly));
+    QCOMPARE(manifestFile.write("#EXTM3U\n"), 8);
+    manifestFile.close();
+    const auto manifestResult = LocalMediaService::resolveVideoFile(QUrl::fromLocalFile(manifestPath));
+    QVERIFY(manifestResult.has_value());
+    QCOMPARE(*manifestResult, QFileInfo(manifestPath).canonicalFilePath());
 }
 
 void LocalMediaServiceTest::rejectsMissingDirectory()

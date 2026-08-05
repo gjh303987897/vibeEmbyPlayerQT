@@ -116,7 +116,9 @@ OpenSslEvp& openssl()
 }
 }
 
-std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegment, QByteArrayView key)
+std::expected<QByteArray, QString> decryptAuthenticatedData(QByteArrayView encryptedSegment,
+                                                            QByteArrayView key,
+                                                            QByteArrayView authenticatedData)
 {
     if (key.size() != 32) {
         return std::unexpected(QStringLiteral("AES-256-GCM requires a 32-byte key"));
@@ -125,7 +127,8 @@ std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegm
         return std::unexpected(QStringLiteral("Encrypted TS segment is too short"));
     }
     const auto ciphertextBytes = encryptedSegment.size() - ivBytes - tagBytes;
-    if (ciphertextBytes > std::numeric_limits<int>::max()) {
+    if (ciphertextBytes > std::numeric_limits<int>::max() ||
+        authenticatedData.size() > std::numeric_limits<int>::max()) {
         return std::unexpected(QStringLiteral("Encrypted TS segment exceeds the EVP size limit"));
     }
 
@@ -151,6 +154,16 @@ std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegm
         return std::unexpected(QStringLiteral("Unable to initialize AES-256-GCM decryption"));
     }
 
+    int authenticatedBytes = 0;
+    if (!authenticatedData.isEmpty() &&
+        api.decryptUpdate(context.get(),
+                          nullptr,
+                          &authenticatedBytes,
+                          reinterpret_cast<const unsigned char*>(authenticatedData.data()),
+                          static_cast<int>(authenticatedData.size())) != 1) {
+        return std::unexpected(QStringLiteral("AES-256-GCM authenticated data setup failed"));
+    }
+
     QByteArray plaintext(ciphertextBytes + tagBytes, Qt::Uninitialized);
     auto* output = reinterpret_cast<unsigned char*>(plaintext.data());
     int produced = 0;
@@ -173,6 +186,11 @@ std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegm
     return plaintext;
 }
 
+std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegment, QByteArrayView key)
+{
+    return decryptAuthenticatedData(encryptedSegment, key, {});
+}
+
 std::expected<QByteArray, QString> secureRandomBytes(qsizetype size)
 {
     if (size <= 0 || size > std::numeric_limits<int>::max()) {
@@ -191,9 +209,10 @@ std::expected<QByteArray, QString> secureRandomBytes(qsizetype size)
     return bytes;
 }
 
-std::expected<QByteArray, QString> encryptTsSegment(QByteArrayView plaintext,
-                                                    QByteArrayView key,
-                                                    QByteArrayView iv)
+std::expected<QByteArray, QString> encryptAuthenticatedData(QByteArrayView plaintext,
+                                                            QByteArrayView key,
+                                                            QByteArrayView iv,
+                                                            QByteArrayView authenticatedData)
 {
     if (key.size() != 32) {
         return std::unexpected(QStringLiteral("AES-256-GCM requires a 32-byte key"));
@@ -201,7 +220,8 @@ std::expected<QByteArray, QString> encryptTsSegment(QByteArrayView plaintext,
     if (iv.size() != ivBytes) {
         return std::unexpected(QStringLiteral("AES-256-GCM TS segments require a 16-byte IV"));
     }
-    if (plaintext.isEmpty() || plaintext.size() > std::numeric_limits<int>::max()) {
+    if (plaintext.isEmpty() || plaintext.size() > std::numeric_limits<int>::max() ||
+        authenticatedData.size() > std::numeric_limits<int>::max()) {
         return std::unexpected(QStringLiteral("Plaintext TS segment is empty or exceeds the EVP size limit"));
     }
 
@@ -220,6 +240,16 @@ std::expected<QByteArray, QString> encryptTsSegment(QByteArrayView plaintext,
         api.contextControl(context.get(), setIvLengthControl, static_cast<int>(iv.size()), nullptr) != 1 ||
         api.encryptInit(context.get(), nullptr, nullptr, keyBytes, ivBytesPointer) != 1) {
         return std::unexpected(QStringLiteral("Unable to initialize AES-256-GCM encryption"));
+    }
+
+    int authenticatedBytes = 0;
+    if (!authenticatedData.isEmpty() &&
+        api.encryptUpdate(context.get(),
+                          nullptr,
+                          &authenticatedBytes,
+                          reinterpret_cast<const unsigned char*>(authenticatedData.data()),
+                          static_cast<int>(authenticatedData.size())) != 1) {
+        return std::unexpected(QStringLiteral("AES-256-GCM authenticated data setup failed"));
     }
 
     QByteArray encrypted(iv.size() + plaintext.size() + tagBytes, Qt::Uninitialized);
@@ -248,7 +278,16 @@ std::expected<QByteArray, QString> encryptTsSegment(QByteArrayView plaintext,
     return encrypted;
 }
 
-std::expected<EncryptedTsSegment, QString> encryptTsSegment(QByteArrayView plaintext)
+std::expected<QByteArray, QString> encryptTsSegment(QByteArrayView plaintext,
+                                                    QByteArrayView key,
+                                                    QByteArrayView iv)
+{
+    return encryptAuthenticatedData(plaintext, key, iv, {});
+}
+
+std::expected<EncryptedTsSegment, QString> encryptAuthenticatedData(
+    QByteArrayView plaintext,
+    QByteArrayView authenticatedData)
 {
     auto key = secureRandomBytes(32);
     if (!key) {
@@ -259,7 +298,7 @@ std::expected<EncryptedTsSegment, QString> encryptTsSegment(QByteArrayView plain
         key->fill('\0');
         return std::unexpected(iv.error());
     }
-    auto encrypted = encryptTsSegment(plaintext, *key, *iv);
+    auto encrypted = encryptAuthenticatedData(plaintext, *key, *iv, authenticatedData);
     iv->fill('\0');
     if (!encrypted) {
         key->fill('\0');
@@ -269,6 +308,11 @@ std::expected<EncryptedTsSegment, QString> encryptTsSegment(QByteArrayView plain
         .bytes = std::move(*encrypted),
         .key = std::move(*key),
     };
+}
+
+std::expected<EncryptedTsSegment, QString> encryptTsSegment(QByteArrayView plaintext)
+{
+    return encryptAuthenticatedData(plaintext, {});
 }
 
 }

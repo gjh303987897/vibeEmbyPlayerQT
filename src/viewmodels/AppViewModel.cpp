@@ -2863,6 +2863,57 @@ void AppViewModel::startLocalVideoPlayback(const QString& path,
                                            double replacedPositionSeconds,
                                            double startPositionSeconds)
 {
+    if (LocalMediaService::isEncryptedHlsManifest(path)) {
+        const auto generation = ++m_encryptedHlsPrepareGeneration;
+        m_encryptedHlsPreparing = true;
+        setLoading(true);
+        m_encryptedHlsPlaybackProxy.prepareLocalStream(
+            path,
+            [this,
+             generation,
+             path,
+             displayName,
+             retainLocalDirectory,
+             replacedPositionSeconds,
+             startPositionSeconds](EncryptedHlsPrepareResult result) {
+                if (generation != m_encryptedHlsPrepareGeneration) {
+                    if (result) {
+                        m_encryptedHlsPlaybackProxy.revoke(result->sessionId);
+                    }
+                    return;
+                }
+                m_encryptedHlsPreparing = false;
+                setLoading(false);
+                if (!result) {
+                    setError(result.error());
+                    return;
+                }
+                finishLocalVideoPlayback(path,
+                                         result->url,
+                                         result->displayName.isEmpty() ? displayName : result->displayName,
+                                         retainLocalDirectory,
+                                         replacedPositionSeconds,
+                                         startPositionSeconds,
+                                         result->sessionId);
+            });
+        return;
+    }
+    finishLocalVideoPlayback(path,
+                             QUrl::fromLocalFile(path),
+                             displayName,
+                             retainLocalDirectory,
+                             replacedPositionSeconds,
+                             startPositionSeconds);
+}
+
+void AppViewModel::finishLocalVideoPlayback(const QString& path,
+                                            const QUrl& playbackUrl,
+                                            const QString& displayName,
+                                            bool retainLocalDirectory,
+                                            double replacedPositionSeconds,
+                                            double startPositionSeconds,
+                                            const QString& encryptedSessionId)
+{
     clearCurrentPlayback(replacedPositionSeconds);
     if (!retainLocalDirectory) {
         clearLocalMediaDirectory();
@@ -2870,7 +2921,9 @@ void AppViewModel::startLocalVideoPlayback(const QString& path,
 
     setForegroundPlaybackActive(true);
     m_playbackOrigin = PlaybackOrigin::Local;
-    m_currentPlaybackUrl = QUrl::fromLocalFile(path);
+    m_currentPlaybackUrl = playbackUrl;
+    m_currentLocalPlaybackPath = path;
+    m_encryptedHlsPlaybackSessionId = encryptedSessionId;
     m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
@@ -3528,7 +3581,11 @@ void AppViewModel::openWebDavItem(int row)
                     setError(result.error());
                     return;
                 }
-                startWebDavVideoPlayback(item, result->url, result->sessionId);
+                auto resolvedItem = item;
+                if (!result->displayName.isEmpty()) {
+                    resolvedItem.name = result->displayName;
+                }
+                startWebDavVideoPlayback(resolvedItem, result->url, result->sessionId);
             });
         return;
     }
@@ -5388,6 +5445,7 @@ void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
         finishPlaybackUsageTracking();
     }
     m_currentPlaybackUrl = QUrl();
+    m_currentLocalPlaybackPath.clear();
     m_currentIptvChannelId.clear();
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
@@ -5752,7 +5810,7 @@ void AppViewModel::recordGlobalPlaybackStarted()
     case PlaybackOrigin::Local:
         historyItem.source = PlaybackHistorySource::Local;
         historyItem.serviceName = trText(QStringLiteral("local.title"));
-        historyItem.replayTarget = m_currentPlaybackUrl.toLocalFile();
+        historyItem.replayTarget = m_currentLocalPlaybackPath;
         historyItem.privacyMode = m_privacyMode;
         break;
     case PlaybackOrigin::Link:

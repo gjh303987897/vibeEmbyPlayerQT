@@ -58,6 +58,7 @@ private slots:
     void tsslRoundTripsDeterministically();
     void tsslRestoreLookupAndExport();
     void tsslRejectsUnsafePathsAndInvalidKeys();
+    void sourceFilenameMetadataIsAuthenticatedAndRoundTrips();
     void m3u8sIdentifierIsStrictAndRoundTrips();
     void manifestValidatorAcceptsPackageRelativeUris();
     void manifestValidatorRejectsExternalUrisAndKeyTags();
@@ -163,6 +164,79 @@ void EncryptedHlsFormatTest::tsslRejectsUnsafePathsAndInvalidKeys()
     object = QJsonDocument::fromJson(packageFor(manifestBytes()).toJson()).object();
     object.insert(QStringLiteral("identifier"), QStringLiteral("too-short"));
     QVERIFY(!TsslPackage::parse(QJsonDocument(object).toJson()).has_value());
+}
+
+void EncryptedHlsFormatTest::sourceFilenameMetadataIsAuthenticatedAndRoundTrips()
+{
+    const auto identifier = identifierBytes('N');
+    const auto sourceFileName = QStringLiteral("Private Video.final.mkv");
+    const auto key = QByteArray::fromHex(
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    const auto iv = QByteArray::fromHex("101112131415161718191a1b1c1d1e1f");
+    const auto aad = TsslPackage::sourceFileNameAuthenticatedData(identifier);
+    const auto encrypted = AesGcmDecryptor::encryptAuthenticatedData(
+        sourceFileName.toUtf8(), key, iv, aad);
+    if (!encrypted) {
+        QFAIL(qPrintable(encrypted.error()));
+    }
+
+    const QByteArray plainManifest =
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegments/0001.ts\n#EXT-X-ENDLIST\n";
+    auto manifest = HlsManifestValidator::insertM3u8sIdentifier(plainManifest, identifier);
+    QVERIFY(manifest.has_value());
+    manifest = HlsManifestValidator::insertEncryptedSourceFileName(*manifest, *encrypted);
+    QVERIFY(manifest.has_value());
+    QVERIFY(!manifest->contains(sourceFileName.toUtf8()));
+    QCOMPARE(HlsManifestValidator::extractEncryptedSourceFileName(*manifest), encrypted);
+
+    TsslPackage package {
+        .version = 3,
+        .identifier = identifier,
+        .rootManifestDigest = QCryptographicHash::hash(*manifest, QCryptographicHash::Sha256),
+        .encryptedSourceFileName = *encrypted,
+        .sourceFileNameKey = key,
+        .segmentKeys = {
+            { QStringLiteral("segments/0001.ts"), QByteArray(32, '\x11') },
+        },
+    };
+    const auto parsed = TsslPackage::parse(package.toJson());
+    if (!parsed) {
+        QFAIL(qPrintable(parsed.error()));
+    }
+    QCOMPARE(parsed->version, 3);
+    QCOMPARE(parsed->encryptedSourceFileName, *encrypted);
+    const auto recovered = parsed->decryptedSourceFileName();
+    QVERIFY(recovered.has_value());
+    QVERIFY(recovered->has_value());
+    QCOMPARE(**recovered, sourceFileName);
+
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto recoveryPath = writeFile(temporary.filePath(QStringLiteral("v3-recovery.tssl")), package.toJson());
+    QVERIFY(!recoveryPath.isEmpty());
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    QVERIFY(store.restoreFromFile(recoveryPath).has_value());
+    const auto exportPath = temporary.filePath(QStringLiteral("v3-export.tssl"));
+    QVERIFY(store.exportByRootDigest(package.rootManifestDigest, exportPath).has_value());
+    QFile exportedFile(exportPath);
+    QVERIFY(exportedFile.open(QIODevice::ReadOnly));
+    const auto exported = TsslPackage::parse(exportedFile.readAll());
+    QVERIFY(exported.has_value());
+    QCOMPARE(exported->version, 3);
+    QCOMPARE(exported->encryptedSourceFileName, package.encryptedSourceFileName);
+    QCOMPARE(exported->sourceFileNameKey, package.sourceFileNameKey);
+    const auto exportedSourceName = exported->decryptedSourceFileName();
+    QVERIFY(exportedSourceName.has_value());
+    QCOMPARE(exportedSourceName->value_or(QString()), sourceFileName);
+
+    package.encryptedSourceFileName.back() ^= 0x01;
+    QVERIFY(!TsslPackage::parse(package.toJson()).has_value());
+
+    auto duplicate = *manifest;
+    const auto sourceLineStart = duplicate.indexOf("#M3U8S-SOURCE-NAME:");
+    const auto sourceLineEnd = duplicate.indexOf('\n', sourceLineStart);
+    duplicate.append(duplicate.sliced(sourceLineStart, sourceLineEnd - sourceLineStart + 1));
+    QVERIFY(!HlsManifestValidator::validate(duplicate).has_value());
 }
 
 void EncryptedHlsFormatTest::m3u8sIdentifierIsStrictAndRoundTrips()

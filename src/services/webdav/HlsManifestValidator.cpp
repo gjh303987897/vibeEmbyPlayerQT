@@ -13,6 +13,7 @@ namespace HlsManifestValidator {
 namespace {
 constexpr qsizetype maximumManifestBytes = 4 * 1024 * 1024;
 constexpr auto identifierPrefix = "#M3U8S-IDENTIFIER:";
+constexpr auto sourceNamePrefix = "#M3U8S-SOURCE-NAME:";
 
 bool isValidIdentifier(QByteArrayView identifier)
 {
@@ -25,6 +26,28 @@ bool isValidIdentifier(QByteArrayView identifier)
             (character >= '0' && character <= '9') ||
             character == '_' || character == '-';
     });
+}
+
+std::expected<QByteArray, QString> decodeSourceName(QByteArrayView encoded)
+{
+    if (encoded.isEmpty() || encoded.contains('=') ||
+        !std::ranges::all_of(encoded, [](char character) {
+            return (character >= 'A' && character <= 'Z') ||
+                (character >= 'a' && character <= 'z') ||
+                (character >= '0' && character <= '9') ||
+                character == '_' || character == '-';
+        })) {
+        return std::unexpected(QStringLiteral("M3U8S source filename must use canonical unpadded Base64URL"));
+    }
+    const QByteArray encodedBytes(encoded.data(), encoded.size());
+    const auto decoded = QByteArray::fromBase64(
+        encodedBytes,
+        QByteArray::Base64UrlEncoding | QByteArray::AbortOnBase64DecodingErrors);
+    if (decoded.size() <= 32 || decoded.size() > maximumEncryptedSourceNameBytes ||
+        decoded.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals) != encodedBytes) {
+        return std::unexpected(QStringLiteral("M3U8S source filename ciphertext has an invalid length or encoding"));
+    }
+    return decoded;
 }
 
 std::expected<void, QString> validateUri(const QString& uriText, const QString& manifestPath)
@@ -79,6 +102,7 @@ std::expected<void, QString> validate(QByteArrayView manifest, const QString& ma
 
     static const QRegularExpression uriAttribute(QStringLiteral("(?:^|[:,])URI=\"([^\"]*)\""));
     bool foundIdentifier = false;
+    bool foundSourceName = false;
     for (qsizetype index = firstContentLine + 1; index < lines.size(); ++index) {
         const auto line = lines.at(index).trimmed();
         if (line.isEmpty()) {
@@ -96,6 +120,17 @@ std::expected<void, QString> validate(QByteArrayView manifest, const QString& ma
             const auto identifier = line.sliced(QLatin1String(identifierPrefix).size()).toLatin1();
             if (!isValidIdentifier(identifier)) {
                 return std::unexpected(QStringLiteral("M3U8S identifier must contain exactly 4096 Base64URL characters"));
+            }
+            continue;
+        }
+        if (line.startsWith(QLatin1String(sourceNamePrefix))) {
+            if (foundSourceName) {
+                return std::unexpected(QStringLiteral("M3U8S manifest contains more than one source filename"));
+            }
+            foundSourceName = true;
+            const auto encoded = line.sliced(QLatin1String(sourceNamePrefix).size()).toLatin1();
+            if (auto decoded = decodeSourceName(encoded); !decoded) {
+                return std::unexpected(decoded.error());
             }
             continue;
         }
@@ -152,6 +187,38 @@ std::expected<QByteArray, QString> extractM3u8sIdentifier(QByteArrayView manifes
     return *identifier;
 }
 
+std::expected<QByteArray, QString> extractEncryptedSourceFileName(QByteArrayView manifest)
+{
+    if (auto validated = validate(manifest); !validated) {
+        return std::unexpected(validated.error());
+    }
+
+    const QByteArray bytes(manifest.data(), manifest.size());
+    const auto lines = bytes.split('\n');
+    std::optional<QByteArray> encryptedSourceName;
+    for (auto line : lines) {
+        if (line.endsWith('\r')) {
+            line.chop(1);
+        }
+        if (!line.startsWith(sourceNamePrefix)) {
+            continue;
+        }
+        if (encryptedSourceName) {
+            return std::unexpected(QStringLiteral("M3U8S manifest contains more than one source filename"));
+        }
+        const auto encoded = line.sliced(static_cast<qsizetype>(std::char_traits<char>::length(sourceNamePrefix)));
+        auto decoded = decodeSourceName(encoded);
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        encryptedSourceName = std::move(*decoded);
+    }
+    if (!encryptedSourceName) {
+        return std::unexpected(QStringLiteral("M3U8S manifest does not contain an encrypted source filename"));
+    }
+    return *encryptedSourceName;
+}
+
 std::expected<QByteArray, QString> insertM3u8sIdentifier(QByteArrayView manifest,
                                                         QByteArrayView identifier)
 {
@@ -176,6 +243,39 @@ std::expected<QByteArray, QString> insertM3u8sIdentifier(QByteArrayView manifest
     result.append(bytes.first(firstLineEnd + 1));
     result.append(identifierPrefix);
     result.append(identifier.data(), identifier.size());
+    result.append('\n');
+    result.append(bytes.sliced(firstLineEnd + 1));
+    return result;
+}
+
+std::expected<QByteArray, QString> insertEncryptedSourceFileName(
+    QByteArrayView manifest,
+    QByteArrayView encryptedSourceFileName)
+{
+    if (encryptedSourceFileName.size() <= 32 ||
+        encryptedSourceFileName.size() > maximumEncryptedSourceNameBytes) {
+        return std::unexpected(QStringLiteral("M3U8S source filename ciphertext has an invalid length"));
+    }
+    if (auto validated = validate(manifest); !validated) {
+        return std::unexpected(validated.error());
+    }
+
+    const QByteArray bytes(manifest.data(), manifest.size());
+    if (bytes.contains(sourceNamePrefix)) {
+        return std::unexpected(QStringLiteral("HLS manifest already contains an encrypted source filename"));
+    }
+    const auto firstLineEnd = bytes.indexOf('\n');
+    if (firstLineEnd < 0) {
+        return std::unexpected(QStringLiteral("HLS manifest must contain content after #EXTM3U"));
+    }
+    const auto encoded = QByteArray(encryptedSourceFileName.data(), encryptedSourceFileName.size())
+                             .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+    QByteArray result;
+    result.reserve(bytes.size() + static_cast<qsizetype>(std::char_traits<char>::length(sourceNamePrefix)) +
+                   encoded.size() + 1);
+    result.append(bytes.first(firstLineEnd + 1));
+    result.append(sourceNamePrefix);
+    result.append(encoded);
     result.append('\n');
     result.append(bytes.sliced(firstLineEnd + 1));
     return result;

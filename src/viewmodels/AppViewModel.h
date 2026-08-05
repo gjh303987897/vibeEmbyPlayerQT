@@ -608,6 +608,13 @@ private:
                                  bool retainLocalDirectory,
                                  double replacedPositionSeconds = -1.0,
                                  double startPositionSeconds = 0.0);
+    void finishLocalVideoPlayback(const QString& path,
+                                  const QUrl& playbackUrl,
+                                  const QString& displayName,
+                                  bool retainLocalDirectory,
+                                  double replacedPositionSeconds,
+                                  double startPositionSeconds,
+                                  const QString& encryptedSessionId = {});
     void startLogin(const ServerConfig& server, const QString& password);
     void loadServiceHome();
     void loadIptvService(const ServiceCard& card);
@@ -763,6 +770,7 @@ private:
     std::optional<MediaItem> m_selectedItem;
     std::optional<MediaItem> m_selectedSeason;
     QUrl m_currentPlaybackUrl;
+    QString m_currentLocalPlaybackPath;
     QString m_currentMediaSourceId;
     QString m_currentPlaySessionId;
     int m_currentPlaybackSubtitleStreamIndex { -1 };

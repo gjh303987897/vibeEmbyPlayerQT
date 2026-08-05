@@ -26,6 +26,8 @@ QVariant TsslPackageListModel::data(const QModelIndex& index, int role) const
     switch (role) {
     case RootDigestRole:
         return QString::fromLatin1(package.rootManifestDigest.toHex());
+    case SourceFileNameRole:
+        return package.sourceFileName;
     case IdentifierPreviewRole:
         return QStringLiteral("%1...%2")
             .arg(QString::fromLatin1(package.identifier.first(16)),
@@ -59,6 +61,7 @@ QHash<int, QByteArray> TsslPackageListModel::roleNames() const
 {
     return {
         { RootDigestRole, "rootDigest" },
+        { SourceFileNameRole, "sourceFileName" },
         { IdentifierPreviewRole, "identifierPreview" },
         { IdentifierLengthRole, "identifierLength" },
         { FilePathRole, "filePath" },

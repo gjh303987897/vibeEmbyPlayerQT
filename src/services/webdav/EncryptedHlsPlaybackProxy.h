@@ -20,6 +20,7 @@ class QTcpSocket;
 struct EncryptedHlsPreparedStream final {
     QUrl url;
     QString sessionId;
+    QString displayName;
 };
 
 using EncryptedHlsPrepareResult = std::expected<EncryptedHlsPreparedStream, QString>;
@@ -35,6 +36,8 @@ public:
                        const QString& password,
                        const QUrl& rootManifestUrl,
                        std::function<void(EncryptedHlsPrepareResult)> callback);
+    void prepareLocalStream(const QString& rootManifestPath,
+                            std::function<void(EncryptedHlsPrepareResult)> callback);
     void resolveRootDigest(const ServerConfig& server,
                            const QString& password,
                            const QUrl& rootManifestUrl,
@@ -52,12 +55,15 @@ private:
     struct ResolvedPackage {
         QByteArray rootManifest;
         TsslPackage package;
+        QString sourceFileName;
     };
 
     struct Session {
+        bool localSource { false };
         ServerConfig server;
         QString password;
         QUrl remoteDirectoryUrl;
+        QString localDirectoryPath;
         QString localManifestName;
         QByteArray rootManifest;
         TsslPackage package;
@@ -67,11 +73,23 @@ private:
                         const QString& password,
                         const QUrl& rootManifestUrl,
                         std::function<void(std::expected<ResolvedPackage, QString>)> callback);
+    std::expected<ResolvedPackage, QString> resolvePackageBytes(QByteArray manifest) const;
+    void finishPreparingStream(ResolvedPackage resolved,
+                               Session session,
+                               QString fallbackDisplayName,
+                               std::function<void(EncryptedHlsPrepareResult)> callback);
     QNetworkReply* fetchRemoteBytes(const ServerConfig& server,
                                     const QString& password,
                                     const QUrl& url,
                                     qint64 maximumBytes,
                                     std::function<void(std::expected<QByteArray, QString>)> callback);
+    void fetchLocalBytes(const QString& path,
+                         qint64 maximumBytes,
+                         std::function<void(std::expected<QByteArray, QString>)> callback);
+    QNetworkReply* fetchSessionBytes(const Session& session,
+                                     const QUrl& sourceUrl,
+                                     qint64 maximumBytes,
+                                     std::function<void(std::expected<QByteArray, QString>)> callback);
     bool ensureListening();
     void handlePendingConnection();
     void handleRequest(QTcpSocket* socket, const QByteArray& requestBytes);

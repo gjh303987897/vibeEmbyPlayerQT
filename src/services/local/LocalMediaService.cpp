@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QSet>
 #include <QThreadPool>
 
@@ -25,8 +26,14 @@ bool LocalMediaService::isSupportedVideoFile(const QString& path)
         QStringLiteral("mts"), QStringLiteral("ogm"), QStringLiteral("ogv"),
         QStringLiteral("rm"), QStringLiteral("rmvb"), QStringLiteral("ts"),
         QStringLiteral("vob"), QStringLiteral("webm"), QStringLiteral("wmv"),
+        QStringLiteral("m3u8s"),
     };
     return extensions.contains(QFileInfo(path).suffix().toLower());
+}
+
+bool LocalMediaService::isEncryptedHlsManifest(const QString& path)
+{
+    return QFileInfo(path).suffix().compare(QStringLiteral("m3u8s"), Qt::CaseInsensitive) == 0;
 }
 
 LocalMediaService::VideoFileResult LocalMediaService::resolveVideoFile(const QUrl& url)
@@ -60,6 +67,12 @@ LocalMediaService::BrowseResult LocalMediaService::browseDirectory(const QString
     const auto entries = directory.entryInfoList(
         QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot | QDir::Readable,
         QDir::DirsFirst | QDir::Name | QDir::IgnoreCase);
+    const auto containsEncryptedHlsPackage = std::ranges::any_of(entries, [](const QFileInfo& entry) {
+        return entry.isFile() && LocalMediaService::isEncryptedHlsManifest(entry.fileName());
+    });
+    static const QRegularExpression generatedSegmentPattern(
+        QStringLiteral("^segment_\\d{6}\\.ts$"),
+        QRegularExpression::CaseInsensitiveOption);
 
     std::vector<LocalMediaItem> items;
     items.reserve(static_cast<size_t>(entries.size()));
@@ -69,6 +82,10 @@ LocalMediaService::BrowseResult LocalMediaService::browseDirectory(const QString
         }
         const bool directoryEntry = entry.isDir();
         if (!directoryEntry && !isSupportedVideoFile(entry.fileName())) {
+            continue;
+        }
+        if (!directoryEntry && containsEncryptedHlsPackage &&
+            generatedSegmentPattern.match(entry.fileName()).hasMatch()) {
             continue;
         }
         items.push_back(LocalMediaItem {

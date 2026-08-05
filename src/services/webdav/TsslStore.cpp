@@ -1,5 +1,8 @@
 #include "services/webdav/TsslStore.h"
 
+#include "services/webdav/AesGcmDecryptor.h"
+#include "services/webdav/HlsManifestValidator.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -10,6 +13,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QStringDecoder>
 
 #include <algorithm>
 
@@ -17,6 +21,14 @@ namespace {
 constexpr qsizetype maximumTsslBytes = 64 * 1024 * 1024;
 constexpr qsizetype maximumEntriesPerSection = 1'000'000;
 constexpr qsizetype maximumPathCharacters = 4096;
+constexpr qsizetype maximumSourceFileNameBytes = 4096;
+
+QByteArray makeSourceFileNameAad(QByteArrayView identifier)
+{
+    QByteArray aad = QByteArrayLiteral("vibeEmbyPlayerQT/M3U8S/source-name/v1\n");
+    aad.append(identifier.data(), identifier.size());
+    return aad;
+}
 
 const QRegularExpression& sha256Pattern()
 {
@@ -79,6 +91,43 @@ std::expected<QByteArray, QString> parseKey(const QJsonValue& value, const QStri
         return std::unexpected(QStringLiteral("%1 must be standard base64 for a 32-byte key").arg(field));
     }
     return decoded;
+}
+
+std::expected<QByteArray, QString> parseEncryptedSourceFileName(const QJsonValue& value)
+{
+    if (!value.isString()) {
+        return std::unexpected(QStringLiteral("sourceName.encrypted must be a string"));
+    }
+    const auto encoded = value.toString().toLatin1();
+    const auto decoded = QByteArray::fromBase64(
+        encoded,
+        QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
+    if (decoded.size() <= 32 || decoded.size() > HlsManifestValidator::maximumEncryptedSourceNameBytes ||
+        decoded.toBase64() != encoded) {
+        return std::unexpected(QStringLiteral("sourceName.encrypted must be canonical base64 authenticated ciphertext"));
+    }
+    return decoded;
+}
+
+std::expected<QString, QString> decodeSourceFileName(QByteArrayView plaintext)
+{
+    if (plaintext.isEmpty() || plaintext.size() > maximumSourceFileNameBytes) {
+        return std::unexpected(QStringLiteral("Decrypted source filename is empty or too long"));
+    }
+    QStringDecoder decoder(QStringDecoder::Utf8);
+    const QString fileName = decoder.decode(plaintext);
+    if (decoder.hasError() || fileName.isEmpty() || fileName == QStringLiteral(".") ||
+        fileName == QStringLiteral("..") || fileName.contains(QLatin1Char('/')) ||
+        fileName.contains(QLatin1Char('\\')) || QDir::isAbsolutePath(fileName)) {
+        return std::unexpected(QStringLiteral("Decrypted source filename is not a safe basename"));
+    }
+    const auto containsControl = std::ranges::any_of(fileName, [](QChar character) {
+        return character.unicode() < 0x20 || character.unicode() == 0x7f;
+    });
+    if (containsControl) {
+        return std::unexpected(QStringLiteral("Decrypted source filename contains control characters"));
+    }
+    return fileName;
 }
 
 template<typename ValueParser>
@@ -165,6 +214,11 @@ std::expected<void, QString> writeSecretFile(const QString& path, QByteArrayView
 }
 }
 
+QByteArray TsslPackage::sourceFileNameAuthenticatedData(QByteArrayView identifier)
+{
+    return makeSourceFileNameAad(identifier);
+}
+
 std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
 {
     if (document.isEmpty() || document.size() > maximumTsslBytes) {
@@ -177,9 +231,12 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
         return std::unexpected(QStringLiteral("Invalid TSSL JSON: %1").arg(parseError.errorString()));
     }
     const auto root = json.object();
-    const auto version = root.value(QStringLiteral("version"));
+    const auto versionValue = root.value(QStringLiteral("version"));
+    const auto version = versionValue.isDouble() && versionValue.toDouble() == 2.0
+        ? 2
+        : versionValue.isDouble() && versionValue.toDouble() == 3.0 ? 3 : 0;
     if (root.value(QStringLiteral("format")).toString() != QStringLiteral("TSSL") ||
-        !version.isDouble() || version.toDouble() != 2.0 ||
+        !versionValue.isDouble() || (version != 2 && version != 3) ||
         root.value(QStringLiteral("algorithm")).toString() != QStringLiteral("AES-256-GCM")) {
         return std::unexpected(QStringLiteral("Unsupported TSSL format, version, or algorithm"));
     }
@@ -193,6 +250,28 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
                                   QStringLiteral("rootManifestSha256"));
     if (!rootDigest) {
         return std::unexpected(rootDigest.error());
+    }
+
+    QByteArray encryptedSourceFileName;
+    QByteArray sourceFileNameKey;
+    if (version == 3) {
+        const auto sourceNameValue = root.value(QStringLiteral("sourceName"));
+        if (!sourceNameValue.isObject()) {
+            return std::unexpected(QStringLiteral("TSSL v3 requires sourceName metadata"));
+        }
+        const auto sourceName = sourceNameValue.toObject();
+        auto parsedKey = parseKey(sourceName.value(QStringLiteral("key")), QStringLiteral("sourceName.key"));
+        if (!parsedKey) {
+            return std::unexpected(parsedKey.error());
+        }
+        auto parsedEncrypted = parseEncryptedSourceFileName(sourceName.value(QStringLiteral("encrypted")));
+        if (!parsedEncrypted) {
+            return std::unexpected(parsedEncrypted.error());
+        }
+        sourceFileNameKey = std::move(*parsedKey);
+        encryptedSourceFileName = std::move(*parsedEncrypted);
+    } else if (root.contains(QStringLiteral("sourceName"))) {
+        return std::unexpected(QStringLiteral("TSSL v2 must not contain v3 sourceName metadata"));
     }
     auto manifests = parseEntries(root.value(QStringLiteral("manifests")),
                                   QStringLiteral("manifests"),
@@ -240,20 +319,27 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
         }
     }
 
-    return TsslPackage {
+    TsslPackage package {
+        .version = version,
         .identifier = std::move(*identifier),
         .rootManifestDigest = std::move(*rootDigest),
+        .encryptedSourceFileName = std::move(encryptedSourceFileName),
+        .sourceFileNameKey = std::move(sourceFileNameKey),
         .manifestDigests = std::move(*manifests),
         .segmentKeys = std::move(*segments),
         .resourceDigests = std::move(resources),
     };
+    if (auto sourceFileName = package.decryptedSourceFileName(); !sourceFileName) {
+        return std::unexpected(sourceFileName.error());
+    }
+    return package;
 }
 
 QByteArray TsslPackage::toJson() const
 {
-    const QJsonObject root {
+    QJsonObject root {
         { QStringLiteral("format"), QStringLiteral("TSSL") },
-        { QStringLiteral("version"), 2 },
+        { QStringLiteral("version"), version },
         { QStringLiteral("algorithm"), QStringLiteral("AES-256-GCM") },
         { QStringLiteral("identifier"), QString::fromLatin1(identifier) },
         { QStringLiteral("rootManifestSha256"), QString::fromLatin1(rootManifestDigest.toHex()) },
@@ -261,7 +347,42 @@ QByteArray TsslPackage::toJson() const
         { QStringLiteral("segments"), keyEntries(segmentKeys) },
         { QStringLiteral("resources"), digestEntries(resourceDigests) },
     };
+    if (version == 3) {
+        root.insert(QStringLiteral("sourceName"), QJsonObject {
+            { QStringLiteral("encrypted"), QString::fromLatin1(encryptedSourceFileName.toBase64()) },
+            { QStringLiteral("key"), QString::fromLatin1(sourceFileNameKey.toBase64()) },
+        });
+    }
     return QJsonDocument(root).toJson(QJsonDocument::Indented);
+}
+
+std::expected<std::optional<QString>, QString> TsslPackage::decryptedSourceFileName() const
+{
+    if (version == 2) {
+        if (!encryptedSourceFileName.isEmpty() || !sourceFileNameKey.isEmpty()) {
+            return std::unexpected(QStringLiteral("TSSL v2 contains unexpected source filename metadata"));
+        }
+        return std::optional<QString> {};
+    }
+    if (version != 3 || identifier.size() != identifierLength || sourceFileNameKey.size() != 32 ||
+        encryptedSourceFileName.size() <= 32 ||
+        encryptedSourceFileName.size() > HlsManifestValidator::maximumEncryptedSourceNameBytes) {
+        return std::unexpected(QStringLiteral("TSSL v3 source filename metadata is incomplete"));
+    }
+    const auto aad = sourceFileNameAuthenticatedData(identifier);
+    auto plaintext = AesGcmDecryptor::decryptAuthenticatedData(
+        encryptedSourceFileName,
+        sourceFileNameKey,
+        aad);
+    if (!plaintext) {
+        return std::unexpected(QStringLiteral("Source filename authentication failed: %1").arg(plaintext.error()));
+    }
+    auto fileName = decodeSourceFileName(*plaintext);
+    plaintext->fill('\0');
+    if (!fileName) {
+        return std::unexpected(fileName.error());
+    }
+    return std::optional<QString> { std::move(*fileName) };
 }
 
 std::expected<void, QString> TsslStore::savePackage(const TsslPackage& package) const
@@ -361,9 +482,15 @@ std::expected<std::vector<TsslPackageInfo>, QString> TsslStore::listPackages() c
             appendInvalid(QStringLiteral("Local TSSL filename and manifest digest do not match"));
             continue;
         }
+        auto sourceFileName = package->decryptedSourceFileName();
+        if (!sourceFileName) {
+            appendInvalid(sourceFileName.error());
+            continue;
+        }
         result.push_back(TsslPackageInfo {
             .identifier = package->identifier,
             .rootManifestDigest = package->rootManifestDigest,
+            .sourceFileName = sourceFileName->value_or(QString()),
             .filePath = fileInfo.absoluteFilePath(),
             .modifiedAt = fileInfo.lastModified(),
             .fileSize = fileInfo.size(),

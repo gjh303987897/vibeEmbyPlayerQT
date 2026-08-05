@@ -23,5 +23,6 @@ public:
     static BrowseResult browseDirectory(const QString& path);
     void browseDirectoryAsync(QString path, BrowseCallback callback);
     static bool isSupportedVideoFile(const QString& path);
+    static bool isEncryptedHlsManifest(const QString& path);
     static VideoFileResult resolveVideoFile(const QUrl& url);
 };

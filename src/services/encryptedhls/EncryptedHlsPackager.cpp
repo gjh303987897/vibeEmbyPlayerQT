@@ -59,22 +59,6 @@ std::expected<void, QString> writeFileAtomically(const QString& path,
     return {};
 }
 
-QString sanitizedStem(const QString& sourcePath)
-{
-    auto stem = QFileInfo(sourcePath).completeBaseName().trimmed();
-    stem.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")), QStringLiteral("_"));
-    stem = stem.left(80);
-    while (stem.startsWith(QLatin1Char('.')) || stem.endsWith(QLatin1Char('.'))) {
-        if (stem.startsWith(QLatin1Char('.'))) {
-            stem.remove(0, 1);
-        }
-        if (stem.endsWith(QLatin1Char('.'))) {
-            stem.chop(1);
-        }
-    }
-    return stem.isEmpty() ? QStringLiteral("video") : stem;
-}
-
 QByteArray identifierFromRandomBytes(QByteArrayView randomBytes)
 {
     return QByteArray(randomBytes.data(), randomBytes.size())
@@ -86,7 +70,7 @@ namespace EncryptedHlsPackaging {
 
 std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
     const QString& directoryPath,
-    const QString& outputStem,
+    const QString& sourceFileName,
     std::atomic_bool& cancelRequested,
     const std::function<void(double)>& progressCallback)
 {
@@ -107,6 +91,13 @@ std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
     if (identifier.size() != TsslPackage::identifierLength) {
         identifier.fill('\0');
         return std::unexpected(QStringLiteral("Unable to generate a 4096-character M3U8S identifier"));
+    }
+
+    const auto sourceFileNameBytes = sourceFileName.toUtf8();
+    if (sourceFileNameBytes.isEmpty() || sourceFileNameBytes.size() > 4096 ||
+        sourceFileName.contains(QLatin1Char('/')) || sourceFileName.contains(QLatin1Char('\\'))) {
+        identifier.fill('\0');
+        return std::unexpected(QStringLiteral("The source filename cannot be represented safely in M3U8S metadata"));
     }
 
     QHash<QString, QByteArray> segmentKeys;
@@ -164,30 +155,64 @@ std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
         identifier.fill('\0');
         return std::unexpected(plainManifest.error());
     }
+    const auto sourceNameAad = TsslPackage::sourceFileNameAuthenticatedData(identifier);
+    auto encryptedSourceFileName = AesGcmDecryptor::encryptAuthenticatedData(sourceFileNameBytes, sourceNameAad);
+    if (!encryptedSourceFileName) {
+        identifier.fill('\0');
+        return std::unexpected(encryptedSourceFileName.error());
+    }
+    auto verifiedSourceFileName = AesGcmDecryptor::decryptAuthenticatedData(
+        encryptedSourceFileName->bytes,
+        encryptedSourceFileName->key,
+        sourceNameAad);
+    if (!verifiedSourceFileName || *verifiedSourceFileName != sourceFileNameBytes) {
+        if (verifiedSourceFileName) {
+            verifiedSourceFileName->fill('\0');
+        }
+        encryptedSourceFileName->key.fill('\0');
+        encryptedSourceFileName->bytes.fill('\0');
+        identifier.fill('\0');
+        return std::unexpected(QStringLiteral("GCM authentication verification failed for the source filename"));
+    }
+    verifiedSourceFileName->fill('\0');
+
     auto manifest = HlsManifestValidator::insertM3u8sIdentifier(*plainManifest, identifier);
     if (!manifest) {
+        encryptedSourceFileName->key.fill('\0');
+        identifier.fill('\0');
+        return std::unexpected(manifest.error());
+    }
+    manifest = HlsManifestValidator::insertEncryptedSourceFileName(*manifest, encryptedSourceFileName->bytes);
+    if (!manifest) {
+        encryptedSourceFileName->key.fill('\0');
         identifier.fill('\0');
         return std::unexpected(manifest.error());
     }
     if (auto validated = HlsManifestValidator::validate(*manifest); !validated) {
+        encryptedSourceFileName->key.fill('\0');
         identifier.fill('\0');
         return std::unexpected(validated.error());
     }
 
-    const auto manifestFileName = outputStem + QStringLiteral(".m3u8s");
+    const auto manifestFileName = QStringLiteral("index.m3u8s");
     const auto manifestPath = directory.filePath(manifestFileName);
     if (auto written = writeFileAtomically(manifestPath, *manifest); !written) {
+        encryptedSourceFileName->key.fill('\0');
         identifier.fill('\0');
         return std::unexpected(written.error());
     }
     if (!QFile::remove(sourceManifestPath)) {
+        encryptedSourceFileName->key.fill('\0');
         identifier.fill('\0');
         return std::unexpected(QStringLiteral("Unable to remove the plaintext HLS manifest"));
     }
 
     TsslPackage package {
+        .version = 3,
         .identifier = std::move(identifier),
         .rootManifestDigest = QCryptographicHash::hash(*manifest, QCryptographicHash::Sha256),
+        .encryptedSourceFileName = std::move(encryptedSourceFileName->bytes),
+        .sourceFileNameKey = std::move(encryptedSourceFileName->key),
         .segmentKeys = std::move(segmentKeys),
     };
     return EncryptedHlsPreparedPackage {
@@ -275,8 +300,8 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
     }
 
     m_outputDirectory = output.absoluteFilePath();
-    m_outputStem = sanitizedStem(source.absoluteFilePath());
-    m_finalOutputPath = chooseOutputPath(m_outputDirectory, m_outputStem);
+    m_sourceFileName = source.fileName();
+    m_finalOutputPath.clear();
     m_stagingDirectory = std::make_unique<QTemporaryDir>(
         QDir(m_outputDirectory).filePath(QStringLiteral(".m3u8s-staging-XXXXXX")));
     if (!m_stagingDirectory->isValid()) {
@@ -415,7 +440,7 @@ void EncryptedHlsPackager::beginEncryption()
     setProgress(0.65);
     setPhase(QStringLiteral("encrypting"));
     const auto directoryPath = m_stagingDirectory->path();
-    const auto outputStem = m_outputStem;
+    const auto sourceFileName = m_sourceFileName;
     QPointer<EncryptedHlsPackager> owner(this);
     auto progressCallback = [owner](double value) {
         if (!owner) {
@@ -428,9 +453,9 @@ void EncryptedHlsPackager::beginEncryption()
         });
     };
     m_encryptionWatcher.setFuture(QtConcurrent::run(
-        [directoryPath, outputStem, this, progressCallback = std::move(progressCallback)]() {
+        [directoryPath, sourceFileName, this, progressCallback = std::move(progressCallback)]() {
             return EncryptedHlsPackaging::encryptHlsDirectory(directoryPath,
-                                                              outputStem,
+                                                              sourceFileName,
                                                               m_cancelRequested,
                                                               progressCallback);
         }));
@@ -453,6 +478,7 @@ void EncryptedHlsPackager::handleEncryptionFinished()
 
     setPhase(QStringLiteral("finalizing"));
     setProgress(0.96);
+    m_finalOutputPath = chooseOutputPath(m_outputDirectory, prepared->tsslPackage.rootManifestDigest);
     if (auto saved = m_store.savePackage(prepared->tsslPackage); !saved) {
         finishFailure(saved.error());
         return;
@@ -533,16 +559,17 @@ void EncryptedHlsPackager::resetRunState()
 {
     m_stagingDirectory.reset();
     m_outputDirectory.clear();
-    m_outputStem.clear();
+    m_sourceFileName.clear();
     m_finalOutputPath.clear();
     m_progressBuffer.clear();
     m_diagnostics.clear();
 }
 
-QString EncryptedHlsPackager::chooseOutputPath(const QString& outputDirectory, const QString& stem) const
+QString EncryptedHlsPackager::chooseOutputPath(const QString& outputDirectory,
+                                               QByteArrayView rootManifestDigest) const
 {
-    const auto timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
-    const auto baseName = stem + QStringLiteral("_m3u8s_") + timestamp;
+    const auto digestHex = QByteArray(rootManifestDigest.data(), rootManifestDigest.size()).toHex();
+    const auto baseName = QStringLiteral("m3u8s_%1").arg(QString::fromLatin1(digestHex));
     auto candidate = QDir(outputDirectory).filePath(baseName);
     for (int suffix = 2; QFileInfo::exists(candidate); ++suffix) {
         candidate = QDir(outputDirectory).filePath(baseName + QLatin1Char('_') + QString::number(suffix));

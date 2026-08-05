@@ -38,7 +38,7 @@ namespace EncryptedHlsPackaging {
 
 std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
     const QString& directoryPath,
-    const QString& outputStem,
+    const QString& sourceFileName,
     std::atomic_bool& cancelRequested,
     const std::function<void(double)>& progressCallback = {});
 
@@ -78,7 +78,7 @@ private:
     void finishFailure(QString error);
     void finishCanceled();
     void resetRunState();
-    QString chooseOutputPath(const QString& outputDirectory, const QString& stem) const;
+    QString chooseOutputPath(const QString& outputDirectory, QByteArrayView rootManifestDigest) const;
     static QString locateFfmpegExecutable();
 
     TsslStore& m_store;
@@ -89,7 +89,7 @@ private:
     QByteArray m_progressBuffer;
     QByteArray m_diagnostics;
     QString m_outputDirectory;
-    QString m_outputStem;
+    QString m_sourceFileName;
     QString m_finalOutputPath;
     qint64 m_durationMicroseconds { 0 };
     double m_progress { 0.0 };

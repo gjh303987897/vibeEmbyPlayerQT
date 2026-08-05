@@ -63,7 +63,7 @@ void EncryptedHlsPackagerTest::encryptsEverySegmentAndCreatesMatchingMetadata()
     double progress = 0.0;
     const auto prepared = EncryptedHlsPackaging::encryptHlsDirectory(
         temporary.path(),
-        QStringLiteral("sample"),
+        QStringLiteral("Private Sample.final.mkv"),
         canceled,
         [&progress](double value) { progress = value; });
     if (!prepared) {
@@ -71,6 +71,8 @@ void EncryptedHlsPackagerTest::encryptsEverySegmentAndCreatesMatchingMetadata()
     }
 
     QCOMPARE(prepared->segmentCount, 2);
+    QCOMPARE(prepared->manifestFileName, QStringLiteral("index.m3u8s"));
+    QCOMPARE(prepared->tsslPackage.version, 3);
     QCOMPARE(prepared->tsslPackage.identifier.size(), TsslPackage::identifierLength);
     QCOMPARE(prepared->tsslPackage.segmentKeys.size(), 2);
     QVERIFY(prepared->tsslPackage.segmentKeys.value(QStringLiteral("segment_000000.ts")) !=
@@ -84,6 +86,14 @@ void EncryptedHlsPackagerTest::encryptsEverySegmentAndCreatesMatchingMetadata()
     const auto identifier = HlsManifestValidator::extractM3u8sIdentifier(manifestBytes);
     QVERIFY(identifier.has_value());
     QCOMPARE(*identifier, prepared->tsslPackage.identifier);
+    QVERIFY(!manifestBytes.contains(QByteArrayLiteral("Private Sample.final.mkv")));
+    const auto encryptedSourceName = HlsManifestValidator::extractEncryptedSourceFileName(manifestBytes);
+    QVERIFY(encryptedSourceName.has_value());
+    QCOMPARE(*encryptedSourceName, prepared->tsslPackage.encryptedSourceFileName);
+    const auto recoveredSourceName = prepared->tsslPackage.decryptedSourceFileName();
+    QVERIFY(recoveredSourceName.has_value());
+    QVERIFY(recoveredSourceName->has_value());
+    QCOMPARE(**recoveredSourceName, QStringLiteral("Private Sample.final.mkv"));
     QCOMPARE(prepared->tsslPackage.rootManifestDigest.size(), 32);
 
     const std::array originals { firstPlaintext, secondPlaintext };
@@ -177,6 +187,9 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
     QVERIFY(!packager.isRunning());
     QCOMPARE(packager.progress(), 1.0);
     QVERIFY(QFileInfo::exists(completed->manifestPath));
+    QCOMPARE(QFileInfo(completed->manifestPath).fileName(), QStringLiteral("index.m3u8s"));
+    QVERIFY(!QFileInfo(completed->outputDirectory).fileName().contains(
+        QStringLiteral("tiny-video"), Qt::CaseInsensitive));
     QCOMPARE(QDir(completed->outputDirectory).entryList(
                  QStringList { QStringLiteral("*.tssl") }, QDir::Files).size(),
              0);
@@ -193,6 +206,11 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
     QVERIFY(stored.has_value());
     QVERIFY(stored->has_value());
     QCOMPARE((**stored).identifier, completed->identifier);
+    QCOMPARE((**stored).version, 3);
+    const auto recoveredSourceName = (**stored).decryptedSourceFileName();
+    QVERIFY(recoveredSourceName.has_value());
+    QVERIFY(recoveredSourceName->has_value());
+    QCOMPARE(**recoveredSourceName, QFileInfo(sourcePath).fileName());
     QCOMPARE((**stored).rootManifestDigest, completed->rootManifestDigest);
     QCOMPARE((**stored).segmentKeys.size(), completed->segmentCount);
 }

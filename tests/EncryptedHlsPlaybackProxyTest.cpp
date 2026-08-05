@@ -1,4 +1,6 @@
 #include "services/webdav/EncryptedHlsPlaybackProxy.h"
+#include "services/webdav/AesGcmDecryptor.h"
+#include "services/webdav/HlsManifestValidator.h"
 
 #include <QCryptographicHash>
 #include <QEventLoop>
@@ -115,6 +117,7 @@ class EncryptedHlsPlaybackProxyTest final : public QObject {
 
 private slots:
     void verifiedPlaintextIsServedAndTamperedTagIsRejected();
+    void localPackageRestoresSourceNameAndVerifiesSegments();
     void mismatchedIdentifierIsRejectedBeforePlayback();
 };
 
@@ -181,6 +184,93 @@ void EncryptedHlsPlaybackProxyTest::verifiedPlaintextIsServedAndTamperedTagIsRej
     const auto tamperedResponse = get(segmentUrl, QByteArrayLiteral("bytes=10-15"));
     QCOMPARE(tamperedResponse.status, 502);
     QVERIFY(!tamperedResponse.body.contains(QByteArrayLiteral("Encrypted TS payload for TSSL")));
+}
+
+void EncryptedHlsPlaybackProxyTest::localPackageRestoresSourceNameAndVerifiesSegments()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto identifier = identifierBytes('L');
+    const auto sourceFileName = QStringLiteral("Local Private Movie.mkv");
+    const auto sourceNameKey = QByteArray(32, '\x45');
+    const auto sourceNameIv = QByteArray(16, '\x23');
+    const auto sourceNameEncrypted = AesGcmDecryptor::encryptAuthenticatedData(
+        sourceFileName.toUtf8(),
+        sourceNameKey,
+        sourceNameIv,
+        TsslPackage::sourceFileNameAuthenticatedData(identifier));
+    QVERIFY(sourceNameEncrypted.has_value());
+
+    const QByteArray plainManifest =
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n";
+    auto manifest = HlsManifestValidator::insertM3u8sIdentifier(plainManifest, identifier);
+    QVERIFY(manifest.has_value());
+    manifest = HlsManifestValidator::insertEncryptedSourceFileName(*manifest, *sourceNameEncrypted);
+    QVERIFY(manifest.has_value());
+
+    const auto segmentKey = QByteArray::fromHex(
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    const auto segmentIv = QByteArray::fromHex("000102030405060708090a0b0c0d0e0f");
+    const auto encryptedSegment = AesGcmDecryptor::encryptTsSegment(
+        QByteArrayLiteral("local verified segment"), segmentKey, segmentIv);
+    QVERIFY(encryptedSegment.has_value());
+
+    const auto manifestPath = temporary.filePath(QStringLiteral("index.m3u8s"));
+    QFile manifestFile(manifestPath);
+    QVERIFY(manifestFile.open(QIODevice::WriteOnly));
+    QCOMPARE(manifestFile.write(*manifest), manifest->size());
+    manifestFile.close();
+    const auto segmentPath = temporary.filePath(QStringLiteral("segment.ts"));
+    QFile segmentFile(segmentPath);
+    QVERIFY(segmentFile.open(QIODevice::WriteOnly));
+    QCOMPARE(segmentFile.write(*encryptedSegment), encryptedSegment->size());
+    segmentFile.close();
+
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    const TsslPackage package {
+        .version = 3,
+        .identifier = identifier,
+        .rootManifestDigest = QCryptographicHash::hash(*manifest, QCryptographicHash::Sha256),
+        .encryptedSourceFileName = *sourceNameEncrypted,
+        .sourceFileNameKey = sourceNameKey,
+        .segmentKeys = {
+            { QStringLiteral("segment.ts"), segmentKey },
+        },
+    };
+    QVERIFY(store.savePackage(package).has_value());
+    EncryptedHlsPlaybackProxy proxy(store);
+
+    std::optional<EncryptedHlsPrepareResult> prepared;
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    proxy.prepareLocalStream(manifestPath, [&](EncryptedHlsPrepareResult result) {
+        prepared.emplace(std::move(result));
+        loop.quit();
+    });
+    timer.start(5000);
+    loop.exec();
+
+    QVERIFY(prepared.has_value());
+    if (!prepared->has_value()) {
+        QFAIL(qPrintable(prepared->error()));
+    }
+    QCOMPARE((**prepared).displayName, sourceFileName);
+    QCOMPARE(get((**prepared).url).body, *manifest);
+    const auto segmentUrl = (**prepared).url.resolved(QUrl(QStringLiteral("segment.ts")));
+    const auto response = get(segmentUrl);
+    QCOMPARE(response.status, 200);
+    QCOMPARE(response.body, QByteArrayLiteral("local verified segment"));
+
+    QVERIFY(segmentFile.open(QIODevice::ReadWrite));
+    auto tampered = segmentFile.readAll();
+    tampered.back() ^= 0x01;
+    segmentFile.resize(0);
+    QVERIFY(segmentFile.seek(0));
+    QCOMPARE(segmentFile.write(tampered), tampered.size());
+    segmentFile.close();
+    QCOMPARE(get(segmentUrl).status, 502);
 }
 
 void EncryptedHlsPlaybackProxyTest::mismatchedIdentifierIsRejectedBeforePlayback()

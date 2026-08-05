@@ -13,19 +13,25 @@
 struct TsslPackage final {
     static constexpr qsizetype identifierLength = 4096;
 
+    int version { 2 };
     QByteArray identifier;
     QByteArray rootManifestDigest;
+    QByteArray encryptedSourceFileName;
+    QByteArray sourceFileNameKey;
     QHash<QString, QByteArray> manifestDigests;
     QHash<QString, QByteArray> segmentKeys;
     QHash<QString, QByteArray> resourceDigests;
 
     static std::expected<TsslPackage, QString> parse(QByteArrayView document);
+    static QByteArray sourceFileNameAuthenticatedData(QByteArrayView identifier);
     QByteArray toJson() const;
+    std::expected<std::optional<QString>, QString> decryptedSourceFileName() const;
 };
 
 struct TsslPackageInfo final {
     QByteArray identifier;
     QByteArray rootManifestDigest;
+    QString sourceFileName;
     QString filePath;
     QDateTime modifiedAt;
     qint64 fileSize { 0 };

@@ -8,6 +8,7 @@ Local playback is intentionally a lightweight file player. It provides:
 - Multiple user-selected video folders.
 - One-directory-at-a-time browsing of child folders and supported video files.
 - Direct playback of one local video dropped anywhere on the main application window.
+- Authenticated local playback of encrypted `.m3u8s` HLS packages when their TSSL is available.
 - Playback through the existing `PlayerController` and embedded libmpv window.
 
 It does not recursively index folders, scrape metadata, download posters, or create a local media library.
@@ -44,11 +45,19 @@ For a local video:
 - mpv network-byte callbacks are ignored for usage statistics.
 - Leaving the player returns to the same local directory.
 
+For `.m3u8s`, `AppViewModel` asynchronously asks
+`EncryptedHlsPlaybackProxy` to verify the root digest, identifier, encrypted
+source basename, and local TSSL. libmpv receives a localhost `.m3u8` URL while
+the proxy reads package files on worker threads and releases TS plaintext only
+after complete AES-GCM tag verification. The real manifest path is retained
+separately for history replay. Ordinary local videos keep the direct `file://`
+path.
+
 A dropped video is not indexed, copied, or added to the configured root list. It uses the same local playback context, but leaving the player returns to the media-source page because there is no active browsed directory to restore.
 
 ## Supported Video Files
 
-The initial extension filter includes common libmpv-supported containers such as MKV, MP4, AVI, MOV, WebM, MPEG, M2TS/MTS, TS, VOB, WMV, FLV, OGV/OGM, 3GP/3G2, ASF, RM, and RMVB.
+The extension filter includes `.m3u8s` and common libmpv-supported containers such as MKV, MP4, AVI, MOV, WebM, MPEG, M2TS/MTS, TS, VOB, WMV, FLV, OGV/OGM, 3GP/3G2, ASF, RM, and RMVB. Generated `segment_NNNNNN.ts` files are hidden when browsing an M3U8S package directory.
 
 The extension list controls visibility only. Actual codec/container support remains determined by the bundled libmpv/FFmpeg build.
 
@@ -61,5 +70,6 @@ The extension list controls visibility only. Actual codec/container support rema
 - Missing directories return a traceable error.
 - Asynchronous browsing delivers its result back to the owning thread.
 - Dropped local video URLs resolve to canonical paths while unsupported and remote URLs are rejected.
+- `.m3u8s` manifests are discoverable while generated encrypted TS segments are not presented as standalone videos.
 
 Manual verification should cover adding/removing roots, nested navigation, unavailable paths, directory playback, dropping supported and unsupported files, exiting back to the expected page, manual external subtitles, audio-track switching, and the existing HTTP/WebDAV/SMB playback regression set.
