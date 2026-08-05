@@ -482,15 +482,13 @@ std::expected<std::vector<TsslPackageInfo>, QString> TsslStore::listPackages() c
             appendInvalid(QStringLiteral("Local TSSL filename and manifest digest do not match"));
             continue;
         }
-        auto sourceFileName = package->decryptedSourceFileName();
-        if (!sourceFileName) {
+        if (auto sourceFileName = package->decryptedSourceFileName(); !sourceFileName) {
             appendInvalid(sourceFileName.error());
             continue;
         }
         result.push_back(TsslPackageInfo {
             .identifier = package->identifier,
             .rootManifestDigest = package->rootManifestDigest,
-            .sourceFileName = sourceFileName->value_or(QString()),
             .filePath = fileInfo.absoluteFilePath(),
             .modifiedAt = fileInfo.lastModified(),
             .fileSize = fileInfo.size(),

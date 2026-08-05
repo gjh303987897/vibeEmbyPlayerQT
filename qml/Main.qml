@@ -10670,7 +10670,6 @@ ApplicationWindow {
                         id: tsslRow
                         required property int index
                         required property string rootDigest
-                        required property string sourceFileName
                         required property string identifierPreview
                         required property int identifierLength
                         required property var modifiedAt
@@ -10720,14 +10719,12 @@ ApplicationWindow {
                                     Label {
                                         Layout.fillWidth: true
                                         text: tsslRow.validPackage
-                                            ? (tsslRow.sourceFileName.length > 0
-                                                ? tsslRow.sourceFileName
-                                                : t("m3u8s.identifier") + "  " + tsslRow.identifierPreview)
+                                            ? t("m3u8s.identifier") + "  " + tsslRow.identifierPreview
                                             : t("m3u8s.invalidSavedPackage")
                                         color: theme.text
                                         font.pixelSize: 14
                                         font.bold: true
-                                        font.family: tsslRow.sourceFileName.length > 0 ? "" : "monospace"
+                                        font.family: tsslRow.validPackage ? "monospace" : ""
                                         elide: Text.ElideMiddle
                                     }
 

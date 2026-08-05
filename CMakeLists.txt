@@ -436,6 +436,8 @@ if(BUILD_TESTING)
         src/services/webdav/HlsManifestValidator.h
         src/services/webdav/TsslStore.cpp
         src/services/webdav/TsslStore.h
+        src/viewmodels/TsslPackageListModel.cpp
+        src/viewmodels/TsslPackageListModel.h
     )
     target_include_directories(encrypted_hls_format_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src

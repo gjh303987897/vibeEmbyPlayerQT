@@ -31,7 +31,6 @@ struct TsslPackage final {
 struct TsslPackageInfo final {
     QByteArray identifier;
     QByteArray rootManifestDigest;
-    QString sourceFileName;
     QString filePath;
     QDateTime modifiedAt;
     qint64 fileSize { 0 };

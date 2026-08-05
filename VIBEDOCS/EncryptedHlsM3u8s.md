@@ -206,8 +206,10 @@ never the temporary localhost session URL.
 
 The M3U8S manager lists local TSSL packages and supports import/restore,
 export, deletion, and opening the storage directory. The list exposes only a
-recovered source basename and a short identifier preview; full keys and
-identifiers are not passed to QML.
+short identifier preview; original source basenames, full identifiers, and
+keys are not passed to QML. The store still authenticates encrypted source-name
+metadata while enumerating packages, and playback can recover it after manifest
+verification, but the manager discards the recovered value immediately.
 
 Restore validates the entire TSSL document before atomically writing it to the
 application-local `tssl` directory. The filename is derived from the root

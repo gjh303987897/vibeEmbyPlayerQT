@@ -1,6 +1,7 @@
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
 #include "services/webdav/TsslStore.h"
+#include "viewmodels/TsslPackageListModel.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -59,6 +60,7 @@ private slots:
     void tsslRestoreLookupAndExport();
     void tsslRejectsUnsafePathsAndInvalidKeys();
     void sourceFilenameMetadataIsAuthenticatedAndRoundTrips();
+    void managerModelDoesNotExposeSourceFilename();
     void m3u8sIdentifierIsStrictAndRoundTrips();
     void manifestValidatorAcceptsPackageRelativeUris();
     void manifestValidatorRejectsExternalUrisAndKeyTags();
@@ -237,6 +239,21 @@ void EncryptedHlsFormatTest::sourceFilenameMetadataIsAuthenticatedAndRoundTrips(
     const auto sourceLineEnd = duplicate.indexOf('\n', sourceLineStart);
     duplicate.append(duplicate.sliced(sourceLineStart, sourceLineEnd - sourceLineStart + 1));
     QVERIFY(!HlsManifestValidator::validate(duplicate).has_value());
+}
+
+void EncryptedHlsFormatTest::managerModelDoesNotExposeSourceFilename()
+{
+    TsslPackageInfo package {
+        .identifier = identifierBytes('I'),
+        .rootManifestDigest = QByteArray(32, '\x42'),
+        .filePath = QStringLiteral("managed.tssl"),
+    };
+    TsslPackageListModel model;
+    model.setPackages({ std::move(package) });
+
+    QVERIFY(!model.roleNames().values().contains(QByteArrayLiteral("sourceFileName")));
+    QCOMPARE(model.data(model.index(0, 0), TsslPackageListModel::IdentifierPreviewRole).toString(),
+             QStringLiteral("IIIIIIIIIIIIIIII...IIIIIIIIIIII"));
 }
 
 void EncryptedHlsFormatTest::m3u8sIdentifierIsStrictAndRoundTrips()
