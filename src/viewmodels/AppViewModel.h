@@ -442,6 +442,7 @@ public:
     Q_INVOKABLE void deleteManagedTssl(int row);
     Q_INVOKABLE void chooseM3u8sVideo();
     Q_INVOKABLE void chooseM3u8sOutputDirectory();
+    Q_INVOKABLE void openM3u8sConfiguredOutputDirectory();
     Q_INVOKABLE void cancelM3u8sPackaging();
     Q_INVOKABLE void openM3u8sOutputDirectory();
     Q_INVOKABLE void openTsslStorageDirectory();

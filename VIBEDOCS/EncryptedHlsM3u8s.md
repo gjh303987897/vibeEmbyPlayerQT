@@ -90,6 +90,8 @@ normalized path.
 selects the source, output folder, encoding options, quality, and segment
 duration, then renders progress. The selected output folder and encoding
 options are persisted with `SessionRepository` and restored on the next launch.
+The manager can open the configured output root directly; after a package is
+created, a separate action opens that package's final digest-named directory.
 FFmpeg is started with separate program and argument values through `QProcess`.
 The application checks its executable directory first and then `PATH` for
 `ffmpeg` (`ffmpeg.exe` on Windows). A missing executable is reported before a

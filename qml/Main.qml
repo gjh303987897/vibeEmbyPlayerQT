@@ -10423,6 +10423,12 @@ ApplicationWindow {
                             text: t("m3u8s.chooseFolder")
                             onClicked: appViewModel.chooseM3u8sOutputDirectory()
                         }
+
+                        ModernButton {
+                            enabled: appViewModel.m3u8sOutputDirectory.length > 0
+                            text: t("m3u8s.openOutput")
+                            onClicked: appViewModel.openM3u8sConfiguredOutputDirectory()
+                        }
                     }
 
                     GridLayout {
@@ -10553,7 +10559,7 @@ ApplicationWindow {
 
                         ModernButton {
                             visible: appViewModel.m3u8sLastOutputDirectory.length > 0
-                            text: t("m3u8s.openOutput")
+                            text: t("m3u8s.openLastOutput")
                             onClicked: appViewModel.openM3u8sOutputDirectory()
                         }
 

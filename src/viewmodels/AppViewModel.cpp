@@ -643,6 +643,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("The encrypted video cannot be decrypted on this device without this key package.") },
         { QStringLiteral("m3u8s.openStorage"), QStringLiteral("Open key storage") },
         { QStringLiteral("m3u8s.openOutput"), QStringLiteral("Open output folder") },
+        { QStringLiteral("m3u8s.openLastOutput"), QStringLiteral("Open latest package") },
         { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL imported into local key storage") },
         { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL backup exported") },
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("Local TSSL package deleted") },
@@ -992,6 +993,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("删除后，本机将无法解密与该密钥包对应的视频。") },
         { QStringLiteral("m3u8s.openStorage"), QStringLiteral("打开密钥目录") },
         { QStringLiteral("m3u8s.openOutput"), QStringLiteral("打开输出目录") },
+        { QStringLiteral("m3u8s.openLastOutput"), QStringLiteral("打开最近生成目录") },
         { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL 已导入本机密钥存储") },
         { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL 备份已导出") },
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("本机 TSSL 密钥包已删除") },
@@ -4417,6 +4419,15 @@ void AppViewModel::chooseM3u8sOutputDirectory()
     m_m3u8sOutputDirectory = QFileInfo(directory).absoluteFilePath();
     m_repository.setM3u8sOutputDirectory(m_m3u8sOutputDirectory);
     emit m3u8sSettingsChanged();
+}
+
+void AppViewModel::openM3u8sConfiguredOutputDirectory()
+{
+    const QFileInfo outputDirectory(m_m3u8sOutputDirectory);
+    if (!outputDirectory.exists() || !outputDirectory.isDir() ||
+        !QDesktopServices::openUrl(QUrl::fromLocalFile(outputDirectory.absoluteFilePath()))) {
+        setError(trText(QStringLiteral("m3u8s.openFolderFailed")));
+    }
 }
 
 void AppViewModel::cancelM3u8sPackaging()
