@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QString>
+#include <QStringList>
 
 #include <atomic>
 #include <expected>
@@ -14,10 +15,30 @@
 
 class QTemporaryDir;
 
+enum class EncryptedHlsVideoEncoding {
+    Copy,
+    H264,
+    H265,
+};
+
+enum class EncryptedHlsAudioEncoding {
+    Copy,
+    Aac,
+};
+
+enum class EncryptedHlsVideoQuality {
+    High,
+    Balanced,
+    Compact,
+};
+
 struct EncryptedHlsPackageRequest final {
     QString sourcePath;
     QString outputDirectory;
     int segmentDurationSeconds { 6 };
+    EncryptedHlsVideoEncoding videoEncoding { EncryptedHlsVideoEncoding::H264 };
+    EncryptedHlsAudioEncoding audioEncoding { EncryptedHlsAudioEncoding::Aac };
+    EncryptedHlsVideoQuality videoQuality { EncryptedHlsVideoQuality::Balanced };
 };
 
 struct EncryptedHlsPreparedPackage final {
@@ -35,6 +56,11 @@ struct EncryptedHlsPackageResult final {
 };
 
 namespace EncryptedHlsPackaging {
+
+std::expected<QStringList, QString> buildFfmpegArguments(
+    const EncryptedHlsPackageRequest& request,
+    const QString& segmentPattern,
+    const QString& manifestPath);
 
 std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
     const QString& directoryPath,

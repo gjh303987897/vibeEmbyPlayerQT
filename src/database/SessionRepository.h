@@ -91,6 +91,14 @@ public:
     void setPageTransitionsEnabled(bool enabled);
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& directory);
+    QString m3u8sOutputDirectory() const;
+    void setM3u8sOutputDirectory(const QString& directory);
+    QString m3u8sVideoEncoding() const;
+    void setM3u8sVideoEncoding(const QString& encoding);
+    QString m3u8sAudioEncoding() const;
+    void setM3u8sAudioEncoding(const QString& encoding);
+    QString m3u8sVideoQuality() const;
+    void setM3u8sVideoQuality(const QString& quality);
 
 private:
     QString databasePath() const;

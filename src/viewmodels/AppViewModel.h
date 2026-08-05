@@ -82,6 +82,10 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString m3u8sLastOutputDirectory READ m3u8sLastOutputDirectory NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
     Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
+    Q_PROPERTY(QString m3u8sOutputDirectory READ m3u8sOutputDirectory NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sVideoEncoding READ m3u8sVideoEncoding WRITE setM3u8sVideoEncoding NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sAudioEncoding READ m3u8sAudioEncoding WRITE setM3u8sAudioEncoding NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sVideoQuality READ m3u8sVideoQuality WRITE setM3u8sVideoQuality NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(bool webDavAudioPlaybackActive READ webDavAudioPlaybackActive NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioCurrentIndex READ webDavAudioCurrentIndex NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioQueueCount READ webDavAudioQueueCount NOTIFY webDavAudioPlaybackChanged)
@@ -251,6 +255,13 @@ public:
     bool m3u8sFfmpegAvailable() const;
     int m3u8sSegmentDuration() const;
     void setM3u8sSegmentDuration(int value);
+    QString m3u8sOutputDirectory() const;
+    QString m3u8sVideoEncoding() const;
+    void setM3u8sVideoEncoding(const QString& value);
+    QString m3u8sAudioEncoding() const;
+    void setM3u8sAudioEncoding(const QString& value);
+    QString m3u8sVideoQuality() const;
+    void setM3u8sVideoQuality(const QString& value);
     void setWebDavDisplayMode(const QString& value);
     bool webDavAudioPlaybackActive() const;
     int webDavAudioCurrentIndex() const;
@@ -430,6 +441,7 @@ public:
     Q_INVOKABLE void exportManagedTssl(int row);
     Q_INVOKABLE void deleteManagedTssl(int row);
     Q_INVOKABLE void chooseM3u8sVideo();
+    Q_INVOKABLE void chooseM3u8sOutputDirectory();
     Q_INVOKABLE void cancelM3u8sPackaging();
     Q_INVOKABLE void openM3u8sOutputDirectory();
     Q_INVOKABLE void openTsslStorageDirectory();
@@ -529,6 +541,7 @@ signals:
     void m3u8sPackagingChanged();
     void m3u8sStatusChanged();
     void m3u8sSegmentDurationChanged();
+    void m3u8sSettingsChanged();
     void webDavAudioPlaybackChanged();
     void webDavAudioRepeatModeChanged();
     void defaultDownloadDirectoryChanged();
@@ -852,6 +865,10 @@ private:
     QString m_m3u8sStatus;
     QString m_m3u8sLastOutputDirectory;
     int m_m3u8sSegmentDuration { 6 };
+    QString m_m3u8sOutputDirectory;
+    QString m_m3u8sVideoEncoding { QStringLiteral("h264") };
+    QString m_m3u8sAudioEncoding { QStringLiteral("aac") };
+    QString m_m3u8sVideoQuality { QStringLiteral("balanced") };
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
     qint64 m_historyTotalNetworkBytesIn { 0 };

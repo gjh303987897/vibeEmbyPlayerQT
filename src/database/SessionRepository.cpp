@@ -1458,6 +1458,46 @@ void SessionRepository::setDefaultDownloadDirectory(const QString& directory)
     m_settings.setValue(QStringLiteral("webdav/defaultDownloadDirectory"), directory);
 }
 
+QString SessionRepository::m3u8sOutputDirectory() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/outputDirectory")).toString();
+}
+
+void SessionRepository::setM3u8sOutputDirectory(const QString& directory)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/outputDirectory"), directory);
+}
+
+QString SessionRepository::m3u8sVideoEncoding() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/videoEncoding"), QStringLiteral("h264")).toString();
+}
+
+void SessionRepository::setM3u8sVideoEncoding(const QString& encoding)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/videoEncoding"), encoding);
+}
+
+QString SessionRepository::m3u8sAudioEncoding() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/audioEncoding"), QStringLiteral("aac")).toString();
+}
+
+void SessionRepository::setM3u8sAudioEncoding(const QString& encoding)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/audioEncoding"), encoding);
+}
+
+QString SessionRepository::m3u8sVideoQuality() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/videoQuality"), QStringLiteral("balanced")).toString();
+}
+
+void SessionRepository::setM3u8sVideoQuality(const QString& quality)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/videoQuality"), quality);
+}
+
 QString SessionRepository::databasePath() const
 {
     if (!m_databasePathOverride.isEmpty()) {

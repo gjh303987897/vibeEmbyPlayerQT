@@ -87,17 +87,36 @@ normalized path.
 ## Local packaging
 
 `EncryptedHlsPackager` owns the asynchronous packaging workflow. QML only
-selects the source, output folder, and segment duration, then renders progress.
+selects the source, output folder, encoding options, quality, and segment
+duration, then renders progress. The selected output folder and encoding
+options are persisted with `SessionRepository` and restored on the next launch.
 FFmpeg is started with separate program and argument values through `QProcess`.
 The application checks its executable directory first and then `PATH` for
 `ffmpeg` (`ffmpeg.exe` on Windows). A missing executable is reported before a
 job starts.
 
+The page offers these encoding modes:
+
+- Video stream copy preserves the original encoded video without decode or
+  re-encode. Segment boundaries follow existing keyframes, so the requested
+  duration is approximate. FFmpeg reports an error instead of silently
+  transcoding when the source stream is incompatible with MPEG-TS HLS.
+- H.264 uses `libx264`; high, balanced, and compact quality map to CRF 18, 20,
+  and 24.
+- H.265 uses `libx265`; high, balanced, and compact quality map to CRF 20, 23,
+  and 28.
+- Audio stream copy preserves the original encoded audio with the same
+  compatibility limitation. AAC transcodes the optional first audio stream at
+  192 kbit/s.
+
 The workflow is:
 
-1. FFmpeg transcodes the first video stream to H.264 and the optional first
-   audio stream to AAC, then writes a closed-GOP HLS VOD into a temporary
-   staging directory.
+1. FFmpeg processes the first video stream and optional first audio stream with
+   the selected modes, then writes an MPEG-TS HLS VOD into a temporary staging
+   directory. Transcoded video uses a closed GOP with forced segment-boundary
+   keyframes, disables scene-cut keyframes with the encoder-specific option,
+   and declares independent segments. Stream-copy video does neither, because
+   the source keyframe layout cannot be changed without transcoding.
 2. Each TS file receives an independent random 256-bit key and 128-bit IV.
 3. The TS is encrypted with AES-256-GCM and immediately decrypted in memory to
    verify its authentication tag and plaintext before the original is
@@ -197,6 +216,8 @@ media key and must be handled as secrets.
 - Auxiliary resources are limited to 128 MiB.
 - Decrypted source basenames are limited to 4096 UTF-8 bytes.
 - Packaging segment duration is limited to 2 through 30 seconds.
+- Stream-copy packaging can fail when the original video or audio codec cannot
+  be represented in MPEG-TS HLS. There is no automatic transcode fallback.
 - Missing TSSL packages, digest or identifier mismatches, unregistered paths,
   unavailable OpenSSL EVP support, network failures, and authentication
   failures all stop playback. There is no unauthenticated fallback.
@@ -208,9 +229,10 @@ authentication, restore/export, strict identifiers, AES-GCM vectors,
 randomized encryption, and malformed packages. `EncryptedHlsPlaybackProxyTest`
 covers identifier matching plus authenticated WebDAV and local playback.
 `EncryptedHlsPackagerTest` covers in-place HLS encryption, opaque output names,
-source-name recovery, cancellation, tag-tamper rejection, and an end-to-end
-FFmpeg package. `LocalMediaServiceTest` covers local M3U8S discovery and
-generated-segment filtering.
+source-name recovery, cancellation, tag-tamper rejection, FFmpeg argument
+selection for copy/H.264/H.265 modes, and an end-to-end FFmpeg package.
+`LocalMediaServiceTest` covers local M3U8S discovery and generated-segment
+filtering.
 
 ## Standards references
 

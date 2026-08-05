@@ -10391,6 +10391,142 @@ ApplicationWindow {
                         spacing: 12
 
                         Label {
+                            Layout.preferredWidth: 112
+                            text: t("m3u8s.outputDirectory")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredHeight: 38
+                            radius: 8
+                            color: theme.input
+                            border.color: theme.border
+
+                            Label {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                text: appViewModel.m3u8sOutputDirectory
+                                color: theme.text
+                                font.pixelSize: 13
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        ModernButton {
+                            enabled: !appViewModel.m3u8sPackaging
+                            text: t("m3u8s.chooseFolder")
+                            onClicked: appViewModel.chooseM3u8sOutputDirectory()
+                        }
+                    }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: width < 760 ? 1 : 3
+                        columnSpacing: 12
+                        rowSpacing: 10
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
+                            spacing: 6
+
+                            Label {
+                                text: t("m3u8s.videoEncoding")
+                                color: theme.text
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+
+                            ModernComboBox {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                enabled: !appViewModel.m3u8sPackaging
+                                textRole: "label"
+                                valueRole: "value"
+                                model: [
+                                    { label: t("m3u8s.encodingCopy"), value: "copy" },
+                                    { label: t("m3u8s.encodingH264"), value: "h264" },
+                                    { label: t("m3u8s.encodingH265"), value: "h265" }
+                                ]
+                                currentIndex: appViewModel.m3u8sVideoEncoding === "copy" ? 0
+                                    : appViewModel.m3u8sVideoEncoding === "h265" ? 2 : 1
+                                onActivated: appViewModel.m3u8sVideoEncoding = model[index].value
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
+                            spacing: 6
+
+                            Label {
+                                text: t("m3u8s.audioEncoding")
+                                color: theme.text
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+
+                            ModernComboBox {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                enabled: !appViewModel.m3u8sPackaging
+                                textRole: "label"
+                                valueRole: "value"
+                                model: [
+                                    { label: t("m3u8s.encodingCopy"), value: "copy" },
+                                    { label: t("m3u8s.audioAac"), value: "aac" }
+                                ]
+                                currentIndex: appViewModel.m3u8sAudioEncoding === "copy" ? 0 : 1
+                                onActivated: appViewModel.m3u8sAudioEncoding = model[index].value
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
+                            spacing: 6
+
+                            Label {
+                                text: t("m3u8s.videoQuality")
+                                color: theme.text
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+
+                            ModernComboBox {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                enabled: !appViewModel.m3u8sPackaging
+                                    && appViewModel.m3u8sVideoEncoding !== "copy"
+                                opacity: enabled ? 1.0 : 0.5
+                                textRole: "label"
+                                valueRole: "value"
+                                model: [
+                                    { label: t("m3u8s.qualityHigh"), value: "high" },
+                                    { label: t("m3u8s.qualityBalanced"), value: "balanced" },
+                                    { label: t("m3u8s.qualityCompact"), value: "compact" }
+                                ]
+                                currentIndex: appViewModel.m3u8sVideoQuality === "high" ? 0
+                                    : appViewModel.m3u8sVideoQuality === "compact" ? 2 : 1
+                                onActivated: appViewModel.m3u8sVideoQuality = model[index].value
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
                             text: t("m3u8s.segmentDuration")
                             color: theme.text
                             font.pixelSize: 13
@@ -10431,6 +10567,7 @@ ApplicationWindow {
                         ModernButton {
                             visible: !appViewModel.m3u8sPackaging
                             enabled: appViewModel.m3u8sFfmpegAvailable
+                                && appViewModel.m3u8sOutputDirectory.length > 0
                             text: t("m3u8s.createAction")
                             onClicked: appViewModel.chooseM3u8sVideo()
                         }

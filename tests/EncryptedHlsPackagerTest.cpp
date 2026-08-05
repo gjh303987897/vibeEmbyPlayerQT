@@ -29,6 +29,12 @@ QByteArray tinyY4mVideo()
     }
     return video;
 }
+
+bool containsArgumentPair(const QStringList& arguments, const QString& option, const QString& value)
+{
+    const auto index = arguments.indexOf(option);
+    return index >= 0 && index + 1 < arguments.size() && arguments.at(index + 1) == value;
+}
 }
 
 class EncryptedHlsPackagerTest final : public QObject {
@@ -37,6 +43,7 @@ class EncryptedHlsPackagerTest final : public QObject {
 private slots:
     void encryptsEverySegmentAndCreatesMatchingMetadata();
     void honorsCancellationBeforeEncryptingPlaintext();
+    void buildsFfmpegArgumentsForSelectedEncodings();
     void packagesNormalVideoThroughFfmpeg();
 };
 
@@ -138,6 +145,62 @@ void EncryptedHlsPackagerTest::honorsCancellationBeforeEncryptingPlaintext()
     QFile segment(segmentPath);
     QVERIFY(segment.open(QIODevice::ReadOnly));
     QCOMPARE(segment.readAll(), plaintext);
+}
+
+void EncryptedHlsPackagerTest::buildsFfmpegArgumentsForSelectedEncodings()
+{
+    const auto build = [](EncryptedHlsVideoEncoding video,
+                          EncryptedHlsAudioEncoding audio,
+                          EncryptedHlsVideoQuality quality = EncryptedHlsVideoQuality::Balanced) {
+        return EncryptedHlsPackaging::buildFfmpegArguments(
+            EncryptedHlsPackageRequest {
+                .sourcePath = QStringLiteral("input.mkv"),
+                .outputDirectory = QStringLiteral("output"),
+                .segmentDurationSeconds = 6,
+                .videoEncoding = video,
+                .audioEncoding = audio,
+                .videoQuality = quality,
+            },
+            QStringLiteral("segment_%06d.ts"),
+            QStringLiteral("index.m3u8"));
+    };
+
+    const auto copied = build(EncryptedHlsVideoEncoding::Copy, EncryptedHlsAudioEncoding::Copy);
+    QVERIFY(copied.has_value());
+    QVERIFY(containsArgumentPair(*copied, QStringLiteral("-c:v"), QStringLiteral("copy")));
+    QVERIFY(containsArgumentPair(*copied, QStringLiteral("-c:a"), QStringLiteral("copy")));
+    QVERIFY(containsArgumentPair(*copied, QStringLiteral("-hls_flags"), QStringLiteral("temp_file")));
+    QVERIFY(!copied->contains(QStringLiteral("-force_key_frames")));
+    QVERIFY(!copied->contains(QStringLiteral("independent_segments+temp_file")));
+
+    const auto h264 = build(EncryptedHlsVideoEncoding::H264,
+                            EncryptedHlsAudioEncoding::Aac,
+                            EncryptedHlsVideoQuality::High);
+    QVERIFY(h264.has_value());
+    QVERIFY(containsArgumentPair(*h264, QStringLiteral("-c:v"), QStringLiteral("libx264")));
+    QVERIFY(containsArgumentPair(*h264, QStringLiteral("-crf"), QStringLiteral("18")));
+    QVERIFY(containsArgumentPair(*h264, QStringLiteral("-c:a"), QStringLiteral("aac")));
+    QVERIFY(h264->contains(QStringLiteral("-force_key_frames")));
+    QVERIFY(h264->contains(QStringLiteral("independent_segments+temp_file")));
+    QVERIFY(containsArgumentPair(*h264, QStringLiteral("-sc_threshold"), QStringLiteral("0")));
+    QVERIFY(!h264->contains(QStringLiteral("-x265-params")));
+
+    const auto h265 = build(EncryptedHlsVideoEncoding::H265,
+                            EncryptedHlsAudioEncoding::Aac,
+                            EncryptedHlsVideoQuality::Compact);
+    QVERIFY(h265.has_value());
+    QVERIFY(containsArgumentPair(*h265, QStringLiteral("-c:v"), QStringLiteral("libx265")));
+    QVERIFY(containsArgumentPair(*h265, QStringLiteral("-crf"), QStringLiteral("28")));
+    QVERIFY(containsArgumentPair(*h265, QStringLiteral("-x265-params"), QStringLiteral("scenecut=0")));
+    QVERIFY(!h265->contains(QStringLiteral("-sc_threshold")));
+
+    const auto invalidVideo = build(static_cast<EncryptedHlsVideoEncoding>(99),
+                                    EncryptedHlsAudioEncoding::Aac);
+    QVERIFY(!invalidVideo.has_value());
+    const auto invalidQuality = build(EncryptedHlsVideoEncoding::H264,
+                                      EncryptedHlsAudioEncoding::Aac,
+                                      static_cast<EncryptedHlsVideoQuality>(99));
+    QVERIFY(!invalidQuality.has_value());
 }
 
 void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()

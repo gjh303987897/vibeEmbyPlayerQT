@@ -313,6 +313,69 @@ QString normalizedTheme(const QString& mode)
     return QStringLiteral("dark");
 }
 
+QString normalizedM3u8sVideoEncoding(const QString& value)
+{
+    if (value == QStringLiteral("copy") || value == QStringLiteral("h264") ||
+        value == QStringLiteral("h265")) {
+        return value;
+    }
+    return QStringLiteral("h264");
+}
+
+QString normalizedM3u8sAudioEncoding(const QString& value)
+{
+    return value == QStringLiteral("copy") ? value : QStringLiteral("aac");
+}
+
+QString normalizedM3u8sVideoQuality(const QString& value)
+{
+    if (value == QStringLiteral("high") || value == QStringLiteral("balanced") ||
+        value == QStringLiteral("compact")) {
+        return value;
+    }
+    return QStringLiteral("balanced");
+}
+
+QString defaultM3u8sOutputDirectory()
+{
+    const std::array locations {
+        QStandardPaths::writableLocation(QStandardPaths::MoviesLocation),
+        QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
+    };
+    const auto usable = std::ranges::find_if(locations, [](const QString& location) {
+        const QFileInfo info(location);
+        return !location.isEmpty() && info.exists() && info.isDir() && info.isWritable();
+    });
+    return usable == locations.end() ? QString() : QFileInfo(*usable).absoluteFilePath();
+}
+
+EncryptedHlsVideoEncoding m3u8sVideoEncodingFor(const QString& value)
+{
+    if (value == QStringLiteral("copy")) {
+        return EncryptedHlsVideoEncoding::Copy;
+    }
+    return value == QStringLiteral("h265")
+        ? EncryptedHlsVideoEncoding::H265
+        : EncryptedHlsVideoEncoding::H264;
+}
+
+EncryptedHlsAudioEncoding m3u8sAudioEncodingFor(const QString& value)
+{
+    return value == QStringLiteral("copy")
+        ? EncryptedHlsAudioEncoding::Copy
+        : EncryptedHlsAudioEncoding::Aac;
+}
+
+EncryptedHlsVideoQuality m3u8sVideoQualityFor(const QString& value)
+{
+    if (value == QStringLiteral("high")) {
+        return EncryptedHlsVideoQuality::High;
+    }
+    return value == QStringLiteral("compact")
+        ? EncryptedHlsVideoQuality::Compact
+        : EncryptedHlsVideoQuality::Balanced;
+}
+
 QString systemLanguage()
 {
     const auto name = QLocale::system().name();
@@ -542,11 +605,23 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.createTitle"), QStringLiteral("Create encrypted video package") },
         { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("Choose a local video. The upload-ready output contains an M3U8S manifest and authenticated TS segments; its TSSL keys stay on this device.") },
         { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose video and create") },
+        { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("Output folder") },
+        { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("Choose folder") },
+        { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("Video encoding") },
+        { QStringLiteral("m3u8s.audioEncoding"), QStringLiteral("Audio encoding") },
+        { QStringLiteral("m3u8s.videoQuality"), QStringLiteral("Video quality") },
+        { QStringLiteral("m3u8s.encodingCopy"), QStringLiteral("Keep original (stream copy)") },
+        { QStringLiteral("m3u8s.encodingH264"), QStringLiteral("H.264 (AVC)") },
+        { QStringLiteral("m3u8s.encodingH265"), QStringLiteral("H.265 (HEVC)") },
+        { QStringLiteral("m3u8s.audioAac"), QStringLiteral("AAC") },
+        { QStringLiteral("m3u8s.qualityHigh"), QStringLiteral("High quality") },
+        { QStringLiteral("m3u8s.qualityBalanced"), QStringLiteral("Balanced") },
+        { QStringLiteral("m3u8s.qualityCompact"), QStringLiteral("Smaller file") },
         { QStringLiteral("m3u8s.segmentDuration"), QStringLiteral("Segment duration") },
         { QStringLiteral("m3u8s.seconds"), QStringLiteral("%1 seconds") },
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg ready") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("FFmpeg not found") },
-        { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("Transcoding and segmenting video") },
+        { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("Preparing and segmenting video") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("Encrypting and verifying TS segments") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("Publishing media and saving TSSL keys locally") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("Canceling and cleaning temporary files") },
@@ -575,6 +650,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("Legacy or invalid TSSL package") },
         { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("Choose a video to package") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("Choose an output folder") },
+        { QStringLiteral("m3u8s.invalidOutput"), QStringLiteral("Choose an available writable output folder") },
         { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("The folder could not be opened") },
         { QStringLiteral("globalHistory.localIndex"), QStringLiteral("Local index") },
         { QStringLiteral("globalHistory.recordCount"), QStringLiteral("%1 loaded") },
@@ -878,11 +954,23 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.createTitle"), QStringLiteral("创建加密视频包") },
         { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("选择本地视频，待上传目录仅包含 M3U8S 清单和经过认证的 TS 分片；TSSL 密钥只保存在本机。") },
         { QStringLiteral("m3u8s.createAction"), QStringLiteral("选择视频并创建") },
+        { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("输出目录") },
+        { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("选择目录") },
+        { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("视频编码") },
+        { QStringLiteral("m3u8s.audioEncoding"), QStringLiteral("音频编码") },
+        { QStringLiteral("m3u8s.videoQuality"), QStringLiteral("视频质量") },
+        { QStringLiteral("m3u8s.encodingCopy"), QStringLiteral("保留原格式（直接复制）") },
+        { QStringLiteral("m3u8s.encodingH264"), QStringLiteral("H.264（AVC）") },
+        { QStringLiteral("m3u8s.encodingH265"), QStringLiteral("H.265（HEVC）") },
+        { QStringLiteral("m3u8s.audioAac"), QStringLiteral("AAC") },
+        { QStringLiteral("m3u8s.qualityHigh"), QStringLiteral("高质量") },
+        { QStringLiteral("m3u8s.qualityBalanced"), QStringLiteral("均衡") },
+        { QStringLiteral("m3u8s.qualityCompact"), QStringLiteral("较小体积") },
         { QStringLiteral("m3u8s.segmentDuration"), QStringLiteral("分片时长") },
         { QStringLiteral("m3u8s.seconds"), QStringLiteral("%1 秒") },
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg 已就绪") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("未找到 FFmpeg") },
-        { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("正在转码并切分视频") },
+        { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("正在准备并切分视频") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("正在加密并验证 TS 分片") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("正在发布媒体并在本机保存 TSSL 密钥") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("正在取消并清理临时文件") },
@@ -911,6 +999,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("旧版或无效的 TSSL 密钥包") },
         { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("选择要打包的视频") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("选择输出目录") },
+        { QStringLiteral("m3u8s.invalidOutput"), QStringLiteral("请选择可用且可写的输出目录") },
         { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("无法打开该目录") },
         { QStringLiteral("globalHistory.localIndex"), QStringLiteral("本地索引") },
         { QStringLiteral("globalHistory.recordCount"), QStringLiteral("已加载 %1 条") },
@@ -1581,6 +1670,59 @@ void AppViewModel::setM3u8sSegmentDuration(int value)
     }
     m_m3u8sSegmentDuration = normalized;
     emit m3u8sSegmentDurationChanged();
+}
+
+QString AppViewModel::m3u8sOutputDirectory() const
+{
+    return m_m3u8sOutputDirectory;
+}
+
+QString AppViewModel::m3u8sVideoEncoding() const
+{
+    return m_m3u8sVideoEncoding;
+}
+
+void AppViewModel::setM3u8sVideoEncoding(const QString& value)
+{
+    const auto normalized = normalizedM3u8sVideoEncoding(value);
+    if (m_m3u8sVideoEncoding == normalized) {
+        return;
+    }
+    m_m3u8sVideoEncoding = normalized;
+    m_repository.setM3u8sVideoEncoding(normalized);
+    emit m3u8sSettingsChanged();
+}
+
+QString AppViewModel::m3u8sAudioEncoding() const
+{
+    return m_m3u8sAudioEncoding;
+}
+
+void AppViewModel::setM3u8sAudioEncoding(const QString& value)
+{
+    const auto normalized = normalizedM3u8sAudioEncoding(value);
+    if (m_m3u8sAudioEncoding == normalized) {
+        return;
+    }
+    m_m3u8sAudioEncoding = normalized;
+    m_repository.setM3u8sAudioEncoding(normalized);
+    emit m3u8sSettingsChanged();
+}
+
+QString AppViewModel::m3u8sVideoQuality() const
+{
+    return m_m3u8sVideoQuality;
+}
+
+void AppViewModel::setM3u8sVideoQuality(const QString& value)
+{
+    const auto normalized = normalizedM3u8sVideoQuality(value);
+    if (m_m3u8sVideoQuality == normalized) {
+        return;
+    }
+    m_m3u8sVideoQuality = normalized;
+    m_repository.setM3u8sVideoQuality(normalized);
+    emit m3u8sSettingsChanged();
 }
 
 bool AppViewModel::webDavAudioPlaybackActive() const
@@ -2448,10 +2590,18 @@ void AppViewModel::initialize()
     m_themeMode = normalizedTheme(m_repository.themeMode());
     m_languageMode = normalizedLanguage(m_repository.languageMode());
     m_defaultDownloadDirectory = m_repository.defaultDownloadDirectory();
+    const auto savedM3u8sOutputDirectory = m_repository.m3u8sOutputDirectory();
+    m_m3u8sOutputDirectory = savedM3u8sOutputDirectory.isEmpty()
+        ? defaultM3u8sOutputDirectory()
+        : QFileInfo(savedM3u8sOutputDirectory).absoluteFilePath();
+    m_m3u8sVideoEncoding = normalizedM3u8sVideoEncoding(m_repository.m3u8sVideoEncoding());
+    m_m3u8sAudioEncoding = normalizedM3u8sAudioEncoding(m_repository.m3u8sAudioEncoding());
+    m_m3u8sVideoQuality = normalizedM3u8sVideoQuality(m_repository.m3u8sVideoQuality());
     emit themeModeChanged();
     emit effectiveThemeChanged();
     emit languageModeChanged();
     emit defaultDownloadDirectoryChanged();
+    emit m3u8sSettingsChanged();
     emit privacyPinChanged();
     emit translationsChanged();
     refreshServiceCards();
@@ -4220,6 +4370,11 @@ void AppViewModel::chooseM3u8sVideo()
     if (m_m3u8sPackager.isRunning()) {
         return;
     }
+    const QFileInfo outputDirectory(m_m3u8sOutputDirectory);
+    if (!outputDirectory.exists() || !outputDirectory.isDir() || !outputDirectory.isWritable()) {
+        setError(trText(QStringLiteral("m3u8s.invalidOutput")));
+        return;
+    }
     const auto source = QFileDialog::getOpenFileName(
         nullptr,
         trText(QStringLiteral("m3u8s.chooseVideo")),
@@ -4228,27 +4383,40 @@ void AppViewModel::chooseM3u8sVideo()
     if (source.isEmpty()) {
         return;
     }
-    const auto outputDirectory = QFileDialog::getExistingDirectory(
-        nullptr,
-        trText(QStringLiteral("m3u8s.chooseOutput")),
-        QFileInfo(source).absolutePath());
-    if (outputDirectory.isEmpty()) {
-        return;
-    }
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.processingStatus"));
     m_m3u8sLastOutputDirectory.clear();
     emit m3u8sStatusChanged();
     const auto started = m_m3u8sPackager.start(EncryptedHlsPackageRequest {
         .sourcePath = source,
-        .outputDirectory = outputDirectory,
+        .outputDirectory = outputDirectory.absoluteFilePath(),
         .segmentDurationSeconds = m_m3u8sSegmentDuration,
+        .videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding),
+        .audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding),
+        .videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality),
     });
     if (!started) {
         m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
         emit m3u8sStatusChanged();
         setError(started.error());
     }
+}
+
+void AppViewModel::chooseM3u8sOutputDirectory()
+{
+    if (m_m3u8sPackager.isRunning()) {
+        return;
+    }
+    const auto directory = QFileDialog::getExistingDirectory(
+        nullptr,
+        trText(QStringLiteral("m3u8s.chooseOutput")),
+        m_m3u8sOutputDirectory.isEmpty() ? defaultM3u8sOutputDirectory() : m_m3u8sOutputDirectory);
+    if (directory.isEmpty()) {
+        return;
+    }
+    m_m3u8sOutputDirectory = QFileInfo(directory).absoluteFilePath();
+    m_repository.setM3u8sOutputDirectory(m_m3u8sOutputDirectory);
+    emit m3u8sSettingsChanged();
 }
 
 void AppViewModel::cancelM3u8sPackaging()

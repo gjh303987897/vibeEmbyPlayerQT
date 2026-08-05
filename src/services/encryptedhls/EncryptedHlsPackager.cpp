@@ -64,9 +64,116 @@ QByteArray identifierFromRandomBytes(QByteArrayView randomBytes)
     return QByteArray(randomBytes.data(), randomBytes.size())
         .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
 }
+
+int crfFor(EncryptedHlsVideoEncoding encoding, EncryptedHlsVideoQuality quality)
+{
+    if (encoding == EncryptedHlsVideoEncoding::H265) {
+        switch (quality) {
+        case EncryptedHlsVideoQuality::High: return 20;
+        case EncryptedHlsVideoQuality::Balanced: return 23;
+        case EncryptedHlsVideoQuality::Compact: return 28;
+        }
+    }
+    switch (quality) {
+    case EncryptedHlsVideoQuality::High: return 18;
+    case EncryptedHlsVideoQuality::Balanced: return 20;
+    case EncryptedHlsVideoQuality::Compact: return 24;
+    }
+    return 20;
+}
 }
 
 namespace EncryptedHlsPackaging {
+
+std::expected<QStringList, QString> buildFfmpegArguments(
+    const EncryptedHlsPackageRequest& request,
+    const QString& segmentPattern,
+    const QString& manifestPath)
+{
+    if (request.sourcePath.isEmpty() || segmentPattern.isEmpty() || manifestPath.isEmpty()) {
+        return std::unexpected(QStringLiteral("FFmpeg input and output paths must not be empty"));
+    }
+    if (request.segmentDurationSeconds < 2 || request.segmentDurationSeconds > 30) {
+        return std::unexpected(QStringLiteral("HLS segment duration must be between 2 and 30 seconds"));
+    }
+    switch (request.videoQuality) {
+    case EncryptedHlsVideoQuality::High:
+    case EncryptedHlsVideoQuality::Balanced:
+    case EncryptedHlsVideoQuality::Compact:
+        break;
+    default:
+        return std::unexpected(QStringLiteral("Unsupported M3U8S video quality"));
+    }
+
+    const auto duration = QString::number(request.segmentDurationSeconds);
+    QStringList arguments {
+        QStringLiteral("-hide_banner"),
+        QStringLiteral("-nostdin"),
+        QStringLiteral("-y"),
+        QStringLiteral("-i"), request.sourcePath,
+        QStringLiteral("-map"), QStringLiteral("0:v:0"),
+        QStringLiteral("-map"), QStringLiteral("0:a:0?"),
+        QStringLiteral("-sn"),
+    };
+
+    switch (request.videoEncoding) {
+    case EncryptedHlsVideoEncoding::Copy:
+        arguments.append({ QStringLiteral("-c:v"), QStringLiteral("copy") });
+        break;
+    case EncryptedHlsVideoEncoding::H264:
+    case EncryptedHlsVideoEncoding::H265:
+        arguments.append({
+            QStringLiteral("-c:v"),
+            request.videoEncoding == EncryptedHlsVideoEncoding::H264
+                ? QStringLiteral("libx264")
+                : QStringLiteral("libx265"),
+            QStringLiteral("-preset"), QStringLiteral("veryfast"),
+            QStringLiteral("-crf"), QString::number(crfFor(request.videoEncoding, request.videoQuality)),
+            QStringLiteral("-pix_fmt"), QStringLiteral("yuv420p"),
+            QStringLiteral("-flags"), QStringLiteral("+cgop"),
+        });
+        arguments.append(request.videoEncoding == EncryptedHlsVideoEncoding::H264
+                             ? QStringList { QStringLiteral("-sc_threshold"), QStringLiteral("0") }
+                             : QStringList { QStringLiteral("-x265-params"), QStringLiteral("scenecut=0") });
+        arguments.append({
+            QStringLiteral("-force_key_frames"),
+            QStringLiteral("expr:gte(t,n_forced*") + duration + QLatin1Char(')'),
+        });
+        break;
+    default:
+        return std::unexpected(QStringLiteral("Unsupported M3U8S video encoding mode"));
+    }
+
+    switch (request.audioEncoding) {
+    case EncryptedHlsAudioEncoding::Copy:
+        arguments.append({ QStringLiteral("-c:a"), QStringLiteral("copy") });
+        break;
+    case EncryptedHlsAudioEncoding::Aac:
+        arguments.append({
+            QStringLiteral("-c:a"), QStringLiteral("aac"),
+            QStringLiteral("-b:a"), QStringLiteral("192k"),
+        });
+        break;
+    default:
+        return std::unexpected(QStringLiteral("Unsupported M3U8S audio encoding mode"));
+    }
+
+    const auto hlsFlags = request.videoEncoding == EncryptedHlsVideoEncoding::Copy
+        ? QStringLiteral("temp_file")
+        : QStringLiteral("independent_segments+temp_file");
+    arguments.append({
+        QStringLiteral("-f"), QStringLiteral("hls"),
+        QStringLiteral("-hls_time"), duration,
+        QStringLiteral("-hls_playlist_type"), QStringLiteral("vod"),
+        QStringLiteral("-hls_segment_type"), QStringLiteral("mpegts"),
+        QStringLiteral("-hls_flags"), hlsFlags,
+        QStringLiteral("-hls_segment_filename"), segmentPattern,
+        QStringLiteral("-progress"), QStringLiteral("pipe:1"),
+        QStringLiteral("-nostats"),
+        manifestPath,
+    });
+    return arguments;
+}
 
 std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
     const QString& directoryPath,
@@ -309,6 +416,24 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
         return std::unexpected(QStringLiteral("Unable to create a temporary packaging directory"));
     }
 
+    const auto segmentPattern = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("segment_%06d.ts"));
+    const auto manifestPath = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("index.m3u8"));
+    auto arguments = EncryptedHlsPackaging::buildFfmpegArguments(
+        EncryptedHlsPackageRequest {
+            .sourcePath = source.absoluteFilePath(),
+            .outputDirectory = m_outputDirectory,
+            .segmentDurationSeconds = request.segmentDurationSeconds,
+            .videoEncoding = request.videoEncoding,
+            .audioEncoding = request.audioEncoding,
+            .videoQuality = request.videoQuality,
+        },
+        segmentPattern,
+        manifestPath);
+    if (!arguments) {
+        resetRunState();
+        return std::unexpected(arguments.error());
+    }
+
     m_cancelRequested.store(false, std::memory_order_relaxed);
     m_terminalReported = false;
     m_durationMicroseconds = 0;
@@ -319,39 +444,9 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
     setProgress(0.01);
     setPhase(QStringLiteral("segmenting"));
 
-    const auto segmentPattern = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("segment_%06d.ts"));
-    const auto manifestPath = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("index.m3u8"));
-    const auto duration = QString::number(request.segmentDurationSeconds);
-    const QStringList arguments {
-        QStringLiteral("-hide_banner"),
-        QStringLiteral("-nostdin"),
-        QStringLiteral("-y"),
-        QStringLiteral("-i"), source.absoluteFilePath(),
-        QStringLiteral("-map"), QStringLiteral("0:v:0"),
-        QStringLiteral("-map"), QStringLiteral("0:a:0?"),
-        QStringLiteral("-sn"),
-        QStringLiteral("-c:v"), QStringLiteral("libx264"),
-        QStringLiteral("-preset"), QStringLiteral("veryfast"),
-        QStringLiteral("-crf"), QStringLiteral("20"),
-        QStringLiteral("-pix_fmt"), QStringLiteral("yuv420p"),
-        QStringLiteral("-flags"), QStringLiteral("+cgop"),
-        QStringLiteral("-sc_threshold"), QStringLiteral("0"),
-        QStringLiteral("-force_key_frames"), QStringLiteral("expr:gte(t,n_forced*") + duration + QLatin1Char(')'),
-        QStringLiteral("-c:a"), QStringLiteral("aac"),
-        QStringLiteral("-b:a"), QStringLiteral("192k"),
-        QStringLiteral("-f"), QStringLiteral("hls"),
-        QStringLiteral("-hls_time"), duration,
-        QStringLiteral("-hls_playlist_type"), QStringLiteral("vod"),
-        QStringLiteral("-hls_flags"), QStringLiteral("independent_segments+temp_file"),
-        QStringLiteral("-hls_segment_filename"), segmentPattern,
-        QStringLiteral("-progress"), QStringLiteral("pipe:1"),
-        QStringLiteral("-nostats"),
-        manifestPath,
-    };
-
     AppLogger::info(QStringLiteral("encrypted-hls"),
                     QStringLiteral("Starting local video segmentation for an M3U8S package"));
-    m_ffmpeg.start(ffmpeg, arguments, QIODevice::ReadOnly);
+    m_ffmpeg.start(ffmpeg, *arguments, QIODevice::ReadOnly);
     return {};
 }
 
