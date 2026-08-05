@@ -87,6 +87,8 @@ public:
     void setThemeMode(const QString& mode);
     QString languageMode() const;
     void setLanguageMode(const QString& mode);
+    QString embyHomeLayout() const;
+    void setEmbyHomeLayout(const QString& layout);
     bool pageTransitionsEnabled() const;
     void setPageTransitionsEnabled(bool enabled);
     QString defaultDownloadDirectory() const;

@@ -115,6 +115,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
     Q_PROPERTY(QString effectiveTheme READ effectiveTheme NOTIFY effectiveThemeChanged)
     Q_PROPERTY(QString languageMode READ languageMode WRITE setLanguageMode NOTIFY languageModeChanged)
+    Q_PROPERTY(QString embyHomeLayout READ embyHomeLayout WRITE setEmbyHomeLayout NOTIFY embyHomeLayoutChanged)
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
@@ -158,6 +159,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool privacyPinConfigured READ privacyPinConfigured NOTIFY privacyPinChanged)
     Q_PROPERTY(MediaLibraryListModel* libraries READ libraries CONSTANT)
     Q_PROPERTY(MediaItemListModel* continueItems READ continueItems CONSTANT)
+    Q_PROPERTY(MediaItemListModel* recommendedItems READ recommendedItems CONSTANT)
     Q_PROPERTY(MediaItemListModel* items READ items CONSTANT)
     Q_PROPERTY(MediaItemListModel* serverSearchResults READ serverSearchResults CONSTANT)
     Q_PROPERTY(MediaItemListModel* seriesSeasons READ seriesSeasons CONSTANT)
@@ -302,6 +304,8 @@ public:
     QString effectiveTheme() const;
     QString languageMode() const;
     void setLanguageMode(const QString& value);
+    QString embyHomeLayout() const;
+    void setEmbyHomeLayout(const QString& value);
     bool pageTransitionsEnabled() const;
     void setPageTransitionsEnabled(bool value);
     int translationRevision() const;
@@ -349,6 +353,7 @@ public:
     bool privacyPinConfigured() const;
     MediaLibraryListModel* libraries();
     MediaItemListModel* continueItems();
+    MediaItemListModel* recommendedItems();
     MediaItemListModel* items();
     MediaItemListModel* serverSearchResults();
     MediaItemListModel* seriesSeasons();
@@ -505,6 +510,7 @@ public:
     Q_INVOKABLE void openServerSearchItem(int row);
     Q_INVOKABLE void openLibrary(int row);
     Q_INVOKABLE void openContinueItem(int row);
+    Q_INVOKABLE void openRecommendedItem(int row);
     Q_INVOKABLE void openItem(int row);
     Q_INVOKABLE void selectSeason(int row);
     Q_INVOKABLE void openEpisode(int row);
@@ -556,6 +562,7 @@ signals:
     void themeModeChanged();
     void effectiveThemeChanged();
     void languageModeChanged();
+    void embyHomeLayoutChanged();
     void pageTransitionsEnabledChanged();
     void translationsChanged();
     void loadingChanged();
@@ -697,6 +704,7 @@ private:
     void applyReportedPlaybackProgress(const QString& itemId, qint64 positionTicks);
     void mergeRecentPlaybackProgress(std::vector<MediaItem>& items) const;
     void refreshContinueWatching();
+    void refreshRecommendations();
     void clearServerSearchState(bool clearText = true);
     void loadServerSearchResults(bool resetItems);
     void openMediaItemDetails(const MediaItem& item, bool returnToSearch);
@@ -851,6 +859,7 @@ private:
     ScheduledPlaybackTaskListModel m_scheduledPlaybackTasks;
     MediaLibraryListModel m_libraries;
     MediaItemListModel m_continueItems;
+    MediaItemListModel m_recommendedItems;
     MediaItemListModel m_items;
     MediaItemListModel m_serverSearchResults;
     MediaItemListModel m_seriesSeasons;

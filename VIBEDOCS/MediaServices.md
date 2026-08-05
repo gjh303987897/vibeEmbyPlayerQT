@@ -60,16 +60,26 @@ QML does not make network requests and does not parse JSON.
 
 ## Service Home
 
-- Emby / Jellyfin service home loads two independent sections:
+- Emby / Jellyfin service home loads independent home models:
+  - Emby suggested series
   - continue watching
   - user libraries
-- The Emby and Jellyfin home/search-results views expose the same server-wide search control in the top toolbar, alongside settings and service navigation.
+- The shared media home uses Emby suggested series for its cinematic featured
+  backdrop and falls back to continue watching when suggestions are unavailable.
+  Landscape continue-watching and library rails follow below. See
+  `MediaHomeUi.md` for its presentation and interaction contract.
+- Emby users can switch between the default trendy home and the original
+  traditional home from application settings. The traditional presentation
+  uses the standard toolbar, portrait continue-watching rail, and library grid;
+  it shares the same service models and commands. Jellyfin remains on the
+  trendy presentation.
+- The home toolbar exposes an explicit return button, service identity, a long inline server-wide search field, and refresh. The old Home / Libraries / Settings segmented shortcuts are intentionally omitted.
 - Search requests stay behind `MediaServiceClient`: `EmbyClient` uses the Emby user-items endpoint and `JellyfinClient` uses the official Jellyfin `GetItems` operation. QML only edits the query, submits it and renders state exposed by `AppViewModel`.
 - Search results use their own paginated model, reuse the normal media poster and details flow, and retain the result list when returning from details.
 - Continue-watching clicks open the item details page. Direct playback from this section is intentionally not implemented yet.
 - Continue watching is rendered as a horizontal carousel with left / right scroll buttons and touchpad / mouse wheel scrolling.
 - Continue-watching episode cards prefer the parent series primary image when the server returns `SeriesId` and `SeriesPrimaryImageTag`; otherwise they fall back to the item primary image.
-- Continue-watching cards expose title, season / episode text and watched percentage through the C++ model and ViewModel formatting helpers.
+- Continue-watching cards expose title, parent series name, season / episode text and watched percentage through the C++ model and ViewModel formatting helpers.
 - Continue playback uses `UserData.PlaybackPositionTicks` to resume from the server-reported position.
 - When a continue-watching card opens the details page, the original resume ticks are retained as a fallback. Some server detail responses may omit or reset `PlaybackPositionTicks`, and the ViewModel must not overwrite a valid resume position from the continue-watching list with zero.
 

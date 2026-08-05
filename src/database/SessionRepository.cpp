@@ -1438,6 +1438,16 @@ void SessionRepository::setLanguageMode(const QString& mode)
     m_settings.setValue(QStringLiteral("appearance/languageMode"), mode);
 }
 
+QString SessionRepository::embyHomeLayout() const
+{
+    return m_settings.value(QStringLiteral("appearance/embyHomeLayout"), QStringLiteral("trendy")).toString();
+}
+
+void SessionRepository::setEmbyHomeLayout(const QString& layout)
+{
+    m_settings.setValue(QStringLiteral("appearance/embyHomeLayout"), layout);
+}
+
 bool SessionRepository::pageTransitionsEnabled() const
 {
     return m_settings.value(QStringLiteral("appearance/pageTransitionsEnabled"), true).toBool();

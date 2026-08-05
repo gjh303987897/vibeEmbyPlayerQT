@@ -19,6 +19,7 @@
 - Emby user items: `GET /Users/{UserId}/Items`
 - Emby server search: `GET /Users/{UserId}/Items` with `SearchTerm` and `Recursive=true`
 - Emby continue watching: `GET /Users/{UserId}/Items` with `Filters=IsResumable`
+- Emby suggested series: `GET /Users/{UserId}/Suggestions` with `IncludeItemTypes=Series`
 - Emby item details: `GET /Users/{UserId}/Items` with `Ids={ItemId}`
 - Jellyfin OpenAPI stable: `https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json`
 - Jellyfin login operation: `AuthenticateUserByName`
@@ -129,6 +130,20 @@ Jellyfin:
 - Query: `userId`, `limit`, `includeItemTypes=Movie,Episode`, `fields`, `enableImages=true`, `enableUserData=true`
 
 Continue-watching items open the media details page. Direct play from this section is not part of the current implementation.
+
+## Emby Suggested Series
+
+- Endpoint: `GET /Users/{UserId}/Suggestions`
+- Query: `Recursive=true`, `IncludeItemTypes=Series`, `Limit=8`, `Fields`,
+  `EnableImages=true`, `ImageTypeLimit=2`,
+  `EnableImageTypes=Primary,Backdrop`, `EnableUserData=true`
+- The response uses the normal item query-result shape and is parsed into the
+  existing `MediaItemListModel`.
+- This model is used only for the home featured carousel. Empty or failed
+  responses do not surface a blocking page error; the ViewModel falls back to
+  continue watching.
+
+Official reference: `https://dev.emby.media/reference/RestAPI/SuggestionsService/getUsersByUseridSuggestions.html`
 
 ## Item Details
 

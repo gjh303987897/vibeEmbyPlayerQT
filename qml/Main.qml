@@ -23,6 +23,11 @@ ApplicationWindow {
     property string downloadWarningTitle: ""
     property string downloadWarningMessage: ""
     property bool darkTheme: appViewModel.effectiveTheme !== "light"
+    property bool useTraditionalEmbyHome: appViewModel.currentView === "home"
+        && appViewModel.serviceType === "Emby"
+        && appViewModel.embyHomeLayout === "traditional"
+    property bool immersiveMediaHome: appViewModel.currentView === "home"
+        && !root.useTraditionalEmbyHome
     property var theme: darkTheme ? dark : light
     property var dark: ({
         bg: "#0f1217",
@@ -1146,8 +1151,10 @@ ApplicationWindow {
     }
 
     header: ToolBar {
-        height: root.playerImmersive || appViewModel.currentView === "details" ? 0 : 64
+        height: root.playerImmersive || appViewModel.currentView === "details"
+            || root.immersiveMediaHome ? 0 : 64
         visible: !root.playerImmersive && appViewModel.currentView !== "details"
+            && !root.immersiveMediaHome
         enabled: visible
         background: Rectangle {
             color: theme.surface
@@ -1194,7 +1201,9 @@ ApplicationWindow {
 
             ColumnLayout {
                 spacing: 0
-                Layout.fillWidth: true
+                Layout.fillWidth: !root.useTraditionalEmbyHome
+                Layout.preferredWidth: root.useTraditionalEmbyHome ? 230 : -1
+                Layout.maximumWidth: root.useTraditionalEmbyHome ? 230 : 16777215
 
                 RowLayout {
                     id: pageTitleRow
@@ -1213,6 +1222,7 @@ ApplicationWindow {
                             : appViewModel.currentView === "local" ? t("local.title")
                             : appViewModel.currentView === "link" ? t("link.title")
                             : appViewModel.currentView === "services" ? t("nav.services")
+                            : appViewModel.currentView === "library" ? appViewModel.currentLibraryName
                                 : appViewModel.currentServerName
                         color: theme.text
                         font.pixelSize: 20
@@ -1269,11 +1279,34 @@ ApplicationWindow {
                 implicitHeight: 28
             }
 
+            IconButton {
+                width: 38
+                height: 36
+                text: "↻"
+                visible: root.useTraditionalEmbyHome
+                enabled: !appViewModel.loading
+                ToolTip.visible: hovered
+                ToolTip.text: t("action.refresh")
+                onClicked: appViewModel.refreshHome()
+            }
+
+            IconButton {
+                width: 38
+                height: 36
+                text: "⚙"
+                visible: root.useTraditionalEmbyHome
+                ToolTip.visible: hovered
+                ToolTip.text: t("nav.settings")
+                onClicked: appViewModel.openSettings()
+            }
+
             MediaServerSearchBar {
                 visible: appViewModel.serverSearchAvailable
                     && (appViewModel.currentView === "home" || appViewModel.currentView === "search")
-                Layout.minimumWidth: visible ? 300 : 0
-                Layout.preferredWidth: visible ? Math.min(380, Math.max(320, root.width * 0.30)) : 0
+                Layout.minimumWidth: visible ? (root.useTraditionalEmbyHome ? 280 : 300) : 0
+                Layout.preferredWidth: visible ? (root.useTraditionalEmbyHome
+                    ? 320 : Math.min(380, Math.max(320, root.width * 0.30))) : 0
+                Layout.maximumWidth: visible ? Layout.preferredWidth : 0
             }
 
             IconButton {
@@ -1332,7 +1365,8 @@ ApplicationWindow {
 
             ModernButton {
                 text: t("action.refresh")
-                visible: appViewModel.currentView === "home" || appViewModel.currentView === "local"
+                visible: (appViewModel.currentView === "home" && !root.useTraditionalEmbyHome)
+                    || appViewModel.currentView === "local"
                 enabled: !appViewModel.loading && !appViewModel.localMediaLoading
                 onClicked: {
                     if (appViewModel.currentView === "local") {
@@ -1352,12 +1386,14 @@ ApplicationWindow {
             ModernButton {
                 text: t("nav.settings")
                 visible: appViewModel.currentView !== "settings"
+                    && !root.useTraditionalEmbyHome
                 onClicked: appViewModel.openSettings()
             }
 
             ModernButton {
                 text: t("action.backToServices")
                 visible: appViewModel.currentView !== "services"
+                    && !root.useTraditionalEmbyHome
                 onClicked: appViewModel.backToServices()
             }
         }
@@ -1369,8 +1405,10 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: root.playerImmersive || appViewModel.currentView === "details" ? 0 : 26
-            spacing: root.playerImmersive || appViewModel.currentView === "details" ? 0 : 16
+            anchors.margins: root.playerImmersive || appViewModel.currentView === "details"
+                || root.immersiveMediaHome ? 0 : 26
+            spacing: root.playerImmersive || appViewModel.currentView === "details"
+                || root.immersiveMediaHome ? 0 : 16
 
             Rectangle {
                 visible: appViewModel.errorMessage.length > 0 && !root.playerImmersive
@@ -1686,131 +1724,543 @@ ApplicationWindow {
 
                 Item {
                     id: homePage
+                    property bool trendyLayout: !root.useTraditionalEmbyHome
+                    property var featuredModel: appViewModel.recommendedItems.count > 0
+                        ? appViewModel.recommendedItems : appViewModel.continueItems
+                    property bool showingRecommendations: appViewModel.recommendedItems.count > 0
+                    property int featuredCount: featuredModel ? featuredModel.count : 0
                     property bool showInitialLoading: appViewModel.homeLoading
                         && appViewModel.continueItems.count === 0
+                        && appViewModel.recommendedItems.count === 0
                         && appViewModel.libraries.count === 0
+                    property int featuredIndex: 0
+
+                    Timer {
+                        interval: 10000
+                        repeat: true
+                        running: homePage.visible && homePage.trendyLayout
+                            && homePage.featuredCount > 1
+                        onTriggered: {
+                            homePage.featuredIndex = (homePage.featuredIndex + 1)
+                                % Math.min(8, homePage.featuredCount)
+                        }
+                    }
+
+                    Connections {
+                        target: homePage.featuredModel
+                        function onCountChanged() {
+                            if (homePage.featuredCount <= 0) {
+                                homePage.featuredIndex = 0
+                            } else if (homePage.featuredIndex >= Math.min(8, homePage.featuredCount)) {
+                                homePage.featuredIndex = 0
+                            }
+                        }
+                    }
 
                     Flickable {
                         id: homeFlick
                         anchors.fill: parent
+                        visible: homePage.trendyLayout
+                        enabled: visible
                         contentWidth: width
-                        contentHeight: homeColumn.implicitHeight
+                        contentHeight: homeContent.height
                         clip: true
                         opacity: homePage.showInitialLoading ? 0.24 : 1
+                        boundsBehavior: Flickable.StopAtBounds
 
                         Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-                        ColumnLayout {
-                            id: homeColumn
+                        Item {
+                            id: homeContent
                             width: homeFlick.width
-                            spacing: 28
+                            height: homeHero.height + homeSections.implicitHeight + 42
 
-                            SectionHeader {
-                                title: t("section.continueWatching")
-                                subtitle: t("section.continueSubtitle")
-                            }
+                            Rectangle {
+                                id: homeHero
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                height: Math.max(390, Math.min(520, homePage.height * 0.63))
+                                color: theme.surface
+                                clip: true
 
-                            Item {
-                                id: continueRail
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: appViewModel.continueItems.count > 0 ? 316 : 72
-
-                                function maxContentX() {
-                                    return Math.max(0, continueList.contentWidth - continueList.width)
-                                }
-
-                                function scrollBy(delta) {
-                                    continueList.contentX = Math.max(0, Math.min(maxContentX(), continueList.contentX + delta))
-                                }
-
-                                RowLayout {
+                                ListView {
+                                    id: heroList
                                     anchors.fill: parent
-                                    visible: appViewModel.continueItems.count > 0
-                                    spacing: 10
+                                    orientation: ListView.Horizontal
+                                    interactive: false
+                                    model: homePage.featuredModel
+                                    currentIndex: homePage.featuredIndex
+                                    cacheBuffer: width
+                                    onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Beginning)
 
-                                    IconButton {
-                                        text: "‹"
-                                        enabled: continueList.contentX > 1
-                                        onClicked: continueRail.scrollBy(-Math.max(360, continueList.width * 0.82))
-                                    }
+                                    delegate: Item {
+                                        width: heroList.width
+                                        height: heroList.height
 
-                                    ListView {
-                                        id: continueList
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-                                        clip: true
-                                        orientation: ListView.Horizontal
-                                        boundsBehavior: Flickable.StopAtBounds
-                                        spacing: 14
-                                        model: appViewModel.continueItems
-
-                                        delegate: ContinueWatchingCard {
-                                            width: 172
-                                            height: 306
-                                            title: model.name.length > 0 ? model.name : model.seriesName
-                                            seasonEpisode: appViewModel.formatSeasonEpisode(model.parentIndexNumber, model.indexNumber)
-                                            progressText: appViewModel.formatContinueProgress(model.playedPercentage)
-                                            imageUrl: model.continueImageUrl
-                                            progress: model.playedPercentage
-                                            onActivated: appViewModel.openContinueItem(index)
+                                        Image {
+                                            anchors.fill: parent
+                                            source: model.backdropImageUrl.length > 0
+                                                ? model.backdropImageUrl : model.continueImageUrl
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
                                         }
 
-                                        WheelHandler {
-                                            onWheel: function(event) {
-                                                var delta = event.angleDelta.y !== 0 ? -event.angleDelta.y : -event.angleDelta.x
-                                                if (delta !== 0) {
-                                                    continueRail.scrollBy(delta)
-                                                    event.accepted = true
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            gradient: Gradient {
+                                                orientation: Gradient.Horizontal
+                                                GradientStop { position: 0.0; color: "#e60a0d12" }
+                                                GradientStop { position: 0.46; color: "#6b0a0d12" }
+                                                GradientStop { position: 1.0; color: "#260a0d12" }
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            gradient: Gradient {
+                                                GradientStop { position: 0.0; color: "#3d0a0d12" }
+                                                GradientStop { position: 0.55; color: "#120a0d12" }
+                                                GradientStop { position: 1.0; color: theme.bg }
+                                            }
+                                        }
+
+                                        ColumnLayout {
+                                            anchors.left: parent.left
+                                            anchors.bottom: parent.bottom
+                                            anchors.leftMargin: Math.max(34, parent.width * 0.055)
+                                            anchors.bottomMargin: 48
+                                            width: Math.min(650, parent.width * 0.58)
+                                            spacing: 12
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: model.seriesName.length > 0 ? model.seriesName : model.name
+                                                color: "#ffffff"
+                                                font.pixelSize: 36
+                                                font.bold: true
+                                                wrapMode: Text.WordWrap
+                                                maximumLineCount: 2
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                visible: model.name.length > 0 && model.seriesName.length > 0
+                                                    && model.name !== model.seriesName
+                                                text: model.name
+                                                color: "#edf1f6"
+                                                font.pixelSize: 17
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 9
+
+                                                Label {
+                                                    visible: model.communityRating.length > 0
+                                                    text: "★ " + model.communityRating
+                                                    color: "#ffcf66"
+                                                    font.pixelSize: 14
+                                                    font.bold: true
+                                                }
+                                                Label {
+                                                    visible: model.productionYear.length > 0
+                                                    text: model.productionYear
+                                                    color: "#e7ebf1"
+                                                    font.pixelSize: 14
+                                                }
+                                                Label {
+                                                    visible: model.officialRating.length > 0
+                                                    text: model.officialRating
+                                                    color: "#e7ebf1"
+                                                    font.pixelSize: 12
+                                                    leftPadding: 7
+                                                    rightPadding: 7
+                                                    background: Rectangle {
+                                                        radius: 4
+                                                        color: "#33000000"
+                                                        border.color: "#99ffffff"
+                                                    }
+                                                }
+                                                Label {
+                                                    visible: model.runTime.length > 0
+                                                    text: model.runTime
+                                                    color: "#e7ebf1"
+                                                    font.pixelSize: 14
+                                                }
+                                                Label {
+                                                    visible: appViewModel.formatSeasonEpisode(
+                                                        model.parentIndexNumber, model.indexNumber).length > 0
+                                                    text: appViewModel.formatSeasonEpisode(
+                                                        model.parentIndexNumber, model.indexNumber)
+                                                    color: "#e7ebf1"
+                                                    font.pixelSize: 14
+                                                }
+                                            }
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                visible: model.overview.length > 0
+                                                text: model.overview
+                                                color: "#d4d9e0"
+                                                font.pixelSize: 14
+                                                lineHeight: 1.18
+                                                wrapMode: Text.WordWrap
+                                                maximumLineCount: 3
+                                                elide: Text.ElideRight
+                                            }
+
+                                            ModernButton {
+                                                Layout.preferredWidth: 142
+                                                text: "▶  " + t(homePage.showingRecommendations
+                                                    ? "action.play" : "action.continue")
+                                                font.bold: true
+                                                onClicked: {
+                                                    if (homePage.showingRecommendations) {
+                                                        appViewModel.openRecommendedItem(index)
+                                                    } else {
+                                                        appViewModel.openContinueItem(index)
+                                                    }
                                                 }
                                             }
                                         }
                                     }
+                                }
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    height: 116
+                                    color: "#5c0a0d12"
+                                }
+
+                                RowLayout {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.leftMargin: 24
+                                    anchors.rightMargin: 24
+                                    height: 82
+                                    spacing: 16
 
                                     IconButton {
-                                        text: "›"
-                                        enabled: continueList.contentX < continueRail.maxContentX() - 1
-                                        onClicked: continueRail.scrollBy(Math.max(360, continueList.width * 0.82))
+                                        text: "‹"
+                                        font.pixelSize: 28
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: t("action.backToServices")
+                                        onClicked: appViewModel.backToServices()
+                                    }
+
+                                    Button {
+                                        id: serverHomeButton
+                                        Layout.preferredWidth: Math.min(220, implicitWidth)
+                                        Layout.preferredHeight: 46
+                                        leftPadding: 14
+                                        rightPadding: 16
+                                        text: appViewModel.currentServerName
+                                        onClicked: appViewModel.backToServices()
+
+                                        contentItem: RowLayout {
+                                            spacing: 9
+
+                                            Rectangle {
+                                                Layout.preferredWidth: 26
+                                                Layout.preferredHeight: 26
+                                                radius: 6
+                                                color: root.serviceAccentColor(appViewModel.serviceType)
+
+                                                Label {
+                                                    anchors.centerIn: parent
+                                                    text: "▶"
+                                                    color: "#ffffff"
+                                                    font.pixelSize: 11
+                                                    font.bold: true
+                                                }
+                                            }
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: serverHomeButton.text
+                                                color: "#ffffff"
+                                                font.pixelSize: 14
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+
+                                        background: Rectangle {
+                                            radius: 8
+                                            color: serverHomeButton.hovered ? "#4dffffff" : "#2effffff"
+                                            border.color: "#55ffffff"
+                                        }
+                                    }
+
+                                    MediaServerSearchBar {
+                                        visible: appViewModel.serverSearchAvailable
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 300
+                                        Layout.maximumWidth: 560
+                                    }
+
+                                    IconButton {
+                                        text: "↻"
+                                        enabled: !appViewModel.loading
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: t("action.refresh")
+                                        onClicked: appViewModel.refreshHome()
                                     }
                                 }
 
-                                MutedText {
-                                    anchors.left: parent.left
-                                    anchors.top: parent.top
-                                    visible: appViewModel.continueItems.count === 0 && !homePage.showInitialLoading
-                                    text: t("section.noProgress")
+                                Row {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.bottom: parent.bottom
+                                    anchors.bottomMargin: 22
+                                    spacing: 8
+                                    visible: homePage.featuredCount > 1
+
+                                    Repeater {
+                                        model: Math.min(8, homePage.featuredCount)
+
+                                        Rectangle {
+                                            width: index === homePage.featuredIndex ? 22 : 7
+                                            height: 7
+                                            radius: 4
+                                            color: index === homePage.featuredIndex ? "#ffffff" : "#7affffff"
+
+                                            Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                anchors.margins: -5
+                                                onClicked: homePage.featuredIndex = index
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    visible: homePage.featuredCount === 0 && !homePage.showInitialLoading
+                                    spacing: 10
+
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: appViewModel.currentServerName
+                                        color: "#ffffff"
+                                        font.pixelSize: 34
+                                        font.bold: true
+                                    }
+
+                                    Label {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: t("section.noProgress")
+                                        color: "#d4d9e0"
+                                        font.pixelSize: 15
+                                    }
                                 }
                             }
 
-                            SectionHeader {
-                                title: t("section.libraries")
-                                subtitle: t("section.librariesSubtitle")
-                            }
+                            Column {
+                                id: homeSections
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: homeHero.bottom
+                                anchors.leftMargin: 26
+                                anchors.rightMargin: 26
+                                topPadding: 12
+                                spacing: 30
 
-                            GridView {
-                                id: libraryGrid
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Math.max(260, Math.ceil(count / Math.max(1, Math.floor(width / 214))) * 230)
-                                clip: true
-                                interactive: false
-                                model: appViewModel.libraries
-                                cellWidth: Math.max(190, width / Math.max(1, Math.floor(width / 214)))
-                                cellHeight: 230
+                                Column {
+                                    width: parent.width
+                                    spacing: 12
 
-                                delegate: LibraryCard {
-                                    width: libraryGrid.cellWidth - 16
-                                    height: 210
-                                    name: model.name
-                                    subtitle: model.collectionType.length > 0 ? model.collectionType : model.itemType
-                                    imageUrl: model.imageUrl
-                                    onActivated: appViewModel.openLibrary(index)
+                                    RowLayout {
+                                        width: parent.width
+                                        height: 34
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: t("section.continueWatching")
+                                            color: theme.text
+                                            font.pixelSize: 21
+                                            font.bold: true
+                                        }
+
+                                        Label {
+                                            visible: appViewModel.continueItems.count > 0
+                                            text: appViewModel.continueItems.count
+                                            color: theme.muted
+                                            font.pixelSize: 14
+                                        }
+                                    }
+
+                                    Item {
+                                        id: continueRail
+                                        width: parent.width
+                                        height: appViewModel.continueItems.count > 0 ? 208 : 54
+
+                                        function maxContentX() {
+                                            return Math.max(0, continueList.contentWidth - continueList.width)
+                                        }
+
+                                        function scrollBy(delta) {
+                                            continueList.contentX = Math.max(0,
+                                                Math.min(maxContentX(), continueList.contentX + delta))
+                                        }
+
+                                        ListView {
+                                            id: continueList
+                                            anchors.fill: parent
+                                            clip: true
+                                            orientation: ListView.Horizontal
+                                            boundsBehavior: Flickable.StopAtBounds
+                                            spacing: 16
+                                            model: appViewModel.continueItems
+
+                                            delegate: ContinueWatchingCard {
+                                                width: Math.min(306, Math.max(252, continueList.width * 0.28))
+                                                height: 204
+                                                title: model.name.length > 0 ? model.name : model.seriesName
+                                                seriesName: model.itemType === "Episode" ? model.seriesName : ""
+                                                seasonEpisode: appViewModel.formatSeasonEpisode(
+                                                    model.parentIndexNumber, model.indexNumber)
+                                                progressText: appViewModel.formatContinueProgress(model.playedPercentage)
+                                                imageUrl: model.continueImageUrl
+                                                backdropUrl: model.backdropImageUrl
+                                                progress: model.playedPercentage
+                                                onActivated: appViewModel.openContinueItem(index)
+                                            }
+
+                                            WheelHandler {
+                                                onWheel: function(event) {
+                                                    var delta = event.angleDelta.x !== 0
+                                                        ? -event.angleDelta.x
+                                                        : ((event.modifiers & Qt.ShiftModifier)
+                                                            ? -event.angleDelta.y : 0)
+                                                    if (delta !== 0) {
+                                                        continueRail.scrollBy(delta)
+                                                        event.accepted = true
+                                                    } else {
+                                                        event.accepted = false
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        IconButton {
+                                            anchors.left: parent.left
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.leftMargin: 8
+                                            visible: enabled && appViewModel.continueItems.count > 0
+                                            text: "‹"
+                                            enabled: continueList.contentX > 1
+                                            onClicked: continueRail.scrollBy(-Math.max(320, continueList.width * 0.78))
+                                        }
+
+                                        IconButton {
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.rightMargin: 8
+                                            visible: enabled && appViewModel.continueItems.count > 0
+                                            text: "›"
+                                            enabled: continueList.contentX < continueRail.maxContentX() - 1
+                                            onClicked: continueRail.scrollBy(Math.max(320, continueList.width * 0.78))
+                                        }
+
+                                        MutedText {
+                                            anchors.left: parent.left
+                                            anchors.top: parent.top
+                                            visible: appViewModel.continueItems.count === 0 && !homePage.showInitialLoading
+                                            text: t("section.noProgress")
+                                        }
+                                    }
+                                }
+
+                                Column {
+                                    id: librarySection
+                                    width: parent.width
+                                    spacing: 12
+
+                                    RowLayout {
+                                        width: parent.width
+                                        height: 34
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 1
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: t("section.libraries")
+                                                color: theme.text
+                                                font.pixelSize: 21
+                                                font.bold: true
+                                            }
+
+                                            MutedText {
+                                                Layout.fillWidth: true
+                                                text: t("section.librariesSubtitle")
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+
+                                    ListView {
+                                        id: libraryGrid
+                                        width: parent.width
+                                        height: 194
+                                        clip: true
+                                        orientation: ListView.Horizontal
+                                        boundsBehavior: Flickable.StopAtBounds
+                                        spacing: 16
+                                        model: appViewModel.libraries
+
+                                        delegate: LibraryCard {
+                                            width: Math.min(286, Math.max(236, libraryGrid.width * 0.26))
+                                            height: 190
+                                            name: model.name
+                                            subtitle: model.collectionType.length > 0
+                                                ? model.collectionType : model.itemType
+                                            imageUrl: model.imageUrl
+                                            itemCount: model.childCount
+                                            onActivated: appViewModel.openLibrary(index)
+                                        }
+
+                                        WheelHandler {
+                                            onWheel: function(event) {
+                                                var delta = event.angleDelta.x !== 0
+                                                    ? -event.angleDelta.x
+                                                    : ((event.modifiers & Qt.ShiftModifier)
+                                                        ? -event.angleDelta.y : 0)
+                                                if (delta !== 0) {
+                                                    libraryGrid.contentX = Math.max(0,
+                                                        Math.min(libraryGrid.contentWidth - libraryGrid.width,
+                                                            libraryGrid.contentX + delta))
+                                                    event.accepted = true
+                                                } else {
+                                                    event.accepted = false
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
+                    TraditionalMediaHome {
+                        anchors.fill: parent
+                        visible: !homePage.trendyLayout
+                        enabled: visible
+                    }
+
                     PageLoadingPanel {
                         anchors.centerIn: parent
-                        visible: homePage.showInitialLoading
+                        visible: homePage.trendyLayout && homePage.showInitialLoading
                         title: t("loading.home")
                         subtitle: t("loading.homeHint")
                     }
@@ -3697,22 +4147,170 @@ ApplicationWindow {
         }
     }
 
-    component LibraryCard: Rectangle {
-        id: libraryCard
+    component TraditionalMediaHome: Item {
+        id: traditionalHome
+        property bool showInitialLoading: appViewModel.homeLoading
+            && appViewModel.continueItems.count === 0
+            && appViewModel.libraries.count === 0
+
+        Flickable {
+            id: traditionalHomeFlick
+            anchors.fill: parent
+            contentWidth: width
+            contentHeight: traditionalHomeColumn.implicitHeight
+            clip: true
+            opacity: traditionalHome.showInitialLoading ? 0.24 : 1
+            boundsBehavior: Flickable.StopAtBounds
+
+            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+            ColumnLayout {
+                id: traditionalHomeColumn
+                width: traditionalHomeFlick.width
+                spacing: 28
+
+                SectionHeader {
+                    title: t("section.continueWatching")
+                    subtitle: t("section.continueSubtitle")
+                }
+
+                Item {
+                    id: traditionalContinueRail
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: appViewModel.continueItems.count > 0 ? 316 : 72
+
+                    function maxContentX() {
+                        return Math.max(0, traditionalContinueList.contentWidth
+                            - traditionalContinueList.width)
+                    }
+
+                    function scrollBy(delta) {
+                        traditionalContinueList.contentX = Math.max(0,
+                            Math.min(maxContentX(), traditionalContinueList.contentX + delta))
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        visible: appViewModel.continueItems.count > 0
+                        spacing: 10
+
+                        IconButton {
+                            text: "‹"
+                            enabled: traditionalContinueList.contentX > 1
+                            onClicked: traditionalContinueRail.scrollBy(
+                                -Math.max(360, traditionalContinueList.width * 0.82))
+                        }
+
+                        ListView {
+                            id: traditionalContinueList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            orientation: ListView.Horizontal
+                            boundsBehavior: Flickable.StopAtBounds
+                            spacing: 14
+                            model: appViewModel.continueItems
+
+                            delegate: TraditionalContinueWatchingCard {
+                                width: 172
+                                height: 306
+                                title: model.name.length > 0 ? model.name : model.seriesName
+                                metadata: model.itemType === "Episode" && model.seriesName.length > 0
+                                    ? model.seriesName + (appViewModel.formatSeasonEpisode(
+                                        model.parentIndexNumber, model.indexNumber).length > 0
+                                        ? " · " + appViewModel.formatSeasonEpisode(
+                                            model.parentIndexNumber, model.indexNumber) : "")
+                                    : appViewModel.formatSeasonEpisode(
+                                        model.parentIndexNumber, model.indexNumber)
+                                progressText: appViewModel.formatContinueProgress(model.playedPercentage)
+                                imageUrl: model.continueImageUrl
+                                progress: model.playedPercentage
+                                onActivated: appViewModel.openContinueItem(index)
+                            }
+
+                            WheelHandler {
+                                onWheel: function(event) {
+                                    var delta = event.angleDelta.y !== 0
+                                        ? -event.angleDelta.y : -event.angleDelta.x
+                                    if (delta !== 0) {
+                                        traditionalContinueRail.scrollBy(delta)
+                                        event.accepted = true
+                                    }
+                                }
+                            }
+                        }
+
+                        IconButton {
+                            text: "›"
+                            enabled: traditionalContinueList.contentX
+                                < traditionalContinueRail.maxContentX() - 1
+                            onClicked: traditionalContinueRail.scrollBy(
+                                Math.max(360, traditionalContinueList.width * 0.82))
+                        }
+                    }
+
+                    MutedText {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        visible: appViewModel.continueItems.count === 0
+                            && !traditionalHome.showInitialLoading
+                        text: t("section.noProgress")
+                    }
+                }
+
+                SectionHeader {
+                    title: t("section.libraries")
+                    subtitle: t("section.librariesSubtitle")
+                }
+
+                GridView {
+                    id: traditionalLibraryGrid
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(260,
+                        Math.ceil(count / Math.max(1, Math.floor(width / 214))) * 230)
+                    clip: true
+                    interactive: false
+                    model: appViewModel.libraries
+                    cellWidth: Math.max(190, width / Math.max(1, Math.floor(width / 214)))
+                    cellHeight: 230
+
+                    delegate: TraditionalLibraryCard {
+                        width: traditionalLibraryGrid.cellWidth - 16
+                        height: 210
+                        name: model.name
+                        subtitle: model.collectionType.length > 0
+                            ? model.collectionType : model.itemType
+                        imageUrl: model.imageUrl
+                        onActivated: appViewModel.openLibrary(index)
+                    }
+                }
+            }
+        }
+
+        PageLoadingPanel {
+            anchors.centerIn: parent
+            visible: traditionalHome.showInitialLoading
+            title: t("loading.home")
+            subtitle: t("loading.homeHint")
+        }
+    }
+
+    component TraditionalLibraryCard: Rectangle {
+        id: traditionalLibraryCard
         signal activated()
         property string name: ""
         property string subtitle: ""
         property string imageUrl: ""
 
-        radius: 10
-        color: mouse.containsMouse ? theme.elevatedHover : theme.elevated
+        radius: 8
+        color: traditionalLibraryMouse.containsMouse ? theme.elevatedHover : theme.elevated
         border.color: theme.border
 
         MouseArea {
-            id: mouse
+            id: traditionalLibraryMouse
             anchors.fill: parent
             hoverEnabled: true
-            onClicked: activated()
+            onClicked: traditionalLibraryCard.activated()
         }
 
         ColumnLayout {
@@ -3723,13 +4321,14 @@ ApplicationWindow {
             PosterImage {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 126
-                imageUrl: libraryCard.imageUrl
-                fallbackText: libraryCard.name.length > 0 ? libraryCard.name[0] : "?"
+                imageUrl: traditionalLibraryCard.imageUrl
+                fallbackText: traditionalLibraryCard.name.length > 0
+                    ? traditionalLibraryCard.name[0] : "?"
             }
 
             Label {
                 Layout.fillWidth: true
-                text: libraryCard.name
+                text: traditionalLibraryCard.name
                 color: theme.text
                 font.pixelSize: 15
                 font.bold: true
@@ -3738,144 +4337,52 @@ ApplicationWindow {
 
             MutedText {
                 Layout.fillWidth: true
-                text: libraryCard.subtitle
+                text: traditionalLibraryCard.subtitle
                 elide: Text.ElideRight
             }
         }
     }
 
-    component MediaPoster: Rectangle {
-        id: mediaPoster
+    component TraditionalContinueWatchingCard: Rectangle {
+        id: traditionalContinueCard
         signal activated()
         property string title: ""
-        property string subtitle: ""
-        property string imageUrl: ""
-        property real progress: 0
-
-        radius: 10
-        color: posterMouse.containsMouse ? theme.elevatedHover : theme.elevated
-        border.color: theme.border
-        clip: true
-        scale: posterMouse.containsMouse ? 0.985 : 1.0
-
-        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-
-        MouseArea {
-            id: posterMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            onClicked: activated()
-        }
-
-        PosterImage {
-            anchors.fill: parent
-            imageUrl: mediaPoster.imageUrl
-            fallbackText: mediaPoster.title.length > 0 ? mediaPoster.title[0] : "?"
-        }
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: Math.min(parent.height * 0.44, 118)
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#00000000" }
-                GradientStop { position: 0.38; color: "#99000000" }
-                GradientStop { position: 1.0; color: "#e6000000" }
-            }
-        }
-
-        ColumnLayout {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: 12
-            anchors.rightMargin: 12
-            anchors.bottomMargin: 12
-            spacing: 4
-
-            Label {
-                Layout.fillWidth: true
-                text: mediaPoster.title
-                color: "#ffffff"
-                font.pixelSize: 14
-                font.bold: true
-                lineHeight: 0.92
-                wrapMode: Text.WordWrap
-                maximumLineCount: 2
-                elide: Text.ElideRight
-                style: Text.Raised
-                styleColor: "#cc000000"
-            }
-
-            Label {
-                Layout.fillWidth: true
-                text: mediaPoster.subtitle
-                color: "#d8e1ee"
-                font.pixelSize: 12
-                elide: Text.ElideRight
-                style: Text.Raised
-                styleColor: "#bb000000"
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 5
-                radius: 2
-                color: "#66ffffff"
-                visible: mediaPoster.progress > 0
-
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    radius: 2
-                    width: parent.width * Math.min(100, mediaPoster.progress) / 100
-                    color: theme.primary
-                }
-            }
-        }
-    }
-
-    component ContinueWatchingCard: Rectangle {
-        id: continueCard
-        signal activated()
-        property string title: ""
-        property string seasonEpisode: ""
+        property string metadata: ""
         property string progressText: ""
         property string imageUrl: ""
         property real progress: 0
 
-        radius: 10
-        color: cardMouse.containsMouse ? theme.elevatedHover : theme.elevated
+        radius: 8
+        color: traditionalContinueMouse.containsMouse ? theme.elevatedHover : theme.elevated
         border.color: theme.border
         clip: true
-        scale: cardMouse.containsMouse ? 0.985 : 1.0
+        scale: traditionalContinueMouse.containsMouse ? 0.985 : 1
 
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
 
         MouseArea {
-            id: cardMouse
+            id: traditionalContinueMouse
             anchors.fill: parent
             hoverEnabled: true
-            onClicked: activated()
+            onClicked: traditionalContinueCard.activated()
         }
 
         PosterImage {
             anchors.fill: parent
-            imageUrl: continueCard.imageUrl
-            fallbackText: continueCard.title.length > 0 ? continueCard.title[0] : "?"
+            imageUrl: traditionalContinueCard.imageUrl
+            fallbackText: traditionalContinueCard.title.length > 0
+                ? traditionalContinueCard.title[0] : "?"
         }
 
         Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: Math.min(parent.height * 0.50, 150)
+            height: Math.min(parent.height * 0.54, 164)
             gradient: Gradient {
-                GradientStop { position: 0.0; color: "#00000000" }
+                GradientStop { position: 0; color: "#00000000" }
                 GradientStop { position: 0.34; color: "#a3000000" }
-                GradientStop { position: 1.0; color: "#e8000000" }
+                GradientStop { position: 1; color: "#e8000000" }
             }
         }
 
@@ -3883,18 +4390,15 @@ ApplicationWindow {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.leftMargin: 12
-            anchors.rightMargin: 12
-            anchors.bottomMargin: 12
+            anchors.margins: 12
             spacing: 4
 
             Label {
                 Layout.fillWidth: true
-                text: continueCard.title
+                text: traditionalContinueCard.title
                 color: "#ffffff"
                 font.pixelSize: 14
                 font.bold: true
-                lineHeight: 0.92
                 wrapMode: Text.WordWrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
@@ -3904,8 +4408,8 @@ ApplicationWindow {
 
             Label {
                 Layout.fillWidth: true
-                visible: continueCard.seasonEpisode.length > 0
-                text: continueCard.seasonEpisode
+                visible: traditionalContinueCard.metadata.length > 0
+                text: traditionalContinueCard.metadata
                 color: "#d8e1ee"
                 font.pixelSize: 12
                 elide: Text.ElideRight
@@ -3915,7 +4419,7 @@ ApplicationWindow {
 
             Label {
                 Layout.fillWidth: true
-                text: continueCard.progressText
+                text: traditionalContinueCard.progressText
                 color: "#c0cada"
                 font.pixelSize: 12
                 elide: Text.ElideRight
@@ -3934,9 +4438,277 @@ ApplicationWindow {
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
                     radius: 2
-                    width: parent.width * Math.min(100, continueCard.progress) / 100
+                    width: parent.width * Math.min(100, traditionalContinueCard.progress) / 100
                     color: theme.primary
                 }
+            }
+        }
+    }
+
+    component LibraryCard: Rectangle {
+        id: libraryCard
+        signal activated()
+        property string name: ""
+        property string subtitle: ""
+        property string imageUrl: ""
+        property int itemCount: 0
+
+        radius: 8
+        color: "transparent"
+        border.width: 0
+        scale: mouse.containsMouse ? 0.985 : 1
+
+        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+        MouseArea {
+            id: mouse
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: activated()
+        }
+
+        PosterImage {
+            id: libraryCover
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: 140
+            radius: 8
+            imageUrl: libraryCard.imageUrl
+            fallbackText: libraryCard.name.length > 0 ? libraryCard.name[0] : "?"
+            border.color: mouse.containsMouse ? theme.primary : theme.border
+        }
+
+        Rectangle {
+            anchors.right: libraryCover.right
+            anchors.top: libraryCover.top
+            anchors.margins: 9
+            visible: libraryCard.itemCount > 0
+            width: itemCountLabel.implicitWidth + 14
+            height: 25
+            radius: 8
+            color: "#b30b0e13"
+            border.color: "#4dffffff"
+
+            Label {
+                id: itemCountLabel
+                anchors.centerIn: parent
+                text: libraryCard.itemCount
+                color: "#ffffff"
+                font.pixelSize: 11
+                font.bold: true
+            }
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: libraryCover.bottom
+            anchors.topMargin: 9
+            text: libraryCard.name
+            color: theme.text
+            font.pixelSize: 15
+            font.bold: true
+            elide: Text.ElideRight
+        }
+
+        MutedText {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            text: libraryCard.subtitle
+            elide: Text.ElideRight
+        }
+    }
+
+    component MediaPoster: Rectangle {
+        id: mediaPoster
+        signal activated()
+        property string title: ""
+        property string subtitle: ""
+        property string imageUrl: ""
+        property real progress: 0
+
+        radius: 8
+        color: "transparent"
+        border.width: 0
+        clip: false
+
+        MouseArea {
+            id: posterMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: activated()
+        }
+
+        PosterImage {
+            id: mediaPosterImage
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: Math.max(0, parent.height - 52)
+            radius: 8
+            imageUrl: mediaPoster.imageUrl
+            fallbackText: mediaPoster.title.length > 0 ? mediaPoster.title[0] : "?"
+            border.color: posterMouse.containsMouse ? theme.primary : theme.border
+            scale: posterMouse.containsMouse ? 0.985 : 1
+
+            Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        }
+
+        Rectangle {
+            anchors.left: mediaPosterImage.left
+            anchors.right: mediaPosterImage.right
+            anchors.bottom: mediaPosterImage.bottom
+            anchors.leftMargin: 6
+            anchors.rightMargin: 6
+            anchors.bottomMargin: 6
+            height: 5
+            radius: 2
+            color: "#66ffffff"
+            visible: mediaPoster.progress > 0
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                radius: 2
+                width: parent.width * Math.min(100, mediaPoster.progress) / 100
+                color: theme.primary
+            }
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: mediaPosterImage.bottom
+            anchors.topMargin: 7
+            text: mediaPoster.title
+            color: theme.text
+            font.pixelSize: 14
+            font.bold: true
+            elide: Text.ElideRight
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            text: mediaPoster.subtitle
+            color: theme.muted
+            font.pixelSize: 12
+            elide: Text.ElideRight
+        }
+    }
+
+    component ContinueWatchingCard: Rectangle {
+        id: continueCard
+        signal activated()
+        property string title: ""
+        property string seriesName: ""
+        property string seasonEpisode: ""
+        property string progressText: ""
+        property string imageUrl: ""
+        property string backdropUrl: ""
+        property real progress: 0
+
+        radius: 8
+        color: "transparent"
+        border.width: 0
+        clip: false
+        scale: cardMouse.containsMouse ? 0.985 : 1.0
+
+        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+
+        MouseArea {
+            id: cardMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: activated()
+        }
+
+        PosterImage {
+            id: continueImage
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: Math.max(0, parent.height - 48)
+            radius: 8
+            imageUrl: continueCard.backdropUrl.length > 0
+                ? continueCard.backdropUrl : continueCard.imageUrl
+            fallbackText: continueCard.title.length > 0 ? continueCard.title[0] : "?"
+            border.color: cardMouse.containsMouse ? theme.primary : theme.border
+        }
+
+        Rectangle {
+            anchors.left: continueImage.left
+            anchors.right: continueImage.right
+            anchors.bottom: continueImage.bottom
+            height: 48
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#00000000" }
+                GradientStop { position: 0.28; color: "#73000000" }
+                GradientStop { position: 1.0; color: "#e8000000" }
+            }
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: continueImage.bottom
+            anchors.topMargin: 7
+            text: continueCard.title
+            color: theme.text
+            font.pixelSize: 14
+            font.bold: true
+            elide: Text.ElideRight
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            text: continueCard.seriesName.length > 0
+                ? continueCard.seriesName + (continueCard.seasonEpisode.length > 0
+                    ? " · " + continueCard.seasonEpisode : "")
+                : (continueCard.seasonEpisode.length > 0
+                    ? continueCard.seasonEpisode : continueCard.progressText)
+            color: theme.muted
+            font.pixelSize: 12
+            elide: Text.ElideRight
+        }
+
+        Label {
+            anchors.right: continueImage.right
+            anchors.bottom: continueImage.bottom
+            anchors.rightMargin: 9
+            anchors.bottomMargin: 10
+            text: continueCard.progressText
+            color: "#ffffff"
+            font.pixelSize: 11
+            font.bold: true
+            style: Text.Raised
+            styleColor: "#cc000000"
+        }
+
+        Rectangle {
+            anchors.left: continueImage.left
+            anchors.right: continueImage.right
+            anchors.bottom: continueImage.bottom
+            anchors.leftMargin: 7
+            anchors.rightMargin: 7
+            anchors.bottomMargin: 5
+            height: 4
+            radius: 2
+            color: "#66ffffff"
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                radius: 2
+                width: parent.width * Math.min(100, continueCard.progress) / 100
+                color: theme.primary
             }
         }
     }
@@ -10962,6 +11734,74 @@ ApplicationWindow {
                         ]
                         currentIndex: appViewModel.languageMode === "system" ? 0 : appViewModel.languageMode === "zh_CN" ? 1 : 2
                         onActivated: appViewModel.languageMode = model[index].value
+                    }
+                }
+
+                SettingRow {
+                    label: t("settings.embyHomeLayout")
+
+                    Rectangle {
+                        Layout.preferredWidth: 220
+                        Layout.preferredHeight: 40
+                        radius: 8
+                        color: theme.input
+                        border.color: theme.border
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 3
+                            spacing: 3
+
+                            Button {
+                                id: trendyHomeLayoutButton
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                text: t("option.homeTrendy")
+                                onClicked: appViewModel.embyHomeLayout = "trendy"
+
+                                contentItem: Label {
+                                    text: trendyHomeLayoutButton.text
+                                    color: appViewModel.embyHomeLayout === "trendy"
+                                        ? "#ffffff" : theme.text
+                                    font.pixelSize: 13
+                                    font.bold: appViewModel.embyHomeLayout === "trendy"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    radius: 6
+                                    color: appViewModel.embyHomeLayout === "trendy"
+                                        ? theme.primary
+                                        : trendyHomeLayoutButton.hovered ? theme.elevatedHover : "transparent"
+                                }
+                            }
+
+                            Button {
+                                id: traditionalHomeLayoutButton
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                text: t("option.homeTraditional")
+                                onClicked: appViewModel.embyHomeLayout = "traditional"
+
+                                contentItem: Label {
+                                    text: traditionalHomeLayoutButton.text
+                                    color: appViewModel.embyHomeLayout === "traditional"
+                                        ? "#ffffff" : theme.text
+                                    font.pixelSize: 13
+                                    font.bold: appViewModel.embyHomeLayout === "traditional"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    radius: 6
+                                    color: appViewModel.embyHomeLayout === "traditional"
+                                        ? theme.primary
+                                        : traditionalHomeLayoutButton.hovered ? theme.elevatedHover : "transparent"
+                                }
+                            }
+                        }
                     }
                 }
 

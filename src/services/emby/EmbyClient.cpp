@@ -202,6 +202,36 @@ void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, st
     });
 }
 
+void EmbyClient::fetchSuggestedSeries(const UserSession& session,
+                                      int limit,
+                                      std::function<void(ItemResult)> callback)
+{
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Suggestions").arg(session.userId));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Series"));
+    query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
+    query.addQueryItem(QStringLiteral("Fields"),
+                       QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,ParentId"));
+    query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("ImageTypeLimit"), QStringLiteral("2"));
+    query.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary,Backdrop"));
+    query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+        if (!result) {
+            callback(std::unexpected(result.error()));
+            return;
+        }
+        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+    });
+}
+
 void EmbyClient::fetchRandomPlayableItems(const UserSession& session,
                                           int limit,
                                           std::function<void(ItemResult)> callback)

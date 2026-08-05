@@ -313,6 +313,13 @@ QString normalizedTheme(const QString& mode)
     return QStringLiteral("dark");
 }
 
+QString normalizedEmbyHomeLayout(const QString& layout)
+{
+    return layout == QStringLiteral("traditional")
+        ? QStringLiteral("traditional")
+        : QStringLiteral("trendy");
+}
+
 QString normalizedM3u8sVideoEncoding(const QString& value)
 {
     if (value == QStringLiteral("copy") || value == QStringLiteral("h264") ||
@@ -747,6 +754,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.appearance"), QStringLiteral("Appearance") },
         { QStringLiteral("settings.theme"), QStringLiteral("Theme") },
         { QStringLiteral("settings.language"), QStringLiteral("Language") },
+        { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby home layout") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("Page transition animations") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
@@ -795,6 +803,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("option.light"), QStringLiteral("Light") },
         { QStringLiteral("option.zh"), QStringLiteral("简体中文") },
         { QStringLiteral("option.en"), QStringLiteral("English") },
+        { QStringLiteral("option.homeTrendy"), QStringLiteral("Trendy") },
+        { QStringLiteral("option.homeTraditional"), QStringLiteral("Traditional") },
         { QStringLiteral("nav.scheduledTasks"), QStringLiteral("Keep-Alive Tasks") },
         { QStringLiteral("schedule.subtitle"), QStringLiteral("Create manual or recurring silent background playback strategies for Emby") },
         { QStringLiteral("schedule.add"), QStringLiteral("New Strategy") },
@@ -1094,6 +1104,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.appearance"), QStringLiteral("外观") },
         { QStringLiteral("settings.theme"), QStringLiteral("主题") },
         { QStringLiteral("settings.language"), QStringLiteral("语言") },
+        { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby 首页样式") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("页面切换动画") },
         { QStringLiteral("settings.desktop"), QStringLiteral("桌面") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("最小化到托盘") },
@@ -1102,6 +1113,8 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("option.light"), QStringLiteral("白色") },
         { QStringLiteral("option.zh"), QStringLiteral("简体中文") },
         { QStringLiteral("option.en"), QStringLiteral("English") },
+        { QStringLiteral("option.homeTrendy"), QStringLiteral("新潮") },
+        { QStringLiteral("option.homeTraditional"), QStringLiteral("传统") },
         { QStringLiteral("player.info"), QStringLiteral("视频信息") },
         { QStringLiteral("player.videoInfo"), QStringLiteral("视频信息") },
         { QStringLiteral("player.resolution"), QStringLiteral("分辨率") },
@@ -2062,6 +2075,21 @@ void AppViewModel::setLanguageMode(const QString& value)
     emit missedScheduledPlaybackTasksChanged();
 }
 
+QString AppViewModel::embyHomeLayout() const
+{
+    return normalizedEmbyHomeLayout(m_repository.embyHomeLayout());
+}
+
+void AppViewModel::setEmbyHomeLayout(const QString& value)
+{
+    const auto normalized = normalizedEmbyHomeLayout(value);
+    if (embyHomeLayout() == normalized) {
+        return;
+    }
+    m_repository.setEmbyHomeLayout(normalized);
+    emit embyHomeLayoutChanged();
+}
+
 bool AppViewModel::pageTransitionsEnabled() const
 {
     return m_repository.pageTransitionsEnabled();
@@ -2318,6 +2346,11 @@ MediaLibraryListModel* AppViewModel::libraries()
 MediaItemListModel* AppViewModel::continueItems()
 {
     return &m_continueItems;
+}
+
+MediaItemListModel* AppViewModel::recommendedItems()
+{
+    return &m_recommendedItems;
 }
 
 MediaItemListModel* AppViewModel::items()
@@ -4870,6 +4903,7 @@ void AppViewModel::logout()
     clearCurrentPlayback();
     m_libraries.clear();
     m_continueItems.clear();
+    m_recommendedItems.clear();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();
@@ -4896,6 +4930,7 @@ void AppViewModel::backToServices()
     clearCurrentPlayback();
     m_libraries.clear();
     m_continueItems.clear();
+    m_recommendedItems.clear();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();
@@ -5295,6 +5330,7 @@ void AppViewModel::refreshHome()
     if (!m_session) {
         return;
     }
+    refreshRecommendations();
     refreshContinueWatching();
     refreshLibraries();
 }
@@ -5396,6 +5432,34 @@ void AppViewModel::refreshContinueWatching()
         auto items = std::move(*result);
         mergeRecentPlaybackProgress(items);
         m_continueItems.setItems(std::move(items));
+    });
+}
+
+void AppViewModel::refreshRecommendations()
+{
+    if (!m_session || m_session->server.serviceType != ServiceType::Emby) {
+        m_recommendedItems.clear();
+        return;
+    }
+
+    beginHomeLoading();
+    AppLogger::info(QStringLiteral("recommendations"),
+                    QStringLiteral("Fetching suggested series from %1")
+                        .arg(QUrl(m_session->server.baseUrl).host()));
+    const auto serverId = m_session->server.id;
+    m_embyClient.fetchSuggestedSeries(*m_session, 8, [this, serverId](ItemResult result) {
+        endHomeLoading();
+        if (!m_session || m_session->server.id != serverId) {
+            return;
+        }
+        if (!result) {
+            m_recommendedItems.clear();
+            AppLogger::warning(QStringLiteral("recommendations"),
+                               QStringLiteral("Fetch suggested series failed: %1")
+                                   .arg(displayNetworkError(result.error())));
+            return;
+        }
+        m_recommendedItems.setItems(std::move(*result));
     });
 }
 
@@ -5817,6 +5881,15 @@ void AppViewModel::openContinueItem(int row)
             clearSeriesDetails();
         }
     });
+}
+
+void AppViewModel::openRecommendedItem(int row)
+{
+    const auto item = m_recommendedItems.itemAt(row);
+    if (!item) {
+        return;
+    }
+    openMediaItemDetails(*item, false);
 }
 
 void AppViewModel::openItem(int row)
@@ -6620,6 +6693,7 @@ void AppViewModel::loadServiceHome()
     emit currentLibraryChanged();
     emit selectedItemChanged();
     setCurrentView(QStringLiteral("home"));
+    refreshRecommendations();
     refreshContinueWatching();
     refreshLibraries();
 }
@@ -6641,6 +6715,7 @@ void AppViewModel::loadIptvService(const ServiceCard& card)
     clearCurrentPlayback();
     m_libraries.clear();
     m_continueItems.clear();
+    m_recommendedItems.clear();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();
@@ -6800,6 +6875,7 @@ void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& pas
     clearCurrentPlayback();
     m_libraries.clear();
     m_continueItems.clear();
+    m_recommendedItems.clear();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();
