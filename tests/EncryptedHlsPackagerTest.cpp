@@ -1,3 +1,4 @@
+#include "services/encryptedhls/EncryptedHlsBatchPackager.h"
 #include "services/encryptedhls/EncryptedHlsPackager.h"
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
@@ -10,6 +11,7 @@
 #include <QTimer>
 
 #include <optional>
+#include <utility>
 
 namespace {
 bool writeBytes(const QString& path, QByteArrayView bytes)
@@ -45,6 +47,8 @@ private slots:
     void honorsCancellationBeforeEncryptingPlaintext();
     void buildsFfmpegArgumentsForSelectedEncodings();
     void packagesNormalVideoThroughFfmpeg();
+    void packagesBatchAndContinuesAfterFailure();
+    void cancelsBatchBeforeStartingRemainingItems();
 };
 
 void EncryptedHlsPackagerTest::encryptsEverySegmentAndCreatesMatchingMetadata()
@@ -276,6 +280,113 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
     QCOMPARE(**recoveredSourceName, QFileInfo(sourcePath).fileName());
     QCOMPARE((**stored).rootManifestDigest, completed->rootManifestDigest);
     QCOMPARE((**stored).segmentKeys.size(), completed->segmentCount);
+}
+
+void EncryptedHlsPackagerTest::packagesBatchAndContinuesAfterFailure()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto firstSourcePath = temporary.filePath(QStringLiteral("first-video.y4m"));
+    const auto secondSourcePath = temporary.filePath(QStringLiteral("second-video.y4m"));
+    const auto missingSourcePath = temporary.filePath(QStringLiteral("missing-video.y4m"));
+    QVERIFY(writeBytes(firstSourcePath, tinyY4mVideo()));
+    QVERIFY(writeBytes(secondSourcePath, tinyY4mVideo()));
+
+    TsslStore store(temporary.filePath(QStringLiteral("batch-keys")));
+    EncryptedHlsBatchPackager packager(store);
+    if (packager.ffmpegExecutable().isEmpty()) {
+        QSKIP("FFmpeg is not available in this test environment");
+    }
+
+    std::optional<EncryptedHlsBatchResult> completed;
+    int completedItems = 0;
+    int failedItems = 0;
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    connect(&packager, &EncryptedHlsBatchPackager::itemCompleted, &loop,
+            [&completedItems](const EncryptedHlsPackageResult&) { ++completedItems; });
+    connect(&packager, &EncryptedHlsBatchPackager::itemFailed, &loop,
+            [&failedItems](const EncryptedHlsBatchFailure&) { ++failedItems; });
+    connect(&packager, &EncryptedHlsBatchPackager::completed, &loop,
+            [&](const EncryptedHlsBatchResult& result) {
+                completed = result;
+                loop.quit();
+            });
+
+    EncryptedHlsBatchRequest batch;
+    for (const auto& sourcePath : { firstSourcePath, missingSourcePath, secondSourcePath }) {
+        batch.packages.append(EncryptedHlsPackageRequest {
+            .sourcePath = sourcePath,
+            .outputDirectory = temporary.path(),
+            .segmentDurationSeconds = 2,
+        });
+    }
+    const auto started = packager.start(std::move(batch));
+    if (!started) {
+        QFAIL(qPrintable(started.error()));
+    }
+    timer.start(120'000);
+    loop.exec();
+
+    QVERIFY2(completed.has_value(), "Timed out waiting for the M3U8S batch pipeline");
+    QVERIFY(!packager.isRunning());
+    QCOMPARE(packager.progress(), 1.0);
+    QCOMPARE(packager.totalCount(), 3);
+    QCOMPARE(packager.processedCount(), 3);
+    QCOMPARE(completedItems, 2);
+    QCOMPARE(failedItems, 1);
+    QCOMPARE(completed->requestedCount, 3);
+    QCOMPARE(completed->packages.size(), 2);
+    QCOMPARE(completed->failures.size(), 1);
+    QCOMPARE(completed->failures.constFirst().sourcePath, missingSourcePath);
+    QVERIFY(completed->segmentCount > 0);
+    QVERIFY(completed->packages.at(0).outputDirectory != completed->packages.at(1).outputDirectory);
+    for (const auto& package : completed->packages) {
+        QVERIFY(QFileInfo::exists(package.manifestPath));
+    }
+
+    const auto storedPackages = store.listPackages();
+    QVERIFY(storedPackages.has_value());
+    QCOMPARE(storedPackages->size(), 2);
+}
+
+void EncryptedHlsPackagerTest::cancelsBatchBeforeStartingRemainingItems()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    TsslStore store(temporary.filePath(QStringLiteral("cancel-keys")));
+    EncryptedHlsBatchPackager packager(store);
+
+    std::optional<EncryptedHlsBatchResult> canceled;
+    bool completed = false;
+    connect(&packager, &EncryptedHlsBatchPackager::itemFailed, &packager,
+            [&packager](const EncryptedHlsBatchFailure&) { packager.cancel(); });
+    connect(&packager, &EncryptedHlsBatchPackager::canceled, &packager,
+            [&canceled](const EncryptedHlsBatchResult& result) { canceled = result; });
+    connect(&packager, &EncryptedHlsBatchPackager::completed, &packager,
+            [&completed](const EncryptedHlsBatchResult&) { completed = true; });
+
+    EncryptedHlsBatchRequest batch;
+    for (const auto& name : { QStringLiteral("missing-first.mp4"),
+                              QStringLiteral("missing-second.mp4") }) {
+        batch.packages.append(EncryptedHlsPackageRequest {
+            .sourcePath = temporary.filePath(name),
+            .outputDirectory = temporary.path(),
+        });
+    }
+    const auto started = packager.start(std::move(batch));
+    QVERIFY(started.has_value());
+
+    QVERIFY(canceled.has_value());
+    QVERIFY(!completed);
+    QVERIFY(!packager.isRunning());
+    QCOMPARE(packager.totalCount(), 2);
+    QCOMPARE(packager.processedCount(), 1);
+    QCOMPARE(canceled->failures.size(), 1);
+    QCOMPARE(canceled->failures.constFirst().sourcePath,
+             temporary.filePath(QStringLiteral("missing-first.mp4")));
 }
 
 QTEST_GUILESS_MAIN(EncryptedHlsPackagerTest)

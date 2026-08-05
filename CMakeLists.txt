@@ -90,6 +90,8 @@ qt_add_executable(vibePlayerQT
     src/player/PlayerController.h
     src/services/emby/EmbyClient.cpp
     src/services/emby/EmbyClient.h
+    src/services/encryptedhls/EncryptedHlsBatchPackager.cpp
+    src/services/encryptedhls/EncryptedHlsBatchPackager.h
     src/services/encryptedhls/EncryptedHlsPackager.cpp
     src/services/encryptedhls/EncryptedHlsPackager.h
     src/services/credentials/CredentialStore.cpp
@@ -476,6 +478,8 @@ if(BUILD_TESTING)
 
     add_executable(encrypted_hls_packager_test
         tests/EncryptedHlsPackagerTest.cpp
+        src/services/encryptedhls/EncryptedHlsBatchPackager.cpp
+        src/services/encryptedhls/EncryptedHlsBatchPackager.h
         src/services/encryptedhls/EncryptedHlsPackager.cpp
         src/services/encryptedhls/EncryptedHlsPackager.h
         src/services/webdav/AesGcmDecryptor.cpp

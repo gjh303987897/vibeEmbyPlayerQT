@@ -602,9 +602,9 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.cardSubtitle"), QStringLiteral("AES-256-GCM packaging and local key storage") },
         { QStringLiteral("m3u8s.builtIn"), QStringLiteral("Secure HLS") },
         { QStringLiteral("m3u8s.packageCount"), QStringLiteral("%1 TSSL packages") },
-        { QStringLiteral("m3u8s.createTitle"), QStringLiteral("Create encrypted video package") },
-        { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("Choose a local video. The upload-ready output contains an M3U8S manifest and authenticated TS segments; its TSSL keys stay on this device.") },
-        { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose video and create") },
+        { QStringLiteral("m3u8s.createTitle"), QStringLiteral("Create encrypted video packages") },
+        { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("Choose one or more local videos. Each upload-ready output contains an M3U8S manifest and authenticated TS segments; its TSSL keys stay on this device.") },
+        { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose videos and create") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("Output folder") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("Choose folder") },
         { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("Video encoding") },
@@ -629,6 +629,13 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("Package completed with %1 encrypted TS segments") },
         { QStringLiteral("m3u8s.failedStatus"), QStringLiteral("Package creation failed") },
         { QStringLiteral("m3u8s.canceledStatus"), QStringLiteral("Package creation canceled") },
+        { QStringLiteral("m3u8s.batchProcessingStatus"), QStringLiteral("Packaging %1 of %2: %3") },
+        { QStringLiteral("m3u8s.batchCompletedStatus"), QStringLiteral("Batch completed: %1 packages with %2 encrypted TS segments") },
+        { QStringLiteral("m3u8s.batchPartialStatus"), QStringLiteral("Batch completed: %1 succeeded, %2 failed, %3 encrypted TS segments") },
+        { QStringLiteral("m3u8s.batchFailedStatus"), QStringLiteral("Batch completed: all %1 files failed") },
+        { QStringLiteral("m3u8s.batchCanceledStatus"), QStringLiteral("Batch canceled after %1 of %2 files finished") },
+        { QStringLiteral("m3u8s.batchFileFailure"), QStringLiteral("%1: %2") },
+        { QStringLiteral("m3u8s.batchMoreFailures"), QStringLiteral("%1 more failures are available in the application log.") },
         { QStringLiteral("m3u8s.savedTitle"), QStringLiteral("Saved TSSL packages") },
         { QStringLiteral("m3u8s.savedSubtitle"), QStringLiteral("Keys remain on this device and are matched to M3U8S manifests by a 4096-character identifier") },
         { QStringLiteral("m3u8s.noPackages"), QStringLiteral("No TSSL packages saved") },
@@ -649,7 +656,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("Local TSSL package deleted") },
         { QStringLiteral("m3u8s.invalidPackage"), QStringLiteral("The selected TSSL package is no longer available") },
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("Legacy or invalid TSSL package") },
-        { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("Choose a video to package") },
+        { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("Choose videos to package") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("Choose an output folder") },
         { QStringLiteral("m3u8s.invalidOutput"), QStringLiteral("Choose an available writable output folder") },
         { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("The folder could not be opened") },
@@ -953,8 +960,8 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.builtIn"), QStringLiteral("安全 HLS") },
         { QStringLiteral("m3u8s.packageCount"), QStringLiteral("%1 个 TSSL 密钥包") },
         { QStringLiteral("m3u8s.createTitle"), QStringLiteral("创建加密视频包") },
-        { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("选择本地视频，待上传目录仅包含 M3U8S 清单和经过认证的 TS 分片；TSSL 密钥只保存在本机。") },
-        { QStringLiteral("m3u8s.createAction"), QStringLiteral("选择视频并创建") },
+        { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("可选择一个或多个本地视频。每个待上传目录仅包含 M3U8S 清单和经过认证的 TS 分片；TSSL 密钥只保存在本机。") },
+        { QStringLiteral("m3u8s.createAction"), QStringLiteral("选择多个视频并创建") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("输出目录") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("选择目录") },
         { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("视频编码") },
@@ -979,6 +986,13 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("打包完成，共生成 %1 个加密 TS 分片") },
         { QStringLiteral("m3u8s.failedStatus"), QStringLiteral("视频包创建失败") },
         { QStringLiteral("m3u8s.canceledStatus"), QStringLiteral("已取消视频包创建") },
+        { QStringLiteral("m3u8s.batchProcessingStatus"), QStringLiteral("正在处理第 %1 / %2 个：%3") },
+        { QStringLiteral("m3u8s.batchCompletedStatus"), QStringLiteral("批量处理完成：成功生成 %1 个视频包，共 %2 个加密 TS 分片") },
+        { QStringLiteral("m3u8s.batchPartialStatus"), QStringLiteral("批量处理完成：成功 %1 个，失败 %2 个，共 %3 个加密 TS 分片") },
+        { QStringLiteral("m3u8s.batchFailedStatus"), QStringLiteral("批量处理完成：%1 个文件全部失败") },
+        { QStringLiteral("m3u8s.batchCanceledStatus"), QStringLiteral("已取消批量处理，%1 / %2 个文件已处理") },
+        { QStringLiteral("m3u8s.batchFileFailure"), QStringLiteral("%1：%2") },
+        { QStringLiteral("m3u8s.batchMoreFailures"), QStringLiteral("另外 %1 项失败详情请查看应用日志。") },
         { QStringLiteral("m3u8s.savedTitle"), QStringLiteral("已保存的 TSSL 密钥包") },
         { QStringLiteral("m3u8s.savedSubtitle"), QStringLiteral("密钥仅保存在本机，并通过 4096 字符识别码与 M3U8S 清单匹配") },
         { QStringLiteral("m3u8s.noPackages"), QStringLiteral("尚未保存 TSSL 密钥包") },
@@ -999,7 +1013,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("本机 TSSL 密钥包已删除") },
         { QStringLiteral("m3u8s.invalidPackage"), QStringLiteral("所选 TSSL 密钥包已不可用") },
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("旧版或无效的 TSSL 密钥包") },
-        { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("选择要打包的视频") },
+        { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("选择要打包的视频（可多选）") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("选择输出目录") },
         { QStringLiteral("m3u8s.invalidOutput"), QStringLiteral("请选择可用且可写的输出目录") },
         { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("无法打开该目录") },
@@ -1352,25 +1366,81 @@ AppViewModel::AppViewModel(QObject* parent)
     }
     connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
     connect(&m_transferManager, &TransferManager::selectionChanged, this, &AppViewModel::transferSelectionChanged);
-    connect(&m_m3u8sPackager, &EncryptedHlsPackager::runningChanged, this, &AppViewModel::m3u8sPackagingChanged);
-    connect(&m_m3u8sPackager, &EncryptedHlsPackager::progressChanged, this, &AppViewModel::m3u8sPackagingChanged);
-    connect(&m_m3u8sPackager, &EncryptedHlsPackager::phaseChanged, this, &AppViewModel::m3u8sPackagingChanged);
+    connect(&m_m3u8sPackager, &EncryptedHlsBatchPackager::runningChanged, this, &AppViewModel::m3u8sPackagingChanged);
+    connect(&m_m3u8sPackager, &EncryptedHlsBatchPackager::progressChanged, this, &AppViewModel::m3u8sPackagingChanged);
+    connect(&m_m3u8sPackager, &EncryptedHlsBatchPackager::phaseChanged, this, &AppViewModel::m3u8sPackagingChanged);
+    connect(&m_m3u8sPackager, &EncryptedHlsBatchPackager::currentChanged, this, [this]() {
+        if (!m_m3u8sPackager.isRunning()) {
+            return;
+        }
+        m_m3u8sStatus = m_m3u8sPackager.totalCount() > 1
+            ? trText(QStringLiteral("m3u8s.batchProcessingStatus"))
+                  .arg(m_m3u8sPackager.currentIndex())
+                  .arg(m_m3u8sPackager.totalCount())
+                  .arg(QFileInfo(m_m3u8sPackager.currentSourcePath()).fileName())
+            : trText(QStringLiteral("m3u8s.processingStatus"));
+        emit m3u8sStatusChanged();
+    });
     connect(&m_m3u8sPackager,
-            &EncryptedHlsPackager::completed,
+            &EncryptedHlsBatchPackager::itemCompleted,
             this,
             [this](const EncryptedHlsPackageResult& result) {
                 m_m3u8sLastOutputDirectory = result.outputDirectory;
-                m_m3u8sStatus = trText(QStringLiteral("m3u8s.completedStatus")).arg(result.segmentCount);
                 refreshTsslPackages();
                 emit m3u8sStatusChanged();
             });
-    connect(&m_m3u8sPackager, &EncryptedHlsPackager::failed, this, [this](const QString& error) {
-        m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
+    connect(&m_m3u8sPackager,
+            &EncryptedHlsBatchPackager::completed,
+            this,
+            [this](const EncryptedHlsBatchResult& result) {
+        const auto succeeded = result.packages.size();
+        const auto failed = result.failures.size();
+        if (result.requestedCount == 1 && failed == 0) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.completedStatus")).arg(result.segmentCount);
+        } else if (result.requestedCount == 1) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
+        } else if (failed == 0) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchCompletedStatus"))
+                                   .arg(succeeded)
+                                   .arg(result.segmentCount);
+        } else if (succeeded == 0) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchFailedStatus")).arg(failed);
+        } else {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchPartialStatus"))
+                                   .arg(succeeded)
+                                   .arg(failed)
+                                   .arg(result.segmentCount);
+        }
         emit m3u8sStatusChanged();
-        setError(error);
+
+        if (!result.failures.isEmpty()) {
+            constexpr qsizetype maximumVisibleFailures = 3;
+            QStringList details;
+            const auto visibleCount = std::min(maximumVisibleFailures, result.failures.size());
+            details.reserve(static_cast<int>(visibleCount + 1));
+            for (qsizetype index = 0; index < visibleCount; ++index) {
+                const auto& failure = result.failures.at(index);
+                details.append(trText(QStringLiteral("m3u8s.batchFileFailure"))
+                                   .arg(QFileInfo(failure.sourcePath).fileName())
+                                   .arg(failure.error.left(600).trimmed()));
+            }
+            if (result.failures.size() > visibleCount) {
+                details.append(trText(QStringLiteral("m3u8s.batchMoreFailures"))
+                                   .arg(result.failures.size() - visibleCount));
+            }
+            setError(details.join(QLatin1Char('\n')));
+        }
     });
-    connect(&m_m3u8sPackager, &EncryptedHlsPackager::canceled, this, [this]() {
-        m_m3u8sStatus = trText(QStringLiteral("m3u8s.canceledStatus"));
+    connect(&m_m3u8sPackager,
+            &EncryptedHlsBatchPackager::canceled,
+            this,
+            [this](const EncryptedHlsBatchResult& result) {
+        const auto processed = result.packages.size() + result.failures.size();
+        m_m3u8sStatus = result.requestedCount == 1
+            ? trText(QStringLiteral("m3u8s.canceledStatus"))
+            : trText(QStringLiteral("m3u8s.batchCanceledStatus"))
+                  .arg(processed)
+                  .arg(result.requestedCount);
         emit m3u8sStatusChanged();
     });
     connect(&m_transferManager, &TransferManager::taskFinished, this, [this](const QString&, bool, const QString&) {
@@ -4377,26 +4447,31 @@ void AppViewModel::chooseM3u8sVideo()
         setError(trText(QStringLiteral("m3u8s.invalidOutput")));
         return;
     }
-    const auto source = QFileDialog::getOpenFileName(
+    const auto sources = QFileDialog::getOpenFileNames(
         nullptr,
         trText(QStringLiteral("m3u8s.chooseVideo")),
         QStandardPaths::writableLocation(QStandardPaths::MoviesLocation),
         QStringLiteral("Video files (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts);;All files (*)"));
-    if (source.isEmpty()) {
+    if (sources.isEmpty()) {
         return;
     }
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.processingStatus"));
     m_m3u8sLastOutputDirectory.clear();
     emit m3u8sStatusChanged();
-    const auto started = m_m3u8sPackager.start(EncryptedHlsPackageRequest {
-        .sourcePath = source,
-        .outputDirectory = outputDirectory.absoluteFilePath(),
-        .segmentDurationSeconds = m_m3u8sSegmentDuration,
-        .videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding),
-        .audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding),
-        .videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality),
-    });
+    EncryptedHlsBatchRequest batch;
+    batch.packages.reserve(sources.size());
+    for (const auto& source : sources) {
+        batch.packages.append(EncryptedHlsPackageRequest {
+            .sourcePath = QFileInfo(source).absoluteFilePath(),
+            .outputDirectory = outputDirectory.absoluteFilePath(),
+            .segmentDurationSeconds = m_m3u8sSegmentDuration,
+            .videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding),
+            .audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding),
+            .videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality),
+        });
+    }
+    const auto started = m_m3u8sPackager.start(std::move(batch));
     if (!started) {
         m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
         emit m3u8sStatusChanged();

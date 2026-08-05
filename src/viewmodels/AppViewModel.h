@@ -5,7 +5,7 @@
 #include "models/IptvPlaylist.h"
 #include "models/UserSession.h"
 #include "network/NetworkClient.h"
-#include "services/encryptedhls/EncryptedHlsPackager.h"
+#include "services/encryptedhls/EncryptedHlsBatchPackager.h"
 #include "services/webdav/TransferManager.h"
 #include "services/webdav/WebDavClient.h"
 #include "services/webdav/WebDavDownloadPlanner.h"
@@ -840,7 +840,7 @@ private:
     WebDavPlaybackProxy m_webDavPlaybackProxy;
     TsslStore m_tsslStore;
     EncryptedHlsPlaybackProxy m_encryptedHlsPlaybackProxy;
-    EncryptedHlsPackager m_m3u8sPackager;
+    EncryptedHlsBatchPackager m_m3u8sPackager;
     LocalMediaService m_localMediaService;
     TransferManager m_transferManager;
     SessionRepository m_repository;

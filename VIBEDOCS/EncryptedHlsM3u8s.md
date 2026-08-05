@@ -97,6 +97,17 @@ The application checks its executable directory first and then `PATH` for
 `ffmpeg` (`ffmpeg.exe` on Windows). A missing executable is reported before a
 job starts.
 
+The file picker accepts one or more source videos. `EncryptedHlsBatchPackager`
+queues the resulting requests and runs the existing single-file packager
+serially. Each source therefore keeps its own staging directory, random
+identifier, encrypted source name, digest-named output directory, and local
+TSSL package. The displayed batch progress combines completed items with the
+current item's progress. A per-file failure is recorded and the next queued
+file still starts; the final status distinguishes complete, partial, and total
+failure. Canceling stops the active FFmpeg/encryption job and discards every
+request that has not started. A one-file selection follows the same queue path
+and preserves the original single-package behavior.
+
 The page offers these encoding modes:
 
 - Video stream copy preserves the original encoded video without decode or
@@ -232,7 +243,8 @@ randomized encryption, and malformed packages. `EncryptedHlsPlaybackProxyTest`
 covers identifier matching plus authenticated WebDAV and local playback.
 `EncryptedHlsPackagerTest` covers in-place HLS encryption, opaque output names,
 source-name recovery, cancellation, tag-tamper rejection, FFmpeg argument
-selection for copy/H.264/H.265 modes, and an end-to-end FFmpeg package.
+selection for copy/H.264/H.265 modes, an end-to-end FFmpeg package, and a batch
+that continues to a later valid source after an intermediate failure.
 `LocalMediaServiceTest` covers local M3U8S discovery and generated-segment
 filtering.
 
