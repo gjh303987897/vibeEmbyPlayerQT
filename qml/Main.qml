@@ -1759,15 +1759,25 @@ ApplicationWindow {
 
                     Popup {
                         id: homeSearchPopup
-                        x: Math.max(24, homePage.width - width - 24)
-                        y: 86
-                        width: Math.min(460, Math.max(240, homePage.width - 48))
-                        height: 66
+                        x: {
+                            var buttonPosition = homeSearchButton.mapToItem(homePage, 0, 0)
+                            return Math.max(16,
+                                buttonPosition.x + homeSearchButton.width - width)
+                        }
+                        y: {
+                            var buttonPosition = homeSearchButton.mapToItem(homePage, 0, 0)
+                            return buttonPosition.y + (homeSearchButton.height - height) / 2
+                        }
+                        readonly property real expandedWidth: Math.min(460,
+                            Math.max(240, homePage.width - 48))
+                        readonly property real expandedHeight: 66
+                        width: expandedWidth
+                        height: expandedHeight
                         padding: 12
+                        clip: true
                         modal: false
                         focus: true
                         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                        transformOrigin: Item.TopRight
                         z: 30
 
                         enter: Transition {
@@ -1776,15 +1786,22 @@ ApplicationWindow {
                                     property: "opacity"
                                     from: 0
                                     to: 1
-                                    duration: 160
+                                    duration: 220
                                     easing.type: Easing.OutCubic
                                 }
                                 NumberAnimation {
-                                    property: "scale"
-                                    from: 0.96
-                                    to: 1
-                                    duration: 190
-                                    easing.type: Easing.OutBack
+                                    property: "width"
+                                    from: homeSearchButton.width
+                                    to: homeSearchPopup.expandedWidth
+                                    duration: 220
+                                    easing.type: Easing.OutCubic
+                                }
+                                NumberAnimation {
+                                    property: "height"
+                                    from: homeSearchButton.height
+                                    to: homeSearchPopup.expandedHeight
+                                    duration: 220
+                                    easing.type: Easing.OutCubic
                                 }
                             }
                         }
@@ -1795,14 +1812,21 @@ ApplicationWindow {
                                     property: "opacity"
                                     from: 1
                                     to: 0
-                                    duration: 120
+                                    duration: 170
                                     easing.type: Easing.InCubic
                                 }
                                 NumberAnimation {
-                                    property: "scale"
-                                    from: 1
-                                    to: 0.98
-                                    duration: 120
+                                    property: "width"
+                                    from: homeSearchPopup.expandedWidth
+                                    to: homeSearchButton.width
+                                    duration: 150
+                                    easing.type: Easing.InCubic
+                                }
+                                NumberAnimation {
+                                    property: "height"
+                                    from: homeSearchPopup.expandedHeight
+                                    to: homeSearchButton.height
+                                    duration: 150
                                     easing.type: Easing.InCubic
                                 }
                             }
@@ -2075,6 +2099,7 @@ ApplicationWindow {
                                     Item { Layout.fillWidth: true }
 
                                     IconButton {
+                                        id: homeSearchButton
                                         visible: appViewModel.serverSearchAvailable
                                         Layout.preferredWidth: 38
                                         Layout.preferredHeight: 38
@@ -2217,12 +2242,19 @@ ApplicationWindow {
 
                                             WheelHandler {
                                                 onWheel: function(event) {
-                                                    var delta = event.angleDelta.x !== 0
+                                                    var horizontalDelta = event.angleDelta.x !== 0
                                                         ? -event.angleDelta.x
                                                         : ((event.modifiers & Qt.ShiftModifier)
                                                             ? -event.angleDelta.y : 0)
-                                                    if (delta !== 0) {
-                                                        continueRail.scrollBy(delta)
+                                                    if (horizontalDelta !== 0) {
+                                                        continueRail.scrollBy(horizontalDelta)
+                                                        event.accepted = true
+                                                    } else if (event.angleDelta.y !== 0) {
+                                                        var maxContentY = Math.max(0,
+                                                            homeFlick.contentHeight - homeFlick.height)
+                                                        homeFlick.contentY = Math.max(0,
+                                                            Math.min(maxContentY,
+                                                                homeFlick.contentY - event.angleDelta.y))
                                                         event.accepted = true
                                                     } else {
                                                         event.accepted = false
