@@ -14,7 +14,7 @@ The trendy home follows a cinematic, vertically scrollable structure:
 1. A full-width featured backdrop driven by up to eight recommended series on
    Emby, with continue-watching as the fallback data source.
 2. A floating toolbar with an explicit return-to-services action, service
-   identity, an inline server-wide search field, and refresh.
+   identity, a compact search button, and refresh.
 3. A landscape continue-watching rail with playback progress.
 4. A landscape library rail using the server-provided library artwork.
 
@@ -61,10 +61,11 @@ layout does not trigger additional requests; both presentations reuse
   bypass playback URL resolution.
 - Vertical mouse-wheel input scrolls the page. Horizontal touchpad input, or
   Shift plus mouse wheel, scrolls the media rails.
-- Search is always available as a long inline input on the home toolbar.
-- Both the explicit back button and service badge return to the source selector.
-  Refresh reloads recommendations, continue watching, and libraries through
-  `AppViewModel::refreshHome`.
+- Search opens as a focused input popup from the compact toolbar button and
+  closes when navigation moves to the results view.
+- The combined server button returns to the source selector; search and refresh
+  actions remain grouped at the top right. Refresh reloads recommendations,
+  continue watching, and libraries through `AppViewModel::refreshHome`.
 
 ## Card Presentation
 

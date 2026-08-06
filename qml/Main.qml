@@ -1757,6 +1757,82 @@ ApplicationWindow {
                         }
                     }
 
+                    Popup {
+                        id: homeSearchPopup
+                        x: Math.max(24, homePage.width - width - 24)
+                        y: 86
+                        width: Math.min(460, Math.max(240, homePage.width - 48))
+                        height: 66
+                        padding: 12
+                        modal: false
+                        focus: true
+                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                        transformOrigin: Item.TopRight
+                        z: 30
+
+                        enter: Transition {
+                            ParallelAnimation {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    from: 0
+                                    to: 1
+                                    duration: 160
+                                    easing.type: Easing.OutCubic
+                                }
+                                NumberAnimation {
+                                    property: "scale"
+                                    from: 0.96
+                                    to: 1
+                                    duration: 190
+                                    easing.type: Easing.OutBack
+                                }
+                            }
+                        }
+
+                        exit: Transition {
+                            ParallelAnimation {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    from: 1
+                                    to: 0
+                                    duration: 120
+                                    easing.type: Easing.InCubic
+                                }
+                                NumberAnimation {
+                                    property: "scale"
+                                    from: 1
+                                    to: 0.98
+                                    duration: 120
+                                    easing.type: Easing.InCubic
+                                }
+                            }
+                        }
+
+                        background: Rectangle {
+                            radius: 14
+                            color: root.withAlpha(theme.surface, darkTheme ? 0.97 : 0.99)
+                            border.color: root.withAlpha(theme.primary, 0.52)
+                            border.width: 1
+                        }
+
+                        contentItem: MediaServerSearchBar {}
+
+                        onOpened: Qt.callLater(function() {
+                            if (homeSearchPopup.contentItem) {
+                                homeSearchPopup.contentItem.focusInput()
+                            }
+                        })
+                    }
+
+                    Connections {
+                        target: appViewModel
+                        function onCurrentViewChanged() {
+                            if (homeSearchPopup.visible && appViewModel.currentView !== "home") {
+                                homeSearchPopup.close()
+                            }
+                        }
+                    }
+
                     Flickable {
                         id: homeFlick
                         anchors.fill: parent
@@ -1931,14 +2007,6 @@ ApplicationWindow {
                                     }
                                 }
 
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    height: 116
-                                    color: "#5c0a0d12"
-                                }
-
                                 RowLayout {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
@@ -1947,14 +2015,6 @@ ApplicationWindow {
                                     anchors.rightMargin: 24
                                     height: 82
                                     spacing: 16
-
-                                    IconButton {
-                                        text: "‹"
-                                        font.pixelSize: 28
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: t("action.backToServices")
-                                        onClicked: appViewModel.backToServices()
-                                    }
 
                                     Button {
                                         id: serverHomeButton
@@ -1966,7 +2026,15 @@ ApplicationWindow {
                                         onClicked: appViewModel.backToServices()
 
                                         contentItem: RowLayout {
-                                            spacing: 9
+                                            spacing: 8
+
+                                            Label {
+                                                text: "\u2190"
+                                                color: "#ffffff"
+                                                font.pixelSize: 19
+                                                font.bold: true
+                                                Layout.alignment: Qt.AlignVCenter
+                                            }
 
                                             Rectangle {
                                                 Layout.preferredWidth: 26
@@ -1998,13 +2066,24 @@ ApplicationWindow {
                                             color: serverHomeButton.hovered ? "#4dffffff" : "#2effffff"
                                             border.color: "#55ffffff"
                                         }
+
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: t("action.backToServices")
+                                        Accessible.name: t("action.backToServices")
                                     }
 
-                                    MediaServerSearchBar {
+                                    Item { Layout.fillWidth: true }
+
+                                    IconButton {
                                         visible: appViewModel.serverSearchAvailable
-                                        Layout.fillWidth: true
-                                        Layout.minimumWidth: 300
-                                        Layout.maximumWidth: 560
+                                        Layout.preferredWidth: 38
+                                        Layout.preferredHeight: 38
+                                        text: "\uD83D\uDD0D"
+                                        font.pixelSize: 18
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: t("search.action")
+                                        Accessible.name: t("search.action")
+                                        onClicked: homeSearchPopup.open()
                                     }
 
                                     IconButton {
@@ -3203,6 +3282,10 @@ ApplicationWindow {
     component MediaServerSearchBar: RowLayout {
         id: mediaServerSearchBar
         spacing: 8
+
+        function focusInput() {
+            serverSearchInput.forceActiveFocus()
+        }
 
         ModernTextField {
             id: serverSearchInput
