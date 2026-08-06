@@ -2344,14 +2344,21 @@ ApplicationWindow {
 
                                         WheelHandler {
                                             onWheel: function(event) {
-                                                var delta = event.angleDelta.x !== 0
+                                                var horizontalDelta = event.angleDelta.x !== 0
                                                     ? -event.angleDelta.x
                                                     : ((event.modifiers & Qt.ShiftModifier)
                                                         ? -event.angleDelta.y : 0)
-                                                if (delta !== 0) {
+                                                if (horizontalDelta !== 0) {
                                                     libraryGrid.contentX = Math.max(0,
                                                         Math.min(libraryGrid.contentWidth - libraryGrid.width,
-                                                            libraryGrid.contentX + delta))
+                                                            libraryGrid.contentX + horizontalDelta))
+                                                    event.accepted = true
+                                                } else if (event.angleDelta.y !== 0) {
+                                                    var maxContentY = Math.max(0,
+                                                        homeFlick.contentHeight - homeFlick.height)
+                                                    homeFlick.contentY = Math.max(0,
+                                                        Math.min(maxContentY,
+                                                            homeFlick.contentY - event.angleDelta.y))
                                                     event.accepted = true
                                                 } else {
                                                     event.accepted = false
