@@ -14,7 +14,7 @@ The trendy home follows a cinematic, vertically scrollable structure:
 1. A full-width featured backdrop driven by up to eight recommended series on
    Emby, with continue-watching as the fallback data source.
 2. A floating toolbar with an explicit return-to-services action, service
-   identity, a compact search button, and refresh.
+   identity, and translucent icon-and-text search and refresh controls.
 3. A landscape continue-watching rail with playback progress.
 4. A landscape library rail using the server-provided library artwork.
 

@@ -2098,24 +2098,24 @@ ApplicationWindow {
 
                                     Item { Layout.fillWidth: true }
 
-                                    IconButton {
+                                    HeroToolbarButton {
                                         id: homeSearchButton
                                         visible: appViewModel.serverSearchAvailable
-                                        Layout.preferredWidth: 38
-                                        Layout.preferredHeight: 38
-                                        text: "\uD83D\uDD0D"
-                                        font.pixelSize: 18
+                                        iconText: "\uD83D\uDD0D"
+                                        text: t("search.action")
                                         ToolTip.visible: hovered
                                         ToolTip.text: t("search.action")
                                         Accessible.name: t("search.action")
                                         onClicked: homeSearchPopup.open()
                                     }
 
-                                    IconButton {
-                                        text: "↻"
+                                    HeroToolbarButton {
+                                        iconText: "\u21BB"
+                                        text: t("action.refresh")
                                         enabled: !appViewModel.loading
                                         ToolTip.visible: hovered
                                         ToolTip.text: t("action.refresh")
+                                        Accessible.name: t("action.refresh")
                                         onClicked: appViewModel.refreshHome()
                                     }
                                 }
@@ -2764,6 +2764,45 @@ ApplicationWindow {
         implicitWidth: 38
         leftPadding: 0
         rightPadding: 0
+    }
+
+    component HeroToolbarButton: Button {
+        id: heroToolbarButton
+        property string iconText: ""
+
+        implicitHeight: 46
+        leftPadding: 14
+        rightPadding: 16
+        hoverEnabled: true
+        opacity: enabled ? 1 : 0.55
+
+        contentItem: RowLayout {
+            spacing: 8
+
+            Label {
+                text: heroToolbarButton.iconText
+                color: "#ffffff"
+                font.pixelSize: 16
+                font.bold: true
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Label {
+                text: heroToolbarButton.text
+                color: "#ffffff"
+                font.pixelSize: 14
+                font.bold: true
+                elide: Text.ElideRight
+                Layout.alignment: Qt.AlignVCenter
+            }
+        }
+
+        background: Rectangle {
+            radius: 8
+            color: heroToolbarButton.down ? "#5cffffff"
+                : heroToolbarButton.hovered ? "#4dffffff" : "#2effffff"
+            border.color: "#55ffffff"
+        }
     }
 
     component AudioControlIcon: Canvas {
