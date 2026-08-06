@@ -8859,6 +8859,20 @@ ApplicationWindow {
                     }
 
                     ModernButton {
+                        id: speedButton
+                        Layout.minimumWidth: 96
+                        Layout.preferredWidth: 108
+                        text: t("player.speed") + "  " + playerPage.speedLabel(mpvVideo.speed)
+                        Accessible.name: t("player.currentSpeed").arg(playerPage.speedLabel(mpvVideo.speed))
+                        ToolTip.visible: hovered
+                        ToolTip.text: t("player.currentSpeed").arg(playerPage.speedLabel(mpvVideo.speed))
+                        onClicked: {
+                            playerPage.openTrackMenu("speed", speedButton)
+                            playerPage.revealControls()
+                        }
+                    }
+
+                    ModernButton {
                         visible: appViewModel.iptvPlaybackActive
                         text: t("iptv.playerChannels")
                         onClicked: {
@@ -8882,15 +8896,6 @@ ApplicationWindow {
                         enabled: mpvVideo.audioTracks.count > 1
                         onClicked: {
                             playerPage.openTrackMenu("audio", audioTrackButton)
-                            playerPage.revealControls()
-                        }
-                    }
-
-                    ModernButton {
-                        id: speedButton
-                        text: t("player.speed") + " " + playerPage.speedLabel(mpvVideo.speed)
-                        onClicked: {
-                            playerPage.openTrackMenu("speed", speedButton)
                             playerPage.revealControls()
                         }
                     }

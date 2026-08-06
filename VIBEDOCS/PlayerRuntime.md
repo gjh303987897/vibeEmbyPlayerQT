@@ -91,7 +91,7 @@ Controls include:
 - subtitle menu
 - load external subtitle
 - audio track menu
-- playback speed menu
+- playback speed button and menu, placed next to the transport controls so it remains visible before optional track and status actions
 - volume slider
 
 Progress sliders keep a local preview position while the pointer is held. They submit one absolute exact seek when the pointer is released instead of sending an exact seek for every drag movement. The preview remains stable until libmpv reports `playback-restart` (or the seek timeout fires), preventing asynchronous `time-pos` updates from pulling the handle back and avoiding repeated native-window refreshes during a drag.
