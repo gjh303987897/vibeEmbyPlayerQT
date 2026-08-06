@@ -66,6 +66,10 @@ The upstream project periodically removes old daily release tags, so the workflo
 Windows CI configures CMake with `clang-cl` and `lld-link`, matching the local `scripts/configure-clang.cmd` flow while still using the MSVC-compatible Qt package.
 
 macOS and Linux use system libmpv from Homebrew or apt through `pkg-config`.
+The macOS jobs also install Homebrew `openssl@3`, pass its stable opt prefix to
+CMake as `OPENSSL_ROOT_DIR`, and link `OpenSSL::Crypto`. This keeps both test
+executables and the deployed application away from Apple's private libcrypto
+compatibility shim, which aborts direct loads on Apple Silicon.
 
 macOS relies on Qt's generated deployment script to copy `libmpv` and its non-system dependencies into `vibePlayerQT.app/Contents/Frameworks`. ZIP and DMG artifacts are currently unsigned. Apple Developer ID signing and notarization must be added before treating the DMG as a signed public distribution.
 

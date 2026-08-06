@@ -170,6 +170,12 @@ Failed or truncated tags produce an HTTP error and the tentative plaintext
 buffer is cleared. A byte-range response is sliced only after the complete
 object has passed authentication.
 
+On macOS, the application links the Homebrew OpenSSL 3 Crypto target at build
+time and calls its EVP API directly. This avoids falling through a basename
+lookup to Apple's private `libcrypto` compatibility library on Apple Silicon.
+Windows and Linux retain runtime OpenSSL symbol resolution so their existing
+deployment models do not gain a new build-time dependency.
+
 ## Playlist and URI contract
 
 The proxy returns verified playlist bytes without textual URI rewriting. This

@@ -189,8 +189,8 @@ QUrl remoteDirectoryFor(const QUrl& manifestUrl)
     auto path = directory.path(QUrl::FullyDecoded);
     path = path.left(path.lastIndexOf(QLatin1Char('/')) + 1);
     directory.setPath(path);
-    directory.setQuery({});
-    directory.setFragment({});
+    directory.setQuery(QString {});
+    directory.setFragment(QString {});
     return directory;
 }
 

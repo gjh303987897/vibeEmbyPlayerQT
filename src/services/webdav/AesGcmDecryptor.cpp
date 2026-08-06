@@ -1,7 +1,14 @@
 #include "services/webdav/AesGcmDecryptor.h"
 
-#include <QLibrary>
 #include <QtGlobal>
+
+#if defined(Q_OS_MACOS)
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#else
+#include <QLibrary>
+#include <QStringList>
+#endif
 
 #include <algorithm>
 #include <limits>
@@ -9,37 +16,50 @@
 
 namespace AesGcmDecryptor {
 namespace {
+#if defined(Q_OS_MACOS)
+using EvpCipherContext = EVP_CIPHER_CTX;
+using EvpCipher = EVP_CIPHER;
+using EvpEngine = ENGINE;
+#else
 struct EvpCipherContext;
 struct EvpCipher;
+struct EvpEngine;
+#endif
 
 class OpenSslEvp final {
 public:
     using NewContext = EvpCipherContext* (*)();
     using FreeContext = void (*)(EvpCipherContext*);
     using Aes256Gcm = const EvpCipher* (*)();
-    using DecryptInit = int (*)(EvpCipherContext*, const EvpCipher*, void*, const unsigned char*, const unsigned char*);
+    using DecryptInit = int (*)(EvpCipherContext*, const EvpCipher*, EvpEngine*, const unsigned char*, const unsigned char*);
     using ContextControl = int (*)(EvpCipherContext*, int, int, void*);
     using DecryptUpdate = int (*)(EvpCipherContext*, unsigned char*, int*, const unsigned char*, int);
     using DecryptFinal = int (*)(EvpCipherContext*, unsigned char*, int*);
-    using EncryptInit = int (*)(EvpCipherContext*, const EvpCipher*, void*, const unsigned char*, const unsigned char*);
+    using EncryptInit = int (*)(EvpCipherContext*, const EvpCipher*, EvpEngine*, const unsigned char*, const unsigned char*);
     using EncryptUpdate = int (*)(EvpCipherContext*, unsigned char*, int*, const unsigned char*, int);
     using EncryptFinal = int (*)(EvpCipherContext*, unsigned char*, int*);
     using RandomBytes = int (*)(unsigned char*, int);
 
     OpenSslEvp()
     {
-#if defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS)
+        newContext = &EVP_CIPHER_CTX_new;
+        freeContext = &EVP_CIPHER_CTX_free;
+        aes256Gcm = &EVP_aes_256_gcm;
+        decryptInit = &EVP_DecryptInit_ex;
+        contextControl = &EVP_CIPHER_CTX_ctrl;
+        decryptUpdate = &EVP_DecryptUpdate;
+        decryptFinal = &EVP_DecryptFinal_ex;
+        encryptInit = &EVP_EncryptInit_ex;
+        encryptUpdate = &EVP_EncryptUpdate;
+        encryptFinal = &EVP_EncryptFinal_ex;
+        randomBytes = &RAND_bytes;
+#elif defined(Q_OS_WIN)
         const QStringList candidates {
             QStringLiteral("libcrypto-3-x64"),
             QStringLiteral("libcrypto-3"),
             QStringLiteral("libcrypto-1_1-x64"),
             QStringLiteral("libcrypto"),
-        };
-#elif defined(Q_OS_MACOS)
-        const QStringList candidates {
-            QStringLiteral("libcrypto.3.dylib"),
-            QStringLiteral("libcrypto.1.1.dylib"),
-            QStringLiteral("crypto"),
         };
 #else
         const QStringList candidates {
@@ -48,6 +68,7 @@ public:
             QStringLiteral("crypto"),
         };
 #endif
+#if !defined(Q_OS_MACOS)
         for (const auto& candidate : candidates) {
             m_library.setFileName(candidate);
             if (m_library.load() && resolveFunctions()) {
@@ -55,13 +76,19 @@ public:
             }
             m_library.unload();
         }
+#endif
     }
 
     bool available() const
     {
-        return m_library.isLoaded() && newContext && freeContext && aes256Gcm && decryptInit &&
-               contextControl && decryptUpdate && decryptFinal && encryptInit && encryptUpdate &&
-               encryptFinal && randomBytes;
+        const auto functionsAvailable = newContext && freeContext && aes256Gcm && decryptInit &&
+                                        contextControl && decryptUpdate && decryptFinal && encryptInit &&
+                                        encryptUpdate && encryptFinal && randomBytes;
+#if defined(Q_OS_MACOS)
+        return functionsAvailable;
+#else
+        return m_library.isLoaded() && functionsAvailable;
+#endif
     }
 
     NewContext newContext { nullptr };
@@ -77,6 +104,7 @@ public:
     RandomBytes randomBytes { nullptr };
 
 private:
+#if !defined(Q_OS_MACOS)
     template<typename Function>
     Function resolve(const char* name)
     {
@@ -100,6 +128,7 @@ private:
     }
 
     QLibrary m_library;
+#endif
 };
 
 constexpr qsizetype ivBytes = 16;

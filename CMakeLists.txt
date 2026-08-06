@@ -50,6 +50,12 @@ if(WIN32)
     set(MPV_LINK_TARGET MPV::MPV)
 endif()
 
+set(VIBE_CRYPTO_LIBRARIES)
+if(APPLE)
+    find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+    list(APPEND VIBE_CRYPTO_LIBRARIES OpenSSL::Crypto)
+endif()
+
 qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(vibePlayerQT
@@ -209,6 +215,7 @@ target_link_libraries(vibePlayerQT PRIVATE
     Qt6::Widgets
     Qt6::Xml
     ${MPV_LINK_TARGET}
+    ${VIBE_CRYPTO_LIBRARIES}
 )
 
 if(WIN32)
@@ -444,6 +451,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(encrypted_hls_format_test PRIVATE
         Qt6::Test
+        ${VIBE_CRYPTO_LIBRARIES}
     )
 
     add_test(NAME encrypted_hls_format COMMAND encrypted_hls_format_test)
@@ -471,6 +479,7 @@ if(BUILD_TESTING)
         Qt6::Concurrent
         Qt6::Network
         Qt6::Test
+        ${VIBE_CRYPTO_LIBRARIES}
     )
 
     add_test(NAME encrypted_hls_playback_proxy COMMAND encrypted_hls_playback_proxy_test)
@@ -499,6 +508,7 @@ if(BUILD_TESTING)
     target_link_libraries(encrypted_hls_packager_test PRIVATE
         Qt6::Concurrent
         Qt6::Test
+        ${VIBE_CRYPTO_LIBRARIES}
     )
 
     add_test(NAME encrypted_hls_packager COMMAND encrypted_hls_packager_test)
