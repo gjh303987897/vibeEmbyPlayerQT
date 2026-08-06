@@ -89,6 +89,8 @@ public:
     void setLanguageMode(const QString& mode);
     QString embyHomeLayout() const;
     void setEmbyHomeLayout(const QString& layout);
+    QString jellyfinHomeLayout() const;
+    void setJellyfinHomeLayout(const QString& layout);
     bool pageTransitionsEnabled() const;
     void setPageTransitionsEnabled(bool enabled);
     QString defaultDownloadDirectory() const;

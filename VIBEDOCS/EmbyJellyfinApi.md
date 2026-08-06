@@ -27,6 +27,7 @@
 - Jellyfin items operation: `GetItems`
 - Jellyfin server search: `GET /Items` with `userId`, `searchTerm` and `recursive=true`
 - Jellyfin resume operation: `GetResumeItems`, path `GET /UserItems/Resume`
+- Jellyfin suggestions operation: `GetSuggestions`, path `GET /Items/Suggestions`
 - Jellyfin item details operation: `GetItem`, path `GET /Items/{itemId}`
 
 ## Authentication
@@ -131,7 +132,9 @@ Jellyfin:
 
 Continue-watching items open the media details page. Direct play from this section is not part of the current implementation.
 
-## Emby Suggested Series
+## Suggested Series
+
+Emby:
 
 - Endpoint: `GET /Users/{UserId}/Suggestions`
 - Query: `Recursive=true`, `IncludeItemTypes=Series`, `Limit=8`, `Fields`,
@@ -144,6 +147,20 @@ Continue-watching items open the media details page. Direct play from this secti
   continue watching.
 
 Official reference: `https://dev.emby.media/reference/RestAPI/SuggestionsService/getUsersByUseridSuggestions.html`
+
+Jellyfin:
+
+- Endpoint: `GET /Items/Suggestions`
+- Official operation: `GetSuggestions`
+- Query: `userId`, `type=Series`, `startIndex=0`, `limit=8`,
+  `enableTotalRecordCount=false`
+- The official response schema is `BaseItemDtoQueryResult`, so it reuses the
+  normal item parser and the existing `MediaItemListModel`.
+- The endpoint does not expose the normal `fields` or image-selection query
+  parameters; the client sends only parameters declared by the official
+  OpenAPI operation.
+
+Official reference: `https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json`, operation `GetSuggestions`
 
 ## Item Details
 

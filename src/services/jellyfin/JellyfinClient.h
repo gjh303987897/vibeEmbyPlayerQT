@@ -30,6 +30,8 @@ public:
 
     void fetchContinueWatching(const UserSession& session, int limit, std::function<void(ItemResult)> callback) override;
 
+    void fetchSuggestedSeries(const UserSession& session, int limit, std::function<void(ItemResult)> callback);
+
     void fetchSeriesSeasons(const UserSession& session,
                             const QString& seriesId,
                             std::function<void(ItemResult)> callback) override;

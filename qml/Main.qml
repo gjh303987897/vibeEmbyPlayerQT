@@ -23,11 +23,13 @@ ApplicationWindow {
     property string downloadWarningTitle: ""
     property string downloadWarningMessage: ""
     property bool darkTheme: appViewModel.effectiveTheme !== "light"
-    property bool useTraditionalEmbyHome: appViewModel.currentView === "home"
-        && appViewModel.serviceType === "Emby"
-        && appViewModel.embyHomeLayout === "traditional"
+    property bool useTraditionalMediaHome: appViewModel.currentView === "home"
+        && ((appViewModel.serviceType === "Emby"
+                && appViewModel.embyHomeLayout === "traditional")
+            || (appViewModel.serviceType === "Jellyfin"
+                && appViewModel.jellyfinHomeLayout === "traditional"))
     property bool immersiveMediaHome: appViewModel.currentView === "home"
-        && !root.useTraditionalEmbyHome
+        && !root.useTraditionalMediaHome
     property var theme: darkTheme ? dark : light
     property var dark: ({
         bg: "#0f1217",
@@ -1201,9 +1203,9 @@ ApplicationWindow {
 
             ColumnLayout {
                 spacing: 0
-                Layout.fillWidth: !root.useTraditionalEmbyHome
-                Layout.preferredWidth: root.useTraditionalEmbyHome ? 230 : -1
-                Layout.maximumWidth: root.useTraditionalEmbyHome ? 230 : 16777215
+                Layout.fillWidth: !root.useTraditionalMediaHome
+                Layout.preferredWidth: root.useTraditionalMediaHome ? 230 : -1
+                Layout.maximumWidth: root.useTraditionalMediaHome ? 230 : 16777215
 
                 RowLayout {
                     id: pageTitleRow
@@ -1283,7 +1285,7 @@ ApplicationWindow {
                 width: 38
                 height: 36
                 text: "↻"
-                visible: root.useTraditionalEmbyHome
+                visible: root.useTraditionalMediaHome
                 enabled: !appViewModel.loading
                 ToolTip.visible: hovered
                 ToolTip.text: t("action.refresh")
@@ -1294,7 +1296,7 @@ ApplicationWindow {
                 width: 38
                 height: 36
                 text: "⚙"
-                visible: root.useTraditionalEmbyHome
+                visible: root.useTraditionalMediaHome
                 ToolTip.visible: hovered
                 ToolTip.text: t("nav.settings")
                 onClicked: appViewModel.openSettings()
@@ -1303,8 +1305,8 @@ ApplicationWindow {
             MediaServerSearchBar {
                 visible: appViewModel.serverSearchAvailable
                     && (appViewModel.currentView === "home" || appViewModel.currentView === "search")
-                Layout.minimumWidth: visible ? (root.useTraditionalEmbyHome ? 280 : 300) : 0
-                Layout.preferredWidth: visible ? (root.useTraditionalEmbyHome
+                Layout.minimumWidth: visible ? (root.useTraditionalMediaHome ? 280 : 300) : 0
+                Layout.preferredWidth: visible ? (root.useTraditionalMediaHome
                     ? 320 : Math.min(380, Math.max(320, root.width * 0.30))) : 0
                 Layout.maximumWidth: visible ? Layout.preferredWidth : 0
             }
@@ -1365,7 +1367,7 @@ ApplicationWindow {
 
             ModernButton {
                 text: t("action.refresh")
-                visible: (appViewModel.currentView === "home" && !root.useTraditionalEmbyHome)
+                visible: (appViewModel.currentView === "home" && !root.useTraditionalMediaHome)
                     || appViewModel.currentView === "local"
                 enabled: !appViewModel.loading && !appViewModel.localMediaLoading
                 onClicked: {
@@ -1386,14 +1388,14 @@ ApplicationWindow {
             ModernButton {
                 text: t("nav.settings")
                 visible: appViewModel.currentView !== "settings"
-                    && !root.useTraditionalEmbyHome
+                    && !root.useTraditionalMediaHome
                 onClicked: appViewModel.openSettings()
             }
 
             ModernButton {
                 text: t("action.backToServices")
                 visible: appViewModel.currentView !== "services"
-                    && !root.useTraditionalEmbyHome
+                    && !root.useTraditionalMediaHome
                 onClicked: appViewModel.backToServices()
             }
         }
@@ -1724,7 +1726,7 @@ ApplicationWindow {
 
                 Item {
                     id: homePage
-                    property bool trendyLayout: !root.useTraditionalEmbyHome
+                    property bool trendyLayout: !root.useTraditionalMediaHome
                     property var featuredModel: appViewModel.recommendedItems.count > 0
                         ? appViewModel.recommendedItems : appViewModel.continueItems
                     property bool showingRecommendations: appViewModel.recommendedItems.count > 0
@@ -11902,67 +11904,21 @@ ApplicationWindow {
                 SettingRow {
                     label: t("settings.embyHomeLayout")
 
-                    Rectangle {
-                        Layout.preferredWidth: 220
-                        Layout.preferredHeight: 40
-                        radius: 8
-                        color: theme.input
-                        border.color: theme.border
+                    HomeLayoutSelector {
+                        selectedLayout: appViewModel.embyHomeLayout
+                        onLayoutChosen: function(value) {
+                            appViewModel.embyHomeLayout = value
+                        }
+                    }
+                }
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: 3
-                            spacing: 3
+                SettingRow {
+                    label: t("settings.jellyfinHomeLayout")
 
-                            Button {
-                                id: trendyHomeLayoutButton
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                text: t("option.homeTrendy")
-                                onClicked: appViewModel.embyHomeLayout = "trendy"
-
-                                contentItem: Label {
-                                    text: trendyHomeLayoutButton.text
-                                    color: appViewModel.embyHomeLayout === "trendy"
-                                        ? "#ffffff" : theme.text
-                                    font.pixelSize: 13
-                                    font.bold: appViewModel.embyHomeLayout === "trendy"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                background: Rectangle {
-                                    radius: 6
-                                    color: appViewModel.embyHomeLayout === "trendy"
-                                        ? theme.primary
-                                        : trendyHomeLayoutButton.hovered ? theme.elevatedHover : "transparent"
-                                }
-                            }
-
-                            Button {
-                                id: traditionalHomeLayoutButton
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                text: t("option.homeTraditional")
-                                onClicked: appViewModel.embyHomeLayout = "traditional"
-
-                                contentItem: Label {
-                                    text: traditionalHomeLayoutButton.text
-                                    color: appViewModel.embyHomeLayout === "traditional"
-                                        ? "#ffffff" : theme.text
-                                    font.pixelSize: 13
-                                    font.bold: appViewModel.embyHomeLayout === "traditional"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-
-                                background: Rectangle {
-                                    radius: 6
-                                    color: appViewModel.embyHomeLayout === "traditional"
-                                        ? theme.primary
-                                        : traditionalHomeLayoutButton.hovered ? theme.elevatedHover : "transparent"
-                                }
-                            }
+                    HomeLayoutSelector {
+                        selectedLayout: appViewModel.jellyfinHomeLayout
+                        onLayoutChosen: function(value) {
+                            appViewModel.jellyfinHomeLayout = value
                         }
                     }
                 }
@@ -12098,6 +12054,74 @@ ApplicationWindow {
         BodyText {
             Layout.fillWidth: true
             text: label
+        }
+    }
+
+    component HomeLayoutSelector: Rectangle {
+        id: homeLayoutSelector
+        property string selectedLayout: "trendy"
+        signal layoutChosen(string value)
+
+        Layout.preferredWidth: 220
+        Layout.preferredHeight: 40
+        radius: 8
+        color: theme.input
+        border.color: theme.border
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 3
+            spacing: 3
+
+            Button {
+                id: trendyHomeLayoutButton
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                text: t("option.homeTrendy")
+                onClicked: homeLayoutSelector.layoutChosen("trendy")
+
+                contentItem: Label {
+                    text: trendyHomeLayoutButton.text
+                    color: homeLayoutSelector.selectedLayout === "trendy"
+                        ? "#ffffff" : theme.text
+                    font.pixelSize: 13
+                    font.bold: homeLayoutSelector.selectedLayout === "trendy"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    radius: 6
+                    color: homeLayoutSelector.selectedLayout === "trendy"
+                        ? theme.primary
+                        : trendyHomeLayoutButton.hovered ? theme.elevatedHover : "transparent"
+                }
+            }
+
+            Button {
+                id: traditionalHomeLayoutButton
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                text: t("option.homeTraditional")
+                onClicked: homeLayoutSelector.layoutChosen("traditional")
+
+                contentItem: Label {
+                    text: traditionalHomeLayoutButton.text
+                    color: homeLayoutSelector.selectedLayout === "traditional"
+                        ? "#ffffff" : theme.text
+                    font.pixelSize: 13
+                    font.bold: homeLayoutSelector.selectedLayout === "traditional"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    radius: 6
+                    color: homeLayoutSelector.selectedLayout === "traditional"
+                        ? theme.primary
+                        : traditionalHomeLayoutButton.hovered ? theme.elevatedHover : "transparent"
+                }
+            }
         }
     }
 }

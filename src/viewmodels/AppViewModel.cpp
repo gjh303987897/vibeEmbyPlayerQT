@@ -313,7 +313,7 @@ QString normalizedTheme(const QString& mode)
     return QStringLiteral("dark");
 }
 
-QString normalizedEmbyHomeLayout(const QString& layout)
+QString normalizedMediaHomeLayout(const QString& layout)
 {
     return layout == QStringLiteral("traditional")
         ? QStringLiteral("traditional")
@@ -755,6 +755,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.theme"), QStringLiteral("Theme") },
         { QStringLiteral("settings.language"), QStringLiteral("Language") },
         { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby home layout") },
+        { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin home layout") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("Page transition animations") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
@@ -1105,6 +1106,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.theme"), QStringLiteral("主题") },
         { QStringLiteral("settings.language"), QStringLiteral("语言") },
         { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby 首页样式") },
+        { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin 首页样式") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("页面切换动画") },
         { QStringLiteral("settings.desktop"), QStringLiteral("桌面") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("最小化到托盘") },
@@ -2077,17 +2079,32 @@ void AppViewModel::setLanguageMode(const QString& value)
 
 QString AppViewModel::embyHomeLayout() const
 {
-    return normalizedEmbyHomeLayout(m_repository.embyHomeLayout());
+    return normalizedMediaHomeLayout(m_repository.embyHomeLayout());
 }
 
 void AppViewModel::setEmbyHomeLayout(const QString& value)
 {
-    const auto normalized = normalizedEmbyHomeLayout(value);
+    const auto normalized = normalizedMediaHomeLayout(value);
     if (embyHomeLayout() == normalized) {
         return;
     }
     m_repository.setEmbyHomeLayout(normalized);
     emit embyHomeLayoutChanged();
+}
+
+QString AppViewModel::jellyfinHomeLayout() const
+{
+    return normalizedMediaHomeLayout(m_repository.jellyfinHomeLayout());
+}
+
+void AppViewModel::setJellyfinHomeLayout(const QString& value)
+{
+    const auto normalized = normalizedMediaHomeLayout(value);
+    if (jellyfinHomeLayout() == normalized) {
+        return;
+    }
+    m_repository.setJellyfinHomeLayout(normalized);
+    emit jellyfinHomeLayoutChanged();
 }
 
 bool AppViewModel::pageTransitionsEnabled() const
@@ -5437,17 +5454,21 @@ void AppViewModel::refreshContinueWatching()
 
 void AppViewModel::refreshRecommendations()
 {
-    if (!m_session || m_session->server.serviceType != ServiceType::Emby) {
+    if (!m_session
+        || (m_session->server.serviceType != ServiceType::Emby
+            && m_session->server.serviceType != ServiceType::Jellyfin)) {
         m_recommendedItems.clear();
         return;
     }
 
     beginHomeLoading();
+    const auto serviceType = m_session->server.serviceType;
     AppLogger::info(QStringLiteral("recommendations"),
-                    QStringLiteral("Fetching suggested series from %1")
-                        .arg(QUrl(m_session->server.baseUrl).host()));
+                    QStringLiteral("Fetching %1 suggested series from %2")
+                        .arg(serviceType == ServiceType::Emby ? QStringLiteral("Emby") : QStringLiteral("Jellyfin"),
+                             QUrl(m_session->server.baseUrl).host()));
     const auto serverId = m_session->server.id;
-    m_embyClient.fetchSuggestedSeries(*m_session, 8, [this, serverId](ItemResult result) {
+    auto handleResult = [this, serverId](ItemResult result) {
         endHomeLoading();
         if (!m_session || m_session->server.id != serverId) {
             return;
@@ -5460,7 +5481,13 @@ void AppViewModel::refreshRecommendations()
             return;
         }
         m_recommendedItems.setItems(std::move(*result));
-    });
+    };
+
+    if (serviceType == ServiceType::Emby) {
+        m_embyClient.fetchSuggestedSeries(*m_session, 8, std::move(handleResult));
+    } else {
+        m_jellyfinClient.fetchSuggestedSeries(*m_session, 8, std::move(handleResult));
+    }
 }
 
 void AppViewModel::clearServerSearchState(bool clearText)

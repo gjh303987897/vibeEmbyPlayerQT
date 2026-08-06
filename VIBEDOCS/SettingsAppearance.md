@@ -9,6 +9,7 @@ Current settings:
 - Theme: `system`, `dark`, `light`
 - Language: `system`, `zh_CN`, `en_US`
 - Emby home layout: `trendy`, `traditional`; `trendy` is the default
+- Jellyfin home layout: `trendy`, `traditional`; `trendy` is the default
 - Page transition animations: enabled or disabled, enabled by default
 - Desktop: minimize to tray
 
@@ -16,20 +17,21 @@ Settings are exposed through `AppViewModel` and persisted by `SessionRepository`
 
 QML owns only layout and user interaction. It must not write `QSettings` directly.
 
-## Emby Home Layout
+## Media Server Home Layout
 
-The Emby home presentation can be changed without altering media-service
-requests or navigation state:
+The Emby and Jellyfin home presentations can be changed independently without
+altering media-service requests or navigation state:
 
 - `trendy`: cinematic suggested-series hero, landscape continue-watching rail,
   and landscape library rail.
 - `traditional`: standard application toolbar, portrait continue-watching rail,
   and library grid, matching the original main-branch home structure.
 
-`AppViewModel::embyHomeLayout` validates the value and
-`SessionRepository` persists it under `appearance/embyHomeLayout`. The setting
-is global and applies only to Emby sessions; Jellyfin keeps the shared trendy
-home. Both layouts consume the same ViewModel models and commands.
+`AppViewModel::embyHomeLayout` and `AppViewModel::jellyfinHomeLayout` validate
+their values. `SessionRepository` persists them under
+`appearance/embyHomeLayout` and `appearance/jellyfinHomeLayout`. Each setting
+applies only to its matching service type. Both layouts consume the same
+ViewModel models and commands.
 
 ## Page Transitions
 

@@ -132,6 +132,7 @@ private slots:
     void embySearchesCurrentUserRootRecursively();
     void jellyfinSearchesCurrentUserRootRecursively();
     void embyRequestsSuggestedSeries();
+    void jellyfinRequestsSuggestedSeries();
     void embyDetailsPreferItemLogoArtwork();
     void embyEpisodeDetailsUseInheritedSeriesLogoArtwork();
     void rejectsBlankSearchTermsWithoutRequests();
@@ -241,6 +242,40 @@ void MediaServerSearchTest::embyRequestsSuggestedSeries()
     QCOMPARE(query.queryItemValue(QStringLiteral("EnableImageTypes")), QStringLiteral("Primary,Backdrop"));
     QCOMPARE(query.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("true"));
     QVERIFY(server.header(QByteArrayLiteral("authorization")).startsWith(QByteArrayLiteral("Emby ")));
+    QCOMPARE(server.header(QByteArrayLiteral("x-emby-token")), QByteArrayLiteral("secret-token"));
+}
+
+void MediaServerSearchTest::jellyfinRequestsSuggestedSeries()
+{
+    LocalMediaServer server(QByteArrayLiteral(
+        R"({"Items":[{"Id":"series-1","Name":"Example Show","Type":"Series","ImageTags":{"Primary":"poster-tag"},"BackdropImageTags":["backdrop-tag"]}],"TotalRecordCount":1})"));
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    JellyfinClient client(networkClient);
+    std::optional<ItemResult> result;
+
+    client.fetchSuggestedSeries(sessionFor(server, ServiceType::Jellyfin),
+                                8,
+                                [&result](ItemResult value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    QCOMPARE(result->value().size(), size_t { 1 });
+    QCOMPARE(result->value().front().id, QStringLiteral("series-1"));
+    QCOMPARE(result->value().front().itemType, QStringLiteral("Series"));
+    QVERIFY(!result->value().front().backdropImageUrl.isEmpty());
+
+    const QUrl requestUrl(QStringLiteral("http://127.0.0.1") + QString::fromLatin1(server.requestTarget()));
+    const QUrlQuery query(requestUrl);
+    QCOMPARE(requestUrl.path(), QStringLiteral("/Items/Suggestions"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("userId")), QStringLiteral("user-id"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("type")), QStringLiteral("Series"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("startIndex")), QStringLiteral("0"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("limit")), QStringLiteral("8"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("enableTotalRecordCount")), QStringLiteral("false"));
+    QVERIFY(server.header(QByteArrayLiteral("authorization")).startsWith(QByteArrayLiteral("MediaBrowser ")));
     QCOMPARE(server.header(QByteArrayLiteral("x-emby-token")), QByteArrayLiteral("secret-token"));
 }
 

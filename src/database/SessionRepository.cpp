@@ -1448,6 +1448,16 @@ void SessionRepository::setEmbyHomeLayout(const QString& layout)
     m_settings.setValue(QStringLiteral("appearance/embyHomeLayout"), layout);
 }
 
+QString SessionRepository::jellyfinHomeLayout() const
+{
+    return m_settings.value(QStringLiteral("appearance/jellyfinHomeLayout"), QStringLiteral("trendy")).toString();
+}
+
+void SessionRepository::setJellyfinHomeLayout(const QString& layout)
+{
+    m_settings.setValue(QStringLiteral("appearance/jellyfinHomeLayout"), layout);
+}
+
 bool SessionRepository::pageTransitionsEnabled() const
 {
     return m_settings.value(QStringLiteral("appearance/pageTransitionsEnabled"), true).toBool();

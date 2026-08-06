@@ -207,6 +207,32 @@ void JellyfinClient::fetchContinueWatching(const UserSession& session, int limit
     });
 }
 
+void JellyfinClient::fetchSuggestedSeries(const UserSession& session,
+                                          int limit,
+                                          std::function<void(ItemResult)> callback)
+{
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Items/Suggestions"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("userId"), session.userId);
+    query.addQueryItem(QStringLiteral("type"), QStringLiteral("Series"));
+    query.addQueryItem(QStringLiteral("startIndex"), QStringLiteral("0"));
+    query.addQueryItem(QStringLiteral("limit"), QString::number(std::max(1, limit)));
+    query.addQueryItem(QStringLiteral("enableTotalRecordCount"), QStringLiteral("false"));
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+        if (!result) {
+            callback(std::unexpected(result.error()));
+            return;
+        }
+        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+    });
+}
+
 void JellyfinClient::fetchSeriesSeasons(const UserSession& session,
                                         const QString& seriesId,
                                         std::function<void(ItemResult)> callback)
