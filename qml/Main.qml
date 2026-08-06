@@ -1804,6 +1804,7 @@ ApplicationWindow {
                                                 ? model.backdropImageUrl : model.continueImageUrl
                                             fillMode: Image.PreserveAspectCrop
                                             asynchronous: true
+                                            cache: true
                                         }
 
                                         Rectangle {

@@ -55,6 +55,8 @@ layout does not trigger additional requests; both presentations reuse
 ## Interaction Rules
 
 - The featured entry advances every ten seconds and is limited to eight dots.
+- Featured backdrop images use Qt's shared image cache so the same URL can be
+  reused when the carousel returns to an entry.
 - The primary featured action opens the existing details flow; it does not
   bypass playback URL resolution.
 - Vertical mouse-wheel input scrolls the page. Horizontal touchpad input, or
