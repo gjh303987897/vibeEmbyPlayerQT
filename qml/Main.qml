@@ -7010,6 +7010,7 @@ ApplicationWindow {
         property string trackMenuMode: "subtitle"
         property Item trackMenuAnchorItem: null
         property real trackMenuAnchorGlobalX: -1
+        property real trackMenuAnchorGlobalY: -1
         property var playbackSpeedOptions: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
         focus: true
 
@@ -7279,24 +7280,28 @@ ApplicationWindow {
             trackMenuMode = mode
             trackMenuAnchorItem = anchorItem
             if (anchorItem) {
-                var anchorGlobal = anchorItem.mapToGlobal(anchorItem.width / 2, 0)
+                var anchorGlobal = anchorItem.mapToGlobal(anchorItem.width / 2, anchorItem.height / 2)
                 trackMenuAnchorGlobalX = anchorGlobal.x
+                trackMenuAnchorGlobalY = anchorGlobal.y
             } else {
                 trackMenuAnchorGlobalX = -1
+                trackMenuAnchorGlobalY = -1
             }
             trackMenuVisible = true
             controlsVisible = true
             controlsHideTimer.stop()
-            Qt.callLater(raiseChromeWindows)
+            Qt.callLater(function() {
+                playerTrackMenuWindow.beginOpen()
+                raiseChromeWindows()
+            })
         }
 
         function closeTrackMenu(restoreControls) {
             if (!trackMenuVisible) {
                 return
             }
+            playerTrackMenuWindow.beginClose()
             trackMenuVisible = false
-            trackMenuAnchorItem = null
-            trackMenuAnchorGlobalX = -1
             if (restoreControls === false) {
                 return
             }
@@ -7365,16 +7370,6 @@ ApplicationWindow {
                 return t("player.currentSpeed") + " " + speedLabel(mpvVideo.speed)
             }
             return mpvVideo.audioTracks.count + " " + t("player.tracks")
-        }
-
-        function trackMenuRowCount() {
-            if (trackMenuMode === "subtitle") {
-                return mpvVideo.subtitleTracks.count + 2
-            }
-            if (trackMenuMode === "speed") {
-                return playbackSpeedOptions.length
-            }
-            return mpvVideo.audioTracks.count
         }
 
         function speedLabel(speed) {
@@ -8300,21 +8295,52 @@ ApplicationWindow {
             color: "transparent"
             flags: Qt.FramelessWindowHint | Qt.Tool
             transientParent: root
-            visible: appViewModel.currentView === "player" && root.visible && playerPage.trackMenuVisible
+            property bool closing: false
+            visible: appViewModel.currentView === "player"
+                && root.visible
+                && (playerPage.trackMenuVisible || closing)
+
+            function beginOpen() {
+                if (!visible) {
+                    return
+                }
+                closing = false
+                trackMenuCloseAnimation.stop()
+                trackMenuOpenAnimation.restart()
+            }
+
+            function beginClose() {
+                if (!visible || closing) {
+                    return
+                }
+                closing = true
+                trackMenuOpenAnimation.stop()
+                trackMenuCloseAnimation.restart()
+            }
 
             function syncTrackMenuGeometry() {
                 if (playerPage.width <= 0 || playerPage.height <= 0) {
                     return
                 }
-                var panelWidth = Math.min(360, Math.max(280, playerPage.width - 48))
-                var rowCount = Math.max(1, playerPage.trackMenuRowCount())
-                var panelHeight = Math.min(360, 94 + rowCount * 48)
+                var speedMenu = playerPage.trackMenuMode === "speed"
+                var subtitleMenu = playerPage.trackMenuMode === "subtitle"
+                var panelWidth = Math.min(speedMenu ? 352 : 380,
+                    Math.max(300, playerPage.width - 48))
+                var rowCount = subtitleMenu
+                    ? Math.max(1, mpvVideo.subtitleTracks.count + 1)
+                    : Math.max(1, mpvVideo.audioTracks.count)
+                var panelHeight = speedMenu ? 232
+                    : subtitleMenu ? Math.min(420, 154 + rowCount * 48)
+                    : Math.min(390, 104 + rowCount * 48)
                 var margin = 20
                 var playerOrigin = playerPage.mapToGlobal(0, 0)
                 var localX = 0
                 if (playerPage.trackMenuAnchorItem) {
-                    var anchorGlobal = playerPage.trackMenuAnchorItem.mapToGlobal(playerPage.trackMenuAnchorItem.width / 2, 0)
+                    var anchorGlobal = playerPage.trackMenuAnchorItem.mapToGlobal(
+                        playerPage.trackMenuAnchorItem.width / 2,
+                        playerPage.trackMenuAnchorItem.height / 2)
                     playerPage.trackMenuAnchorGlobalX = anchorGlobal.x
+                    playerPage.trackMenuAnchorGlobalY = anchorGlobal.y
                     localX = playerPage.trackMenuAnchorGlobalX - playerOrigin.x - panelWidth / 2
                 } else if (playerPage.trackMenuAnchorGlobalX >= 0) {
                     localX = playerPage.trackMenuAnchorGlobalX - playerOrigin.x - panelWidth / 2
@@ -8322,9 +8348,13 @@ ApplicationWindow {
                     localX = playerPage.width / 2 - panelWidth / 2
                 }
                 localX = Math.max(margin, Math.min(localX, playerPage.width - panelWidth - margin))
-                var localY = playerPage.height - playerPage.bottomChromeHeight
-                    - playerPage.bottomChromeMargin - panelHeight - 12
-                localY = Math.max(playerPage.topChromeMargin + playerPage.topChromeHeight + 12, localY)
+                var localY = playerPage.trackMenuAnchorGlobalY >= 0
+                    ? playerPage.trackMenuAnchorGlobalY - playerOrigin.y - panelHeight
+                    : playerPage.height - playerPage.bottomChromeHeight
+                        - playerPage.bottomChromeMargin - panelHeight - 12
+                var minimumY = playerPage.topChromeMargin + playerPage.topChromeHeight + 12
+                var maximumY = playerPage.height - panelHeight - margin
+                localY = Math.max(minimumY, Math.min(localY, maximumY))
                 x = Math.round(playerOrigin.x + localX)
                 y = Math.round(playerOrigin.y + localY)
                 width = Math.round(panelWidth)
@@ -8332,10 +8362,15 @@ ApplicationWindow {
             }
 
             onVisibleChanged: {
-                syncTrackMenuGeometry()
                 if (visible) {
+                    syncTrackMenuGeometry()
                     raise()
                     playerTrackMenuRoot.forceActiveFocus()
+                } else {
+                    closing = false
+                    trackMenuOpenAnimation.stop()
+                    trackMenuCloseAnimation.stop()
+                    playerTrackMenuRoot.revealProgress = 0
                 }
             }
 
@@ -8364,14 +8399,66 @@ ApplicationWindow {
                 function onTracksChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
             }
 
-            Rectangle {
-                id: playerTrackMenuRoot
-                anchors.fill: parent
-                focus: true
-                radius: 10
-                color: "#f20b0f16"
-                border.color: "#667c8796"
+            NumberAnimation {
+                id: trackMenuOpenAnimation
+                target: playerTrackMenuRoot
+                property: "revealProgress"
+                to: 1
+                duration: 220
+                easing.type: Easing.OutCubic
+            }
+
+            NumberAnimation {
+                id: trackMenuCloseAnimation
+                target: playerTrackMenuRoot
+                property: "revealProgress"
+                to: 0
+                duration: 170
+                easing.type: Easing.InCubic
+                onStopped: {
+                    if (!playerPage.trackMenuVisible) {
+                        playerTrackMenuWindow.closing = false
+                        Qt.callLater(function() {
+                            if (!playerPage.trackMenuVisible) {
+                                playerPage.trackMenuAnchorItem = null
+                                playerPage.trackMenuAnchorGlobalX = -1
+                                playerPage.trackMenuAnchorGlobalY = -1
+                            }
+                        })
+                    }
+                }
+            }
+
+            Item {
+                id: trackMenuRevealViewport
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Math.max(1, parent.height * playerTrackMenuRoot.revealProgress)
                 clip: true
+
+                Rectangle {
+                    id: playerTrackMenuRoot
+                    width: playerTrackMenuWindow.width
+                    height: playerTrackMenuWindow.height
+                    anchors.bottom: parent.bottom
+                    property real revealProgress: 0
+                    focus: true
+                    radius: 12
+                    color: "#d10a0f16"
+                    border.color: "#508194aa"
+                    clip: true
+                    opacity: Math.min(1, revealProgress * 1.5)
+
+                    transform: Scale {
+                        origin.x: playerPage.trackMenuAnchorGlobalX >= 0
+                            ? Math.max(0, Math.min(playerTrackMenuRoot.width,
+                                playerPage.trackMenuAnchorGlobalX - playerTrackMenuWindow.x))
+                            : playerTrackMenuRoot.width / 2
+                        origin.y: playerTrackMenuRoot.height
+                        xScale: 0.24 + playerTrackMenuRoot.revealProgress * 0.76
+                        yScale: 1
+                    }
 
                 Keys.onPressed: function(event) {
                     if (event.key === Qt.Key_Escape) {
@@ -8388,12 +8475,30 @@ ApplicationWindow {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 10
+                    anchors.margins: 16
+                    spacing: 12
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 10
+                        spacing: 12
+
+                        Rectangle {
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
+                            radius: 9
+                            color: "#244f8cff"
+                            border.color: "#5c78aaff"
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: playerPage.trackMenuMode === "speed"
+                                    ? playerPage.speedLabel(mpvVideo.speed)
+                                    : playerPage.trackMenuMode === "subtitle" ? "CC" : "A"
+                                color: "#eaf2ff"
+                                font.pixelSize: playerPage.trackMenuMode === "speed" ? 11 : 13
+                                font.bold: true
+                            }
+                        }
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -8403,7 +8508,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: playerPage.trackMenuTitle()
                                 color: "#ffffff"
-                                font.pixelSize: 19
+                                font.pixelSize: 18
                                 font.bold: true
                                 elide: Text.ElideRight
                             }
@@ -8418,23 +8523,32 @@ ApplicationWindow {
 
                         Button {
                             id: closeTrackMenuButton
-                            text: "X"
+                            text: "\u00d7"
                             implicitWidth: 34
                             implicitHeight: 34
                             leftPadding: 0
                             rightPadding: 0
+                            hoverEnabled: true
+                            scale: down ? 0.94 : 1
+                            Accessible.name: t("action.dismiss")
+
+                            Behavior on scale {
+                                NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+                            }
+
                             contentItem: Label {
                                 text: closeTrackMenuButton.text
-                                color: "#ffffff"
-                                font.pixelSize: 18
-                                font.bold: true
+                                color: closeTrackMenuButton.hovered ? "#ffffff" : "#c7d2df"
+                                font.pixelSize: 22
+                                font.weight: Font.Light
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                radius: 8
-                                color: closeTrackMenuButton.down ? "#4f8cff" : closeTrackMenuButton.hovered ? "#354253" : "#22313d"
-                                border.color: closeTrackMenuButton.hovered ? "#6aa0ff" : "#405061"
+                                radius: 9
+                                color: closeTrackMenuButton.down ? "#b0395f8f"
+                                    : closeTrackMenuButton.hovered ? "#8a2d4054" : "#14ffffff"
+                                border.color: closeTrackMenuButton.hovered ? "#6f9ed4" : "#2cffffff"
                             }
                             onClicked: playerPage.closeTrackMenu()
                         }
@@ -8443,16 +8557,134 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         height: 1
-                        color: "#334b5563"
+                        color: "#2effffff"
                     }
 
-                    ModernButton {
+                    Button {
+                        id: loadSubtitleButton
                         Layout.fillWidth: true
+                        Layout.preferredHeight: 42
                         visible: playerPage.trackMenuMode === "subtitle"
                         text: t("player.loadSubtitle")
+                        leftPadding: 12
+                        rightPadding: 12
+                        hoverEnabled: true
+
+                        contentItem: RowLayout {
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                radius: 7
+                                color: loadSubtitleButton.hovered ? "#c0365f96" : "#9e294b75"
+                                border.color: "#668fca"
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: "+"
+                                    color: "#ffffff"
+                                    font.pixelSize: 17
+                                    font.bold: true
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: loadSubtitleButton.text
+                                color: "#edf4ff"
+                                font.pixelSize: 13
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                text: "..."
+                                color: "#8fa6c1"
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
+                        }
+
+                        background: Rectangle {
+                            radius: 9
+                            color: loadSubtitleButton.down ? "#b52d5687"
+                                : loadSubtitleButton.hovered ? "#8f263b54" : "#64182531"
+                            border.color: loadSubtitleButton.hovered ? "#5f88b8" : "#344a60"
+                        }
+
                         onClicked: {
                             playerPage.closeTrackMenu(false)
                             externalSubtitleDialog.open()
+                        }
+                    }
+
+                    GridView {
+                        id: speedMenuGrid
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: playerPage.trackMenuMode === "speed"
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        cellWidth: width / 3
+                        cellHeight: 68
+                        model: playerPage.playbackSpeedOptions
+
+                        delegate: Item {
+                            width: speedMenuGrid.cellWidth
+                            height: speedMenuGrid.cellHeight
+
+                            Button {
+                                id: speedMenuItem
+                                anchors.fill: parent
+                                anchors.margins: 4
+                                property real speedValue: modelData
+                                property bool selectedSpeed: playerPage.speedSelected(speedValue)
+                                hoverEnabled: true
+                                scale: down ? 0.96 : 1
+
+                                Behavior on scale {
+                                    NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+                                }
+
+                                contentItem: ColumnLayout {
+                                    spacing: 1
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: playerPage.speedLabel(speedMenuItem.speedValue)
+                                        color: speedMenuItem.selectedSpeed ? "#ffffff" : "#edf3fa"
+                                        font.pixelSize: 17
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: speedMenuItem.selectedSpeed ? t("player.current") : " "
+                                        color: speedMenuItem.selectedSpeed ? "#dbe9ff" : "transparent"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    radius: 9
+                                    color: speedMenuItem.selectedSpeed
+                                        ? speedMenuItem.down ? "#d6356ec4" : speedMenuItem.hovered ? "#dd5b96ee" : "#cd4f86dc"
+                                        : speedMenuItem.down ? "#a0304a68"
+                                        : speedMenuItem.hovered ? "#7827394b" : "#16ffffff"
+                                    border.width: speedMenuItem.activeFocus ? 2 : 1
+                                    border.color: speedMenuItem.selectedSpeed ? "#8bb8ff"
+                                        : speedMenuItem.activeFocus || speedMenuItem.hovered ? "#6287ae" : "#2effffff"
+                                }
+
+                                onClicked: {
+                                    mpvVideo.setSpeed(speedValue)
+                                    playerPage.closeTrackMenu()
+                                }
+                            }
                         }
                     }
 
@@ -8460,32 +8692,40 @@ ApplicationWindow {
                         id: trackMenuList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        visible: playerPage.trackMenuMode !== "speed"
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         spacing: 6
                         model: playerPage.trackMenuMode === "subtitle"
                             ? mpvVideo.subtitleTracks
-                            : playerPage.trackMenuMode === "speed"
-                                ? playerPage.playbackSpeedOptions
-                                : mpvVideo.audioTracks
+                            : mpvVideo.audioTracks
 
                         header: Button {
                             id: subtitleOffItem
                             width: trackMenuList.width
-                            height: playerPage.trackMenuMode === "subtitle" ? 42 : 0
+                            height: playerPage.trackMenuMode === "subtitle" ? 46 : 0
                             visible: playerPage.trackMenuMode === "subtitle"
                             leftPadding: 12
                             rightPadding: 12
+                            hoverEnabled: true
 
                             contentItem: RowLayout {
                                 spacing: 10
 
                                 Rectangle {
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    radius: 11
-                                    color: "#1a2430"
-                                    border.color: "#465565"
+                                    Layout.preferredWidth: 20
+                                    Layout.preferredHeight: 20
+                                    radius: 10
+                                    color: "#78121a23"
+                                    border.color: subtitleOffItem.hovered ? "#7595b8" : "#4d6175"
+
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        width: 8
+                                        height: 2
+                                        radius: 1
+                                        color: "#9fb0c3"
+                                    }
                                 }
 
                                 Label {
@@ -8497,21 +8737,29 @@ ApplicationWindow {
                                     verticalAlignment: Text.AlignVCenter
                                 }
 
-                                Label {
-                                    text: "OFF"
-                                    color: "#93a4b8"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    verticalAlignment: Text.AlignVCenter
+                                Rectangle {
+                                    Layout.preferredWidth: 42
+                                    Layout.preferredHeight: 22
+                                    radius: 6
+                                    color: "#7818242f"
+                                    border.color: "#344a5e"
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: "OFF"
+                                        color: "#9eafc2"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                    }
                                 }
                             }
 
                             background: Rectangle {
-                                radius: 8
-                                color: subtitleOffItem.down ? "#34465a"
-                                    : subtitleOffItem.hovered ? "#263341"
-                                    : "#141b24"
-                                border.color: subtitleOffItem.hovered ? "#4d6175" : "#25313d"
+                                radius: 9
+                                color: subtitleOffItem.down ? "#a030465e"
+                                    : subtitleOffItem.hovered ? "#78223446"
+                                    : "#12ffffff"
+                                border.color: subtitleOffItem.hovered ? "#557495" : "#2affffff"
                             }
 
                             onClicked: {
@@ -8523,33 +8771,37 @@ ApplicationWindow {
                         delegate: Button {
                             id: trackMenuItem
                             width: ListView.view.width
-                            height: 42
+                            height: 46
                             leftPadding: 12
                             rightPadding: 12
+                            hoverEnabled: true
+                            scale: down ? 0.985 : 1
                             property int trackIndex: index
-                            property real speedValue: playerPage.trackMenuMode === "speed" ? modelData : 0
-                            property bool speedMode: playerPage.trackMenuMode === "speed"
-                            property bool selectedTrack: speedMode ? playerPage.speedSelected(speedValue) : model.selected
-                            property string trackTitle: speedMode
-                                ? playerPage.speedLabel(speedValue)
-                                : (model.displayName ? model.displayName : "--")
+                            property bool selectedTrack: model.selected
+                            property string trackTitle: model.displayName ? model.displayName : "--"
+
+                            Behavior on scale {
+                                NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+                            }
 
                             contentItem: RowLayout {
                                 spacing: 10
 
                                 Rectangle {
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    radius: 11
-                                    color: trackMenuItem.selectedTrack ? "#4f8cff" : "#1a2430"
-                                    border.color: trackMenuItem.selectedTrack ? "#78aaff" : "#465565"
+                                    Layout.preferredWidth: 20
+                                    Layout.preferredHeight: 20
+                                    radius: 10
+                                    color: trackMenuItem.selectedTrack ? "#d14f86dc" : "#78121a23"
+                                    border.color: trackMenuItem.selectedTrack ? "#9bc1ff"
+                                        : trackMenuItem.hovered ? "#7595b8" : "#4d6175"
 
-                                    Label {
+                                    Rectangle {
                                         anchors.centerIn: parent
-                                        text: trackMenuItem.selectedTrack ? "✓" : ""
+                                        width: 8
+                                        height: 8
+                                        radius: 4
+                                        visible: trackMenuItem.selectedTrack
                                         color: "#ffffff"
-                                        font.pixelSize: 13
-                                        font.bold: true
                                     }
                                 }
 
@@ -8564,37 +8816,35 @@ ApplicationWindow {
                                 }
 
                                 Label {
-                                    visible: trackMenuItem.speedMode || (model.codec && model.codec.length > 0)
-                                    text: trackMenuItem.speedMode
-                                        ? (trackMenuItem.selectedTrack ? t("player.current") : "")
-                                        : (model.codec ? model.codec.toUpperCase() : "")
-                                    color: "#93a4b8"
-                                    font.pixelSize: 11
+                                    visible: model.codec && model.codec.length > 0
+                                    text: model.codec ? model.codec.toUpperCase() : ""
+                                    color: trackMenuItem.selectedTrack ? "#cfe1ff" : "#93a4b8"
+                                    font.pixelSize: 10
                                     font.bold: true
                                     verticalAlignment: Text.AlignVCenter
                                 }
                             }
 
                             background: Rectangle {
-                                radius: 8
-                                color: trackMenuItem.down ? "#34465a"
-                                    : trackMenuItem.hovered ? "#263341"
-                                    : trackMenuItem.selectedTrack ? "#253857"
-                                    : "#141b24"
-                                border.color: trackMenuItem.selectedTrack ? "#5d8ff2"
-                                    : trackMenuItem.hovered ? "#4d6175"
-                                    : "#25313d"
+                                radius: 9
+                                color: trackMenuItem.selectedTrack
+                                    ? trackMenuItem.down ? "#c42e5484" : trackMenuItem.hovered ? "#bd2d4c72" : "#ad243f61"
+                                    : trackMenuItem.down ? "#a030465e"
+                                    : trackMenuItem.hovered ? "#78223446" : "#12ffffff"
+                                border.width: trackMenuItem.activeFocus ? 2 : 1
+                                border.color: trackMenuItem.selectedTrack ? "#638fca"
+                                    : trackMenuItem.activeFocus || trackMenuItem.hovered ? "#557495"
+                                    : "#2affffff"
                             }
 
                             onClicked: {
                                 if (playerPage.trackMenuMode === "subtitle") {
                                     mpvVideo.selectSubtitleTrack(trackIndex)
-                                } else if (playerPage.trackMenuMode === "speed") {
-                                    mpvVideo.setSpeed(speedValue)
                                 } else {
                                     mpvVideo.selectAudioTrack(trackIndex)
                                 }
                                 playerPage.closeTrackMenu()
+                            }
                             }
                         }
                     }

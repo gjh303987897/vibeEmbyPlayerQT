@@ -121,6 +121,18 @@ icon labels, translucent hover states, focus borders, press feedback,
 accessibility names, and tooltips. These components are scoped to player chrome
 so application-wide buttons keep their existing appearance.
 
+The floating track picker shares the same translucent chrome styling. Playback
+speeds use a compact three-column grid with a prominent current-speed state,
+while subtitle and audio choices remain scan-friendly single-selection lists.
+The subtitle picker keeps external subtitle loading as a distinct action above
+the track list, and all picker variants use the same header, close control,
+focus border, press feedback, and semi-transparent surface treatment. The
+picker's bottom edge meets the triggering button center. Opening expands
+horizontally from that exact button coordinate while its clipped viewport grows
+upward; closing plays the reverse contraction before the tool window is hidden.
+The anchor remains stable until contraction finishes, preventing a final-frame
+geometry jump.
+
 The delayed video-loading overlay uses a compact translucent panel with the
 shared dot spinner, the active loading state, the media title, and the network
 hint. While buffering, it also displays the existing one-second network-speed
