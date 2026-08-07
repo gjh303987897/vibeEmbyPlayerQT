@@ -1155,9 +1155,11 @@ ApplicationWindow {
     }
 
     header: ToolBar {
-        height: root.playerImmersive || appViewModel.currentView === "details"
+        height: root.playerImmersive || appViewModel.currentView === "player"
+            || appViewModel.currentView === "details"
             || root.immersiveMediaHome ? 0 : 64
-        visible: !root.playerImmersive && appViewModel.currentView !== "details"
+        visible: !root.playerImmersive && appViewModel.currentView !== "player"
+            && appViewModel.currentView !== "details"
             && !root.immersiveMediaHome
         enabled: visible
         background: Rectangle {
@@ -1410,12 +1412,13 @@ ApplicationWindow {
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: root.playerImmersive || appViewModel.currentView === "details"
-                || root.immersiveMediaHome ? 0 : 26
+                || appViewModel.currentView === "player" || root.immersiveMediaHome ? 0 : 26
             spacing: root.playerImmersive || appViewModel.currentView === "details"
-                || root.immersiveMediaHome ? 0 : 16
+                || appViewModel.currentView === "player" || root.immersiveMediaHome ? 0 : 16
 
             Rectangle {
-                visible: appViewModel.errorMessage.length > 0 && !root.playerImmersive
+                visible: appViewModel.errorMessage.length > 0
+                    && !root.playerImmersive && appViewModel.currentView !== "player"
                 Layout.fillWidth: true
                 radius: 8
                 color: theme.errorBg

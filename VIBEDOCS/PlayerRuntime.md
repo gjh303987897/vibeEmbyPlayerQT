@@ -82,7 +82,11 @@ No other module should include `mpv/client.h`.
 
 ## Player Page Behavior
 
-The player page uses a full-page native video surface with player chrome floating above the top and bottom edges.
+The player page uses a full-content native video surface with player chrome
+floating above the top and bottom edges. While `currentView` is `player`, the
+application header, page margins, spacing, and application error row are
+removed so the player is the only in-app surface; the operating-system window
+frame remains available unless the user enters system fullscreen.
 
 With libmpv Window Embedding, the video surface is a platform-native child window and can cover ordinary QML items that overlap it. The current layout avoids mixing player startup with overlay state: `MpvVideoItem` owns only the native video window, while the top title / exit bar and bottom playback controls live in two narrow transparent Qt Quick tool windows that follow the player page geometry.
 
@@ -157,7 +161,12 @@ Controls use a semi-transparent player chrome. The native video window keeps a f
 
 The subtitle menu can open even when the current video has no subtitle tracks. Its load action opens Qt Quick's asynchronous file dialog. `MpvVideoItem` accepts only a local file URL, and `PlayerController` canonicalizes and verifies the file before issuing an asynchronous libmpv `sub-add` command with the `select` flag. libmpv remains responsible for subtitle parsing and adds a successful load to the observed `track-list`; QML never calls libmpv directly.
 
-In normal mode and immersive player fullscreen, the player chrome auto-hides after a short idle delay. Moving or clicking in the video area shows the chrome again. Immersive fullscreen also hides the app's global header, removes page margins and makes the player fill the application content.
+In normal playback mode the player chrome auto-hides after a short idle delay.
+Moving or clicking in the video area shows the chrome again. The playback view
+always hides the app's global header, removes page margins and makes the player
+fill the application content. Immersive fullscreen additionally removes the
+remaining application window chrome according to the platform's fullscreen
+behavior.
 
 Clicking a visible exit button stops playback and returns to the media details
 page immediately. The keyboard `Esc` exit path still uses the inline
