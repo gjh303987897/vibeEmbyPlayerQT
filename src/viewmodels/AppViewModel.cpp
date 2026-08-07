@@ -320,6 +320,13 @@ QString normalizedMediaHomeLayout(const QString& layout)
         : QStringLiteral("trendy");
 }
 
+QString normalizedPlayerLayout(const QString& layout)
+{
+    return layout == QStringLiteral("traditional")
+        ? QStringLiteral("traditional")
+        : QStringLiteral("trendy");
+}
+
 QString normalizedM3u8sVideoEncoding(const QString& value)
 {
     if (value == QStringLiteral("copy") || value == QStringLiteral("h264") ||
@@ -744,7 +751,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("player.videoInfo"), QStringLiteral("Video Info") },
         { QStringLiteral("player.resolution"), QStringLiteral("Resolution") },
         { QStringLiteral("player.codec"), QStringLiteral("Codec") },
+        { QStringLiteral("player.sourceFrameRate"), QStringLiteral("Source frame rate") },
         { QStringLiteral("player.frameRate"), QStringLiteral("Frame rate") },
+        { QStringLiteral("player.networkSpeed"), QStringLiteral("Network speed") },
+        { QStringLiteral("player.networkSpeedShort"), QStringLiteral("NET") },
         { QStringLiteral("player.bitrate"), QStringLiteral("Bitrate") },
         { QStringLiteral("player.cacheDuration"), QStringLiteral("Cached") },
         { QStringLiteral("player.cacheShort"), QStringLiteral("Cache") },
@@ -756,6 +766,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.language"), QStringLiteral("Language") },
         { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby home layout") },
         { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin home layout") },
+        { QStringLiteral("settings.playerLayout"), QStringLiteral("Player layout") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("Page transition animations") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
@@ -806,6 +817,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("option.en"), QStringLiteral("English") },
         { QStringLiteral("option.homeTrendy"), QStringLiteral("Trendy") },
         { QStringLiteral("option.homeTraditional"), QStringLiteral("Traditional") },
+        { QStringLiteral("option.playerTrendy"), QStringLiteral("Modern") },
+        { QStringLiteral("option.playerTraditional"), QStringLiteral("Classic") },
         { QStringLiteral("nav.scheduledTasks"), QStringLiteral("Keep-Alive Tasks") },
         { QStringLiteral("schedule.subtitle"), QStringLiteral("Create manual or recurring silent background playback strategies for Emby") },
         { QStringLiteral("schedule.add"), QStringLiteral("New Strategy") },
@@ -1107,6 +1120,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.language"), QStringLiteral("语言") },
         { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby 首页样式") },
         { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin 首页样式") },
+        { QStringLiteral("settings.playerLayout"), QStringLiteral("播放器样式") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("页面切换动画") },
         { QStringLiteral("settings.desktop"), QStringLiteral("桌面") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("最小化到托盘") },
@@ -1117,11 +1131,16 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("option.en"), QStringLiteral("English") },
         { QStringLiteral("option.homeTrendy"), QStringLiteral("新潮") },
         { QStringLiteral("option.homeTraditional"), QStringLiteral("传统") },
+        { QStringLiteral("option.playerTrendy"), QStringLiteral("新潮") },
+        { QStringLiteral("option.playerTraditional"), QStringLiteral("传统") },
         { QStringLiteral("player.info"), QStringLiteral("视频信息") },
         { QStringLiteral("player.videoInfo"), QStringLiteral("视频信息") },
         { QStringLiteral("player.resolution"), QStringLiteral("分辨率") },
         { QStringLiteral("player.codec"), QStringLiteral("编码格式") },
+        { QStringLiteral("player.sourceFrameRate"), QStringLiteral("源帧率") },
         { QStringLiteral("player.frameRate"), QStringLiteral("帧率") },
+        { QStringLiteral("player.networkSpeed"), QStringLiteral("实时网速") },
+        { QStringLiteral("player.networkSpeedShort"), QStringLiteral("网速") },
         { QStringLiteral("player.bitrate"), QStringLiteral("码率") },
         { QStringLiteral("player.cacheDuration"), QStringLiteral("已缓存") },
         { QStringLiteral("player.cacheShort"), QStringLiteral("缓存") },
@@ -2105,6 +2124,21 @@ void AppViewModel::setJellyfinHomeLayout(const QString& value)
     }
     m_repository.setJellyfinHomeLayout(normalized);
     emit jellyfinHomeLayoutChanged();
+}
+
+QString AppViewModel::playerLayout() const
+{
+    return normalizedPlayerLayout(m_repository.playerLayout());
+}
+
+void AppViewModel::setPlayerLayout(const QString& value)
+{
+    const auto normalized = normalizedPlayerLayout(value);
+    if (playerLayout() == normalized) {
+        return;
+    }
+    m_repository.setPlayerLayout(normalized);
+    emit playerLayoutChanged();
 }
 
 bool AppViewModel::pageTransitionsEnabled() const

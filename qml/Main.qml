@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
+import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Window
 import VibePlayer 1.0
@@ -28,6 +29,7 @@ ApplicationWindow {
                 && appViewModel.embyHomeLayout === "traditional")
             || (appViewModel.serviceType === "Jellyfin"
                 && appViewModel.jellyfinHomeLayout === "traditional"))
+    property bool useTraditionalPlayer: appViewModel.playerLayout === "traditional"
     property bool immersiveMediaHome: appViewModel.currentView === "home"
         && !root.useTraditionalMediaHome
     property var theme: darkTheme ? dark : light
@@ -1153,9 +1155,11 @@ ApplicationWindow {
     }
 
     header: ToolBar {
-        height: root.playerImmersive || appViewModel.currentView === "details"
+        height: root.playerImmersive || appViewModel.currentView === "player"
+            || appViewModel.currentView === "details"
             || root.immersiveMediaHome ? 0 : 64
-        visible: !root.playerImmersive && appViewModel.currentView !== "details"
+        visible: !root.playerImmersive && appViewModel.currentView !== "player"
+            && appViewModel.currentView !== "details"
             && !root.immersiveMediaHome
         enabled: visible
         background: Rectangle {
@@ -1408,12 +1412,13 @@ ApplicationWindow {
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: root.playerImmersive || appViewModel.currentView === "details"
-                || root.immersiveMediaHome ? 0 : 26
+                || appViewModel.currentView === "player" || root.immersiveMediaHome ? 0 : 26
             spacing: root.playerImmersive || appViewModel.currentView === "details"
-                || root.immersiveMediaHome ? 0 : 16
+                || appViewModel.currentView === "player" || root.immersiveMediaHome ? 0 : 16
 
             Rectangle {
-                visible: appViewModel.errorMessage.length > 0 && !root.playerImmersive
+                visible: appViewModel.errorMessage.length > 0
+                    && !root.playerImmersive && appViewModel.currentView !== "player"
                 Layout.fillWidth: true
                 radius: 8
                 color: theme.errorBg
@@ -3030,6 +3035,138 @@ ApplicationWindow {
         }
     }
 
+    component PlayerTransportButton: Button {
+        id: playerTransportButton
+        property string iconKind: "play"
+        property string badgeText: ""
+        property bool primaryAction: false
+
+        implicitWidth: primaryAction ? 42 : 36
+        implicitHeight: primaryAction ? 42 : 36
+        padding: 0
+        hoverEnabled: true
+        opacity: enabled ? 1 : 0.42
+        scale: down ? 0.94 : 1
+
+        Behavior on scale {
+            NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+        }
+
+        contentItem: Item {
+            AudioControlIcon {
+                anchors.centerIn: parent
+                width: playerTransportButton.primaryAction ? 32 : 28
+                height: width
+                kind: playerTransportButton.iconKind
+                iconColor: playerTransportButton.primaryAction ? "#ffffff" : "#e8edf4"
+            }
+
+            Label {
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: 1
+                anchors.bottomMargin: 1
+                visible: playerTransportButton.badgeText.length > 0
+                text: playerTransportButton.badgeText
+                color: "#c7d0dd"
+                font.pixelSize: 8
+                font.bold: true
+            }
+        }
+
+        background: Rectangle {
+            radius: width / 2
+            color: playerTransportButton.primaryAction
+                ? (playerTransportButton.hovered ? "#6aa0ff" : "#4f8cff")
+                : playerTransportButton.down ? "#38ffffff"
+                : playerTransportButton.hovered ? "#2cffffff" : "#16ffffff"
+            border.width: playerTransportButton.activeFocus ? 2 : 1
+            border.color: playerTransportButton.primaryAction
+                ? "#90b8ff"
+                : playerTransportButton.activeFocus || playerTransportButton.hovered
+                    ? "#7da7d8" : "#35ffffff"
+        }
+
+        ToolTip.visible: hovered
+        ToolTip.text: Accessible.name
+    }
+
+    component PlayerChromeButton: Button {
+        id: playerChromeButton
+        property string iconKind: ""
+        property string iconText: ""
+        property bool danger: false
+        property bool compact: false
+
+        implicitWidth: compact ? 34 : Math.max(64, chromeButtonContent.implicitWidth + 20)
+        implicitHeight: compact ? 30 : 34
+        leftPadding: compact ? 0 : 10
+        rightPadding: compact ? 0 : 10
+        hoverEnabled: true
+        opacity: enabled ? 1 : 0.42
+        scale: down ? 0.97 : 1
+
+        Behavior on scale {
+            NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+        }
+
+        contentItem: RowLayout {
+            id: chromeButtonContent
+            spacing: playerChromeButton.compact ? 0 : 6
+
+            Item {
+                Layout.preferredWidth: 20
+                Layout.preferredHeight: 20
+                Layout.alignment: Qt.AlignVCenter
+
+                AudioControlIcon {
+                    anchors.fill: parent
+                    visible: playerChromeButton.iconKind.length > 0
+                    kind: playerChromeButton.iconKind
+                    iconColor: playerChromeButton.danger ? "#ffdce3" : "#e8edf4"
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    visible: playerChromeButton.iconKind.length === 0
+                    text: playerChromeButton.iconText
+                    color: playerChromeButton.danger ? "#ffdce3" : "#e8edf4"
+                    font.pixelSize: playerChromeButton.iconText.length > 2 ? 9 : 12
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            Label {
+                visible: !playerChromeButton.compact && playerChromeButton.text.length > 0
+                text: playerChromeButton.text
+                color: playerChromeButton.danger ? "#ffe8ec" : "#edf2f8"
+                font.pixelSize: 12
+                font.bold: true
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
+        background: Rectangle {
+            radius: 7
+            color: playerChromeButton.danger
+                ? playerChromeButton.down ? "#a13b4c"
+                    : playerChromeButton.hovered ? "#7d3040" : "#47242d"
+                : playerChromeButton.down ? "#3b79d8"
+                    : playerChromeButton.hovered ? "#354657" : "#18ffffff"
+            border.width: playerChromeButton.activeFocus ? 2 : 1
+            border.color: playerChromeButton.danger
+                ? playerChromeButton.hovered ? "#e27183" : "#8f4856"
+                : playerChromeButton.activeFocus || playerChromeButton.hovered
+                    ? "#6f9ed4" : "#34ffffff"
+        }
+
+        ToolTip.visible: hovered
+        ToolTip.text: Accessible.name
+    }
+
     component AudioRepeatButton: Button {
         id: repeatButton
         property string iconKind: "order"
@@ -3749,11 +3886,13 @@ ApplicationWindow {
     }
 
     component PosterImage: Rectangle {
+        id: posterFrame
         property string imageUrl: ""
         property string fallbackText: "?"
         radius: 8
-        color: theme.input
+        color: posterImage.status === Image.Ready ? "transparent" : theme.input
         border.color: theme.border
+        border.width: 0
         clip: true
 
         Image {
@@ -3762,6 +3901,24 @@ ApplicationWindow {
             source: imageUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
+            visible: false
+        }
+
+        Rectangle {
+            id: posterMask
+            anchors.fill: parent
+            radius: posterFrame.radius
+            color: "#ffffff"
+            visible: false
+            layer.enabled: true
+        }
+
+        MultiEffect {
+            anchors.fill: parent
+            source: posterImage
+            autoPaddingEnabled: false
+            maskEnabled: true
+            maskSource: posterMask
         }
 
         ThumbnailLoadingIcon {
@@ -4637,7 +4794,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.top: parent.top
             height: 140
-            radius: 8
+            radius: 12
             imageUrl: libraryCard.imageUrl
             fallbackText: libraryCard.name.length > 0 ? libraryCard.name[0] : "?"
             border.color: mouse.containsMouse ? theme.primary : theme.border
@@ -4797,7 +4954,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.top: parent.top
             height: Math.max(0, parent.height - 48)
-            radius: 8
+            radius: 12
             imageUrl: continueCard.backdropUrl.length > 0
                 ? continueCard.backdropUrl : continueCard.imageUrl
             fallbackText: continueCard.title.length > 0 ? continueCard.title[0] : "?"
@@ -6818,8 +6975,13 @@ ApplicationWindow {
         property real exitPositionSeconds: 0
         property bool immersive: root.playerImmersive
         property bool fullscreen: immersive || root.visibility === Window.FullScreen
-        property int topChromeHeight: 72
-        property int bottomChromeHeight: 146
+        readonly property bool traditionalLayout: root.useTraditionalPlayer
+        property int traditionalChromeHeight: 136
+        property int topChromeHeight: traditionalLayout ? 1 : 0
+        property int topChromeMargin: 0
+        property int bottomChromeHeight: traditionalLayout ? traditionalChromeHeight : 196
+        property int bottomChromeMargin: 24
+        property color chromePanelColor: "#990a0d12"
         property bool seekLoadingActive: false
         property bool progressSeekActive: false
         property bool progressSeekDragging: false
@@ -6851,6 +7013,7 @@ ApplicationWindow {
         property string trackMenuMode: "subtitle"
         property Item trackMenuAnchorItem: null
         property real trackMenuAnchorGlobalX: -1
+        property real trackMenuAnchorGlobalY: -1
         property var playbackSpeedOptions: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
         focus: true
 
@@ -6898,6 +7061,12 @@ ApplicationWindow {
 
         function confirmExitPlayback() {
             stopCurrentPlayback(exitPositionSeconds)
+        }
+
+        function exitPlaybackImmediately() {
+            closeTrackMenu(false)
+            closeIptvChannelList(false)
+            stopCurrentPlayback(mpvVideo.position)
         }
 
         function stopCurrentPlayback(positionSeconds) {
@@ -7085,6 +7254,26 @@ ApplicationWindow {
             return minutes + "m " + remaining + "s"
         }
 
+        function liveFrameRateText(frameRate) {
+            if (!Number.isFinite(frameRate) || frameRate <= 0) {
+                return "-- FPS"
+            }
+            return Number(frameRate).toFixed(frameRate >= 100 ? 0 : 1) + " FPS"
+        }
+
+        function networkSpeedText(bytesPerSecond) {
+            if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) {
+                return "--"
+            }
+            return root.formatBytes(bytesPerSecond) + "/s"
+        }
+
+        function playbackMetricsText() {
+            return liveFrameRateText(mpvVideo.currentFrameRate)
+                + "  |  " + t("player.networkSpeedShort") + " "
+                + networkSpeedText(mpvVideo.networkSpeedBytesPerSecond)
+        }
+
         function openTrackMenu(mode, anchorItem) {
             if (trackMenuVisible && trackMenuMode === mode) {
                 closeTrackMenu()
@@ -7094,24 +7283,28 @@ ApplicationWindow {
             trackMenuMode = mode
             trackMenuAnchorItem = anchorItem
             if (anchorItem) {
-                var anchorGlobal = anchorItem.mapToGlobal(anchorItem.width / 2, 0)
+                var anchorGlobal = anchorItem.mapToGlobal(anchorItem.width / 2, anchorItem.height / 2)
                 trackMenuAnchorGlobalX = anchorGlobal.x
+                trackMenuAnchorGlobalY = anchorGlobal.y
             } else {
                 trackMenuAnchorGlobalX = -1
+                trackMenuAnchorGlobalY = -1
             }
             trackMenuVisible = true
             controlsVisible = true
             controlsHideTimer.stop()
-            Qt.callLater(raiseChromeWindows)
+            Qt.callLater(function() {
+                playerTrackMenuWindow.beginOpen()
+                raiseChromeWindows()
+            })
         }
 
         function closeTrackMenu(restoreControls) {
             if (!trackMenuVisible) {
                 return
             }
+            playerTrackMenuWindow.beginClose()
             trackMenuVisible = false
-            trackMenuAnchorItem = null
-            trackMenuAnchorGlobalX = -1
             if (restoreControls === false) {
                 return
             }
@@ -7180,16 +7373,6 @@ ApplicationWindow {
                 return t("player.currentSpeed") + " " + speedLabel(mpvVideo.speed)
             }
             return mpvVideo.audioTracks.count + " " + t("player.tracks")
-        }
-
-        function trackMenuRowCount() {
-            if (trackMenuMode === "subtitle") {
-                return mpvVideo.subtitleTracks.count + 2
-            }
-            if (trackMenuMode === "speed") {
-                return playbackSpeedOptions.length
-            }
-            return mpvVideo.audioTracks.count
         }
 
         function speedLabel(speed) {
@@ -7557,7 +7740,7 @@ ApplicationWindow {
                         ModernButton {
                             text: t("action.exitPlayback")
                             danger: true
-                            onClicked: playerPage.requestExitPlayback()
+                            onClicked: playerPage.exitPlaybackImmediately()
                         }
                     }
 
@@ -7748,42 +7931,138 @@ ApplicationWindow {
 
                 Rectangle {
                     id: playbackLoadingCard
+                    readonly property bool determinateProgress: mpvVideo.buffering
+                        && mpvVideo.bufferingProgress > 0 && mpvVideo.bufferingProgress < 100
+                    readonly property real normalizedProgress: Math.max(0,
+                        Math.min(1, mpvVideo.bufferingProgress / 100))
+
                     anchors.centerIn: parent
-                    width: Math.min(parent.width - 48, 320)
-                    height: 148
-                    radius: 10
-                    color: "#d90a0d12"
-                    border.color: "#4d6f7b89"
+                    width: Math.min(parent.width - 48, 380)
+                    height: 136
+                    radius: 12
+                    color: "#c20a0d12"
+                    border.color: "#617b8da1"
+                    opacity: playerLoadingWindow.visible ? 1 : 0
+                    scale: playerLoadingWindow.visible ? 1 : 0.97
 
-                    Column {
-                        anchors.centerIn: parent
-                        width: parent.width - 48
-                        spacing: 10
+                    Behavior on opacity {
+                        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                    }
+                    Behavior on scale {
+                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                    }
 
-                        BusyIndicator {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            running: playerLoadingWindow.visible
-                            implicitWidth: 42
-                            implicitHeight: 42
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 18
+                        anchors.rightMargin: 18
+                        anchors.topMargin: 16
+                        anchors.bottomMargin: 14
+                        spacing: 9
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 14
+
+                            ThumbnailLoadingIcon {
+                                Layout.preferredWidth: 46
+                                Layout.preferredHeight: 46
+                                iconSize: 46
+                                running: playerLoadingWindow.visible
+                                accentColor: "#6aa0ff"
+                                backgroundVisible: false
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: playerPage.playbackLoadingTitle()
+                                    color: "#ffffff"
+                                    font.pixelSize: 18
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: appViewModel.selectedItemName.length > 0
+                                        ? appViewModel.selectedItemName : t("player.networkHint")
+                                    color: "#b8c5d4"
+                                    font.pixelSize: 12
+                                    elide: Text.ElideMiddle
+                                }
+                            }
                         }
 
-                        Label {
-                            width: parent.width
-                            text: playerPage.playbackLoadingTitle()
-                            color: "#ffffff"
-                            font.pixelSize: 19
-                            font.bold: true
-                            horizontalAlignment: Text.AlignHCenter
-                            elide: Text.ElideRight
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("player.networkHint")
+                                color: "#91a0b2"
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                visible: mpvVideo.buffering
+                                text: t("player.networkSpeed") + "  "
+                                      + playerPage.networkSpeedText(mpvVideo.networkSpeedBytesPerSecond)
+                                color: "#9fc5ff"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+
+                            Label {
+                                visible: playbackLoadingCard.determinateProgress
+                                text: Math.round(mpvVideo.bufferingProgress) + "%"
+                                color: "#dce8f8"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
                         }
 
-                        Label {
-                            width: parent.width
-                            text: t("player.networkHint")
-                            color: "#cbd5e1"
-                            font.pixelSize: 13
-                            horizontalAlignment: Text.AlignHCenter
-                            elide: Text.ElideRight
+                        Rectangle {
+                            id: playbackLoadingTrack
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 4
+                            radius: 2
+                            color: "#2effffff"
+                            clip: true
+
+                            Rectangle {
+                                visible: playbackLoadingCard.determinateProgress
+                                x: 0
+                                width: playbackLoadingTrack.width * playbackLoadingCard.normalizedProgress
+                                height: parent.height
+                                radius: parent.radius
+                                color: "#6aa0ff"
+                            }
+
+                            Rectangle {
+                                id: playbackLoadingSweep
+                                visible: !playbackLoadingCard.determinateProgress
+                                x: 0
+                                width: Math.max(48, playbackLoadingTrack.width * 0.24)
+                                height: parent.height
+                                radius: parent.radius
+                                color: "#7ba9ff"
+
+                                NumberAnimation on x {
+                                    running: playerLoadingWindow.visible
+                                        && !playbackLoadingCard.determinateProgress
+                                    from: -playbackLoadingSweep.width
+                                    to: playbackLoadingTrack.width
+                                    duration: 1150
+                                    loops: Animation.Infinite
+                                    easing.type: Easing.InOutSine
+                                }
+                            }
                         }
                     }
                 }
@@ -7802,10 +8081,11 @@ ApplicationWindow {
                     return
                 }
                 var panelWidth = Math.min(380, Math.max(300, playerPage.width - 48))
-                var panelHeight = 264
+                var panelHeight = 310
                 var margin = 24
                 var localX = Math.max(margin, playerPage.width - panelWidth - margin)
-                var localY = Math.min(playerPage.height - panelHeight - margin, playerPage.topChromeHeight + 18)
+                var localY = Math.min(playerPage.height - panelHeight - margin,
+                    playerPage.topChromeMargin + playerPage.topChromeHeight + 18)
                 var origin = playerPage.mapToGlobal(localX, Math.max(margin, localY))
                 x = Math.round(origin.x)
                 y = Math.round(origin.y)
@@ -7943,12 +8223,36 @@ ApplicationWindow {
                         }
 
                         MutedText {
-                            text: t("player.frameRate")
+                            text: t("player.sourceFrameRate")
                             color: "#aeb8c6"
                         }
                         BodyText {
                             Layout.fillWidth: true
                             text: playerPage.videoInfoValue(mpvVideo.videoFrameRate)
+                            color: "#ffffff"
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        MutedText {
+                            text: t("player.frameRate")
+                            color: "#aeb8c6"
+                        }
+                        BodyText {
+                            Layout.fillWidth: true
+                            text: playerPage.liveFrameRateText(mpvVideo.currentFrameRate)
+                            color: "#ffffff"
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        MutedText {
+                            text: t("player.networkSpeed")
+                            color: "#aeb8c6"
+                        }
+                        BodyText {
+                            Layout.fillWidth: true
+                            text: playerPage.networkSpeedText(mpvVideo.networkSpeedBytesPerSecond)
                             color: "#ffffff"
                             font.bold: true
                             elide: Text.ElideRight
@@ -7994,21 +8298,52 @@ ApplicationWindow {
             color: "transparent"
             flags: Qt.FramelessWindowHint | Qt.Tool
             transientParent: root
-            visible: appViewModel.currentView === "player" && root.visible && playerPage.trackMenuVisible
+            property bool closing: false
+            visible: appViewModel.currentView === "player"
+                && root.visible
+                && (playerPage.trackMenuVisible || closing)
+
+            function beginOpen() {
+                if (!visible) {
+                    return
+                }
+                closing = false
+                trackMenuCloseAnimation.stop()
+                trackMenuOpenAnimation.restart()
+            }
+
+            function beginClose() {
+                if (!visible || closing) {
+                    return
+                }
+                closing = true
+                trackMenuOpenAnimation.stop()
+                trackMenuCloseAnimation.restart()
+            }
 
             function syncTrackMenuGeometry() {
                 if (playerPage.width <= 0 || playerPage.height <= 0) {
                     return
                 }
-                var panelWidth = Math.min(360, Math.max(280, playerPage.width - 48))
-                var rowCount = Math.max(1, playerPage.trackMenuRowCount())
-                var panelHeight = Math.min(360, 94 + rowCount * 48)
+                var speedMenu = playerPage.trackMenuMode === "speed"
+                var subtitleMenu = playerPage.trackMenuMode === "subtitle"
+                var panelWidth = Math.min(speedMenu ? 352 : 380,
+                    Math.max(300, playerPage.width - 48))
+                var rowCount = subtitleMenu
+                    ? Math.max(1, mpvVideo.subtitleTracks.count + 1)
+                    : Math.max(1, mpvVideo.audioTracks.count)
+                var panelHeight = speedMenu ? 232
+                    : subtitleMenu ? Math.min(420, 154 + rowCount * 48)
+                    : Math.min(390, 104 + rowCount * 48)
                 var margin = 20
                 var playerOrigin = playerPage.mapToGlobal(0, 0)
                 var localX = 0
                 if (playerPage.trackMenuAnchorItem) {
-                    var anchorGlobal = playerPage.trackMenuAnchorItem.mapToGlobal(playerPage.trackMenuAnchorItem.width / 2, 0)
+                    var anchorGlobal = playerPage.trackMenuAnchorItem.mapToGlobal(
+                        playerPage.trackMenuAnchorItem.width / 2,
+                        playerPage.trackMenuAnchorItem.height / 2)
                     playerPage.trackMenuAnchorGlobalX = anchorGlobal.x
+                    playerPage.trackMenuAnchorGlobalY = anchorGlobal.y
                     localX = playerPage.trackMenuAnchorGlobalX - playerOrigin.x - panelWidth / 2
                 } else if (playerPage.trackMenuAnchorGlobalX >= 0) {
                     localX = playerPage.trackMenuAnchorGlobalX - playerOrigin.x - panelWidth / 2
@@ -8016,8 +8351,13 @@ ApplicationWindow {
                     localX = playerPage.width / 2 - panelWidth / 2
                 }
                 localX = Math.max(margin, Math.min(localX, playerPage.width - panelWidth - margin))
-                var localY = playerPage.height - playerPage.bottomChromeHeight - panelHeight - 12
-                localY = Math.max(playerPage.topChromeHeight + 12, localY)
+                var localY = playerPage.trackMenuAnchorGlobalY >= 0
+                    ? playerPage.trackMenuAnchorGlobalY - playerOrigin.y - panelHeight
+                    : playerPage.height - playerPage.bottomChromeHeight
+                        - playerPage.bottomChromeMargin - panelHeight - 12
+                var minimumY = playerPage.topChromeMargin + playerPage.topChromeHeight + 12
+                var maximumY = playerPage.height - panelHeight - margin
+                localY = Math.max(minimumY, Math.min(localY, maximumY))
                 x = Math.round(playerOrigin.x + localX)
                 y = Math.round(playerOrigin.y + localY)
                 width = Math.round(panelWidth)
@@ -8025,10 +8365,15 @@ ApplicationWindow {
             }
 
             onVisibleChanged: {
-                syncTrackMenuGeometry()
                 if (visible) {
+                    syncTrackMenuGeometry()
                     raise()
                     playerTrackMenuRoot.forceActiveFocus()
+                } else {
+                    closing = false
+                    trackMenuOpenAnimation.stop()
+                    trackMenuCloseAnimation.stop()
+                    playerTrackMenuRoot.revealProgress = 0
                 }
             }
 
@@ -8057,14 +8402,66 @@ ApplicationWindow {
                 function onTracksChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
             }
 
-            Rectangle {
-                id: playerTrackMenuRoot
-                anchors.fill: parent
-                focus: true
-                radius: 10
-                color: "#f20b0f16"
-                border.color: "#667c8796"
+            NumberAnimation {
+                id: trackMenuOpenAnimation
+                target: playerTrackMenuRoot
+                property: "revealProgress"
+                to: 1
+                duration: 220
+                easing.type: Easing.OutCubic
+            }
+
+            NumberAnimation {
+                id: trackMenuCloseAnimation
+                target: playerTrackMenuRoot
+                property: "revealProgress"
+                to: 0
+                duration: 170
+                easing.type: Easing.InCubic
+                onStopped: {
+                    if (!playerPage.trackMenuVisible) {
+                        playerTrackMenuWindow.closing = false
+                        Qt.callLater(function() {
+                            if (!playerPage.trackMenuVisible) {
+                                playerPage.trackMenuAnchorItem = null
+                                playerPage.trackMenuAnchorGlobalX = -1
+                                playerPage.trackMenuAnchorGlobalY = -1
+                            }
+                        })
+                    }
+                }
+            }
+
+            Item {
+                id: trackMenuRevealViewport
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Math.max(1, parent.height * playerTrackMenuRoot.revealProgress)
                 clip: true
+
+                Rectangle {
+                    id: playerTrackMenuRoot
+                    width: playerTrackMenuWindow.width
+                    height: playerTrackMenuWindow.height
+                    anchors.bottom: parent.bottom
+                    property real revealProgress: 0
+                    focus: true
+                    radius: 12
+                    color: "#d10a0f16"
+                    border.color: "#508194aa"
+                    clip: true
+                    opacity: Math.min(1, revealProgress * 1.5)
+
+                    transform: Scale {
+                        origin.x: playerPage.trackMenuAnchorGlobalX >= 0
+                            ? Math.max(0, Math.min(playerTrackMenuRoot.width,
+                                playerPage.trackMenuAnchorGlobalX - playerTrackMenuWindow.x))
+                            : playerTrackMenuRoot.width / 2
+                        origin.y: playerTrackMenuRoot.height
+                        xScale: 0.24 + playerTrackMenuRoot.revealProgress * 0.76
+                        yScale: 1
+                    }
 
                 Keys.onPressed: function(event) {
                     if (event.key === Qt.Key_Escape) {
@@ -8081,12 +8478,30 @@ ApplicationWindow {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 10
+                    anchors.margins: 16
+                    spacing: 12
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 10
+                        spacing: 12
+
+                        Rectangle {
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
+                            radius: 9
+                            color: "#244f8cff"
+                            border.color: "#5c78aaff"
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: playerPage.trackMenuMode === "speed"
+                                    ? playerPage.speedLabel(mpvVideo.speed)
+                                    : playerPage.trackMenuMode === "subtitle" ? "CC" : "A"
+                                color: "#eaf2ff"
+                                font.pixelSize: playerPage.trackMenuMode === "speed" ? 11 : 13
+                                font.bold: true
+                            }
+                        }
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -8096,7 +8511,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: playerPage.trackMenuTitle()
                                 color: "#ffffff"
-                                font.pixelSize: 19
+                                font.pixelSize: 18
                                 font.bold: true
                                 elide: Text.ElideRight
                             }
@@ -8111,23 +8526,32 @@ ApplicationWindow {
 
                         Button {
                             id: closeTrackMenuButton
-                            text: "X"
+                            text: "\u00d7"
                             implicitWidth: 34
                             implicitHeight: 34
                             leftPadding: 0
                             rightPadding: 0
+                            hoverEnabled: true
+                            scale: down ? 0.94 : 1
+                            Accessible.name: t("action.dismiss")
+
+                            Behavior on scale {
+                                NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+                            }
+
                             contentItem: Label {
                                 text: closeTrackMenuButton.text
-                                color: "#ffffff"
-                                font.pixelSize: 18
-                                font.bold: true
+                                color: closeTrackMenuButton.hovered ? "#ffffff" : "#c7d2df"
+                                font.pixelSize: 22
+                                font.weight: Font.Light
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                radius: 8
-                                color: closeTrackMenuButton.down ? "#4f8cff" : closeTrackMenuButton.hovered ? "#354253" : "#22313d"
-                                border.color: closeTrackMenuButton.hovered ? "#6aa0ff" : "#405061"
+                                radius: 9
+                                color: closeTrackMenuButton.down ? "#b0395f8f"
+                                    : closeTrackMenuButton.hovered ? "#8a2d4054" : "#14ffffff"
+                                border.color: closeTrackMenuButton.hovered ? "#6f9ed4" : "#2cffffff"
                             }
                             onClicked: playerPage.closeTrackMenu()
                         }
@@ -8136,16 +8560,134 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         height: 1
-                        color: "#334b5563"
+                        color: "#2effffff"
                     }
 
-                    ModernButton {
+                    Button {
+                        id: loadSubtitleButton
                         Layout.fillWidth: true
+                        Layout.preferredHeight: 42
                         visible: playerPage.trackMenuMode === "subtitle"
                         text: t("player.loadSubtitle")
+                        leftPadding: 12
+                        rightPadding: 12
+                        hoverEnabled: true
+
+                        contentItem: RowLayout {
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                radius: 7
+                                color: loadSubtitleButton.hovered ? "#c0365f96" : "#9e294b75"
+                                border.color: "#668fca"
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: "+"
+                                    color: "#ffffff"
+                                    font.pixelSize: 17
+                                    font.bold: true
+                                }
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: loadSubtitleButton.text
+                                color: "#edf4ff"
+                                font.pixelSize: 13
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                text: "..."
+                                color: "#8fa6c1"
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
+                        }
+
+                        background: Rectangle {
+                            radius: 9
+                            color: loadSubtitleButton.down ? "#b52d5687"
+                                : loadSubtitleButton.hovered ? "#8f263b54" : "#64182531"
+                            border.color: loadSubtitleButton.hovered ? "#5f88b8" : "#344a60"
+                        }
+
                         onClicked: {
                             playerPage.closeTrackMenu(false)
                             externalSubtitleDialog.open()
+                        }
+                    }
+
+                    GridView {
+                        id: speedMenuGrid
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: playerPage.trackMenuMode === "speed"
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        cellWidth: width / 3
+                        cellHeight: 68
+                        model: playerPage.playbackSpeedOptions
+
+                        delegate: Item {
+                            width: speedMenuGrid.cellWidth
+                            height: speedMenuGrid.cellHeight
+
+                            Button {
+                                id: speedMenuItem
+                                anchors.fill: parent
+                                anchors.margins: 4
+                                property real speedValue: modelData
+                                property bool selectedSpeed: playerPage.speedSelected(speedValue)
+                                hoverEnabled: true
+                                scale: down ? 0.96 : 1
+
+                                Behavior on scale {
+                                    NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+                                }
+
+                                contentItem: ColumnLayout {
+                                    spacing: 1
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: playerPage.speedLabel(speedMenuItem.speedValue)
+                                        color: speedMenuItem.selectedSpeed ? "#ffffff" : "#edf3fa"
+                                        font.pixelSize: 17
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: speedMenuItem.selectedSpeed ? t("player.current") : " "
+                                        color: speedMenuItem.selectedSpeed ? "#dbe9ff" : "transparent"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    radius: 9
+                                    color: speedMenuItem.selectedSpeed
+                                        ? speedMenuItem.down ? "#d6356ec4" : speedMenuItem.hovered ? "#dd5b96ee" : "#cd4f86dc"
+                                        : speedMenuItem.down ? "#a0304a68"
+                                        : speedMenuItem.hovered ? "#7827394b" : "#16ffffff"
+                                    border.width: speedMenuItem.activeFocus ? 2 : 1
+                                    border.color: speedMenuItem.selectedSpeed ? "#8bb8ff"
+                                        : speedMenuItem.activeFocus || speedMenuItem.hovered ? "#6287ae" : "#2effffff"
+                                }
+
+                                onClicked: {
+                                    mpvVideo.setSpeed(speedValue)
+                                    playerPage.closeTrackMenu()
+                                }
+                            }
                         }
                     }
 
@@ -8153,32 +8695,40 @@ ApplicationWindow {
                         id: trackMenuList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        visible: playerPage.trackMenuMode !== "speed"
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         spacing: 6
                         model: playerPage.trackMenuMode === "subtitle"
                             ? mpvVideo.subtitleTracks
-                            : playerPage.trackMenuMode === "speed"
-                                ? playerPage.playbackSpeedOptions
-                                : mpvVideo.audioTracks
+                            : mpvVideo.audioTracks
 
                         header: Button {
                             id: subtitleOffItem
                             width: trackMenuList.width
-                            height: playerPage.trackMenuMode === "subtitle" ? 42 : 0
+                            height: playerPage.trackMenuMode === "subtitle" ? 46 : 0
                             visible: playerPage.trackMenuMode === "subtitle"
                             leftPadding: 12
                             rightPadding: 12
+                            hoverEnabled: true
 
                             contentItem: RowLayout {
                                 spacing: 10
 
                                 Rectangle {
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    radius: 11
-                                    color: "#1a2430"
-                                    border.color: "#465565"
+                                    Layout.preferredWidth: 20
+                                    Layout.preferredHeight: 20
+                                    radius: 10
+                                    color: "#78121a23"
+                                    border.color: subtitleOffItem.hovered ? "#7595b8" : "#4d6175"
+
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        width: 8
+                                        height: 2
+                                        radius: 1
+                                        color: "#9fb0c3"
+                                    }
                                 }
 
                                 Label {
@@ -8190,21 +8740,29 @@ ApplicationWindow {
                                     verticalAlignment: Text.AlignVCenter
                                 }
 
-                                Label {
-                                    text: "OFF"
-                                    color: "#93a4b8"
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    verticalAlignment: Text.AlignVCenter
+                                Rectangle {
+                                    Layout.preferredWidth: 42
+                                    Layout.preferredHeight: 22
+                                    radius: 6
+                                    color: "#7818242f"
+                                    border.color: "#344a5e"
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: "OFF"
+                                        color: "#9eafc2"
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                    }
                                 }
                             }
 
                             background: Rectangle {
-                                radius: 8
-                                color: subtitleOffItem.down ? "#34465a"
-                                    : subtitleOffItem.hovered ? "#263341"
-                                    : "#141b24"
-                                border.color: subtitleOffItem.hovered ? "#4d6175" : "#25313d"
+                                radius: 9
+                                color: subtitleOffItem.down ? "#a030465e"
+                                    : subtitleOffItem.hovered ? "#78223446"
+                                    : "#12ffffff"
+                                border.color: subtitleOffItem.hovered ? "#557495" : "#2affffff"
                             }
 
                             onClicked: {
@@ -8216,33 +8774,37 @@ ApplicationWindow {
                         delegate: Button {
                             id: trackMenuItem
                             width: ListView.view.width
-                            height: 42
+                            height: 46
                             leftPadding: 12
                             rightPadding: 12
+                            hoverEnabled: true
+                            scale: down ? 0.985 : 1
                             property int trackIndex: index
-                            property real speedValue: playerPage.trackMenuMode === "speed" ? modelData : 0
-                            property bool speedMode: playerPage.trackMenuMode === "speed"
-                            property bool selectedTrack: speedMode ? playerPage.speedSelected(speedValue) : model.selected
-                            property string trackTitle: speedMode
-                                ? playerPage.speedLabel(speedValue)
-                                : (model.displayName ? model.displayName : "--")
+                            property bool selectedTrack: model.selected
+                            property string trackTitle: model.displayName ? model.displayName : "--"
+
+                            Behavior on scale {
+                                NumberAnimation { duration: 80; easing.type: Easing.OutCubic }
+                            }
 
                             contentItem: RowLayout {
                                 spacing: 10
 
                                 Rectangle {
-                                    Layout.preferredWidth: 22
-                                    Layout.preferredHeight: 22
-                                    radius: 11
-                                    color: trackMenuItem.selectedTrack ? "#4f8cff" : "#1a2430"
-                                    border.color: trackMenuItem.selectedTrack ? "#78aaff" : "#465565"
+                                    Layout.preferredWidth: 20
+                                    Layout.preferredHeight: 20
+                                    radius: 10
+                                    color: trackMenuItem.selectedTrack ? "#d14f86dc" : "#78121a23"
+                                    border.color: trackMenuItem.selectedTrack ? "#9bc1ff"
+                                        : trackMenuItem.hovered ? "#7595b8" : "#4d6175"
 
-                                    Label {
+                                    Rectangle {
                                         anchors.centerIn: parent
-                                        text: trackMenuItem.selectedTrack ? "✓" : ""
+                                        width: 8
+                                        height: 8
+                                        radius: 4
+                                        visible: trackMenuItem.selectedTrack
                                         color: "#ffffff"
-                                        font.pixelSize: 13
-                                        font.bold: true
                                     }
                                 }
 
@@ -8257,37 +8819,35 @@ ApplicationWindow {
                                 }
 
                                 Label {
-                                    visible: trackMenuItem.speedMode || (model.codec && model.codec.length > 0)
-                                    text: trackMenuItem.speedMode
-                                        ? (trackMenuItem.selectedTrack ? t("player.current") : "")
-                                        : (model.codec ? model.codec.toUpperCase() : "")
-                                    color: "#93a4b8"
-                                    font.pixelSize: 11
+                                    visible: model.codec && model.codec.length > 0
+                                    text: model.codec ? model.codec.toUpperCase() : ""
+                                    color: trackMenuItem.selectedTrack ? "#cfe1ff" : "#93a4b8"
+                                    font.pixelSize: 10
                                     font.bold: true
                                     verticalAlignment: Text.AlignVCenter
                                 }
                             }
 
                             background: Rectangle {
-                                radius: 8
-                                color: trackMenuItem.down ? "#34465a"
-                                    : trackMenuItem.hovered ? "#263341"
-                                    : trackMenuItem.selectedTrack ? "#253857"
-                                    : "#141b24"
-                                border.color: trackMenuItem.selectedTrack ? "#5d8ff2"
-                                    : trackMenuItem.hovered ? "#4d6175"
-                                    : "#25313d"
+                                radius: 9
+                                color: trackMenuItem.selectedTrack
+                                    ? trackMenuItem.down ? "#c42e5484" : trackMenuItem.hovered ? "#bd2d4c72" : "#ad243f61"
+                                    : trackMenuItem.down ? "#a030465e"
+                                    : trackMenuItem.hovered ? "#78223446" : "#12ffffff"
+                                border.width: trackMenuItem.activeFocus ? 2 : 1
+                                border.color: trackMenuItem.selectedTrack ? "#638fca"
+                                    : trackMenuItem.activeFocus || trackMenuItem.hovered ? "#557495"
+                                    : "#2affffff"
                             }
 
                             onClicked: {
                                 if (playerPage.trackMenuMode === "subtitle") {
                                     mpvVideo.selectSubtitleTrack(trackIndex)
-                                } else if (playerPage.trackMenuMode === "speed") {
-                                    mpvVideo.setSpeed(speedValue)
                                 } else {
                                     mpvVideo.selectAudioTrack(trackIndex)
                                 }
                                 playerPage.closeTrackMenu()
+                            }
                             }
                         }
                     }
@@ -8312,15 +8872,17 @@ ApplicationWindow {
                 var margin = 20
                 var maxWidth = Math.max(220, playerPage.width - margin * 2)
                 var panelWidth = Math.min(maxWidth, Math.min(430, Math.max(320, playerPage.width * 0.36)))
-                var availableHeight = playerPage.height - playerPage.topChromeHeight - playerPage.bottomChromeHeight - margin * 2
+                var availableHeight = playerPage.height - playerPage.topChromeMargin - playerPage.topChromeHeight
+                    - playerPage.bottomChromeHeight - playerPage.bottomChromeMargin - margin * 2
                 if (availableHeight < 220) {
                     availableHeight = Math.max(160, playerPage.height - margin * 2)
                 }
                 var panelHeight = Math.min(620, availableHeight)
                 var playerOrigin = playerPage.mapToGlobal(0, 0)
                 var localX = Math.max(margin, playerPage.width - panelWidth - margin)
-                var preferredY = playerPage.topChromeHeight + margin
-                var maxY = playerPage.height - playerPage.bottomChromeHeight - panelHeight - margin
+                var preferredY = playerPage.topChromeMargin + playerPage.topChromeHeight + margin
+                var maxY = playerPage.height - playerPage.bottomChromeHeight
+                    - playerPage.bottomChromeMargin - panelHeight - margin
                 var localY = Math.max(margin, Math.min(preferredY, maxY))
                 x = Math.round(playerOrigin.x + localX)
                 y = Math.round(playerOrigin.y + localY)
@@ -8610,6 +9172,7 @@ ApplicationWindow {
             flags: Qt.FramelessWindowHint | Qt.Tool
             transientParent: root
             visible: appViewModel.currentView === "player" && root.visible
+                && playerPage.traditionalLayout
                 && (playerPage.exitConfirmVisible
                     || (!appViewModel.webDavAudioPlaybackActive && playerPage.controlsVisible))
 
@@ -8618,9 +9181,22 @@ ApplicationWindow {
                     return
                 }
                 var origin = playerPage.mapToGlobal(0, 0)
-                x = Math.round(origin.x)
-                y = Math.round(origin.y)
-                width = Math.max(1, Math.round(playerPage.width))
+                if (playerPage.traditionalLayout) {
+                    var panelWidth = Math.min(Math.max(320, playerPage.width - 36), 560)
+                    var panelHeight = playerPage.traditionalChromeHeight
+                    var panelX = Math.max(18, (playerPage.width - panelWidth) / 2)
+                    var panelY = Math.max(18, playerPage.height - panelHeight - playerPage.bottomChromeMargin)
+                    x = Math.round(origin.x + panelX)
+                    y = Math.round(origin.y + panelY)
+                    width = Math.round(Math.min(panelWidth, playerPage.width - panelX * 2))
+                    height = Math.round(panelHeight)
+                    return
+                }
+                var modernPanelWidth = Math.min(1040, Math.max(1, playerPage.width - 48))
+                var modernPanelX = Math.max(24, (playerPage.width - modernPanelWidth) / 2)
+                x = Math.round(origin.x + modernPanelX)
+                y = Math.round(origin.y + playerPage.topChromeMargin)
+                width = Math.round(Math.min(modernPanelWidth, playerPage.width - modernPanelX * 2))
                 height = playerPage.topChromeHeight
             }
 
@@ -8666,8 +9242,11 @@ ApplicationWindow {
                 Rectangle {
                     id: playerTopControls
                     anchors.fill: parent
-                    color: "#aa0a0d12"
+                    visible: !playerPage.traditionalLayout
+                    radius: 10
+                    color: playerPage.chromePanelColor
                     border.color: "#44343b46"
+                    clip: true
 
                     HoverHandler {
                         onHoveredChanged: if (hovered) playerPage.revealControls()
@@ -8680,13 +9259,9 @@ ApplicationWindow {
                         spacing: 12
 
                         ModernButton {
-                            text: playerPage.exitConfirmVisible ? t("dialog.exitPlaybackTitle") : t("action.exitPlayback")
+                            text: t("action.exitPlayback")
                             danger: true
-                            onClicked: {
-                                if (!playerPage.exitConfirmVisible) {
-                                    playerPage.requestExitPlayback()
-                                }
-                            }
+                            onClicked: playerPage.exitPlaybackImmediately()
                         }
 
                         BodyText {
@@ -8716,6 +9291,238 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                Rectangle {
+                    id: traditionalPlayerControls
+                    visible: playerPage.traditionalLayout
+                    anchors.fill: parent
+                    radius: 5
+                    color: "#e31c2229"
+                    border.color: "#7a8290a0"
+
+                        HoverHandler {
+                            onHoveredChanged: if (hovered) playerPage.revealControls()
+                        }
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            anchors.topMargin: 8
+                            anchors.bottomMargin: 8
+                            spacing: 5
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 7
+
+                                PlayerChromeButton {
+                                    id: traditionalExitButton
+                                    compact: true
+                                    iconText: "<"
+                                    danger: true
+                                    Accessible.name: t("action.exitPlayback")
+                                    onClicked: playerPage.exitPlaybackImmediately()
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: playerPage.exitConfirmVisible
+                                        ? t("dialog.exitPlaybackPrompt") : appViewModel.selectedItemName
+                                    color: "#e9edf3"
+                                    font.pixelSize: 12
+                                    elide: Text.ElideMiddle
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                MutedText {
+                                    visible: !playerPage.exitConfirmVisible
+                                    text: playerPage.playbackMetricsText()
+                                    color: "#bdc7d4"
+                                    font.pixelSize: 10
+                                    horizontalAlignment: Text.AlignRight
+                                }
+
+                                PlayerChromeButton {
+                                    id: traditionalFullscreenButton
+                                    compact: true
+                                    visible: !playerPage.exitConfirmVisible
+                                    iconText: playerPage.immersive ? "[]" : "[ ]"
+                                    Accessible.name: playerPage.immersive ? t("action.exitFullscreen") : t("action.fullscreen")
+                                    onClicked: playerPage.toggleFullscreen()
+                                }
+
+                                PlayerChromeButton {
+                                    id: traditionalCancelExitButton
+                                    compact: true
+                                    visible: playerPage.exitConfirmVisible
+                                    iconText: "X"
+                                    Accessible.name: t("action.cancel")
+                                    onClicked: playerPage.cancelExitPlayback()
+                                }
+
+                                PlayerChromeButton {
+                                    id: traditionalConfirmExitButton
+                                    compact: true
+                                    visible: playerPage.exitConfirmVisible
+                                    iconText: "OK"
+                                    danger: true
+                                    Accessible.name: t("action.exitPlayback")
+                                    onClicked: playerPage.confirmExitPlayback()
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                MutedText {
+                                    text: playerPage.exitConfirmVisible ? "" : "1/1"
+                                    color: "#b3bdc9"
+                                    font.pixelSize: 10
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                PlayerTransportButton {
+                                    id: traditionalRewindButton
+                                    iconKind: "previous"
+                                    badgeText: "15"
+                                    Accessible.name: t("action.rewind15")
+                                    onClicked: {
+                                        mpvVideo.seekRelative(-15)
+                                        playerPage.beginSeekLoading()
+                                        appViewModel.reportPlaybackProgress(Math.max(0, mpvVideo.position - 15), mpvVideo.duration, mpvVideo.paused)
+                                        playerPage.revealControls()
+                                    }
+                                }
+
+                                PlayerTransportButton {
+                                    id: traditionalPauseButton
+                                    primaryAction: true
+                                    iconKind: mpvVideo.paused ? "play" : "pause"
+                                    Accessible.name: mpvVideo.paused ? t("action.resume") : t("action.pause")
+                                    onClicked: {
+                                        mpvVideo.togglePause()
+                                        appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.duration, mpvVideo.paused)
+                                        playerPage.revealControls()
+                                    }
+                                }
+
+                                PlayerTransportButton {
+                                    id: traditionalForwardButton
+                                    iconKind: "next"
+                                    badgeText: "15"
+                                    Accessible.name: t("action.forward15")
+                                    onClicked: {
+                                        mpvVideo.seekRelative(15)
+                                        playerPage.beginSeekLoading()
+                                        appViewModel.reportPlaybackProgress(mpvVideo.position + 15, mpvVideo.duration, mpvVideo.paused)
+                                        playerPage.revealControls()
+                                    }
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                PlayerChromeButton {
+                                    id: traditionalSubtitleButton
+                                    compact: true
+                                    iconText: "CC"
+                                    Accessible.name: t("player.subtitles")
+                                    onClicked: {
+                                        playerPage.openTrackMenu("subtitle", traditionalSubtitleButton)
+                                        playerPage.revealControls()
+                                    }
+                                }
+
+                                PlayerChromeButton {
+                                    id: traditionalAudioButton
+                                    compact: true
+                                    iconText: "A"
+                                    enabled: mpvVideo.audioTracks.count > 1
+                                    Accessible.name: t("player.audio")
+                                    onClicked: {
+                                        playerPage.openTrackMenu("audio", traditionalAudioButton)
+                                        playerPage.revealControls()
+                                    }
+                                }
+
+                                PlayerChromeButton {
+                                    id: traditionalSpeedButton
+                                    compact: true
+                                    iconText: playerPage.speedLabel(mpvVideo.speed)
+                                    Accessible.name: t("player.currentSpeed").arg(playerPage.speedLabel(mpvVideo.speed))
+                                    onClicked: {
+                                        playerPage.openTrackMenu("speed", traditionalSpeedButton)
+                                        playerPage.revealControls()
+                                    }
+                                }
+
+                                PlayerChromeButton {
+                                    id: traditionalInfoButton
+                                    compact: true
+                                    iconText: "i"
+                                    Accessible.name: t("player.info")
+                                    onClicked: {
+                                        playerPage.closeIptvChannelList(false)
+                                        playerPage.videoInfoVisible = !playerPage.videoInfoVisible
+                                        playerPage.revealControls()
+                                        Qt.callLater(playerPage.raiseChromeWindows)
+                                    }
+                                }
+
+                                MutedText {
+                                    text: t("player.volume")
+                                    color: "#b3bdc9"
+                                    font.pixelSize: 10
+                                }
+
+                                Slider {
+                                    id: traditionalVolumeSlider
+                                    Layout.preferredWidth: 62
+                                    from: 0
+                                    to: 100
+                                    value: mpvVideo.volume
+                                    onMoved: mpvVideo.setVolume(value)
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 7
+
+                                MutedText {
+                                    text: playerPage.formatTime(playerPage.displayedPlaybackPosition)
+                                    color: "#d5dce6"
+                                    font.pixelSize: 10
+                                }
+
+                                Slider {
+                                    id: traditionalProgressSlider
+                                    Layout.fillWidth: true
+                                    implicitHeight: 16
+                                    from: 0
+                                    to: Math.max(1, mpvVideo.duration)
+                                    value: playerPage.displayedPlaybackPosition
+                                    onPressedChanged: {
+                                        if (pressed) {
+                                            playerPage.beginProgressSeek(value)
+                                        } else {
+                                            playerPage.commitProgressSeek()
+                                        }
+                                    }
+                                    onMoved: playerPage.updateProgressSeek(value)
+                                }
+
+                                MutedText {
+                                    text: "-" + playerPage.formatTime(Math.max(0, mpvVideo.duration - playerPage.displayedPlaybackPosition))
+                                    color: "#d5dce6"
+                                    font.pixelSize: 10
+                                }
+                            }
+                        }
+                }
             }
         }
 
@@ -8726,16 +9533,20 @@ ApplicationWindow {
             transientParent: root
             visible: appViewModel.currentView === "player" && root.visible
                 && !appViewModel.webDavAudioPlaybackActive
+                && !playerPage.traditionalLayout
                 && (playerPage.controlsVisible || playerPage.exitConfirmVisible)
 
             function syncChromeGeometry() {
                 if (playerPage.width <= 0 || playerPage.height <= 0) {
                     return
                 }
-                var origin = playerPage.mapToGlobal(0, playerPage.height - playerPage.bottomChromeHeight)
+                var panelWidth = Math.min(1040, Math.max(1, playerPage.width - 48))
+                var panelX = Math.max(24, (playerPage.width - panelWidth) / 2)
+                var panelY = playerPage.height - playerPage.bottomChromeHeight - playerPage.bottomChromeMargin
+                var origin = playerPage.mapToGlobal(panelX, panelY)
                 x = Math.round(origin.x)
                 y = Math.round(origin.y)
-                width = Math.max(1, Math.round(playerPage.width))
+                width = Math.round(Math.min(panelWidth, playerPage.width - panelX * 2))
                 height = playerPage.bottomChromeHeight
             }
 
@@ -8779,8 +9590,10 @@ ApplicationWindow {
                 Rectangle {
                     id: playerBottomControls
                     anchors.fill: parent
-                    color: "#bb0a0d12"
+                    radius: 10
+                    color: playerPage.chromePanelColor
                     border.color: "#44343b46"
+                    clip: true
 
                     HoverHandler {
                         onHoveredChanged: if (hovered) playerPage.revealControls()
@@ -8793,6 +9606,62 @@ ApplicationWindow {
                 anchors.topMargin: 12
                 anchors.bottomMargin: 14
                 spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    PlayerChromeButton {
+                        id: bottomExitButton
+                        iconText: "X"
+                        text: t("action.exitPlayback")
+                        danger: true
+                        Accessible.name: text
+                        onClicked: playerPage.exitPlaybackImmediately()
+                    }
+
+                    BodyText {
+                        Layout.fillWidth: true
+                        text: playerPage.exitConfirmVisible
+                            ? t("dialog.exitPlaybackPrompt") : appViewModel.selectedItemName
+                        color: "#f4f7fb"
+                        elide: Text.ElideRight
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    MutedText {
+                        visible: !playerPage.exitConfirmVisible
+                        text: playerPage.playbackMetricsText()
+                        color: "#c7d0dd"
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignRight
+                    }
+
+                    PlayerChromeButton {
+                        visible: playerPage.exitConfirmVisible
+                        iconText: "X"
+                        text: t("action.cancel")
+                        Accessible.name: text
+                        onClicked: playerPage.cancelExitPlayback()
+                    }
+
+                    PlayerChromeButton {
+                        visible: playerPage.exitConfirmVisible
+                        iconText: "OK"
+                        text: t("action.exitPlayback")
+                        danger: true
+                        Accessible.name: text
+                        onClicked: playerPage.confirmExitPlayback()
+                    }
+
+                    PlayerChromeButton {
+                        visible: !playerPage.exitConfirmVisible
+                        iconText: "[ ]"
+                        text: playerPage.immersive ? t("action.exitFullscreen") : t("action.fullscreen")
+                        Accessible.name: text
+                        onClicked: playerPage.toggleFullscreen()
+                    }
+                }
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -8829,8 +9698,10 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     spacing: 10
 
-                    ModernButton {
-                        text: t("action.rewind15")
+                    PlayerTransportButton {
+                        iconKind: "previous"
+                        badgeText: "15"
+                        Accessible.name: t("action.rewind15")
                         onClicked: {
                             mpvVideo.seekRelative(-15)
                             playerPage.beginSeekLoading()
@@ -8839,8 +9710,10 @@ ApplicationWindow {
                         }
                     }
 
-                    ModernButton {
-                        text: mpvVideo.paused ? t("action.resume") : t("action.pause")
+                    PlayerTransportButton {
+                        primaryAction: true
+                        iconKind: mpvVideo.paused ? "play" : "pause"
+                        Accessible.name: mpvVideo.paused ? t("action.resume") : t("action.pause")
                         onClicked: {
                             mpvVideo.togglePause()
                             appViewModel.reportPlaybackProgress(mpvVideo.position, mpvVideo.duration, mpvVideo.paused)
@@ -8848,8 +9721,10 @@ ApplicationWindow {
                         }
                     }
 
-                    ModernButton {
-                        text: t("action.forward15")
+                    PlayerTransportButton {
+                        iconKind: "next"
+                        badgeText: "15"
+                        Accessible.name: t("action.forward15")
                         onClicked: {
                             mpvVideo.seekRelative(15)
                             playerPage.beginSeekLoading()
@@ -8858,50 +9733,55 @@ ApplicationWindow {
                         }
                     }
 
-                    ModernButton {
+                    PlayerChromeButton {
                         id: speedButton
-                        Layout.minimumWidth: 96
-                        Layout.preferredWidth: 108
-                        text: t("player.speed") + "  " + playerPage.speedLabel(mpvVideo.speed)
+                        iconText: playerPage.speedLabel(mpvVideo.speed)
+                        text: t("player.speed")
                         Accessible.name: t("player.currentSpeed").arg(playerPage.speedLabel(mpvVideo.speed))
-                        ToolTip.visible: hovered
-                        ToolTip.text: t("player.currentSpeed").arg(playerPage.speedLabel(mpvVideo.speed))
                         onClicked: {
                             playerPage.openTrackMenu("speed", speedButton)
                             playerPage.revealControls()
                         }
                     }
 
-                    ModernButton {
+                    PlayerChromeButton {
                         visible: appViewModel.iptvPlaybackActive
+                        iconText: "CH"
                         text: t("iptv.playerChannels")
+                        Accessible.name: text
                         onClicked: {
                             playerPage.openIptvChannelList()
                             playerPage.revealControls()
                         }
                     }
 
-                    ModernButton {
+                    PlayerChromeButton {
                         id: subtitleTrackButton
+                        iconText: "CC"
                         text: t("player.subtitles")
+                        Accessible.name: text
                         onClicked: {
                             playerPage.openTrackMenu("subtitle", subtitleTrackButton)
                             playerPage.revealControls()
                         }
                     }
 
-                    ModernButton {
+                    PlayerChromeButton {
                         id: audioTrackButton
+                        iconText: "A"
                         text: t("player.audio")
                         enabled: mpvVideo.audioTracks.count > 1
+                        Accessible.name: text
                         onClicked: {
                             playerPage.openTrackMenu("audio", audioTrackButton)
                             playerPage.revealControls()
                         }
                     }
 
-                    ModernButton {
+                    PlayerChromeButton {
+                        iconText: "i"
                         text: t("player.info")
+                        Accessible.name: text
                         onClicked: {
                             playerPage.closeIptvChannelList(false)
                             playerPage.videoInfoVisible = !playerPage.videoInfoVisible
@@ -8910,8 +9790,10 @@ ApplicationWindow {
                         }
                     }
 
-                    ModernButton {
+                    PlayerChromeButton {
+                        iconText: "C"
                         text: t("player.cacheShort") + " " + playerPage.cacheDurationText(mpvVideo.cacheDurationSeconds)
+                        Accessible.name: text
                         onClicked: {
                             playerPage.closeIptvChannelList(false)
                             playerPage.videoInfoVisible = true
@@ -11929,6 +12811,19 @@ ApplicationWindow {
                 }
 
                 SettingRow {
+                    label: t("settings.playerLayout")
+
+                    HomeLayoutSelector {
+                        selectedLayout: appViewModel.playerLayout
+                        trendyLabel: t("option.playerTrendy")
+                        traditionalLabel: t("option.playerTraditional")
+                        onLayoutChosen: function(value) {
+                            appViewModel.playerLayout = value
+                        }
+                    }
+                }
+
+                SettingRow {
                     label: t("settings.pageTransitions")
                     ModernCheckBox {
                         checked: appViewModel.pageTransitionsEnabled
@@ -12065,6 +12960,8 @@ ApplicationWindow {
     component HomeLayoutSelector: Rectangle {
         id: homeLayoutSelector
         property string selectedLayout: "trendy"
+        property string trendyLabel: t("option.homeTrendy")
+        property string traditionalLabel: t("option.homeTraditional")
         signal layoutChosen(string value)
 
         Layout.preferredWidth: 220
@@ -12082,7 +12979,7 @@ ApplicationWindow {
                 id: trendyHomeLayoutButton
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                text: t("option.homeTrendy")
+                text: homeLayoutSelector.trendyLabel
                 onClicked: homeLayoutSelector.layoutChosen("trendy")
 
                 contentItem: Label {
@@ -12107,7 +13004,7 @@ ApplicationWindow {
                 id: traditionalHomeLayoutButton
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                text: t("option.homeTraditional")
+                text: homeLayoutSelector.traditionalLabel
                 onClicked: homeLayoutSelector.layoutChosen("traditional")
 
                 contentItem: Label {

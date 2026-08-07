@@ -13,6 +13,7 @@ The current implementation covers:
 - HTTP/HTTPS direct-media and HLS link playback with strict URL validation, persistent replay history, and daily traffic accounting.
 - basic playback controls: play, pause, stop, relative seek, absolute seek, volume and speed.
 - basic playback state observation: pause state, position, duration, volume, speed and track list.
+- one-second runtime metrics for measured video output frame rate and network input speed.
 - subtitle and audio track list exposure to QML.
 - Emby / Jellyfin embedded-subtitle preference propagation from playback metadata to libmpv.
 - manual loading and immediate selection of a local external subtitle file.
@@ -66,11 +67,26 @@ QML owns only the page layout and buttons. It does not call libmpv directly.
 - subtitle and audio track switching through libmpv properties
 - asynchronous external subtitle loading through libmpv `sub-add`
 
+Embedded video instances use a smooth-playback profile before libmpv
+initialization. Hardware decoding uses `hwdec=auto`, which keeps libmpv's
+software fallback when no compatible decoder is available. Video timing uses
+`video-sync=display-resample` with temporal interpolation and the low-overhead
+`oversample` temporal scaler. This avoids the default audio-clock mode's frame
+drops or repeats when a selected playback speed does not divide evenly into the
+display refresh rate, while reducing decoder pressure at higher speeds. The
+profile is not applied to scheduled headless playback or audio-only playback.
+
+Reference: <https://mpv.io/manual/master/#video-synchronization>
+
 No other module should include `mpv/client.h`.
 
 ## Player Page Behavior
 
-The player page uses a full-page native video surface with player chrome floating above the top and bottom edges.
+The player page uses a full-content native video surface with player chrome
+floating above the top and bottom edges. While `currentView` is `player`, the
+application header, page margins, spacing, and application error row are
+removed so the player is the only in-app surface; the operating-system window
+frame remains available unless the user enters system fullscreen.
 
 With libmpv Window Embedding, the video surface is a platform-native child window and can cover ordinary QML items that overlap it. The current layout avoids mixing player startup with overlay state: `MpvVideoItem` owns only the native video window, while the top title / exit bar and bottom playback controls live in two narrow transparent Qt Quick tool windows that follow the player page geometry.
 
@@ -92,7 +108,52 @@ Controls include:
 - load external subtitle
 - audio track menu
 - playback speed button and menu, placed next to the transport controls so it remains visible before optional track and status actions
+- live frame-rate and network-speed status in both player layouts
 - volume slider
+
+The player has two selectable control layouts. The default `trendy` layout
+uses one centered, inset, semi-transparent bottom panel for the title, exit,
+fullscreen, transport, seek, progress, volume, track, speed, and information
+controls. The `traditional` layout keeps the same commands and state but
+presents them in one shorter compact panel centered near the bottom of the
+video with a bottom margin.
+
+Visible player actions use dedicated `PlayerTransportButton` and
+`PlayerChromeButton` QML components. Transport actions are circular and use
+the existing Canvas icon set, while secondary actions use consistent compact
+icon labels, translucent hover states, focus borders, press feedback,
+accessibility names, and tooltips. These components are scoped to player chrome
+so application-wide buttons keep their existing appearance.
+
+The floating track picker shares the same translucent chrome styling. Playback
+speeds use a compact three-column grid with a prominent current-speed state,
+while subtitle and audio choices remain scan-friendly single-selection lists.
+The subtitle picker keeps external subtitle loading as a distinct action above
+the track list, and all picker variants use the same header, close control,
+focus border, press feedback, and semi-transparent surface treatment. The
+picker's bottom edge meets the triggering button center. Opening expands
+horizontally from that exact button coordinate while its clipped viewport grows
+upward; closing plays the reverse contraction before the tool window is hidden.
+The anchor remains stable until contraction finishes, preventing a final-frame
+geometry jump.
+
+The delayed video-loading overlay uses a compact translucent panel with the
+shared dot spinner, the active loading state, the media title, and the network
+hint. While buffering, it also displays the existing one-second network-speed
+metric from `PlayerController`, falling back to `--` while no sample is
+available. Buffering with a known percentage renders a determinate progress bar;
+initial loading and seeking use a smooth indeterminate sweep instead.
+
+Runtime metrics stay in `PlayerController`. Once per second it reads libmpv's
+`estimated-vf-fps`, which measures the recent video-filter output frame rate,
+and reuses the existing `cache-speed` traffic sample in bytes per second. The
+network value is exposed only for URL-based playback so local disk read speed
+is not presented as network traffic. `MpvVideoItem` forwards both read-only
+values to QML; both control layouts show a compact status summary and the video
+information panel shows the values separately from the source track frame rate.
+Unavailable measurements render as `--` and are reset between playback items.
+
+Reference: <https://mpv.io/manual/master/#properties>
 
 Progress sliders keep a local preview position while the pointer is held. They submit one absolute exact seek when the pointer is released instead of sending an exact seek for every drag movement. The preview remains stable until libmpv reports `playback-restart` (or the seek timeout fires), preventing asynchronous `time-pos` updates from pulling the handle back and avoiding repeated native-window refreshes during a drag.
 
@@ -100,7 +161,16 @@ Controls use a semi-transparent player chrome. The native video window keeps a f
 
 The subtitle menu can open even when the current video has no subtitle tracks. Its load action opens Qt Quick's asynchronous file dialog. `MpvVideoItem` accepts only a local file URL, and `PlayerController` canonicalizes and verifies the file before issuing an asynchronous libmpv `sub-add` command with the `select` flag. libmpv remains responsible for subtitle parsing and adds a successful load to the observed `track-list`; QML never calls libmpv directly.
 
-In normal mode and immersive player fullscreen, the player chrome auto-hides after a short idle delay. Moving or clicking in the video area shows the chrome again. Immersive fullscreen also hides the app's global header, removes page margins and makes the player fill the application content.
+In normal playback mode the player chrome auto-hides after a short idle delay.
+Moving or clicking in the video area shows the chrome again. The playback view
+always hides the app's global header, removes page margins and makes the player
+fill the application content. Immersive fullscreen additionally removes the
+remaining application window chrome according to the platform's fullscreen
+behavior.
+
+Clicking a visible exit button stops playback and returns to the media details
+page immediately. The keyboard `Esc` exit path still uses the inline
+confirmation state so an accidental key press does not stop playback.
 
 Exit playback is guarded by an inline confirmation state in the top player chrome. A separate QML dialog is intentionally avoided because the Window Embedding native video window can cover or intercept QML popups on some platforms. If the user confirms, QML reports playback stopped, calls `MpvVideoItem::stop()` and then `AppViewModel::closePlayerToDetails()`. This hides the embedded native video window immediately, stops mpv, destroys the native video window, clears the current playback URL, preserves the selected media item and returns to the media details page.
 

@@ -44,6 +44,8 @@ class MpvVideoItem : public QQuickItem {
     Q_PROPERTY(QString audioTrack READ audioTrack NOTIFY audioMetadataChanged)
     Q_PROPERTY(QUrl audioCoverUrl READ audioCoverUrl NOTIFY audioCoverChanged)
     Q_PROPERTY(double cacheDurationSeconds READ cacheDurationSeconds NOTIFY cacheStatsChanged)
+    Q_PROPERTY(double currentFrameRate READ currentFrameRate NOTIFY playbackMetricsChanged)
+    Q_PROPERTY(qint64 networkSpeedBytesPerSecond READ networkSpeedBytesPerSecond NOTIFY playbackMetricsChanged)
     Q_PROPERTY(TrackListModel* subtitleTracks READ subtitleTracks CONSTANT)
     Q_PROPERTY(TrackListModel* audioTracks READ audioTracks CONSTANT)
 
@@ -86,6 +88,8 @@ public:
     QString audioTrack() const;
     QUrl audioCoverUrl() const;
     double cacheDurationSeconds() const;
+    double currentFrameRate() const;
+    qint64 networkSpeedBytesPerSecond() const;
     TrackListModel* subtitleTracks();
     TrackListModel* audioTracks();
 
@@ -116,6 +120,7 @@ signals:
     void audioMetadataChanged();
     void audioCoverChanged();
     void cacheStatsChanged();
+    void playbackMetricsChanged();
     void tracksChanged();
     void nativeWindowUpdated();
     void playbackRestarted();

@@ -77,6 +77,8 @@ class PlayerController final : public QObject {
     Q_PROPERTY(QString audioTrack READ audioTrack NOTIFY audioMetadataChanged)
     Q_PROPERTY(QUrl audioCoverUrl READ audioCoverUrl NOTIFY audioCoverChanged)
     Q_PROPERTY(double cacheDurationSeconds READ cacheDurationSeconds NOTIFY cacheStatsChanged)
+    Q_PROPERTY(double currentFrameRate READ currentFrameRate NOTIFY playbackMetricsChanged)
+    Q_PROPERTY(qint64 networkSpeedBytesPerSecond READ networkSpeedBytesPerSecond NOTIFY playbackMetricsChanged)
     Q_PROPERTY(TrackListModel* subtitleTracks READ subtitleTracks CONSTANT)
     Q_PROPERTY(TrackListModel* audioTracks READ audioTracks CONSTANT)
 
@@ -107,6 +109,8 @@ public:
     QString audioTrack() const;
     QUrl audioCoverUrl() const;
     double cacheDurationSeconds() const;
+    double currentFrameRate() const;
+    qint64 networkSpeedBytesPerSecond() const;
     TrackListModel* subtitleTracks();
     TrackListModel* audioTracks();
 
@@ -138,6 +142,7 @@ signals:
     void audioMetadataChanged();
     void audioCoverChanged();
     void cacheStatsChanged();
+    void playbackMetricsChanged();
     void tracksChanged();
     void videoOutputChanged();
     void playbackRestarted();
@@ -147,7 +152,7 @@ signals:
 private:
     void observeProperties();
     void processEvents();
-    void sampleNetworkStats();
+    void samplePlaybackMetrics();
     void handlePropertyChange(const char* name, int format, void* data);
     void updateTracks();
     void updateVideoInfo(QString resolution, QString codec, QString frameRate, QString bitrate);
@@ -164,6 +169,7 @@ private:
     void handleAudioCoverCaptureFailure(const QString& reason);
     void resetAudioCover();
     void updateCacheDuration(double seconds);
+    void updatePlaybackMetrics(double frameRate, qint64 networkSpeedBytesPerSecond);
     void resetPlaybackState();
     static QString nodeString(const struct mpv_node& node);
     static int nodeInt(const struct mpv_node& node, int fallback = -1);
@@ -205,10 +211,13 @@ private:
     bool m_audioCoverCaptureExhausted { false };
     int m_audioCoverCaptureAttempts { 0 };
     double m_cacheDurationSeconds { -1.0 };
+    double m_currentFrameRate { -1.0 };
+    qint64 m_networkSpeedBytesPerSecond { -1 };
     QTimer m_eventTimer;
-    QTimer m_networkStatsTimer;
+    QTimer m_playbackMetricsTimer;
     QElapsedTimer m_networkSampleElapsed;
     bool m_networkStatsActive { false };
+    bool m_networkPlayback { false };
     qint64 m_activePlaylistEntryId { -1 };
     bool m_stopRequested { false };
     int m_preferredSubtitleStreamIndex { -1 };

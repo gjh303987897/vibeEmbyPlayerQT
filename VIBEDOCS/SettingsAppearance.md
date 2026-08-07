@@ -10,6 +10,7 @@ Current settings:
 - Language: `system`, `zh_CN`, `en_US`
 - Emby home layout: `trendy`, `traditional`; `trendy` is the default
 - Jellyfin home layout: `trendy`, `traditional`; `trendy` is the default
+- Player layout: `trendy`, `traditional`; `trendy` is the default
 - Page transition animations: enabled or disabled, enabled by default
 - Desktop: minimize to tray
 
@@ -32,6 +33,20 @@ their values. `SessionRepository` persists them under
 `appearance/embyHomeLayout` and `appearance/jellyfinHomeLayout`. Each setting
 applies only to its matching service type. Both layouts consume the same
 ViewModel models and commands.
+
+## Player Layout
+
+The player layout can be selected independently from the media home layout:
+
+- `trendy`: a centered, inset bottom chrome panel with a matching rounded,
+  semi-transparent surface that keeps space from the window edges.
+- `traditional`: a compact, semi-transparent control strip centered near the
+  bottom of the video with a bottom margin, containing transport controls,
+  progress, volume, tracks, speed, information, fullscreen, and exit actions.
+
+`AppViewModel::playerLayout` validates the value and
+`SessionRepository` persists it under `appearance/playerLayout`. Both layouts
+use the same `PlayerPage` state and `MpvVideoItem` commands.
 
 ## Page Transitions
 
