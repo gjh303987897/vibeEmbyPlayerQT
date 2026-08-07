@@ -108,6 +108,11 @@ icon labels, translucent hover states, focus borders, press feedback,
 accessibility names, and tooltips. These components are scoped to player chrome
 so application-wide buttons keep their existing appearance.
 
+The delayed video-loading overlay uses a compact translucent panel with the
+shared dot spinner, the active loading state, the media title, and the network
+hint. Buffering with a known percentage renders a determinate progress bar;
+initial loading and seeking use a smooth indeterminate sweep instead.
+
 Progress sliders keep a local preview position while the pointer is held. They submit one absolute exact seek when the pointer is released instead of sending an exact seek for every drag movement. The preview remains stable until libmpv reports `playback-restart` (or the seek timeout fires), preventing asynchronous `time-pos` updates from pulling the handle back and avoiding repeated native-window refreshes during a drag.
 
 Controls use a semi-transparent player chrome. The native video window keeps a fixed full-page geometry whether controls are visible or hidden, so pause, progress, subtitle, audio, speed and volume controls do not resize the video surface. libmpv keeps the video aspect ratio inside that surface.

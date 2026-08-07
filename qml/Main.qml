@@ -7892,42 +7892,129 @@ ApplicationWindow {
 
                 Rectangle {
                     id: playbackLoadingCard
+                    readonly property bool determinateProgress: mpvVideo.buffering
+                        && mpvVideo.bufferingProgress > 0 && mpvVideo.bufferingProgress < 100
+                    readonly property real normalizedProgress: Math.max(0,
+                        Math.min(1, mpvVideo.bufferingProgress / 100))
+
                     anchors.centerIn: parent
-                    width: Math.min(parent.width - 48, 320)
-                    height: 148
-                    radius: 10
-                    color: "#d90a0d12"
-                    border.color: "#4d6f7b89"
+                    width: Math.min(parent.width - 48, 380)
+                    height: 136
+                    radius: 12
+                    color: "#c20a0d12"
+                    border.color: "#617b8da1"
+                    opacity: playerLoadingWindow.visible ? 1 : 0
+                    scale: playerLoadingWindow.visible ? 1 : 0.97
 
-                    Column {
-                        anchors.centerIn: parent
-                        width: parent.width - 48
-                        spacing: 10
+                    Behavior on opacity {
+                        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                    }
+                    Behavior on scale {
+                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                    }
 
-                        BusyIndicator {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            running: playerLoadingWindow.visible
-                            implicitWidth: 42
-                            implicitHeight: 42
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 18
+                        anchors.rightMargin: 18
+                        anchors.topMargin: 16
+                        anchors.bottomMargin: 14
+                        spacing: 9
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 14
+
+                            ThumbnailLoadingIcon {
+                                Layout.preferredWidth: 46
+                                Layout.preferredHeight: 46
+                                iconSize: 46
+                                running: playerLoadingWindow.visible
+                                accentColor: "#6aa0ff"
+                                backgroundVisible: false
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: playerPage.playbackLoadingTitle()
+                                    color: "#ffffff"
+                                    font.pixelSize: 18
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: appViewModel.selectedItemName.length > 0
+                                        ? appViewModel.selectedItemName : t("player.networkHint")
+                                    color: "#b8c5d4"
+                                    font.pixelSize: 12
+                                    elide: Text.ElideMiddle
+                                }
+                            }
                         }
 
-                        Label {
-                            width: parent.width
-                            text: playerPage.playbackLoadingTitle()
-                            color: "#ffffff"
-                            font.pixelSize: 19
-                            font.bold: true
-                            horizontalAlignment: Text.AlignHCenter
-                            elide: Text.ElideRight
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("player.networkHint")
+                                color: "#91a0b2"
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                visible: playbackLoadingCard.determinateProgress
+                                text: Math.round(mpvVideo.bufferingProgress) + "%"
+                                color: "#dce8f8"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
                         }
 
-                        Label {
-                            width: parent.width
-                            text: t("player.networkHint")
-                            color: "#cbd5e1"
-                            font.pixelSize: 13
-                            horizontalAlignment: Text.AlignHCenter
-                            elide: Text.ElideRight
+                        Rectangle {
+                            id: playbackLoadingTrack
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 4
+                            radius: 2
+                            color: "#2effffff"
+                            clip: true
+
+                            Rectangle {
+                                visible: playbackLoadingCard.determinateProgress
+                                x: 0
+                                width: playbackLoadingTrack.width * playbackLoadingCard.normalizedProgress
+                                height: parent.height
+                                radius: parent.radius
+                                color: "#6aa0ff"
+                            }
+
+                            Rectangle {
+                                id: playbackLoadingSweep
+                                visible: !playbackLoadingCard.determinateProgress
+                                x: 0
+                                width: Math.max(48, playbackLoadingTrack.width * 0.24)
+                                height: parent.height
+                                radius: parent.radius
+                                color: "#7ba9ff"
+
+                                NumberAnimation on x {
+                                    running: playerLoadingWindow.visible
+                                        && !playbackLoadingCard.determinateProgress
+                                    from: -playbackLoadingSweep.width
+                                    to: playbackLoadingTrack.width
+                                    duration: 1150
+                                    loops: Animation.Infinite
+                                    easing.type: Easing.InOutSine
+                                }
+                            }
                         }
                     }
                 }
