@@ -42,6 +42,33 @@ QString safeMpvLogText(const QString& text)
         : text;
 }
 
+void configureSmoothVideoPlayback(mpv_handle* handle)
+{
+    const std::initializer_list<std::pair<const char*, const char*>> options {
+        { "hwdec", "auto" },
+        { "video-sync", "display-resample" },
+        { "interpolation", "yes" },
+        { "tscale", "oversample" },
+    };
+
+    auto allConfigured = true;
+    for (const auto& [name, value] : options) {
+        const auto result = mpv_set_option_string(handle, name, value);
+        if (result >= 0) {
+            continue;
+        }
+        allConfigured = false;
+        AppLogger::warning(QStringLiteral("player"),
+                           QStringLiteral("Unable to configure libmpv option %1: %2")
+                               .arg(QString::fromLatin1(name),
+                                    QString::fromUtf8(mpv_error_string(result))));
+    }
+
+    if (allConfigured) {
+        AppLogger::info(QStringLiteral("player"), QStringLiteral("Configured smooth video playback profile"));
+    }
+}
+
 QString endFileReasonName(mpv_end_file_reason reason)
 {
     switch (reason) {
@@ -260,6 +287,8 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
         if (!m_headlessAudioOutput) {
             mpv_set_option_string(m_mpv, "ao", "null");
         }
+    } else {
+        configureSmoothVideoPlayback(m_mpv);
     }
     const auto caBundle = TlsCertificateStore::ensureSystemCaBundle();
     if (caBundle) {

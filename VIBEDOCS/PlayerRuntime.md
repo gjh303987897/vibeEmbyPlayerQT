@@ -67,6 +67,17 @@ QML owns only the page layout and buttons. It does not call libmpv directly.
 - subtitle and audio track switching through libmpv properties
 - asynchronous external subtitle loading through libmpv `sub-add`
 
+Embedded video instances use a smooth-playback profile before libmpv
+initialization. Hardware decoding uses `hwdec=auto`, which keeps libmpv's
+software fallback when no compatible decoder is available. Video timing uses
+`video-sync=display-resample` with temporal interpolation and the low-overhead
+`oversample` temporal scaler. This avoids the default audio-clock mode's frame
+drops or repeats when a selected playback speed does not divide evenly into the
+display refresh rate, while reducing decoder pressure at higher speeds. The
+profile is not applied to scheduled headless playback or audio-only playback.
+
+Reference: <https://mpv.io/manual/master/#video-synchronization>
+
 No other module should include `mpv/client.h`.
 
 ## Player Page Behavior
