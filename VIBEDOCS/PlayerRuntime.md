@@ -123,7 +123,9 @@ so application-wide buttons keep their existing appearance.
 
 The delayed video-loading overlay uses a compact translucent panel with the
 shared dot spinner, the active loading state, the media title, and the network
-hint. Buffering with a known percentage renders a determinate progress bar;
+hint. While buffering, it also displays the existing one-second network-speed
+metric from `PlayerController`, falling back to `--` while no sample is
+available. Buffering with a known percentage renders a determinate progress bar;
 initial loading and seeking use a smooth indeterminate sweep instead.
 
 Runtime metrics stay in `PlayerController`. Once per second it reads libmpv's

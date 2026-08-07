@@ -8012,6 +8012,15 @@ ApplicationWindow {
                             }
 
                             Label {
+                                visible: mpvVideo.buffering
+                                text: t("player.networkSpeed") + "  "
+                                      + playerPage.networkSpeedText(mpvVideo.networkSpeedBytesPerSecond)
+                                color: "#9fc5ff"
+                                font.pixelSize: 11
+                                font.bold: true
+                            }
+
+                            Label {
                                 visible: playbackLoadingCard.determinateProgress
                                 text: Math.round(mpvVideo.bufferingProgress) + "%"
                                 color: "#dce8f8"
