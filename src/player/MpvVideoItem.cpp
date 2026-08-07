@@ -153,6 +153,7 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
     connect(&m_controller, &PlayerController::audioMetadataChanged, this, &MpvVideoItem::audioMetadataChanged);
     connect(&m_controller, &PlayerController::audioCoverChanged, this, &MpvVideoItem::audioCoverChanged);
     connect(&m_controller, &PlayerController::cacheStatsChanged, this, &MpvVideoItem::cacheStatsChanged);
+    connect(&m_controller, &PlayerController::playbackMetricsChanged, this, &MpvVideoItem::playbackMetricsChanged);
     connect(&m_controller, &PlayerController::tracksChanged, this, &MpvVideoItem::tracksChanged);
     connect(&m_controller, &PlayerController::videoOutputChanged, this, &MpvVideoItem::refreshNativeWindow);
     connect(&m_controller, &PlayerController::playbackRestarted, this, &MpvVideoItem::playbackRestarted);
@@ -389,6 +390,16 @@ QUrl MpvVideoItem::audioCoverUrl() const
 double MpvVideoItem::cacheDurationSeconds() const
 {
     return m_controller.cacheDurationSeconds();
+}
+
+double MpvVideoItem::currentFrameRate() const
+{
+    return m_controller.currentFrameRate();
+}
+
+qint64 MpvVideoItem::networkSpeedBytesPerSecond() const
+{
+    return m_controller.networkSpeedBytesPerSecond();
 }
 
 TrackListModel* MpvVideoItem::subtitleTracks()

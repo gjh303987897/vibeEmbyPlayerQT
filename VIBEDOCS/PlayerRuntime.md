@@ -13,6 +13,7 @@ The current implementation covers:
 - HTTP/HTTPS direct-media and HLS link playback with strict URL validation, persistent replay history, and daily traffic accounting.
 - basic playback controls: play, pause, stop, relative seek, absolute seek, volume and speed.
 - basic playback state observation: pause state, position, duration, volume, speed and track list.
+- one-second runtime metrics for measured video output frame rate and network input speed.
 - subtitle and audio track list exposure to QML.
 - Emby / Jellyfin embedded-subtitle preference propagation from playback metadata to libmpv.
 - manual loading and immediate selection of a local external subtitle file.
@@ -92,6 +93,7 @@ Controls include:
 - load external subtitle
 - audio track menu
 - playback speed button and menu, placed next to the transport controls so it remains visible before optional track and status actions
+- live frame-rate and network-speed status in both player layouts
 - volume slider
 
 The player has two selectable control layouts. The default `trendy` layout
@@ -112,6 +114,17 @@ The delayed video-loading overlay uses a compact translucent panel with the
 shared dot spinner, the active loading state, the media title, and the network
 hint. Buffering with a known percentage renders a determinate progress bar;
 initial loading and seeking use a smooth indeterminate sweep instead.
+
+Runtime metrics stay in `PlayerController`. Once per second it reads libmpv's
+`estimated-vf-fps`, which measures the recent video-filter output frame rate,
+and reuses the existing `cache-speed` traffic sample in bytes per second. The
+network value is exposed only for URL-based playback so local disk read speed
+is not presented as network traffic. `MpvVideoItem` forwards both read-only
+values to QML; both control layouts show a compact status summary and the video
+information panel shows the values separately from the source track frame rate.
+Unavailable measurements render as `--` and are reset between playback items.
+
+Reference: <https://mpv.io/manual/master/#properties>
 
 Progress sliders keep a local preview position while the pointer is held. They submit one absolute exact seek when the pointer is released instead of sending an exact seek for every drag movement. The preview remains stable until libmpv reports `playback-restart` (or the seek timeout fires), preventing asynchronous `time-pos` updates from pulling the handle back and avoiding repeated native-window refreshes during a drag.
 

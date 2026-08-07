@@ -215,8 +215,8 @@ PlayerController::PlayerController(QObject* parent)
 {
     m_eventTimer.setInterval(40);
     connect(&m_eventTimer, &QTimer::timeout, this, &PlayerController::processEvents);
-    m_networkStatsTimer.setInterval(1000);
-    connect(&m_networkStatsTimer, &QTimer::timeout, this, &PlayerController::sampleNetworkStats);
+    m_playbackMetricsTimer.setInterval(1000);
+    connect(&m_playbackMetricsTimer, &QTimer::timeout, this, &PlayerController::samplePlaybackMetrics);
 }
 
 PlayerController::~PlayerController()
@@ -303,7 +303,7 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
 
     observeProperties();
     m_eventTimer.start();
-    m_networkStatsTimer.start();
+    m_playbackMetricsTimer.start();
     AppLogger::info(QStringLiteral("player"),
                     m_headless ? QStringLiteral("libmpv initialized for headless playback")
                                : QStringLiteral("libmpv initialized with window embedding"));
@@ -415,6 +415,16 @@ double PlayerController::cacheDurationSeconds() const
     return m_cacheDurationSeconds;
 }
 
+double PlayerController::currentFrameRate() const
+{
+    return m_currentFrameRate;
+}
+
+qint64 PlayerController::networkSpeedBytesPerSecond() const
+{
+    return m_networkSpeedBytesPerSecond;
+}
+
 TrackListModel* PlayerController::subtitleTracks()
 {
     return &m_subtitleTracks;
@@ -469,10 +479,13 @@ void PlayerController::playUrl(const QString& url,
     int pauseFlag = 0;
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag);
     const QByteArray encoded = url.toUtf8();
+    const auto mediaUrl = QUrl::fromUserInput(url, {}, QUrl::AssumeLocalFile);
+    m_networkPlayback = mediaUrl.isValid() && !mediaUrl.isLocalFile() && !mediaUrl.scheme().isEmpty();
     updateVideoInfo({}, {}, {}, {});
     setAudioMetadata({}, {}, {}, {}, {}, {});
     resetAudioCover();
     updateCacheDuration(-1.0);
+    updatePlaybackMetrics(-1.0, -1);
     m_paused = false;
     m_position = 0.0;
     m_duration = 0.0;
@@ -544,7 +557,7 @@ void PlayerController::stop()
 void PlayerController::shutdown()
 {
     m_eventTimer.stop();
-    m_networkStatsTimer.stop();
+    m_playbackMetricsTimer.stop();
     m_networkStatsActive = false;
     m_activePlaylistEntryId = -1;
     if (m_mpv) {
@@ -731,6 +744,7 @@ void PlayerController::processEvents()
                 m_duration = 0.0;
                 m_networkStatsActive = true;
                 m_networkSampleElapsed.restart();
+                updatePlaybackMetrics(-1.0, -1);
                 emit playbackStateChanged();
             }
         } else if (event->event_id == MPV_EVENT_END_FILE) {
@@ -767,6 +781,7 @@ void PlayerController::processEvents()
             m_seeking = false;
             m_bufferingProgress = 0;
             updateCacheDuration(-1.0);
+            updatePlaybackMetrics(-1.0, -1);
             emit playbackStateChanged();
             const auto reachedEnd = endFile && endFile->reason == MPV_END_FILE_REASON_EOF;
             if (endFile && endFile->reason == MPV_END_FILE_REASON_STOP) {
@@ -804,7 +819,7 @@ void PlayerController::processEvents()
     }
 }
 
-void PlayerController::sampleNetworkStats()
+void PlayerController::samplePlaybackMetrics()
 {
     if (!m_mpv || !m_networkStatsActive) {
         return;
@@ -819,15 +834,27 @@ void PlayerController::sampleNetworkStats()
         return;
     }
 
-    int64_t bytesPerSecond = 0;
-    const auto status = mpv_get_property(m_mpv, "cache-speed", MPV_FORMAT_INT64, &bytesPerSecond);
-    if (status < 0 || bytesPerSecond <= 0) {
-        return;
+    double frameRate = -1.0;
+    if (!m_headless) {
+        double measuredFrameRate = 0.0;
+        if (mpv_get_property(m_mpv, "estimated-vf-fps", MPV_FORMAT_DOUBLE, &measuredFrameRate) >= 0) {
+            frameRate = measuredFrameRate;
+        }
     }
 
-    const auto sampledBytes = static_cast<qint64>(std::llround(static_cast<double>(bytesPerSecond) * static_cast<double>(elapsedMs) / 1000.0));
-    if (sampledBytes > 0) {
-        emit playbackNetworkBytes(sampledBytes);
+    int64_t bytesPerSecond = -1;
+    const auto cacheSpeedStatus = mpv_get_property(m_mpv, "cache-speed", MPV_FORMAT_INT64, &bytesPerSecond);
+    const auto measuredNetworkSpeed = cacheSpeedStatus >= 0 && m_networkPlayback
+        ? std::max<int64_t>(0, bytesPerSecond)
+        : -1;
+    updatePlaybackMetrics(frameRate, measuredNetworkSpeed);
+
+    if (cacheSpeedStatus >= 0 && bytesPerSecond > 0) {
+        const auto sampledBytes = static_cast<qint64>(std::llround(
+            static_cast<double>(bytesPerSecond) * static_cast<double>(elapsedMs) / 1000.0));
+        if (sampledBytes > 0) {
+            emit playbackNetworkBytes(sampledBytes);
+        }
     }
 }
 
@@ -1264,6 +1291,20 @@ void PlayerController::updateCacheDuration(double seconds)
     emit cacheStatsChanged();
 }
 
+void PlayerController::updatePlaybackMetrics(double frameRate, qint64 networkSpeedBytesPerSecond)
+{
+    const auto normalizedFrameRate = std::isfinite(frameRate) && frameRate > 0.0 ? frameRate : -1.0;
+    const auto normalizedNetworkSpeed = networkSpeedBytesPerSecond >= 0 ? networkSpeedBytesPerSecond : -1;
+    if (std::abs(m_currentFrameRate - normalizedFrameRate) < 0.005 &&
+        m_networkSpeedBytesPerSecond == normalizedNetworkSpeed) {
+        return;
+    }
+
+    m_currentFrameRate = normalizedFrameRate;
+    m_networkSpeedBytesPerSecond = normalizedNetworkSpeed;
+    emit playbackMetricsChanged();
+}
+
 void PlayerController::resetPlaybackState()
 {
     const auto stateChanged = !m_paused || m_loading || m_buffering || m_seeking || m_position != 0.0 || m_duration != 0.0 || m_bufferingProgress != 0;
@@ -1280,6 +1321,8 @@ void PlayerController::resetPlaybackState()
     setAudioMetadata({}, {}, {}, {}, {}, {});
     resetAudioCover();
     updateCacheDuration(-1.0);
+    updatePlaybackMetrics(-1.0, -1);
+    m_networkPlayback = false;
     emit tracksChanged();
     if (stateChanged) {
         emit playbackStateChanged();

@@ -7229,6 +7229,26 @@ ApplicationWindow {
             return minutes + "m " + remaining + "s"
         }
 
+        function liveFrameRateText(frameRate) {
+            if (!Number.isFinite(frameRate) || frameRate <= 0) {
+                return "-- FPS"
+            }
+            return Number(frameRate).toFixed(frameRate >= 100 ? 0 : 1) + " FPS"
+        }
+
+        function networkSpeedText(bytesPerSecond) {
+            if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) {
+                return "--"
+            }
+            return root.formatBytes(bytesPerSecond) + "/s"
+        }
+
+        function playbackMetricsText() {
+            return liveFrameRateText(mpvVideo.currentFrameRate)
+                + "  |  " + t("player.networkSpeedShort") + " "
+                + networkSpeedText(mpvVideo.networkSpeedBytesPerSecond)
+        }
+
         function openTrackMenu(mode, anchorItem) {
             if (trackMenuVisible && trackMenuMode === mode) {
                 closeTrackMenu()
@@ -8033,7 +8053,7 @@ ApplicationWindow {
                     return
                 }
                 var panelWidth = Math.min(380, Math.max(300, playerPage.width - 48))
-                var panelHeight = 264
+                var panelHeight = 310
                 var margin = 24
                 var localX = Math.max(margin, playerPage.width - panelWidth - margin)
                 var localY = Math.min(playerPage.height - panelHeight - margin,
@@ -8175,12 +8195,36 @@ ApplicationWindow {
                         }
 
                         MutedText {
-                            text: t("player.frameRate")
+                            text: t("player.sourceFrameRate")
                             color: "#aeb8c6"
                         }
                         BodyText {
                             Layout.fillWidth: true
                             text: playerPage.videoInfoValue(mpvVideo.videoFrameRate)
+                            color: "#ffffff"
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        MutedText {
+                            text: t("player.frameRate")
+                            color: "#aeb8c6"
+                        }
+                        BodyText {
+                            Layout.fillWidth: true
+                            text: playerPage.liveFrameRateText(mpvVideo.currentFrameRate)
+                            color: "#ffffff"
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        MutedText {
+                            text: t("player.networkSpeed")
+                            color: "#aeb8c6"
+                        }
+                        BodyText {
+                            Layout.fillWidth: true
+                            text: playerPage.networkSpeedText(mpvVideo.networkSpeedBytesPerSecond)
                             color: "#ffffff"
                             font.bold: true
                             elide: Text.ElideRight
@@ -9009,6 +9053,14 @@ ApplicationWindow {
                                     verticalAlignment: Text.AlignVCenter
                                 }
 
+                                MutedText {
+                                    visible: !playerPage.exitConfirmVisible
+                                    text: playerPage.playbackMetricsText()
+                                    color: "#bdc7d4"
+                                    font.pixelSize: 10
+                                    horizontalAlignment: Text.AlignRight
+                                }
+
                                 PlayerChromeButton {
                                     id: traditionalFullscreenButton
                                     compact: true
@@ -9292,6 +9344,14 @@ ApplicationWindow {
                         color: "#f4f7fb"
                         elide: Text.ElideRight
                         horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    MutedText {
+                        visible: !playerPage.exitConfirmVisible
+                        text: playerPage.playbackMetricsText()
+                        color: "#c7d0dd"
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignRight
                     }
 
                     PlayerChromeButton {
