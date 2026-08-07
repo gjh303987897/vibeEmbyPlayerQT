@@ -94,6 +94,20 @@ Controls include:
 - playback speed button and menu, placed next to the transport controls so it remains visible before optional track and status actions
 - volume slider
 
+The player has two selectable control layouts. The default `trendy` layout
+uses one centered, inset, semi-transparent bottom panel for the title, exit,
+fullscreen, transport, seek, progress, volume, track, speed, and information
+controls. The `traditional` layout keeps the same commands and state but
+presents them in one shorter compact panel centered near the bottom of the
+video with a bottom margin.
+
+Visible player actions use dedicated `PlayerTransportButton` and
+`PlayerChromeButton` QML components. Transport actions are circular and use
+the existing Canvas icon set, while secondary actions use consistent compact
+icon labels, translucent hover states, focus borders, press feedback,
+accessibility names, and tooltips. These components are scoped to player chrome
+so application-wide buttons keep their existing appearance.
+
 Progress sliders keep a local preview position while the pointer is held. They submit one absolute exact seek when the pointer is released instead of sending an exact seek for every drag movement. The preview remains stable until libmpv reports `playback-restart` (or the seek timeout fires), preventing asynchronous `time-pos` updates from pulling the handle back and avoiding repeated native-window refreshes during a drag.
 
 Controls use a semi-transparent player chrome. The native video window keeps a fixed full-page geometry whether controls are visible or hidden, so pause, progress, subtitle, audio, speed and volume controls do not resize the video surface. libmpv keeps the video aspect ratio inside that surface.
@@ -101,6 +115,10 @@ Controls use a semi-transparent player chrome. The native video window keeps a f
 The subtitle menu can open even when the current video has no subtitle tracks. Its load action opens Qt Quick's asynchronous file dialog. `MpvVideoItem` accepts only a local file URL, and `PlayerController` canonicalizes and verifies the file before issuing an asynchronous libmpv `sub-add` command with the `select` flag. libmpv remains responsible for subtitle parsing and adds a successful load to the observed `track-list`; QML never calls libmpv directly.
 
 In normal mode and immersive player fullscreen, the player chrome auto-hides after a short idle delay. Moving or clicking in the video area shows the chrome again. Immersive fullscreen also hides the app's global header, removes page margins and makes the player fill the application content.
+
+Clicking a visible exit button stops playback and returns to the media details
+page immediately. The keyboard `Esc` exit path still uses the inline
+confirmation state so an accidental key press does not stop playback.
 
 Exit playback is guarded by an inline confirmation state in the top player chrome. A separate QML dialog is intentionally avoided because the Window Embedding native video window can cover or intercept QML popups on some platforms. If the user confirms, QML reports playback stopped, calls `MpvVideoItem::stop()` and then `AppViewModel::closePlayerToDetails()`. This hides the embedded native video window immediately, stops mpv, destroys the native video window, clears the current playback URL, preserves the selected media item and returns to the media details page.
 

@@ -1458,6 +1458,16 @@ void SessionRepository::setJellyfinHomeLayout(const QString& layout)
     m_settings.setValue(QStringLiteral("appearance/jellyfinHomeLayout"), layout);
 }
 
+QString SessionRepository::playerLayout() const
+{
+    return m_settings.value(QStringLiteral("appearance/playerLayout"), QStringLiteral("trendy")).toString();
+}
+
+void SessionRepository::setPlayerLayout(const QString& layout)
+{
+    m_settings.setValue(QStringLiteral("appearance/playerLayout"), layout);
+}
+
 bool SessionRepository::pageTransitionsEnabled() const
 {
     return m_settings.value(QStringLiteral("appearance/pageTransitionsEnabled"), true).toBool();

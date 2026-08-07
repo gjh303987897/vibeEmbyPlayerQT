@@ -117,6 +117,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString languageMode READ languageMode WRITE setLanguageMode NOTIFY languageModeChanged)
     Q_PROPERTY(QString embyHomeLayout READ embyHomeLayout WRITE setEmbyHomeLayout NOTIFY embyHomeLayoutChanged)
     Q_PROPERTY(QString jellyfinHomeLayout READ jellyfinHomeLayout WRITE setJellyfinHomeLayout NOTIFY jellyfinHomeLayoutChanged)
+    Q_PROPERTY(QString playerLayout READ playerLayout WRITE setPlayerLayout NOTIFY playerLayoutChanged)
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
@@ -309,6 +310,8 @@ public:
     void setEmbyHomeLayout(const QString& value);
     QString jellyfinHomeLayout() const;
     void setJellyfinHomeLayout(const QString& value);
+    QString playerLayout() const;
+    void setPlayerLayout(const QString& value);
     bool pageTransitionsEnabled() const;
     void setPageTransitionsEnabled(bool value);
     int translationRevision() const;
@@ -567,6 +570,7 @@ signals:
     void languageModeChanged();
     void embyHomeLayoutChanged();
     void jellyfinHomeLayoutChanged();
+    void playerLayoutChanged();
     void pageTransitionsEnabledChanged();
     void translationsChanged();
     void loadingChanged();
