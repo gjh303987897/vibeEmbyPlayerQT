@@ -78,7 +78,18 @@ edge and title metadata below. Episode metadata combines the series name and
 season/episode index. Library cards use wide server artwork and an
 optional item-count badge. Library and search grids use unframed portrait
 posters with titles below the image, matching the home hierarchy without
-nested decorative cards.
+nested decorative cards. All of these surfaces reuse `PosterImage`, which uses
+a standalone `QtQuick.Effects.MultiEffect` to render its hidden image source
+through a sibling alpha mask matching the configured corner radius. The effect
+must remain separate from `PosterImage.layer.effect`: with Qt 6.7, assigning a
+masked `MultiEffect` directly to that layer produces a transparent result.
+Ordinary `Item.clip` remains enabled for the rectangular bounds but is not
+relied upon for rounded corners. Once an image is ready, the frame background
+becomes transparent and no outline is drawn, preventing a one-pixel halo at
+the antialiased mask edge. Trendy home continue-watching and library artwork
+use a 12-pixel mask radius so wide covers retain visibly rounded corners.
+
+Reference: <https://doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html>
 
 ## Verification
 

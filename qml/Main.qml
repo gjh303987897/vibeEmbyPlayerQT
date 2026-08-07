@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
+import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Window
 import VibePlayer 1.0
@@ -3882,11 +3883,13 @@ ApplicationWindow {
     }
 
     component PosterImage: Rectangle {
+        id: posterFrame
         property string imageUrl: ""
         property string fallbackText: "?"
         radius: 8
-        color: theme.input
+        color: posterImage.status === Image.Ready ? "transparent" : theme.input
         border.color: theme.border
+        border.width: 0
         clip: true
 
         Image {
@@ -3895,6 +3898,24 @@ ApplicationWindow {
             source: imageUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
+            visible: false
+        }
+
+        Rectangle {
+            id: posterMask
+            anchors.fill: parent
+            radius: posterFrame.radius
+            color: "#ffffff"
+            visible: false
+            layer.enabled: true
+        }
+
+        MultiEffect {
+            anchors.fill: parent
+            source: posterImage
+            autoPaddingEnabled: false
+            maskEnabled: true
+            maskSource: posterMask
         }
 
         ThumbnailLoadingIcon {
@@ -4770,7 +4791,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.top: parent.top
             height: 140
-            radius: 8
+            radius: 12
             imageUrl: libraryCard.imageUrl
             fallbackText: libraryCard.name.length > 0 ? libraryCard.name[0] : "?"
             border.color: mouse.containsMouse ? theme.primary : theme.border
@@ -4930,7 +4951,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.top: parent.top
             height: Math.max(0, parent.height - 48)
-            radius: 8
+            radius: 12
             imageUrl: continueCard.backdropUrl.length > 0
                 ? continueCard.backdropUrl : continueCard.imageUrl
             fallbackText: continueCard.title.length > 0 ? continueCard.title[0] : "?"
