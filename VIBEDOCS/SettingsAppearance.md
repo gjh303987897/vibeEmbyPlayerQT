@@ -18,6 +18,10 @@ Settings are exposed through `AppViewModel` and persisted by `SessionRepository`
 
 QML owns only layout and user interaction. It must not write `QSettings` directly.
 
+The settings page uses the shared header's left-side back control to return to
+the service selector. Its duplicate right-side Services action is hidden while
+settings are active, leaving one predictable navigation exit.
+
 ## Media Server Home Layout
 
 The Emby and Jellyfin home presentations can be changed independently without

@@ -1174,11 +1174,35 @@ ApplicationWindow {
             spacing: 12
 
             IconButton {
-                text: "‹"
-                visible: appViewModel.currentView !== "services" && appViewModel.currentView !== "settings"
-                font.pixelSize: 28
+                id: headerBackButton
+                text: "\u2190"
+                visible: appViewModel.currentView !== "services"
+                implicitWidth: 42
+                implicitHeight: 40
+                font.pixelSize: 20
+                scale: down ? 0.95 : 1
+                Accessible.name: t("action.back")
+                ToolTip.visible: hovered
+                ToolTip.text: t("action.back")
+
+                Behavior on scale {
+                    NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                }
+
+                background: Rectangle {
+                    radius: 10
+                    color: headerBackButton.down ? root.withAlpha(theme.primary, 0.28)
+                        : headerBackButton.hovered ? root.withAlpha(theme.primary, 0.14)
+                        : root.withAlpha(theme.elevated, darkTheme ? 0.74 : 0.92)
+                    border.width: headerBackButton.activeFocus ? 2 : 1
+                    border.color: headerBackButton.activeFocus || headerBackButton.hovered
+                        ? root.withAlpha(theme.primary, 0.78) : theme.border
+                }
+
                 onClicked: {
-                    if (appViewModel.currentView === "history" || appViewModel.currentView === "globalHistory"
+                    if (appViewModel.currentView === "settings") {
+                        appViewModel.backToServices()
+                    } else if (appViewModel.currentView === "history" || appViewModel.currentView === "globalHistory"
                             || appViewModel.currentView === "m3u8sManager") {
                         appViewModel.backToServices()
                     } else if (appViewModel.currentView === "scheduledTasks") {
@@ -1399,6 +1423,7 @@ ApplicationWindow {
             ModernButton {
                 text: t("action.backToServices")
                 visible: appViewModel.currentView !== "services"
+                    && appViewModel.currentView !== "settings"
                     && !root.useTraditionalMediaHome
                 onClicked: appViewModel.backToServices()
             }
@@ -1622,7 +1647,7 @@ ApplicationWindow {
                                 serviceName: t("globalHistory.title")
                                 serviceType: "History"
                                 host: t("globalHistory.cardSubtitle")
-                                leadingStatusText: t("globalHistory.builtIn")
+                                leadingStatusText: t("local.builtIn")
                                 leadingStatusColor: theme.success
                                 trailingStatusText: t("globalHistory.localIndex")
                                 trailingStatusColor: root.serviceAccentColor("History")
@@ -1640,7 +1665,7 @@ ApplicationWindow {
                                 serviceName: t("m3u8s.title")
                                 serviceType: "M3u8s"
                                 host: t("m3u8s.cardSubtitle")
-                                leadingStatusText: t("m3u8s.builtIn")
+                                leadingStatusText: t("local.builtIn")
                                 leadingStatusColor: theme.success
                                 trailingStatusText: t("m3u8s.packageCount").arg(appViewModel.tsslPackages.count)
                                 trailingStatusColor: root.serviceAccentColor("M3u8s")

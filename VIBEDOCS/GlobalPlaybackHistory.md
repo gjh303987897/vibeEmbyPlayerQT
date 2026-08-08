@@ -11,6 +11,10 @@ Global Playback History is the third built-in entry beside Local Playback and Li
 - Local Playback
 - Link Playback
 
+Its service-selector card uses the same `Built in` status chip as Local
+Playback and Link Playback so all application-owned sources are identified
+consistently.
+
 An occurrence is persisted only after libmpv reports that playback actually started. A URL validation attempt, media-details request, password prompt, or playback request that fails before that point does not create history. Replaying the same stable media target replaces its previous global-history row, so only the latest occurrence remains.
 
 ## Architecture

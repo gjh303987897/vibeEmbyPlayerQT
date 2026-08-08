@@ -9,6 +9,9 @@ The encrypted HLS module has two entry points:
   session for libmpv and decrypts registered MPEG-TS segments before returning
   them.
 
+The M3U8S manager's service-selector card uses the same `Built in` status chip
+as Local Playback, Link Playback, and Global Playback History.
+
 The `.m3u8s` file is still a valid HLS media playlist. Playlist and resource
 URIs are not rewritten. The existing single-file WebDAV proxy is not modified.
 
