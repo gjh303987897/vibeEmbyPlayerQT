@@ -65,6 +65,9 @@ and the existing details/navigation commands.
   bypass playback URL resolution.
 - Vertical mouse-wheel input scrolls the page. Horizontal touchpad input, or
   Shift plus mouse wheel, scrolls the media rails.
+- Emby omits the left and right navigation buttons from the continue-watching
+  rail in both layouts. Drag, touchpad, and wheel navigation remain available.
+  Jellyfin retains its explicit rail navigation buttons.
 - Search opens as a focused input popup from the compact toolbar button and
   closes when navigation moves to the results view.
 - The combined server button returns to the source selector; search and refresh

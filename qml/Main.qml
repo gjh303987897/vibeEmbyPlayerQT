@@ -2299,7 +2299,8 @@ ApplicationWindow {
                                             anchors.left: parent.left
                                             anchors.verticalCenter: parent.verticalCenter
                                             anchors.leftMargin: 8
-                                            visible: enabled && appViewModel.continueItems.count > 0
+                                            visible: appViewModel.serviceType !== "Emby"
+                                                && enabled && appViewModel.continueItems.count > 0
                                             text: "‹"
                                             enabled: continueList.contentX > 1
                                             onClicked: continueRail.scrollBy(-Math.max(320, continueList.width * 0.78))
@@ -2309,7 +2310,8 @@ ApplicationWindow {
                                             anchors.right: parent.right
                                             anchors.verticalCenter: parent.verticalCenter
                                             anchors.rightMargin: 8
-                                            visible: enabled && appViewModel.continueItems.count > 0
+                                            visible: appViewModel.serviceType !== "Emby"
+                                                && enabled && appViewModel.continueItems.count > 0
                                             text: "›"
                                             enabled: continueList.contentX < continueRail.maxContentX() - 1
                                             onClicked: continueRail.scrollBy(Math.max(320, continueList.width * 0.78))
@@ -4541,6 +4543,7 @@ ApplicationWindow {
                         spacing: 10
 
                         IconButton {
+                            visible: appViewModel.serviceType !== "Emby"
                             text: "‹"
                             enabled: traditionalContinueList.contentX > 1
                             onClicked: traditionalContinueRail.scrollBy(
@@ -4587,6 +4590,7 @@ ApplicationWindow {
                         }
 
                         IconButton {
+                            visible: appViewModel.serviceType !== "Emby"
                             text: "›"
                             enabled: traditionalContinueList.contentX
                                 < traditionalContinueRail.maxContentX() - 1
