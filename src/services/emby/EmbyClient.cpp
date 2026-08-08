@@ -151,14 +151,15 @@ void EmbyClient::searchVideoItems(const UserSession& session,
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("SearchTerm"), normalizedTerm);
     query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
-    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Series,Episode,Video"));
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Series,Video"));
     query.addQueryItem(QStringLiteral("StartIndex"), QString::number(std::max(0, startIndex)));
     query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
     query.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("SortName"));
     query.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Ascending"));
-    query.addQueryItem(QStringLiteral("Fields"),
-                       QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,SeriesPrimaryImageTag,ParentId"));
+    query.addQueryItem(QStringLiteral("Fields"), QStringLiteral("PrimaryImageAspectRatio"));
     query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("ImageTypeLimit"), QStringLiteral("1"));
+    query.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary"));
     query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
     url.setQuery(query);
 

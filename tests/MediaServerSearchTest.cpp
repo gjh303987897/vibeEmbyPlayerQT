@@ -150,7 +150,7 @@ void MediaServerSearchTest::embySearchesCurrentUserRootRecursively()
     std::optional<ItemResult> result;
 
     client.searchVideoItems(sessionFor(server, ServiceType::Emby),
-                            QStringLiteral("  Alien  "),
+                            QStringLiteral("  三体  "),
                             -3,
                             0,
                             [&result](ItemResult value) {
@@ -163,9 +163,13 @@ void MediaServerSearchTest::embySearchesCurrentUserRootRecursively()
     const QUrl requestUrl(QStringLiteral("http://127.0.0.1") + QString::fromLatin1(server.requestTarget()));
     const QUrlQuery query(requestUrl);
     QCOMPARE(requestUrl.path(), QStringLiteral("/Users/user-id/Items"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("SearchTerm")), QStringLiteral("Alien"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("SearchTerm")), QStringLiteral("三体"));
     QCOMPARE(query.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Series,Episode,Video"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Series,Video"));
+    QVERIFY(!query.queryItemValue(QStringLiteral("IncludeItemTypes")).contains(QStringLiteral("Episode")));
+    QCOMPARE(query.queryItemValue(QStringLiteral("Fields")), QStringLiteral("PrimaryImageAspectRatio"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("ImageTypeLimit")), QStringLiteral("1"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("EnableImageTypes")), QStringLiteral("Primary"));
     QCOMPARE(query.queryItemValue(QStringLiteral("StartIndex")), QStringLiteral("0"));
     QCOMPARE(query.queryItemValue(QStringLiteral("Limit")), QStringLiteral("1"));
     QVERIFY(!query.hasQueryItem(QStringLiteral("ParentId")));

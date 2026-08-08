@@ -3531,6 +3531,15 @@ ApplicationWindow {
             serverSearchInput.forceActiveFocus()
         }
 
+        function submitSearch() {
+            var normalizedText = serverSearchInput.text.trim()
+            if (normalizedText.length === 0) {
+                return
+            }
+            appViewModel.serverSearchText = normalizedText
+            appViewModel.searchMediaServer()
+        }
+
         ModernTextField {
             id: serverSearchInput
             Layout.fillWidth: true
@@ -3539,16 +3548,7 @@ ApplicationWindow {
             rightPadding: serverSearchClear.visible ? 38 : 12
             placeholderText: t("search.serverPlaceholder")
             text: appViewModel.serverSearchText
-            onTextChanged: {
-                if (appViewModel.serverSearchText !== text) {
-                    appViewModel.serverSearchText = text
-                }
-            }
-            onAccepted: {
-                if (text.trim().length > 0) {
-                    appViewModel.searchMediaServer()
-                }
-            }
+            onAccepted: mediaServerSearchBar.submitSearch()
 
             Label {
                 anchors.left: parent.left
@@ -3595,7 +3595,7 @@ ApplicationWindow {
             implicitHeight: 38
             text: t("search.action")
             enabled: serverSearchInput.text.trim().length > 0
-            onClicked: appViewModel.searchMediaServer()
+            onClicked: mediaServerSearchBar.submitSearch()
         }
     }
 

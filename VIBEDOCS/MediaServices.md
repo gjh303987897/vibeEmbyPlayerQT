@@ -55,6 +55,10 @@ QML does not make network requests and does not parse JSON.
 - Adding a card stores service name, base URL, username, service type, certificate policy and auto-login preference.
 - If a password is provided while saving, the card is logged in immediately and the token is persisted through `SessionRepository`.
 - If auto-login is enabled, clicking a card attempts to restore the saved session and opens the service home.
+- Saved-session restoration and the initial home request fan-out are deferred
+  across event-loop turns. This lets the pressed/loading state render before
+  SQLite access and home model updates, while responses from a previously
+  selected server are ignored.
 - If auto-login is disabled or no session is available, clicking a card emits a password-required signal; QML shows a password dialog and the password is used only for that login request.
 - Deleting a card can either soft-hide the card while preserving local data, or delete the server/session records.
 
@@ -74,10 +78,15 @@ QML does not make network requests and does not parse JSON.
   it shares the same service models and commands. Jellyfin remains on the
   trendy presentation.
 - The home toolbar exposes an explicit return button, service identity, a long inline server-wide search field, and refresh. The old Home / Libraries / Settings segmented shortcuts are intentionally omitted.
-- Search requests stay behind `MediaServiceClient`: `EmbyClient` uses the Emby user-items endpoint and `JellyfinClient` uses the official Jellyfin `GetItems` operation. QML only edits the query, submits it and renders state exposed by `AppViewModel`.
+- Search requests stay behind `MediaServiceClient`: `EmbyClient` uses the Emby user-items endpoint and `JellyfinClient` uses the official Jellyfin `GetItems` operation. QML keeps in-progress input local and synchronizes it to `AppViewModel` only on submission, avoiding C++ state notifications during IME composition.
+- Emby search excludes individual episodes and requests only movies, series,
+  and generic videos. The first page is limited to 36 lightweight result rows;
+  details are still fetched through the existing details flow.
 - Search results use their own paginated model, reuse the normal media poster and details flow, and retain the result list when returning from details.
 - Continue-watching clicks open the item details page. Direct playback from this section is intentionally not implemented yet.
-- Continue watching is rendered as a horizontal carousel with left / right scroll buttons and touchpad / mouse wheel scrolling.
+- Continue watching is rendered as a horizontal carousel with touchpad / mouse
+  wheel scrolling. Jellyfin retains explicit left / right controls; Emby omits
+  them in both layouts.
 - Continue-watching episode cards prefer the parent series primary image when the server returns `SeriesId` and `SeriesPrimaryImageTag`; otherwise they fall back to the item primary image.
 - Continue-watching cards expose title, parent series name, season / episode text and watched percentage through the C++ model and ViewModel formatting helpers.
 - Continue playback uses `UserData.PlaybackPositionTicks` to resume from the server-reported position.

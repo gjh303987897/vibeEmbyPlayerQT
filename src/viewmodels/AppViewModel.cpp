@@ -2892,6 +2892,10 @@ void AppViewModel::saveServiceCard()
 
 void AppViewModel::selectServiceCard(int row)
 {
+    if (m_loading) {
+        return;
+    }
+
     clearError();
     m_pendingHistoryReplay.reset();
     const auto card = m_services.cardAt(row);
@@ -2927,19 +2931,31 @@ void AppViewModel::selectServiceCard(int row)
         return;
     }
 
-    const auto sessionResult = m_repository.loadSession(card->server.id);
-    if (!sessionResult) {
-        setError(sessionResult.error());
-        return;
-    }
+    const auto selectedServerId = card->server.id;
+    setLoading(true);
+    QTimer::singleShot(0, this, [this, selectedServerId]() {
+        if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
+            || m_pendingServiceCard->server.id != selectedServerId) {
+            setLoading(false);
+            return;
+        }
 
-    if (!sessionResult->has_value()) {
-        emit passwordRequired(card->server.name, card->server.username);
-        return;
-    }
+        const auto sessionResult = m_repository.loadSession(selectedServerId);
+        setLoading(false);
+        if (!sessionResult) {
+            setError(sessionResult.error());
+            return;
+        }
 
-    setSession(**sessionResult);
-    loadServiceHome();
+        if (!sessionResult->has_value()) {
+            emit passwordRequired(m_pendingServiceCard->server.name,
+                                  m_pendingServiceCard->server.username);
+            return;
+        }
+
+        setSession(**sessionResult);
+        loadServiceHome();
+    });
 }
 
 void AppViewModel::editServiceCard(int row)
@@ -4943,6 +4959,7 @@ void AppViewModel::deleteServiceCard(int row, bool deleteLocalData)
 void AppViewModel::logout()
 {
     AppLogger::info(QStringLiteral("auth"), QStringLiteral("Logout requested"));
+    setLoading(false);
     m_session.reset();
     m_pendingServiceCard.reset();
     clearIptvState();
@@ -4969,6 +4986,7 @@ void AppViewModel::logout()
 
 void AppViewModel::backToServices()
 {
+    setLoading(false);
     m_session.reset();
     m_pendingServiceCard.reset();
     clearIptvState();
@@ -5400,13 +5418,17 @@ void AppViewModel::refreshLibraries()
     m_items.clear();
     emit currentLibraryChanged();
 
+    const auto serverId = m_session->server.id;
     auto* client = clientFor(m_session->server.serviceType);
     beginHomeLoading();
     setLoading(true);
     AppLogger::info(QStringLiteral("library"),
                     QStringLiteral("Fetching libraries from %1").arg(QUrl(m_session->server.baseUrl).host()));
-    client->fetchLibraries(*m_session, [this](LibraryResult result) {
+    client->fetchLibraries(*m_session, [this, serverId](LibraryResult result) {
         endHomeLoading();
+        if (!m_session || m_session->server.id != serverId) {
+            return;
+        }
         setLoading(false);
         if (!result) {
             AppLogger::warning(QStringLiteral("library"), QStringLiteral("Fetch libraries failed: %1").arg(displayNetworkError(result.error())));
@@ -5472,11 +5494,15 @@ void AppViewModel::refreshContinueWatching()
         return;
     }
 
+    const auto serverId = m_session->server.id;
     auto* client = clientFor(m_session->server.serviceType);
     beginHomeLoading();
     AppLogger::info(QStringLiteral("continue"), QStringLiteral("Fetching resume items from %1").arg(QUrl(m_session->server.baseUrl).host()));
-    client->fetchContinueWatching(*m_session, 24, [this](ItemResult result) {
+    client->fetchContinueWatching(*m_session, 24, [this, serverId](ItemResult result) {
         endHomeLoading();
+        if (!m_session || m_session->server.id != serverId) {
+            return;
+        }
         if (!result) {
             AppLogger::warning(QStringLiteral("continue"), QStringLiteral("Fetch resume items failed: %1").arg(displayNetworkError(result.error())));
             setError(displayNetworkError(result.error()));
@@ -6755,10 +6781,18 @@ void AppViewModel::loadServiceHome()
     emit currentServerChanged();
     emit currentLibraryChanged();
     emit selectedItemChanged();
+    const auto serverId = m_session->server.id;
+    beginHomeLoading();
     setCurrentView(QStringLiteral("home"));
-    refreshRecommendations();
-    refreshContinueWatching();
-    refreshLibraries();
+    QTimer::singleShot(0, this, [this, serverId]() {
+        if (!m_session || m_session->server.id != serverId
+            || m_currentView != QStringLiteral("home")) {
+            endHomeLoading();
+            return;
+        }
+        refreshHome();
+        endHomeLoading();
+    });
 }
 
 void AppViewModel::loadIptvService(const ServiceCard& card)

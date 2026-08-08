@@ -110,13 +110,17 @@ Jellyfin 搜索使用官方 `GetItems` 操作：
 
 Jellyfin official reference: `https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json`, operation `GetItems`
 
-Shared behavior:
+Service behavior:
 
-- `IncludeItemTypes` / `includeItemTypes` 当前为 `Movie,Series,Episode,Video`，用于覆盖电影、剧集、单集和普通视频。
+- Emby uses `IncludeItemTypes=Movie,Series,Video`, so search results contain
+  movies, series, and generic videos without individual episodes.
+- Emby requests only `PrimaryImageAspectRatio` as an additional field, limits
+  image metadata to one primary image, and loads 36 rows per page.
+- Jellyfin currently retains `includeItemTypes=Movie,Series,Episode,Video`.
 - 两种请求都不传 `ParentId` / `parentId`，因此搜索范围是当前用户可访问的服务器根目录，而不是当前打开的媒体库。
 - 搜索结果使用独立的 `MediaItemListModel`，不会覆盖媒体库分页和目录导航状态。
 - 新关键词提交时使用请求代数使旧响应失效；详情页返回时恢复原搜索结果和滚动上下文。
-- QML 只展示共用搜索栏和结果状态；服务类型对应的路径、参数命名和鉴权方案由 C++ 客户端负责。
+- QML 在输入期间保留本地草稿，只在提交时同步到 ViewModel，避免中文输入法组合文本触发跨层状态更新；服务类型对应的路径、参数命名和鉴权方案由 C++ 客户端负责。
 
 ## Continue Watching
 

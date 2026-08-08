@@ -775,7 +775,7 @@ private:
     QString m_activeServerSearchTerm;
     bool m_serverSearchLoading { false };
     int m_serverSearchNextStartIndex { 0 };
-    int m_serverSearchPageSize { 60 };
+    int m_serverSearchPageSize { 36 };
     bool m_serverSearchHasMore { false };
     int m_serverSearchRequestGeneration { 0 };
     bool m_detailsReturnToSearch { false };
