@@ -7043,7 +7043,7 @@ ApplicationWindow {
         property Item trackMenuAnchorItem: null
         property real trackMenuAnchorGlobalX: -1
         property real trackMenuAnchorGlobalY: -1
-        property var playbackSpeedOptions: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+        property var playbackSpeedOptions: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
         focus: true
 
         function formatTime(seconds) {
@@ -8358,10 +8358,11 @@ ApplicationWindow {
                 var subtitleMenu = playerPage.trackMenuMode === "subtitle"
                 var panelWidth = Math.min(speedMenu ? 352 : 380,
                     Math.max(300, playerPage.width - 48))
+                var speedRowCount = Math.max(1, Math.ceil(playerPage.playbackSpeedOptions.length / 3))
                 var rowCount = subtitleMenu
                     ? Math.max(1, mpvVideo.subtitleTracks.count + 1)
                     : Math.max(1, mpvVideo.audioTracks.count)
-                var panelHeight = speedMenu ? 232
+                var panelHeight = speedMenu ? 96 + speedRowCount * 68
                     : subtitleMenu ? Math.min(420, 154 + rowCount * 48)
                     : Math.min(390, 104 + rowCount * 48)
                 var margin = 20

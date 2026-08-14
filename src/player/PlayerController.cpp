@@ -633,7 +633,7 @@ void PlayerController::setSpeed(double speed)
     if (!m_mpv) {
         return;
     }
-    auto value = std::clamp(speed, 0.25, 4.0);
+    auto value = std::clamp(speed, 0.5, 5.0);
     mpv_set_property(m_mpv, "speed", MPV_FORMAT_DOUBLE, &value);
 }
 
