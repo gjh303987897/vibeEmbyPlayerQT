@@ -477,7 +477,9 @@ ApplicationWindow {
 
                             MutedText {
                                 Layout.fillWidth: true
-                                text: model.serviceType + " 路 " + (model.host.length > 0 ? model.host : model.baseUrl)
+                                text: model.serviceType === "IPTV"
+                                    ? model.serviceType
+                                    : model.serviceType + " 路 " + (model.host.length > 0 ? model.host : model.baseUrl)
                                 elide: Text.ElideRight
                             }
                         }
@@ -1680,7 +1682,9 @@ ApplicationWindow {
                                     serviceName: model.name
                                     serviceType: model.serviceType
                                     username: model.username
-                                    host: model.host.length > 0 ? model.host : model.baseUrl
+                                    host: model.serviceType === "IPTV"
+                                        ? ""
+                                        : (model.host.length > 0 ? model.host : model.baseUrl)
                                     autoLogin: model.autoLogin
                                     hasSession: model.hasSession
                                     privateMode: model.privateMode
@@ -4443,6 +4447,7 @@ ApplicationWindow {
                     }
 
                     MutedText {
+                        visible: host.length > 0
                         Layout.fillWidth: true
                         text: host
                         color: theme.subtle

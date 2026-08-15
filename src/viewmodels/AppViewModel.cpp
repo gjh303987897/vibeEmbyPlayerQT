@@ -2,6 +2,7 @@
 
 #include "services/credentials/CredentialStore.h"
 #include "services/iptv/IptvParser.h"
+#include "services/iptv/IptvPlaylistStore.h"
 #include "services/link/LinkPlaybackService.h"
 #include "services/scheduler/ScheduledPlaybackSchedule.h"
 #include "utils/AppLogger.h"
@@ -132,23 +133,6 @@ QString localMediaRootIdFor(const QString& path)
 QString iptvPlaylistIdFor(const QString& serviceId)
 {
     return QStringLiteral("iptv-playlist-%1").arg(serviceId);
-}
-
-QString iptvImportDirectory()
-{
-    const auto directory = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("iptv"));
-    QDir().mkpath(directory);
-    return directory;
-}
-
-QString safeFileName(QString value)
-{
-    value = value.trimmed();
-    if (value.isEmpty()) {
-        value = QStringLiteral("playlist");
-    }
-    value.replace(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|]+)")), QStringLiteral("_"));
-    return value.left(80);
 }
 
 QString defaultIptvGroup()
@@ -2815,13 +2799,18 @@ void AppViewModel::saveServiceCard()
             return;
         }
 
-        if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id) {
+        auto storedServer = server;
+        storedServer.baseUrl = playlistResult->importedPath;
+        if (m_pendingServiceCard && m_pendingServiceCard->server.id != storedServer.id) {
             m_repository.deleteServer(m_pendingServiceCard->server.id, false);
         }
-        if (auto saveResult = m_repository.saveIptvPlaylist(server, *playlistResult, channels); !saveResult) {
+        if (auto saveResult = m_repository.saveIptvPlaylist(storedServer, *playlistResult, channels); !saveResult) {
             setError(saveResult.error());
             return;
         }
+
+        AppLogger::info(QStringLiteral("iptv"),
+                        QStringLiteral("Imported IPTV playlist into managed application storage"));
 
         m_pendingServiceCard.reset();
         setIptvFilePath(QString {});
@@ -6528,8 +6517,12 @@ ServerConfig AppViewModel::makeServerConfig() const
         const auto name = m_serverName.trimmed().isEmpty()
             ? (fileInfo.completeBaseName().isEmpty() ? QStringLiteral("IPTV") : fileInfo.completeBaseName())
             : m_serverName.trimmed();
+        const auto serviceId = m_pendingServiceCard
+                && m_pendingServiceCard->server.serviceType == ServiceType::IPTV
+            ? m_pendingServiceCard->server.id
+            : iptvServiceIdFor(sourcePath);
         return ServerConfig {
-            .id = iptvServiceIdFor(sourcePath),
+            .id = serviceId,
             .name = name,
             .baseUrl = sourcePath,
             .username = QStringLiteral(""),
@@ -6904,26 +6897,17 @@ std::expected<IptvPlaylist, QString> AppViewModel::importIptvPlaylistFile(const 
         return std::unexpected(QStringLiteral("Selected IPTV playlist file does not exist"));
     }
 
-    const auto extension = sourceInfo.suffix().toLower();
-    if (extension != QStringLiteral("m3u") && extension != QStringLiteral("m3u8")) {
-        return std::unexpected(QStringLiteral("Select an M3U or M3U8 playlist file"));
-    }
-
     const auto playlistId = iptvPlaylistIdFor(server.id);
-    const auto targetName = QStringLiteral("%1.%2").arg(safeFileName(server.id), extension);
-    const auto targetPath = QDir(iptvImportDirectory()).filePath(targetName);
-
-    if (QFileInfo(targetPath).exists() && !QFile::remove(targetPath)) {
-        return std::unexpected(QStringLiteral("Unable to replace previous IPTV playlist copy"));
-    }
-    if (!QFile::copy(sourceInfo.absoluteFilePath(), targetPath)) {
-        return std::unexpected(QStringLiteral("Unable to import IPTV playlist file"));
+    const auto targetPath = IptvPlaylistStore::importFile(sourceInfo.absoluteFilePath(), server.id);
+    if (!targetPath) {
+        AppLogger::warning(QStringLiteral("iptv"), targetPath.error());
+        return std::unexpected(targetPath.error());
     }
 
     for (auto& channel : channels) {
         channel.playlistId = playlistId;
         if (channel.streamUrl == QUrl::fromLocalFile(sourceInfo.absoluteFilePath()).toString()) {
-            channel.streamUrl = QUrl::fromLocalFile(targetPath).toString();
+            channel.streamUrl = QUrl::fromLocalFile(*targetPath).toString();
         }
     }
 
@@ -6933,7 +6917,7 @@ std::expected<IptvPlaylist, QString> AppViewModel::importIptvPlaylistFile(const 
         .name = server.name,
         .sourceType = QStringLiteral("LocalFile"),
         .sourcePath = sourceInfo.absoluteFilePath(),
-        .importedPath = targetPath,
+        .importedPath = *targetPath,
         .importedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate),
     };
 }

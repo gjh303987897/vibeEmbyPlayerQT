@@ -879,10 +879,13 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceC
 
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-            "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, "
+            "SELECT s.id, s.name, "
+            "CASE WHEN s.service_type = 'IPTV' AND p.imported_path <> '' THEN p.imported_path ELSE s.base_url END, "
+            "s.username, s.service_type, s.trust_self_signed, "
             "s.auto_login, s.last_used_at, s.private_mode, sess.access_token "
             "FROM servers s "
             "LEFT JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
+            "LEFT JOIN iptv_playlists p ON p.service_id = s.id "
             "WHERE s.enabled = 1 AND (:include_private = 1 OR s.private_mode = 0) "
             "ORDER BY s.sort_order ASC, s.last_used_at DESC"));
     query.bindValue(QStringLiteral(":include_private"), privacyMode ? 1 : 0);
@@ -920,10 +923,13 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadAllServi
 
     QSqlQuery query(m_database);
     if (!query.exec(QStringLiteral(
-            "SELECT s.id, s.name, s.base_url, s.username, s.service_type, s.trust_self_signed, "
+            "SELECT s.id, s.name, "
+            "CASE WHEN s.service_type = 'IPTV' AND p.imported_path <> '' THEN p.imported_path ELSE s.base_url END, "
+            "s.username, s.service_type, s.trust_self_signed, "
             "s.auto_login, s.last_used_at, s.private_mode, sess.access_token "
             "FROM servers s "
             "LEFT JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
+            "LEFT JOIN iptv_playlists p ON p.service_id = s.id "
             "WHERE s.enabled = 1 "
             "ORDER BY s.sort_order ASC, s.last_used_at DESC"))) {
         return std::unexpected(sqlError(query));

@@ -15,6 +15,7 @@ private slots:
     void keepsSameTargetFromDifferentServices();
     void migratesExistingLinkHistory();
     void deduplicatesExistingGlobalHistory();
+    void usesManagedPathForIptvServiceCards();
 };
 
 namespace {
@@ -154,6 +155,49 @@ void PlaybackHistoryTest::keepsSameTargetFromDifferentServices()
     QCOMPARE(loaded->size(), size_t { 2 });
     QCOMPARE(loaded->at(0).id, QStringLiteral("second-service"));
     QCOMPARE(loaded->at(1).id, QStringLiteral("first-service"));
+}
+
+void PlaybackHistoryTest::usesManagedPathForIptvServiceCards()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    SessionRepository repository(uniqueConnectionName(), directory.filePath(QStringLiteral("history.sqlite3")));
+    QVERIFY(repository.initialize().has_value());
+
+    ServerConfig server {
+        .id = QStringLiteral("iptv-service"),
+        .name = QStringLiteral("Managed IPTV"),
+        .baseUrl = QStringLiteral("D:/external/channels.m3u8"),
+        .serviceType = ServiceType::IPTV,
+    };
+    const auto managedPath = directory.filePath(QStringLiteral("app-data/iptv/channels.m3u8"));
+    IptvPlaylist playlist {
+        .id = QStringLiteral("iptv-playlist-iptv-service"),
+        .serviceId = server.id,
+        .name = server.name,
+        .sourceType = QStringLiteral("LocalFile"),
+        .sourcePath = server.baseUrl,
+        .importedPath = managedPath,
+        .importedAt = QStringLiteral("2026-08-16T00:00:00Z"),
+    };
+    IptvChannel channel {
+        .id = QStringLiteral("channel-one"),
+        .playlistId = playlist.id,
+        .name = QStringLiteral("Channel One"),
+        .groupName = QStringLiteral("Default"),
+        .logoUrl = QStringLiteral(""),
+        .streamUrl = QStringLiteral("https://example.com/live.m3u8"),
+    };
+
+    const auto saveResult = repository.saveIptvPlaylist(server, playlist, { channel });
+    if (!saveResult) {
+        QFAIL(qPrintable(saveResult.error()));
+    }
+    const auto cards = repository.loadAllServiceCards();
+    QVERIFY(cards.has_value());
+    QCOMPARE(cards->size(), size_t { 1 });
+    QCOMPARE(cards->front().server.baseUrl, managedPath);
 }
 
 void PlaybackHistoryTest::migratesExistingLinkHistory()

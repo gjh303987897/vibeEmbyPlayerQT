@@ -10,6 +10,7 @@ IPTV 模块为桌面播放器提供本地 M3U/M3U8 播放列表导入、频道�
 - `src/models/IptvChannel.h`：IPTV 频道模型。
 - `src/services/iptv/IptvParser.h`
 - `src/services/iptv/IptvParser.cpp`：M3U/M3U8 解析器。
+- `src/services/iptv/IptvPlaylistStore.*`：应用私有目录中的播放列表受管副本。
 - `src/viewmodels/IptvChannelListModel.h`
 - `src/viewmodels/IptvChannelListModel.cpp`：暴露给 QML 的频道列表模型。
 - `src/database/SessionRepository.*`：持久化 IPTV 播放列表与频道。
@@ -46,6 +47,17 @@ IPTV 模块为桌面播放器提供本地 M3U/M3U8 播放列表导入、频道�
 - 没有分组时使用 `Default`。
 - 如果文件是 HLS 清单，生成一个单频道，播放地址指向导入后的本地副本。
 - 字符编码优先 UTF-8，失败后回退 GB18030、GBK 和系统编码。
+
+## 本地文件生命周期
+
+- 用户选择 `.m3u` 或 `.m3u8` 后，文件通过 `QSaveFile` 原子复制到
+  `QStandardPaths::AppDataLocation/iptv`，服务卡和 HLS 单频道播放地址均使用该受管副本。
+- 导入完成后不再依赖用户选择的外部目录；外部原文件可以移动或删除。
+- 编辑既有 IPTV 服务时保持服务 ID，不会因路径切换到应用目录而创建重复服务。
+- 重新选择播放列表会安全覆盖受管副本；直接编辑后保存同一个受管文件也不会先删除源文件。
+- 旧版本创建的服务在加载时优先采用 `imported_path`，无需重新导入即可脱离外部路径。
+- 用户选择删除本地数据时，数据库记录和对应受管副本一并删除；仅隐藏服务时保留副本。
+- IPTV 服务卡不显示文件副标题；隐私服务列表仅显示服务类型，不展示“本地文件”或应用私有目录路径。
 
 ## 架构边界
 
