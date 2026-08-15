@@ -1140,6 +1140,8 @@ ApplicationWindow {
 
             IconButton {
                 id: headerBackButton
+                readonly property color accentColor: theme.primary
+                readonly property color surfaceColor: theme.elevated
                 text: "\u2190"
                 visible: appViewModel.currentView !== "services"
                 implicitWidth: 42
@@ -1150,18 +1152,32 @@ ApplicationWindow {
                 ToolTip.visible: hovered
                 ToolTip.text: t("action.back")
 
+                contentItem: Label {
+                    text: headerBackButton.text
+                    color: !headerBackButton.enabled ? theme.subtle
+                        : darkTheme && !headerBackButton.hovered && !headerBackButton.activeFocus
+                            ? theme.text : theme.primary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font: headerBackButton.font
+                }
+
                 Behavior on scale {
                     NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
                 }
 
                 background: Rectangle {
                     radius: 10
-                    color: headerBackButton.down ? root.withAlpha(theme.primary, 0.28)
-                        : headerBackButton.hovered ? root.withAlpha(theme.primary, 0.14)
-                        : root.withAlpha(theme.elevated, darkTheme ? 0.74 : 0.92)
+                    color: darkTheme
+                        ? (headerBackButton.down ? root.withAlpha(headerBackButton.accentColor, 0.28)
+                            : headerBackButton.hovered ? root.withAlpha(headerBackButton.accentColor, 0.14)
+                            : root.withAlpha(headerBackButton.surfaceColor, 0.74))
+                        : headerBackButton.down ? "#e8f2ff"
+                        : headerBackButton.hovered ? theme.elevatedHover
+                        : theme.elevated
                     border.width: headerBackButton.activeFocus ? 2 : 1
                     border.color: headerBackButton.activeFocus || headerBackButton.hovered
-                        ? root.withAlpha(theme.primary, 0.78) : theme.border
+                        ? root.withAlpha(headerBackButton.accentColor, 0.78) : theme.border
                 }
 
                 onClicked: {

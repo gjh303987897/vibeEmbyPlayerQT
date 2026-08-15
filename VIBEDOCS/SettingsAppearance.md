@@ -18,9 +18,16 @@ Settings are exposed through `AppViewModel` and persisted by `SessionRepository`
 
 QML owns only layout and user interaction. It must not write `QSettings` directly.
 
-The settings page uses the shared header's left-side back control to return to
-the service selector. Its duplicate right-side Services action is hidden while
-settings are active, leaving one predictable navigation exit.
+Settings, Local Playback, Link Playback, Global History, and the M3U8S manager
+use the same shared header back control. The settings page hides its duplicate
+right-side Services action, leaving one predictable navigation exit. The shared
+control owns its foreground-state colors so the arrow retains sufficient
+contrast against the translucent pressed background in both themes. Its
+light-theme arrow uses the primary accent instead of the normal black text
+color, while the button keeps a white surface with only subtle hover and
+pressed tints. Theme strings are converted to typed QML colors before alpha
+adjustments, preventing focused navigation buttons from rendering a black
+border.
 
 ## Media Server Home Layout
 
