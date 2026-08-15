@@ -42,6 +42,11 @@ For each playback request, `PlayerController::playUrl()` updates the runtime `op
 
 Both foreground media playback and scheduled headless Emby playback pass the saved server certificate policy to `PlayerController`.
 
+Qt network requests use the same saved policy. When it is enabled, the reply ignores
+the concrete SSL errors delivered by Qt without opening a blocking confirmation loop.
+The setting is persistent per server and the UI labels it as allowing self-signed
+certificates; no request-scoped certificate callback is retained by the ViewModel.
+
 ## Failure Handling
 
 Failure to export or configure the bundle is logged without exposing the playback URL. Player initialization continues so local files and non-TLS sources remain usable, while subsequent libmpv diagnostics identify any HTTPS certificate failure.

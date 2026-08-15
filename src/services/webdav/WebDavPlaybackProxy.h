@@ -5,7 +5,6 @@
 #include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
-#include <QSslError>
 #include <QTcpServer>
 #include <QUrl>
 
@@ -24,7 +23,6 @@ public:
     void revoke(const QString& streamId);
 
 signals:
-    void certificateConfirmationRequired(const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply);
     void networkTrafficSample(const QString& serviceId,
                               const QString& serviceName,
                               const QString& serviceType,

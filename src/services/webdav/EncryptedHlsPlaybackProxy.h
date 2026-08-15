@@ -7,7 +7,6 @@
 #include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
-#include <QSslError>
 #include <QTcpServer>
 #include <QUrl>
 
@@ -73,7 +72,8 @@ private:
                         const QString& password,
                         const QUrl& rootManifestUrl,
                         std::function<void(std::expected<ResolvedPackage, QString>)> callback);
-    std::expected<ResolvedPackage, QString> resolvePackageBytes(QByteArray manifest) const;
+    static std::expected<ResolvedPackage, QString> resolvePackageBytes(QByteArray manifest,
+                                                                       const TsslStore& store);
     void finishPreparingStream(ResolvedPackage resolved,
                                Session session,
                                QString fallbackDisplayName,

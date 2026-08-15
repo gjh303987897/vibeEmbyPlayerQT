@@ -11,7 +11,6 @@
 #include <QObject>
 #include <QPointer>
 #include <QQueue>
-#include <QSslError>
 #include <QUrl>
 
 #include <functional>
@@ -82,7 +81,6 @@ signals:
     void tasksChanged();
     void selectionChanged();
     void taskFinished(const QString& taskId, bool ok, const QString& message);
-    void certificateConfirmationRequired(const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply);
     void networkTrafficSample(const QString& serviceId,
                               const QString& serviceName,
                               const QString& serviceType,

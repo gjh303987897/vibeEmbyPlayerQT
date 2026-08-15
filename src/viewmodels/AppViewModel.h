@@ -529,7 +529,6 @@ public:
     Q_INVOKABLE void closePlayerToDetails();
     Q_INVOKABLE void loadMoreItems();
     Q_INVOKABLE void clearError();
-    Q_INVOKABLE void acceptPendingCertificate(bool accepted);
 
     void openLocalPlaybackForVerification(const QUrl& url);
 
@@ -594,7 +593,6 @@ signals:
     void scheduledPlaybackStatusChanged();
     void missedScheduledPlaybackTasksChanged();
     void scheduledTaskEditorChanged();
-    void certificatePromptRequested(const QString& host, const QString& details);
     void passwordRequired(const QString& serviceName, const QString& username);
     void downloadSpaceWarningRequested(const QString& title, const QString& message);
 
@@ -674,7 +672,6 @@ private:
     QUrl childWebDavUrl(const QString& name, bool directory) const;
     QString uniqueLocalPath(const QString& directory, const QString& name) const;
     void enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl);
-    void wireWebDavCertificatePrompt();
     void wireUsageSignals();
     bool accumulateUsage(const ServerConfig& server,
                          bool privacyMode,
@@ -735,7 +732,6 @@ private:
     void setWebDavTsslStatus(QString message);
     void setSession(UserSession session);
     void saveSession();
-    void wireCertificatePrompt(MediaServiceClient& client);
     bool verifyPrivacyPin(const QString& pin) const;
     QString privacyPinHash(const QString& pin, const QString& salt) const;
     bool pinLooksValid(const QString& pin) const;
@@ -902,7 +898,6 @@ private:
     QTimer m_usageFlushTimer;
     std::vector<IptvChannel> m_allIptvChannels;
     PersonListModel m_selectedPeople;
-    std::function<void(bool)> m_pendingCertificateReply;
     std::function<void(bool)> m_pendingDownloadWarningReply;
     std::function<void()> m_pendingFolderDownload;
 };

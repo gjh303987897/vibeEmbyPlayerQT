@@ -453,9 +453,6 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("action.rewind15"), QStringLiteral("-15s") },
         { QStringLiteral("action.previous"), QStringLiteral("Previous") },
         { QStringLiteral("action.next"), QStringLiteral("Next") },
-        { QStringLiteral("dialog.certificateTitle"), QStringLiteral("Certificate confirmation") },
-        { QStringLiteral("dialog.certificatePrefix"), QStringLiteral("The server certificate for ") },
-        { QStringLiteral("dialog.certificateSuffix"), QStringLiteral(" cannot be verified. Continue for this request?") },
         { QStringLiteral("dialog.passwordTitle"), QStringLiteral("Password required") },
         { QStringLiteral("dialog.serviceTitle"), QStringLiteral("Service") },
         { QStringLiteral("dialog.deleteTitle"), QStringLiteral("Delete service") },
@@ -470,7 +467,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("form.username"), QStringLiteral("Username") },
         { QStringLiteral("form.password"), QStringLiteral("Password") },
         { QStringLiteral("form.autoLogin"), QStringLiteral("Auto login") },
-        { QStringLiteral("form.selfSigned"), QStringLiteral("Allow self-signed certificate prompt") },
+        { QStringLiteral("form.selfSigned"), QStringLiteral("Allow self-signed certificates") },
         { QStringLiteral("iptv.selectFile"), QStringLiteral("Select IPTV playlist") },
         { QStringLiteral("iptv.filePlaceholder"), QStringLiteral("M3U or M3U8 playlist file") },
         { QStringLiteral("iptv.chooseFile"), QStringLiteral("Choose file") },
@@ -906,9 +903,6 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("action.rewind15"), QStringLiteral("-15 秒") },
         { QStringLiteral("action.previous"), QStringLiteral("上一首") },
         { QStringLiteral("action.next"), QStringLiteral("下一首") },
-        { QStringLiteral("dialog.certificateTitle"), QStringLiteral("证书确认") },
-        { QStringLiteral("dialog.certificatePrefix"), QStringLiteral("服务器 ") },
-        { QStringLiteral("dialog.certificateSuffix"), QStringLiteral(" 的证书无法验证。是否继续本次请求？") },
         { QStringLiteral("dialog.passwordTitle"), QStringLiteral("需要密码") },
         { QStringLiteral("dialog.serviceTitle"), QStringLiteral("服务") },
         { QStringLiteral("dialog.deleteTitle"), QStringLiteral("删除服务") },
@@ -921,7 +915,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("form.username"), QStringLiteral("用户名") },
         { QStringLiteral("form.password"), QStringLiteral("密码") },
         { QStringLiteral("form.autoLogin"), QStringLiteral("自动登录") },
-        { QStringLiteral("form.selfSigned"), QStringLiteral("允许自签名证书确认") },
+        { QStringLiteral("form.selfSigned"), QStringLiteral("允许自签名证书") },
         { QStringLiteral("status.autoLogin"), QStringLiteral("自动登录") },
         { QStringLiteral("status.passwordRequired"), QStringLiteral("需要密码") },
         { QStringLiteral("status.ready"), QStringLiteral("可用") },
@@ -1383,9 +1377,6 @@ AppViewModel::AppViewModel(QObject* parent)
     , m_m3u8sPackager(m_tsslStore, this)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
-    wireCertificatePrompt(m_embyClient);
-    wireCertificatePrompt(m_jellyfinClient);
-    wireWebDavCertificatePrompt();
     wireUsageSignals();
     m_usageFlushTimer.setInterval(usageFlushIntervalMs);
     m_usageFlushTimer.setSingleShot(false);
@@ -6481,15 +6472,6 @@ void AppViewModel::clearError()
     emit errorMessageChanged();
 }
 
-void AppViewModel::acceptPendingCertificate(bool accepted)
-{
-    if (m_pendingCertificateReply) {
-        auto reply = std::move(m_pendingCertificateReply);
-        m_pendingCertificateReply = {};
-        reply(accepted);
-    }
-}
-
 void AppViewModel::openLocalPlaybackForVerification(const QUrl& url)
 {
     if (url.isEmpty()) {
@@ -7103,43 +7085,6 @@ void AppViewModel::enqueueWebDavUploadFile(const QString& localPath, const QUrl&
                                     info.size());
 }
 
-void AppViewModel::wireWebDavCertificatePrompt()
-{
-    connect(&m_webDavClient,
-            &WebDavClient::certificateConfirmationRequired,
-            this,
-            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
-                QStringList details;
-                for (const auto& error : errors) {
-                    details.push_back(error.errorString());
-                }
-                m_pendingCertificateReply = std::move(reply);
-                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
-            });
-    connect(&m_transferManager,
-            &TransferManager::certificateConfirmationRequired,
-            this,
-            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
-                QStringList details;
-                for (const auto& error : errors) {
-                    details.push_back(error.errorString());
-                }
-                m_pendingCertificateReply = std::move(reply);
-                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
-            });
-    connect(&m_webDavPlaybackProxy,
-            &WebDavPlaybackProxy::certificateConfirmationRequired,
-            this,
-            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
-                QStringList details;
-                for (const auto& error : errors) {
-                    details.push_back(error.errorString());
-                }
-                m_pendingCertificateReply = std::move(reply);
-                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
-            });
-}
-
 void AppViewModel::wireUsageSignals()
 {
     connect(&m_scheduledPlaybackManager,
@@ -7609,19 +7554,4 @@ QString AppViewModel::privacyPinHash(const QString& pin, const QString& salt) co
 bool AppViewModel::pinLooksValid(const QString& pin) const
 {
     return validPinText(pin);
-}
-
-void AppViewModel::wireCertificatePrompt(MediaServiceClient& client)
-{
-    connect(&client,
-            &MediaServiceClient::certificateConfirmationRequired,
-            this,
-            [this](const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply) {
-                QStringList details;
-                for (const auto& error : errors) {
-                    details.push_back(error.errorString());
-                }
-                m_pendingCertificateReply = std::move(reply);
-                emit certificatePromptRequested(host, details.join(QLatin1Char('\n')));
-            });
 }

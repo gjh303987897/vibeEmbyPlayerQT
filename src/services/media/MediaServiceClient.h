@@ -7,8 +7,6 @@
 #include "network/NetworkError.h"
 
 #include <QObject>
-#include <QList>
-#include <QSslError>
 
 #include <expected>
 #include <functional>
@@ -89,6 +87,4 @@ public:
     virtual void reportPlaybackProgress(const UserSession& session, const PlaybackReport& report) = 0;
     virtual void reportPlaybackStopped(const UserSession& session, const PlaybackReport& report) = 0;
 
-signals:
-    void certificateConfirmationRequired(const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply);
 };

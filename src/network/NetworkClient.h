@@ -5,10 +5,8 @@
 #include <QByteArray>
 #include <QHash>
 #include <QJsonObject>
-#include <QList>
 #include <QNetworkAccessManager>
 #include <QObject>
-#include <QSslError>
 #include <QUrl>
 
 #include <expected>
@@ -33,7 +31,6 @@ public:
     void postJson(const QUrl& url, const QHash<QByteArray, QByteArray>& headers, const QJsonObject& body, bool allowSelfSigned, NetworkCallback callback);
 
 signals:
-    void certificateConfirmationRequired(const QString& host, const QList<QSslError>& errors, std::function<void(bool)> reply);
     void networkTrafficSample(qint64 bytesReceived, qint64 bytesSent);
 
 private:

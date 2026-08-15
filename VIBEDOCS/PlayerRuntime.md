@@ -63,6 +63,10 @@ QML owns only the page layout and buttons. It does not call libmpv directly.
 - speed, clamped to the supported `0.5x-5.0x` range before it is sent to
   libmpv; the player page offers `0.5x`, `0.75x`, `1x`, `1.25x`, `1.5x`,
   `2x`, `2.5x`, `3x`, `4x`, and `5x` presets
+- finite-number validation for seek, speed, position, duration, volume, and observed
+  speed values before they cross the C++/libmpv/QML boundary
+- pause toggling through libmpv's atomic `cycle pause` command instead of a cached
+  pause-state read
 - playback property observation through `mpv_observe_property`
 - subtitle and audio track parsing from `track-list`
 - audio tag parsing from the libmpv `metadata` node map, with stale values cleared before each replacement load
@@ -222,6 +226,12 @@ Reference contracts:
 - mpv track selection and `track-list`: <https://mpv.io/manual/master/>
 
 For HTTPS playback, `PlayerController` configures libmpv with the PEM bundle produced by `TlsCertificateStore`. The bundle mirrors the operating-system trusted CA certificates exposed by Qt, allowing libmpv's FFmpeg/OpenSSL backend to validate the same public certificate authorities used by the application network layer. TLS verification remains enabled by default. A server saved with the explicit self-signed-certificate trust option disables verification only for that server's foreground or scheduled playback request.
+
+WebDAV Basic authentication is supplied through libmpv's supported runtime
+`options/http-header-fields` property as an `Authorization: Basic ...` header. The
+property is explicitly set or cleared before every load. A failure to update either
+the authentication header or TLS policy aborts the load, preventing stale credentials
+or a stale insecure TLS mode from carrying into a different server.
 
 During playback, `AppViewModel` reports:
 

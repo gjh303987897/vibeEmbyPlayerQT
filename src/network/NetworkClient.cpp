@@ -1,6 +1,7 @@
 #include "network/NetworkClient.h"
 
-#include <QEventLoop>
+#include "utils/AppLogger.h"
+
 #include <QJsonDocument>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -104,23 +105,15 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
     });
     timeout->start(requestTimeoutMs);
 
-    QObject::connect(reply, &QNetworkReply::sslErrors, reply, [this, reply, allowSelfSigned](const QList<QSslError>& errors) {
+    QObject::connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned](const QList<QSslError>& errors) {
         if (!allowSelfSigned) {
             return;
         }
 
-        bool accepted = false;
-        QEventLoop loop;
-        const auto host = reply->url().host();
-        emit certificateConfirmationRequired(host, errors, [&loop, &accepted](bool userAccepted) {
-            accepted = userAccepted;
-            loop.quit();
-        });
-        loop.exec();
-
-        if (accepted) {
-            reply->ignoreSslErrors();
-        }
+        AppLogger::warning(QStringLiteral("network"),
+                           QStringLiteral("Ignoring TLS certificate errors for explicitly trusted server %1")
+                               .arg(reply->url().host()));
+        reply->ignoreSslErrors(errors);
     });
 
     QObject::connect(reply, &QNetworkReply::finished, reply, [this, reply, callback = std::move(callback)]() mutable {

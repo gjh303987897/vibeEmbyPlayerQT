@@ -484,26 +484,33 @@ void PlayerController::playUrl(const QString& url,
                            QStringLiteral("Unable to reset libmpv subtitle selection: %1")
                                .arg(QString::fromUtf8(mpv_error_string(subtitleResetResult))));
     }
+    QByteArray authorizationHeader;
     if (!httpUsername.isEmpty()) {
-        const auto username = httpUsername.toUtf8();
-        mpv_set_option_string(m_mpv, "http-header-fields", "");
-        mpv_set_option_string(m_mpv, "http-user", username.constData());
-    } else {
-        mpv_set_option_string(m_mpv, "http-user", "");
+        auto credentials = httpUsername.toUtf8();
+        credentials += ':';
+        credentials += httpPassword.toUtf8();
+        authorizationHeader = QByteArrayLiteral("Authorization: Basic ") + credentials.toBase64();
+        credentials.fill('\0');
     }
-    if (!httpPassword.isEmpty()) {
-        const auto password = httpPassword.toUtf8();
-        mpv_set_option_string(m_mpv, "http-password", password.constData());
-    } else {
-        mpv_set_option_string(m_mpv, "http-password", "");
+    const auto authHeaderResult = mpv_set_property_string(m_mpv,
+                                                          "options/http-header-fields",
+                                                          authorizationHeader.constData());
+    authorizationHeader.fill('\0');
+    if (authHeaderResult < 0) {
+        AppLogger::warning(QStringLiteral("player"),
+                           QStringLiteral("Unable to update libmpv HTTP authentication headers: %1")
+                               .arg(QString::fromUtf8(mpv_error_string(authHeaderResult))));
+        emit errorOccurred(QStringLiteral("Unable to configure playback HTTP authentication"));
+        return;
     }
-    const auto tlsVerifyResult = mpv_set_property_string(m_mpv,
-                                                        "options/tls-verify",
-                                                        allowInsecureTls ? "no" : "yes");
+    const auto tlsVerifyResult = mpv_set_property_string(
+        m_mpv, "options/tls-verify", allowInsecureTls ? "no" : "yes");
     if (tlsVerifyResult < 0) {
         AppLogger::warning(QStringLiteral("player"),
                            QStringLiteral("Unable to update libmpv TLS verification mode: %1")
                                .arg(QString::fromUtf8(mpv_error_string(tlsVerifyResult))));
+        emit errorOccurred(QStringLiteral("Unable to configure playback TLS verification"));
+        return;
     }
     int pauseFlag = 0;
     mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag);
@@ -563,11 +570,11 @@ void PlayerController::resume()
 
 void PlayerController::togglePause()
 {
-    if (m_paused) {
-        resume();
-    } else {
-        pause();
+    if (!m_mpv) {
+        return;
     }
+    const char* args[] = { "cycle", "pause", nullptr };
+    command(args);
 }
 
 void PlayerController::stop()
@@ -600,7 +607,10 @@ void PlayerController::shutdown()
 
 void PlayerController::seekRelative(double seconds)
 {
-    if (!m_mpv) {
+    if (!m_mpv || !std::isfinite(seconds)) {
+        if (m_mpv) {
+            AppLogger::warning(QStringLiteral("player"), QStringLiteral("Rejected a non-finite relative seek"));
+        }
         return;
     }
     const QByteArray offset = QByteArray::number(seconds, 'f', 2);
@@ -610,7 +620,10 @@ void PlayerController::seekRelative(double seconds)
 
 void PlayerController::seekAbsolute(double seconds)
 {
-    if (!m_mpv) {
+    if (!m_mpv || !std::isfinite(seconds)) {
+        if (m_mpv) {
+            AppLogger::warning(QStringLiteral("player"), QStringLiteral("Rejected a non-finite absolute seek"));
+        }
         return;
     }
     const auto clamped = std::max(0.0, seconds);
@@ -630,7 +643,10 @@ void PlayerController::setVolume(int volume)
 
 void PlayerController::setSpeed(double speed)
 {
-    if (!m_mpv) {
+    if (!m_mpv || !std::isfinite(speed)) {
+        if (m_mpv) {
+            AppLogger::warning(QStringLiteral("player"), QStringLiteral("Rejected a non-finite playback speed"));
+        }
         return;
     }
     auto value = std::clamp(speed, 0.5, 5.0);
@@ -907,20 +923,32 @@ void PlayerController::handlePropertyChange(const char* name, int format, void* 
     }
 
     if (propertyName == QStringLiteral("time-pos") && format == MPV_FORMAT_DOUBLE) {
-        m_position = *static_cast<double*>(data);
-        emit playbackStateChanged();
+        const auto value = *static_cast<double*>(data);
+        if (std::isfinite(value)) {
+            m_position = value;
+            emit playbackStateChanged();
+        }
     } else if (propertyName == QStringLiteral("duration") && format == MPV_FORMAT_DOUBLE) {
-        m_duration = *static_cast<double*>(data);
-        emit playbackStateChanged();
+        const auto value = *static_cast<double*>(data);
+        if (std::isfinite(value) && value >= 0.0) {
+            m_duration = value;
+            emit playbackStateChanged();
+        }
     } else if (propertyName == QStringLiteral("pause") && format == MPV_FORMAT_FLAG) {
         m_paused = *static_cast<int*>(data) != 0;
         emit playbackStateChanged();
     } else if (propertyName == QStringLiteral("volume") && format == MPV_FORMAT_DOUBLE) {
-        m_volume = static_cast<int>(*static_cast<double*>(data));
-        emit volumeChanged();
+        const auto value = *static_cast<double*>(data);
+        if (std::isfinite(value)) {
+            m_volume = std::clamp(static_cast<int>(value), 0, 100);
+            emit volumeChanged();
+        }
     } else if (propertyName == QStringLiteral("speed") && format == MPV_FORMAT_DOUBLE) {
-        m_speed = *static_cast<double*>(data);
-        emit speedChanged();
+        const auto value = *static_cast<double*>(data);
+        if (std::isfinite(value)) {
+            m_speed = value;
+            emit speedChanged();
+        }
     } else if (propertyName == QStringLiteral("track-list") && format == MPV_FORMAT_NODE) {
         updateTracks();
     } else if (propertyName == QStringLiteral("metadata") && format == MPV_FORMAT_NODE) {

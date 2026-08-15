@@ -549,6 +549,8 @@ if(BUILD_TESTING)
         src/services/media/MediaServerClientBase.cpp
         src/services/media/MediaServerClientBase.h
         src/services/media/MediaServiceClient.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
         src/utils/JsonUtils.cpp
         src/utils/JsonUtils.h
     )

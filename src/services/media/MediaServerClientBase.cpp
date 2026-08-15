@@ -263,10 +263,6 @@ MediaServerClientBase::MediaServerClientBase(NetworkClient& networkClient, QObje
     : MediaServiceClient(parent)
     , m_networkClient(networkClient)
 {
-    connect(&m_networkClient,
-            &NetworkClient::certificateConfirmationRequired,
-            this,
-            &MediaServiceClient::certificateConfirmationRequired);
 }
 
 QUrl MediaServerClientBase::makeUrl(const QString& baseUrl, const QString& path)

@@ -204,7 +204,11 @@ directory contains an M3U8S manifest so encrypted segments are not offered as
 standalone videos.
 
 `EncryptedHlsPlaybackProxy` uses one verification and HTTP-serving path for
-local and WebDAV packages. Local files are read on worker threads. Every
+local and WebDAV packages. Local files are read on worker threads. The local
+preparation worker captures the TSSL storage directory and creates its own
+value-semantic store view, so it never dereferences the playback proxy after
+the proxy has been destroyed. Its completion delivery remains bound to the
+proxy-owned `QFutureWatcher` and is automatically discarded on teardown. Every
 requested resource must be registered by TSSL, resolve to a canonical readable
 file, and remain inside the canonical package directory after symbolic-link
 resolution. libmpv still receives an ordinary localhost HLS URL; no player-core

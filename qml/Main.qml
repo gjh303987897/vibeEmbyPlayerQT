@@ -195,12 +195,6 @@ ApplicationWindow {
             }
         }
 
-        function onCertificatePromptRequested(host, details) {
-            certificateDialog.host = host
-            certificateDialog.details = details
-            certificateDialog.open()
-        }
-
         function onPasswordRequired(serviceName, username) {
             passwordDialog.serviceName = serviceName
             passwordDialog.username = username
@@ -357,35 +351,6 @@ ApplicationWindow {
                 }
             }
         }
-    }
-
-    ModernDialog {
-        id: certificateDialog
-        property string host: ""
-        property string details: ""
-        title: t("dialog.certificateTitle")
-        standardButtons: Dialog.Yes | Dialog.No
-        width: Math.min(root.width - 64, 560)
-
-        ColumnLayout {
-            spacing: 12
-            width: parent.width
-
-            BodyText {
-                Layout.fillWidth: true
-                text: t("dialog.certificatePrefix") + certificateDialog.host + t("dialog.certificateSuffix")
-                wrapMode: Text.WordWrap
-            }
-
-            MutedText {
-                Layout.fillWidth: true
-                text: certificateDialog.details
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        onAccepted: appViewModel.acceptPendingCertificate(true)
-        onRejected: appViewModel.acceptPendingCertificate(false)
     }
 
     ModernDialog {

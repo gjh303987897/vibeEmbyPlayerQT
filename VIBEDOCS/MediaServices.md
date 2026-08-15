@@ -14,7 +14,9 @@ QML does not make network requests and does not parse JSON.
   - Wraps `QNetworkAccessManager`.
   - Supports JSON `GET` and `POST`.
   - Converts transport, HTTP and timeout failures into `NetworkError`.
-  - Emits a certificate confirmation signal before accepting self-signed certificates.
+  - Keeps certificate verification enabled unless the saved server explicitly allows
+    self-signed certificates. The explicit policy ignores only the errors reported for
+    that reply and never enters a nested event loop.
 
 - `MediaServiceClient`
   - Abstract interface for login, library loading, item loading, server-wide search, continue-watching loading and item details.

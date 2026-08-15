@@ -306,6 +306,7 @@ void EncryptedHlsPlaybackProxy::prepareLocalStream(
         return;
     }
 
+    const auto storeDirectory = m_store.storageDirectory();
     auto* watcher = new QFutureWatcher<std::expected<ResolvedPackage, QString>>(this);
     connect(watcher,
             &QFutureWatcherBase::finished,
@@ -327,12 +328,13 @@ void EncryptedHlsPlaybackProxy::prepareLocalStream(
                               QFileInfo(canonicalPath).fileName(),
                               std::move(callback));
     });
-    watcher->setFuture(QtConcurrent::run([this, canonicalPath]() -> std::expected<ResolvedPackage, QString> {
+    watcher->setFuture(QtConcurrent::run([canonicalPath, storeDirectory]() -> std::expected<ResolvedPackage, QString> {
         auto manifest = readBoundedLocalFile(canonicalPath, maximumManifestBytes);
         if (!manifest) {
             return std::unexpected(manifest.error());
         }
-        return resolvePackageBytes(std::move(*manifest));
+        const TsslStore store(storeDirectory);
+        return resolvePackageBytes(std::move(*manifest), store);
     }));
 }
 
@@ -419,20 +421,20 @@ void EncryptedHlsPlaybackProxy::resolvePackage(
             callback(std::unexpected(manifest.error()));
             return;
         }
-        auto resolved = resolvePackageBytes(std::move(*manifest));
+        auto resolved = resolvePackageBytes(std::move(*manifest), m_store);
         callback(std::move(resolved));
     });
 }
 
 std::expected<EncryptedHlsPlaybackProxy::ResolvedPackage, QString>
-EncryptedHlsPlaybackProxy::resolvePackageBytes(QByteArray manifest) const
+EncryptedHlsPlaybackProxy::resolvePackageBytes(QByteArray manifest, const TsslStore& store)
 {
     if (auto validated = HlsManifestValidator::validate(manifest); !validated) {
         return std::unexpected(validated.error());
     }
 
     const auto digest = QCryptographicHash::hash(manifest, QCryptographicHash::Sha256);
-    auto package = m_store.packageForRootDigest(digest);
+    auto package = store.packageForRootDigest(digest);
     if (!package) {
         return std::unexpected(package.error());
     }
