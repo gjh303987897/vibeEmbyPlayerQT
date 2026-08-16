@@ -8,6 +8,7 @@
 
 #include <expected>
 #include <optional>
+#include <span>
 #include <vector>
 
 struct TsslPackage final {
@@ -50,6 +51,8 @@ public:
     std::expected<std::vector<TsslPackageInfo>, QString> listPackages() const;
     std::expected<QByteArray, QString> restoreFromFile(const QString& sourcePath) const;
     std::expected<void, QString> exportByRootDigest(QByteArrayView digest, const QString& destinationPath) const;
+    std::expected<int, QString> exportByRootDigests(std::span<const QByteArray> digests,
+                                                    const QString& destinationDirectory) const;
     std::expected<void, QString> deleteByRootDigest(QByteArrayView digest) const;
     QString storageDirectory() const;
 

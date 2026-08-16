@@ -232,6 +232,15 @@ remain visible for diagnosis and deletion but cannot be exported as valid
 packages. Import and export preserve v2/v3 and the complete authenticated
 source-name metadata.
 
+Batch export presents the valid packages in a selection dialog and supports
+exporting either the current selection or every valid package. Invalid or
+damaged packages remain visible but cannot be selected. The destination is
+chosen once, then validation and file writing run off the UI thread. Every
+selected package is validated before the first write, duplicate selections are
+discarded, and each output uses the complete root-manifest digest as its stable
+filename. Batch output retains the same atomic-write and owner-only permission
+rules as single-package export.
+
 TSSL is not encrypted at rest because the current threat model is remote/cloud
 storage, not a compromised local OS account. Exported files contain every
 media key and must be handled as secrets.

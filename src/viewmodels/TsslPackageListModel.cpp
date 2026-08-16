@@ -2,6 +2,8 @@
 
 #include <QFileInfo>
 
+#include <algorithm>
+
 TsslPackageListModel::TsslPackageListModel(QObject* parent)
     : QAbstractListModel(parent)
 {
@@ -15,6 +17,11 @@ int TsslPackageListModel::rowCount(const QModelIndex& parent) const
 int TsslPackageListModel::count() const
 {
     return rowCount();
+}
+
+int TsslPackageListModel::validCount() const
+{
+    return static_cast<int>(std::ranges::count(m_packages, true, &TsslPackageInfo::valid));
 }
 
 QVariant TsslPackageListModel::data(const QModelIndex& index, int role) const
@@ -71,6 +78,18 @@ QHash<int, QByteArray> TsslPackageListModel::roleNames() const
         { ValidRole, "validPackage" },
         { ValidationErrorRole, "validationError" },
     };
+}
+
+QVariantList TsslPackageListModel::validRows() const
+{
+    QVariantList rows;
+    rows.reserve(validCount());
+    for (int row = 0; row < rowCount(); ++row) {
+        if (m_packages[static_cast<size_t>(row)].valid) {
+            rows.push_back(row);
+        }
+    }
+    return rows;
 }
 
 void TsslPackageListModel::setPackages(std::vector<TsslPackageInfo> packages)

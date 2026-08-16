@@ -58,6 +58,7 @@ class EncryptedHlsFormatTest final : public QObject {
 private slots:
     void tsslRoundTripsDeterministically();
     void tsslRestoreLookupAndExport();
+    void tsslBatchExportUsesStableDigestNames();
     void tsslRejectsUnsafePathsAndInvalidKeys();
     void sourceFilenameMetadataIsAuthenticatedAndRoundTrips();
     void managerModelDoesNotExposeSourceFilename();
@@ -143,6 +144,43 @@ void EncryptedHlsFormatTest::tsslRestoreLookupAndExport()
     QVERIFY(!withInvalid->front().valid);
     QVERIFY(!withInvalid->front().validationError.isEmpty());
     QVERIFY(store.deleteByRootDigest(invalidDigest).has_value());
+}
+
+void EncryptedHlsFormatTest::tsslBatchExportUsesStableDigestNames()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+
+    auto first = packageFor(manifestBytes());
+    auto second = packageFor(manifestBytes() + QByteArrayLiteral("# second package\n"));
+    second.identifier = identifierBytes('B');
+
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    QVERIFY(store.savePackage(first).has_value());
+    QVERIFY(store.savePackage(second).has_value());
+
+    const auto exportDirectory = temporary.filePath(QStringLiteral("exports"));
+    QVERIFY(QDir().mkpath(exportDirectory));
+    const std::vector<QByteArray> digests {
+        first.rootManifestDigest,
+        second.rootManifestDigest,
+        first.rootManifestDigest,
+    };
+    const auto exported = store.exportByRootDigests(digests, exportDirectory);
+    if (!exported) {
+        QFAIL(qPrintable(exported.error()));
+    }
+    QCOMPARE(*exported, 2);
+
+    for (const auto& package : { first, second }) {
+        const auto path = QDir(exportDirectory).filePath(
+            QString::fromLatin1(package.rootManifestDigest.toHex()) + QStringLiteral(".tssl"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto parsed = TsslPackage::parse(file.readAll());
+        QVERIFY(parsed.has_value());
+        QCOMPARE(parsed->rootManifestDigest, package.rootManifestDigest);
+    }
 }
 
 void EncryptedHlsFormatTest::tsslRejectsUnsafePathsAndInvalidKeys()
@@ -248,12 +286,16 @@ void EncryptedHlsFormatTest::managerModelDoesNotExposeSourceFilename()
         .rootManifestDigest = QByteArray(32, '\x42'),
         .filePath = QStringLiteral("managed.tssl"),
     };
+    auto invalidPackage = package;
+    invalidPackage.valid = false;
     TsslPackageListModel model;
-    model.setPackages({ std::move(package) });
+    model.setPackages({ std::move(package), std::move(invalidPackage) });
 
     QVERIFY(!model.roleNames().values().contains(QByteArrayLiteral("sourceFileName")));
     QCOMPARE(model.data(model.index(0, 0), TsslPackageListModel::IdentifierPreviewRole).toString(),
              QStringLiteral("IIIIIIIIIIIIIIII...IIIIIIIIIIII"));
+    QCOMPARE(model.validCount(), 1);
+    QCOMPARE(model.validRows(), QVariantList { 0 });
 }
 
 void EncryptedHlsFormatTest::m3u8sIdentifierIsStrictAndRoundTrips()

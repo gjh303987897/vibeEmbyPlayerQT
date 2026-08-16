@@ -79,6 +79,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(double m3u8sPackagingProgress READ m3u8sPackagingProgress NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sPackagingPhase READ m3u8sPackagingPhase NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sStatus READ m3u8sStatus NOTIFY m3u8sStatusChanged)
+    Q_PROPERTY(bool m3u8sBatchExporting READ m3u8sBatchExporting NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(QString m3u8sLastOutputDirectory READ m3u8sLastOutputDirectory NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
     Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
@@ -256,6 +257,7 @@ public:
     double m3u8sPackagingProgress() const;
     QString m3u8sPackagingPhase() const;
     QString m3u8sStatus() const;
+    bool m3u8sBatchExporting() const;
     QString m3u8sLastOutputDirectory() const;
     bool m3u8sFfmpegAvailable() const;
     int m3u8sSegmentDuration() const;
@@ -452,6 +454,7 @@ public:
     Q_INVOKABLE void refreshTsslPackages();
     Q_INVOKABLE void restoreManagedTssl();
     Q_INVOKABLE void exportManagedTssl(int row);
+    Q_INVOKABLE void exportManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void deleteManagedTssl(int row);
     Q_INVOKABLE void chooseM3u8sVideo();
     Q_INVOKABLE void chooseM3u8sOutputDirectory();
@@ -879,6 +882,7 @@ private:
     PlaybackHistoryListModel m_globalPlaybackHistory;
     TsslPackageListModel m_tsslPackages;
     QString m_m3u8sStatus;
+    bool m_m3u8sBatchExporting { false };
     QString m_m3u8sLastOutputDirectory;
     int m_m3u8sSegmentDuration { 6 };
     QString m_m3u8sOutputDirectory;

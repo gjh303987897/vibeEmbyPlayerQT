@@ -645,6 +645,225 @@ ApplicationWindow {
     }
 
     ModernDialog {
+        id: tsslBatchExportDialog
+        property var selectedRows: []
+
+        function containsRow(row) {
+            return selectedRows.indexOf(row) >= 0
+        }
+
+        function copyRows(rows) {
+            var copied = []
+            for (var index = 0; index < rows.length; ++index) {
+                copied.push(Number(rows[index]))
+            }
+            return copied
+        }
+
+        function setRowSelected(row, selected) {
+            var updated = copyRows(selectedRows)
+            var position = updated.indexOf(row)
+            if (selected && position < 0) {
+                updated.push(row)
+                updated.sort(function(left, right) { return left - right })
+            } else if (!selected && position >= 0) {
+                updated.splice(position, 1)
+            }
+            selectedRows = updated
+        }
+
+        function exportRows(rows) {
+            var copied = copyRows(rows)
+            if (copied.length === 0) {
+                return
+            }
+            close()
+            appViewModel.exportManagedTsslBatch(copied)
+        }
+
+        title: t("m3u8s.batchExportTitle")
+        standardButtons: Dialog.Cancel
+        width: Math.min(root.width - 64, 720)
+        onOpened: selectedRows = []
+        onClosed: selectedRows = []
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+
+            BodyText {
+                Layout.fillWidth: true
+                text: t("m3u8s.batchExportPrompt")
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Label {
+                    Layout.fillWidth: true
+                    text: t("m3u8s.batchExportSelectedCount").arg(tsslBatchExportDialog.selectedRows.length)
+                    color: theme.muted
+                    font.pixelSize: 12
+                    font.bold: true
+                }
+
+                ModernButton {
+                    text: t("m3u8s.batchExportSelectAll")
+                    enabled: appViewModel.tsslPackages.validCount > 0
+                    onClicked: tsslBatchExportDialog.selectedRows =
+                        tsslBatchExportDialog.copyRows(appViewModel.tsslPackages.validRows())
+                }
+
+                ModernButton {
+                    text: t("m3u8s.batchExportClear")
+                    enabled: tsslBatchExportDialog.selectedRows.length > 0
+                    onClicked: tsslBatchExportDialog.selectedRows = []
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(tsslBatchExportChoices.implicitHeight + 2,
+                                                 Math.max(190, root.height - 390))
+                radius: 8
+                color: theme.bg
+                border.color: theme.border
+                clip: true
+
+                Flickable {
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    contentWidth: width
+                    contentHeight: tsslBatchExportChoices.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
+                    ScrollIndicator.vertical: ScrollIndicator {}
+
+                    ColumnLayout {
+                        id: tsslBatchExportChoices
+                        width: parent.width
+                        spacing: 1
+
+                        Repeater {
+                            model: appViewModel.tsslPackages
+
+                            delegate: CheckBox {
+                                id: tsslBatchChoice
+                                required property int index
+                                required property string rootDigest
+                                required property string identifierPreview
+                                required property real fileSize
+                                required property int segmentCount
+                                required property bool validPackage
+                                required property string validationError
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 72
+                                leftPadding: 48
+                                rightPadding: 14
+                                topPadding: 9
+                                bottomPadding: 9
+                                enabled: tsslBatchChoice.validPackage
+                                checked: tsslBatchExportDialog.containsRow(tsslBatchChoice.index)
+                                opacity: enabled ? 1 : 0.62
+                                Accessible.name: tsslBatchChoice.validPackage
+                                    ? t("m3u8s.identifier") + " " + tsslBatchChoice.identifierPreview
+                                    : t("m3u8s.invalidSavedPackage")
+                                onClicked: tsslBatchExportDialog.setRowSelected(tsslBatchChoice.index, checked)
+
+                                indicator: Rectangle {
+                                    x: 15
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 20
+                                    height: 20
+                                    radius: 5
+                                    color: tsslBatchChoice.checked
+                                        ? root.serviceAccentColor("M3u8s") : theme.input
+                                    border.color: tsslBatchChoice.checked
+                                        ? root.serviceAccentColor("M3u8s") : theme.border
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: tsslBatchChoice.checked
+                                        text: "✓"
+                                        color: "#ffffff"
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                    }
+                                }
+
+                                contentItem: ColumnLayout {
+                                    spacing: 3
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: tsslBatchChoice.validPackage
+                                            ? t("m3u8s.identifier") + "  " + tsslBatchChoice.identifierPreview
+                                            : t("m3u8s.invalidSavedPackage")
+                                        color: theme.text
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                        font.family: tsslBatchChoice.validPackage ? "monospace" : ""
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    MutedText {
+                                        Layout.fillWidth: true
+                                        text: tsslBatchChoice.validPackage
+                                            ? "SHA-256  " + tsslBatchChoice.rootDigest
+                                            : tsslBatchChoice.validationError
+                                        color: tsslBatchChoice.validPackage ? theme.muted : theme.danger
+                                        font.pixelSize: 11
+                                        font.family: tsslBatchChoice.validPackage ? "monospace" : ""
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    MutedText {
+                                        visible: tsslBatchChoice.validPackage
+                                        text: t("m3u8s.segments").arg(tsslBatchChoice.segmentCount)
+                                            + "  ·  " + root.formatBytes(tsslBatchChoice.fileSize)
+                                        font.pixelSize: 11
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    color: tsslBatchChoice.checked
+                                        ? root.withAlpha(root.serviceAccentColor("M3u8s"), darkTheme ? 0.16 : 0.08)
+                                        : tsslBatchChoice.hovered && tsslBatchChoice.enabled
+                                            ? theme.elevatedHover : theme.surface
+                                    border.width: tsslBatchChoice.checked ? 1 : 0
+                                    border.color: root.withAlpha(root.serviceAccentColor("M3u8s"), 0.62)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                ModernButton {
+                    text: t("m3u8s.batchExportAll")
+                    enabled: appViewModel.tsslPackages.validCount > 0
+                    onClicked: tsslBatchExportDialog.exportRows(appViewModel.tsslPackages.validRows())
+                }
+
+                ModernButton {
+                    text: t("m3u8s.batchExportSelected")
+                    enabled: tsslBatchExportDialog.selectedRows.length > 0
+                    onClicked: tsslBatchExportDialog.exportRows(tsslBatchExportDialog.selectedRows)
+                }
+            }
+        }
+    }
+
+    ModernDialog {
         id: scheduledTaskEditorDialog
         property bool editing: false
         title: editing ? t("schedule.edit") : t("schedule.add")
@@ -13173,7 +13392,22 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("m3u8s.importTssl")
+                    enabled: !appViewModel.m3u8sBatchExporting
                     onClicked: appViewModel.restoreManagedTssl()
+                }
+
+                LoadingSpinner {
+                    visible: appViewModel.m3u8sBatchExporting
+                    running: visible
+                    implicitWidth: 22
+                    implicitHeight: 22
+                }
+
+                ModernButton {
+                    text: t("m3u8s.batchExportTssl")
+                    enabled: appViewModel.tsslPackages.validCount > 0
+                        && !appViewModel.m3u8sBatchExporting
+                    onClicked: tsslBatchExportDialog.open()
                 }
             }
 
@@ -13311,7 +13545,7 @@ ApplicationWindow {
                                 ModernButton {
                                     Layout.fillWidth: true
                                     text: t("m3u8s.exportTssl")
-                                    enabled: tsslRow.validPackage
+                                    enabled: tsslRow.validPackage && !appViewModel.m3u8sBatchExporting
                                     onClicked: appViewModel.exportManagedTssl(tsslRow.index)
                                 }
 
@@ -13319,6 +13553,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     text: t("action.delete")
                                     danger: true
+                                    enabled: !appViewModel.m3u8sBatchExporting
                                     onClicked: {
                                         root.pendingTsslDeleteRow = tsslRow.index
                                         tsslDeleteDialog.open()

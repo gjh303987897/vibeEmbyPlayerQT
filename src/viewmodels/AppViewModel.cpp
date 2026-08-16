@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QHash>
 #include <QLocale>
@@ -28,6 +29,7 @@
 #include <QTime>
 #include <QUrl>
 #include <QUuid>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 #include <array>
@@ -649,6 +651,19 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.segments"), QStringLiteral("%1 TS segments") },
         { QStringLiteral("m3u8s.importTssl"), QStringLiteral("Import TSSL") },
         { QStringLiteral("m3u8s.exportTssl"), QStringLiteral("Export TSSL") },
+        { QStringLiteral("m3u8s.batchExportTssl"), QStringLiteral("Batch export TSSL") },
+        { QStringLiteral("m3u8s.batchExportTitle"), QStringLiteral("Export TSSL packages") },
+        { QStringLiteral("m3u8s.batchExportPrompt"), QStringLiteral("Choose the valid key packages to export, or export all of them directly.") },
+        { QStringLiteral("m3u8s.batchExportSelectedCount"), QStringLiteral("%1 selected") },
+        { QStringLiteral("m3u8s.batchExportSelectAll"), QStringLiteral("Select all") },
+        { QStringLiteral("m3u8s.batchExportClear"), QStringLiteral("Clear") },
+        { QStringLiteral("m3u8s.batchExportSelected"), QStringLiteral("Export selected") },
+        { QStringLiteral("m3u8s.batchExportAll"), QStringLiteral("Export all") },
+        { QStringLiteral("m3u8s.batchExportDestination"), QStringLiteral("Choose a folder for TSSL backups") },
+        { QStringLiteral("m3u8s.batchExportingStatus"), QStringLiteral("Exporting %1 TSSL backups...") },
+        { QStringLiteral("m3u8s.batchExportedStatus"), QStringLiteral("Exported %1 TSSL backups") },
+        { QStringLiteral("m3u8s.batchExportFailedStatus"), QStringLiteral("Batch TSSL export failed") },
+        { QStringLiteral("m3u8s.batchExportEmpty"), QStringLiteral("Select at least one valid TSSL package") },
         { QStringLiteral("m3u8s.deleteTssl"), QStringLiteral("Delete TSSL") },
         { QStringLiteral("m3u8s.deleteTitle"), QStringLiteral("Delete local TSSL?") },
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("The encrypted video cannot be decrypted on this device without this key package.") },
@@ -1020,6 +1035,19 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.segments"), QStringLiteral("%1 个 TS 分片") },
         { QStringLiteral("m3u8s.importTssl"), QStringLiteral("导入 TSSL") },
         { QStringLiteral("m3u8s.exportTssl"), QStringLiteral("导出 TSSL") },
+        { QStringLiteral("m3u8s.batchExportTssl"), QStringLiteral("批量导出 TSSL") },
+        { QStringLiteral("m3u8s.batchExportTitle"), QStringLiteral("批量导出 TSSL") },
+        { QStringLiteral("m3u8s.batchExportPrompt"), QStringLiteral("请选择需要导出的有效密钥包，也可以直接导出全部密钥包。") },
+        { QStringLiteral("m3u8s.batchExportSelectedCount"), QStringLiteral("已选择 %1 项") },
+        { QStringLiteral("m3u8s.batchExportSelectAll"), QStringLiteral("全选") },
+        { QStringLiteral("m3u8s.batchExportClear"), QStringLiteral("清空") },
+        { QStringLiteral("m3u8s.batchExportSelected"), QStringLiteral("导出所选") },
+        { QStringLiteral("m3u8s.batchExportAll"), QStringLiteral("全部导出") },
+        { QStringLiteral("m3u8s.batchExportDestination"), QStringLiteral("选择 TSSL 备份导出目录") },
+        { QStringLiteral("m3u8s.batchExportingStatus"), QStringLiteral("正在导出 %1 个 TSSL 备份...") },
+        { QStringLiteral("m3u8s.batchExportedStatus"), QStringLiteral("已导出 %1 个 TSSL 备份") },
+        { QStringLiteral("m3u8s.batchExportFailedStatus"), QStringLiteral("批量导出 TSSL 失败") },
+        { QStringLiteral("m3u8s.batchExportEmpty"), QStringLiteral("请至少选择一个有效的 TSSL 密钥包") },
         { QStringLiteral("m3u8s.deleteTssl"), QStringLiteral("删除 TSSL") },
         { QStringLiteral("m3u8s.deleteTitle"), QStringLiteral("删除本机 TSSL？") },
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("删除后，本机将无法解密与该密钥包对应的视频。") },
@@ -1742,6 +1770,11 @@ QString AppViewModel::m3u8sPackagingPhase() const
 QString AppViewModel::m3u8sStatus() const
 {
     return m_m3u8sStatus;
+}
+
+bool AppViewModel::m3u8sBatchExporting() const
+{
+    return m_m3u8sBatchExporting;
 }
 
 QString AppViewModel::m3u8sLastOutputDirectory() const
@@ -4530,6 +4563,65 @@ void AppViewModel::exportManagedTssl(int row)
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.exportedStatus"));
     emit m3u8sStatusChanged();
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Exported a managed TSSL package"));
+}
+
+void AppViewModel::exportManagedTsslBatch(const QVariantList& rows)
+{
+    clearError();
+    if (m_m3u8sBatchExporting) {
+        return;
+    }
+
+    std::vector<QByteArray> digests;
+    digests.reserve(static_cast<size_t>(rows.size()));
+    for (const auto& value : rows) {
+        bool converted = false;
+        const auto row = value.toInt(&converted);
+        const auto package = converted ? m_tsslPackages.packageAt(row) : std::nullopt;
+        if (!package || !package->valid) {
+            setError(trText(QStringLiteral("m3u8s.invalidPackage")));
+            return;
+        }
+        digests.push_back(package->rootManifestDigest);
+    }
+    if (digests.empty()) {
+        setError(trText(QStringLiteral("m3u8s.batchExportEmpty")));
+        return;
+    }
+
+    const auto destination = QFileDialog::getExistingDirectory(
+        nullptr,
+        trText(QStringLiteral("m3u8s.batchExportDestination")),
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
+    if (destination.isEmpty()) {
+        return;
+    }
+
+    m_m3u8sBatchExporting = true;
+    m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportingStatus")).arg(digests.size());
+    emit m3u8sStatusChanged();
+
+    using ExportResult = std::expected<int, QString>;
+    auto* watcher = new QFutureWatcher<ExportResult>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+        m_m3u8sBatchExporting = false;
+        if (!result) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportFailedStatus"));
+            emit m3u8sStatusChanged();
+            setError(result.error());
+            return;
+        }
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportedStatus")).arg(*result);
+        emit m3u8sStatusChanged();
+        AppLogger::info(QStringLiteral("encrypted-hls"),
+                        QStringLiteral("Exported %1 managed TSSL packages").arg(*result));
+    });
+    watcher->setFuture(QtConcurrent::run(
+        [store = m_tsslStore, digests = std::move(digests), destination]() {
+            return store.exportByRootDigests(digests, destination);
+        }));
 }
 
 void AppViewModel::deleteManagedTssl(int row)

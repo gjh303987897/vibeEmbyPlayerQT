@@ -547,6 +547,56 @@ std::expected<void, QString> TsslStore::exportByRootDigest(QByteArrayView digest
     return writeSecretFile(destinationPath, (**package).toJson());
 }
 
+std::expected<int, QString> TsslStore::exportByRootDigests(std::span<const QByteArray> digests,
+                                                          const QString& destinationDirectory) const
+{
+    if (digests.empty()) {
+        return std::unexpected(QStringLiteral("Select at least one TSSL package to export"));
+    }
+
+    const QFileInfo destinationInfo(destinationDirectory);
+    if (!destinationInfo.exists() || !destinationInfo.isDir() || !destinationInfo.isWritable()) {
+        return std::unexpected(QStringLiteral("Choose an available writable TSSL export folder"));
+    }
+
+    struct PendingExport final {
+        QString path;
+        QByteArray contents;
+    };
+    std::vector<QByteArray> uniqueDigests;
+    std::vector<PendingExport> pending;
+    uniqueDigests.reserve(digests.size());
+    pending.reserve(digests.size());
+
+    const QDir destination(destinationInfo.absoluteFilePath());
+    for (const auto& digest : digests) {
+        if (std::ranges::find(uniqueDigests, digest) != uniqueDigests.end()) {
+            continue;
+        }
+        uniqueDigests.push_back(digest);
+
+        auto package = packageForRootDigest(digest);
+        if (!package) {
+            return std::unexpected(package.error());
+        }
+        if (!*package) {
+            return std::unexpected(QStringLiteral("No local TSSL package matches this manifest"));
+        }
+
+        pending.push_back(PendingExport {
+            .path = destination.filePath(QString::fromLatin1(digest.toHex()) + QStringLiteral(".tssl")),
+            .contents = (**package).toJson(),
+        });
+    }
+
+    for (const auto& item : pending) {
+        if (auto written = writeSecretFile(item.path, item.contents); !written) {
+            return std::unexpected(written.error());
+        }
+    }
+    return static_cast<int>(pending.size());
+}
+
 QString TsslStore::storageDirectory() const
 {
     return m_storageDirectory;
