@@ -10,7 +10,7 @@
 - QML 在主题变化时调用 `applyTheme(QString)`。
 - Windows 主窗口使用 `Qt.FramelessWindowHint` 隐藏系统标题栏，不再保留独立的应用顶部状态条。最小化、最大化/还原和关闭按钮位于应用工具栏最右侧，与设置、添加和编辑等页面操作共用一栏。
 - 服务页在窄窗口中将保号任务和历史统计收进“更多”菜单，优先保证添加、编辑、设置及窗口按钮始终完整可见；宽窗口继续直接展示全部操作。
-- 应用工具栏的页面标题区域通过 `startSystemMove()` 调用 `QWindow::startSystemMove()`，八个边缘/角落通过 `startSystemResize(Qt::Edges)` 交回系统处理，因此保留 Windows 吸附、跨屏拖动和原生缩放约束。
+- 应用工具栏通过不参与布局的 `DragHandler` 识别拖动手势，再由 `startSystemMove()` 调用 `QWindow::startSystemMove()`。因此标题和按钮之间的空白区域都可移动窗口，普通点击仍由业务按钮处理。八个边缘/角落通过 `startSystemResize(Qt::Edges)` 交回系统处理，因此保留 Windows 吸附、跨屏拖动和原生缩放约束。
 - 双击应用工具栏的页面标题区域切换最大化与还原；最大化和全屏时禁用边缘缩放热区。
 - 无边框模式仍应用 Windows DWM 深色窗口属性与边框颜色，但跳过已不存在的原生标题文字和标题栏背景设置。
 - 所有平台都会请求 Qt Quick 窗口和内容场景重绘；非 Windows 平台不调用原生标题栏 API。

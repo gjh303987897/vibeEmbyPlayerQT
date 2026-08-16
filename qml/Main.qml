@@ -1147,6 +1147,18 @@ ApplicationWindow {
                 border.color: theme.border
             }
 
+            DragHandler {
+                parent: applicationToolbar
+                target: null
+                acceptedButtons: Qt.LeftButton
+                enabled: root.usesCustomTitleBar
+                onActiveChanged: {
+                    if (active && root.visibility !== Window.FullScreen) {
+                        windowAppearanceController.startSystemMove()
+                    }
+                }
+            }
+
             RowLayout {
                 x: 16
                 y: 0
@@ -1236,17 +1248,6 @@ ApplicationWindow {
                     : root.useTraditionalMediaHome ? 230 : -1
                 Layout.maximumWidth: appViewModel.currentView === "services" ? 150
                     : root.useTraditionalMediaHome ? 230 : 16777215
-
-                DragHandler {
-                    target: null
-                    acceptedButtons: Qt.LeftButton
-                    enabled: root.usesCustomTitleBar
-                    onActiveChanged: {
-                        if (active && root.visibility !== Window.FullScreen) {
-                            windowAppearanceController.startSystemMove()
-                        }
-                    }
-                }
 
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
@@ -1483,57 +1484,57 @@ ApplicationWindow {
                 onClicked: appViewModel.backToServices()
             }
 
-            Rectangle {
-                parent: root
-                visible: root.usesCustomTitleBar && windowHeader.applicationToolbarVisible
-                anchors.right: root.right
-                anchors.rightMargin: 16
-                anchors.top: root.top
-                anchors.topMargin: 12
-                width: 116
-                height: 40
-                radius: 8
-                color: theme.elevated
-                border.width: 1
-                border.color: theme.border
-                clip: true
-                z: 9001
-
-                Row {
-                    anchors.centerIn: parent
-
-                    WindowControlButton {
-                        controlType: "minimize"
-                        Accessible.name: t("window.minimize")
-                        ToolTip.text: t("window.minimize")
-                        onClicked: root.showMinimized()
-                    }
-
-                    WindowControlButton {
-                        controlType: root.visibility === Window.Maximized ? "restore" : "maximize"
-                        Accessible.name: root.visibility === Window.Maximized
-                            ? t("window.restore") : t("window.maximize")
-                        ToolTip.text: Accessible.name
-                        onClicked: {
-                            if (root.visibility === Window.Maximized) {
-                                root.showNormal()
-                            } else {
-                                root.showMaximized()
-                            }
-                        }
-                    }
-
-                    WindowControlButton {
-                        controlType: "close"
-                        Accessible.name: t("window.close")
-                        ToolTip.text: t("window.close")
-                        onClicked: root.close()
-                    }
-                }
-            }
         }
     }
 
+    }
+
+    Rectangle {
+        visible: root.usesCustomTitleBar && windowHeader.applicationToolbarVisible
+        anchors.right: parent.right
+        anchors.rightMargin: 16
+        anchors.top: parent.top
+        anchors.topMargin: 12
+        width: 116
+        height: 40
+        radius: 8
+        color: theme.elevated
+        border.width: 1
+        border.color: theme.border
+        clip: true
+        z: 9001
+
+        Row {
+            anchors.centerIn: parent
+
+            WindowControlButton {
+                controlType: "minimize"
+                Accessible.name: t("window.minimize")
+                ToolTip.text: t("window.minimize")
+                onClicked: root.showMinimized()
+            }
+
+            WindowControlButton {
+                controlType: root.visibility === Window.Maximized ? "restore" : "maximize"
+                Accessible.name: root.visibility === Window.Maximized
+                    ? t("window.restore") : t("window.maximize")
+                ToolTip.text: Accessible.name
+                onClicked: {
+                    if (root.visibility === Window.Maximized) {
+                        root.showNormal()
+                    } else {
+                        root.showMaximized()
+                    }
+                }
+            }
+
+            WindowControlButton {
+                controlType: "close"
+                Accessible.name: t("window.close")
+                ToolTip.text: t("window.close")
+                onClicked: root.close()
+            }
+        }
     }
 
     WindowResizeHandle {
