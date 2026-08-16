@@ -1787,6 +1787,7 @@ ApplicationWindow {
                 text: t("nav.settings")
                 visible: appViewModel.currentView !== "settings"
                     && appViewModel.currentView !== "services"
+                    && appViewModel.currentView !== "webdav"
                     && !root.useTraditionalMediaHome
                 onClicked: appViewModel.openSettings()
             }
@@ -1795,6 +1796,7 @@ ApplicationWindow {
                 text: t("action.backToServices")
                 visible: appViewModel.currentView !== "services"
                     && appViewModel.currentView !== "settings"
+                    && appViewModel.currentView !== "webdav"
                     && !root.useTraditionalMediaHome
                 onClicked: appViewModel.backToServices()
             }
@@ -11795,11 +11797,6 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     title: t("webdav.title")
                     subtitle: appViewModel.webDavCurrentPath
-                }
-
-                ModernButton {
-                    text: t("action.backToServices")
-                    onClicked: appViewModel.webDavBack()
                 }
             }
 
