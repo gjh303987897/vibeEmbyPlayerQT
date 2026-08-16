@@ -23,7 +23,6 @@ ApplicationWindow {
     property int dragFromRow: -1
     property bool playerImmersive: false
     readonly property bool usesCustomTitleBar: Qt.platform.os === "windows"
-    readonly property int customTitleBarHeight: usesCustomTitleBar && !playerImmersive ? 38 : 0
     property string downloadWarningTitle: ""
     property string downloadWarningMessage: ""
     property bool darkTheme: appViewModel.effectiveTheme !== "light"
@@ -1134,147 +1133,11 @@ ApplicationWindow {
             && appViewModel.currentView !== "player"
             && appViewModel.currentView !== "details"
             && !root.immersiveMediaHome
-        height: root.playerImmersive ? 0
-            : root.customTitleBarHeight + (applicationToolbarVisible ? 64 : 0)
-
-        Rectangle {
-            id: customTitleBar
-            width: parent.width
-            height: root.customTitleBarHeight
-            visible: height > 0
-            color: theme.surface
-            z: 10
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: theme.border
-            }
-
-            Item {
-                id: windowDragArea
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                anchors.right: windowControlRow.left
-
-                Row {
-                    anchors.left: parent.left
-                    anchors.leftMargin: 13
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 8
-
-                    Image {
-                        width: 18
-                        height: 18
-                        anchors.verticalCenter: parent.verticalCenter
-                        source: "qrc:/app/icons/icon_black.png"
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
-                    }
-
-                    Label {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: t("app.title")
-                        color: theme.text
-                        font.pixelSize: 12
-                        font.bold: true
-                    }
-                }
-
-                DragHandler {
-                    target: null
-                    acceptedButtons: Qt.LeftButton
-                    onActiveChanged: {
-                        if (active && root.visibility !== Window.FullScreen) {
-                            windowAppearanceController.startSystemMove()
-                        }
-                    }
-                }
-
-                TapHandler {
-                    acceptedButtons: Qt.LeftButton
-                    exclusiveSignals: TapHandler.DoubleTap
-                    onDoubleTapped: {
-                        if (root.visibility === Window.Maximized) {
-                            root.showNormal()
-                        } else {
-                            root.showMaximized()
-                        }
-                    }
-                }
-            }
-
-            Row {
-                id: windowControlRow
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                anchors.right: parent.right
-
-                WindowControlButton {
-                    controlType: "minimize"
-                    Accessible.name: t("window.minimize")
-                    ToolTip.text: t("window.minimize")
-                    onClicked: root.showMinimized()
-                }
-
-                WindowControlButton {
-                    controlType: root.visibility === Window.Maximized ? "restore" : "maximize"
-                    Accessible.name: root.visibility === Window.Maximized
-                        ? t("window.restore") : t("window.maximize")
-                    ToolTip.text: Accessible.name
-                    onClicked: {
-                        if (root.visibility === Window.Maximized) {
-                            root.showNormal()
-                        } else {
-                            root.showMaximized()
-                        }
-                    }
-                }
-
-                WindowControlButton {
-                    controlType: "close"
-                    Accessible.name: t("window.close")
-                    ToolTip.text: t("window.close")
-                    onClicked: root.close()
-                }
-            }
-
-            WindowResizeHandle {
-                anchors.left: parent.left
-                anchors.leftMargin: 8
-                anchors.right: parent.right
-                anchors.rightMargin: 8
-                anchors.top: parent.top
-                height: 5
-                edges: Qt.TopEdge
-                cursorShape: Qt.SizeVerCursor
-            }
-
-            WindowResizeHandle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                width: 8
-                height: 8
-                edges: Qt.LeftEdge | Qt.TopEdge
-                cursorShape: Qt.SizeFDiagCursor
-            }
-
-            WindowResizeHandle {
-                anchors.right: parent.right
-                anchors.top: parent.top
-                width: 8
-                height: 8
-                edges: Qt.RightEdge | Qt.TopEdge
-                cursorShape: Qt.SizeBDiagCursor
-            }
-        }
+        height: applicationToolbarVisible ? 64 : 0
 
         ToolBar {
             id: applicationToolbar
-            y: root.customTitleBarHeight
+            y: 0
             width: parent.width
             height: windowHeader.applicationToolbarVisible ? 64 : 0
             visible: windowHeader.applicationToolbarVisible
@@ -1285,10 +1148,12 @@ ApplicationWindow {
             }
 
             RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 24
-                anchors.rightMargin: 24
-                spacing: 12
+                x: 16
+                y: 0
+                width: applicationToolbar.width - 16
+                    - (root.usesCustomTitleBar ? 140 : 16)
+                height: applicationToolbar.height
+                spacing: 8
 
             IconButton {
                 id: headerBackButton
@@ -1364,9 +1229,37 @@ ApplicationWindow {
 
             ColumnLayout {
                 spacing: 0
-                Layout.fillWidth: !root.useTraditionalMediaHome
-                Layout.preferredWidth: root.useTraditionalMediaHome ? 230 : -1
-                Layout.maximumWidth: root.useTraditionalMediaHome ? 230 : 16777215
+                Layout.fillWidth: appViewModel.currentView !== "services"
+                    && !root.useTraditionalMediaHome
+                Layout.minimumWidth: appViewModel.currentView === "services" ? 150 : 0
+                Layout.preferredWidth: appViewModel.currentView === "services" ? 150
+                    : root.useTraditionalMediaHome ? 230 : -1
+                Layout.maximumWidth: appViewModel.currentView === "services" ? 150
+                    : root.useTraditionalMediaHome ? 230 : 16777215
+
+                DragHandler {
+                    target: null
+                    acceptedButtons: Qt.LeftButton
+                    enabled: root.usesCustomTitleBar
+                    onActiveChanged: {
+                        if (active && root.visibility !== Window.FullScreen) {
+                            windowAppearanceController.startSystemMove()
+                        }
+                    }
+                }
+
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    enabled: root.usesCustomTitleBar
+                    exclusiveSignals: TapHandler.DoubleTap
+                    onDoubleTapped: {
+                        if (root.visibility === Window.Maximized) {
+                            root.showNormal()
+                        } else {
+                            root.showMaximized()
+                        }
+                    }
+                }
 
                 RowLayout {
                     id: pageTitleRow
@@ -1501,14 +1394,42 @@ ApplicationWindow {
 
             ModernButton {
                 text: t("nav.scheduledTasks")
-                visible: appViewModel.currentView === "services"
+                visible: appViewModel.currentView === "services" && root.width >= 1400
                 onClicked: appViewModel.openScheduledPlaybackTasks()
             }
 
             ModernButton {
                 text: t("nav.history")
-                visible: appViewModel.currentView === "services"
+                visible: appViewModel.currentView === "services" && root.width >= 1400
                 onClicked: appViewModel.openHistoryStats()
+            }
+
+            IconButton {
+                id: serviceMoreButton
+                width: 42
+                height: 40
+                text: "\u22ef"
+                font.pixelSize: 22
+                visible: appViewModel.currentView === "services" && root.width < 1400
+                Accessible.name: t("action.more")
+                ToolTip.visible: hovered
+                ToolTip.text: t("action.more")
+                onClicked: serviceMoreMenu.open()
+
+                Menu {
+                    id: serviceMoreMenu
+                    y: serviceMoreButton.height + 4
+
+                    MenuItem {
+                        text: t("nav.scheduledTasks")
+                        onTriggered: appViewModel.openScheduledPlaybackTasks()
+                    }
+
+                    MenuItem {
+                        text: t("nav.history")
+                        onTriggered: appViewModel.openHistoryStats()
+                    }
+                }
             }
 
             ModernButton {
@@ -1561,9 +1482,87 @@ ApplicationWindow {
                     && !root.useTraditionalMediaHome
                 onClicked: appViewModel.backToServices()
             }
+
+            Rectangle {
+                parent: root
+                visible: root.usesCustomTitleBar && windowHeader.applicationToolbarVisible
+                anchors.right: root.right
+                anchors.rightMargin: 16
+                anchors.top: root.top
+                anchors.topMargin: 12
+                width: 116
+                height: 40
+                radius: 8
+                color: theme.elevated
+                border.width: 1
+                border.color: theme.border
+                clip: true
+                z: 9001
+
+                Row {
+                    anchors.centerIn: parent
+
+                    WindowControlButton {
+                        controlType: "minimize"
+                        Accessible.name: t("window.minimize")
+                        ToolTip.text: t("window.minimize")
+                        onClicked: root.showMinimized()
+                    }
+
+                    WindowControlButton {
+                        controlType: root.visibility === Window.Maximized ? "restore" : "maximize"
+                        Accessible.name: root.visibility === Window.Maximized
+                            ? t("window.restore") : t("window.maximize")
+                        ToolTip.text: Accessible.name
+                        onClicked: {
+                            if (root.visibility === Window.Maximized) {
+                                root.showNormal()
+                            } else {
+                                root.showMaximized()
+                            }
+                        }
+                    }
+
+                    WindowControlButton {
+                        controlType: "close"
+                        Accessible.name: t("window.close")
+                        ToolTip.text: t("window.close")
+                        onClicked: root.close()
+                    }
+                }
+            }
         }
     }
 
+    }
+
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.leftMargin: 8
+        anchors.right: parent.right
+        anchors.rightMargin: 8
+        anchors.top: parent.top
+        height: 5
+        edges: Qt.TopEdge
+        cursorShape: Qt.SizeVerCursor
+    }
+
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        width: 8
+        height: 8
+        edges: Qt.LeftEdge | Qt.TopEdge
+        cursorShape: Qt.SizeFDiagCursor
+    }
+
+    WindowResizeHandle {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        width: 8
+        height: 8
+        edges: Qt.RightEdge | Qt.TopEdge
+        cursorShape: Qt.SizeBDiagCursor
     }
 
     WindowResizeHandle {
@@ -4029,7 +4028,7 @@ ApplicationWindow {
         property string controlType: "minimize"
         readonly property bool closeButton: controlType === "close"
 
-        width: 46
+        width: 38
         height: 38
         leftPadding: 0
         rightPadding: 0
@@ -4070,7 +4069,7 @@ ApplicationWindow {
                     y: 0
                     width: 9
                     height: 8
-                    color: theme.surface
+                    color: theme.elevated
                     border.width: 1
                     border.color: windowButton.hovered ? theme.text : theme.muted
                 }
@@ -4080,7 +4079,7 @@ ApplicationWindow {
                     y: 3
                     width: 9
                     height: 8
-                    color: windowButton.hovered ? theme.elevatedHover : theme.surface
+                    color: windowButton.hovered ? theme.elevatedHover : theme.elevated
                     border.width: 1
                     border.color: windowButton.hovered ? theme.text : theme.muted
                 }
