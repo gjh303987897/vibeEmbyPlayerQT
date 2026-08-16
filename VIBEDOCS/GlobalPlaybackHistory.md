@@ -30,6 +30,13 @@ The module follows the existing layer boundaries:
 
 QML never queries SQLite, constructs service API requests, handles credentials, or calls libmpv.
 
+History rows reserve fixed-width status, duration, and action columns. The
+progress track consumes the remaining width, so every visible row has an equal
+track length and an equal replay-button size at a given viewport width. Records
+without a known duration keep an empty track and display the current position
+against `--:--`; completed records render a full track even if their duration was
+not reported.
+
 ## Persistence Model
 
 The `playback_history` table stores one row per stable media identity. Identity is the combination of source type, service id, and replay target, so equal titles on different services remain independent:

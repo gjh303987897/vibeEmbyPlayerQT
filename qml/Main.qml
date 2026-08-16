@@ -11320,13 +11320,14 @@ ApplicationWindow {
 
                                 Rectangle {
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 120
                                     Layout.preferredHeight: 4
                                     radius: 2
                                     color: theme.border
-                                    visible: globalHistoryRow.durationSeconds > 0
 
                                     Rectangle {
-                                        width: parent.width * globalHistoryRow.progress
+                                        width: parent.width * (globalHistoryRow.completed ? 1
+                                            : Math.max(0, Math.min(1, globalHistoryRow.progress)))
                                         height: parent.height
                                         radius: parent.radius
                                         color: globalHistoryRow.accentColor
@@ -11334,6 +11335,9 @@ ApplicationWindow {
                                 }
 
                                 Label {
+                                    Layout.preferredWidth: 118
+                                    Layout.minimumWidth: 118
+                                    Layout.maximumWidth: 118
                                     text: globalHistoryRow.completed
                                         ? t("globalHistory.completed")
                                         : globalHistoryRow.positionSeconds > 0
@@ -11342,19 +11346,29 @@ ApplicationWindow {
                                     color: globalHistoryRow.completed ? theme.success : theme.muted
                                     font.pixelSize: 11
                                     font.bold: globalHistoryRow.completed
+                                    horizontalAlignment: Text.AlignRight
+                                    elide: Text.ElideRight
                                 }
 
                                 MutedText {
-                                    visible: globalHistoryRow.durationSeconds > 0
-                                    text: root.formatPlaybackTime(globalHistoryRow.positionSeconds)
-                                        + " / " + root.formatPlaybackTime(globalHistoryRow.durationSeconds)
+                                    Layout.preferredWidth: 104
+                                    Layout.minimumWidth: 104
+                                    Layout.maximumWidth: 104
+                                    text: globalHistoryRow.durationSeconds > 0
+                                        ? root.formatPlaybackTime(globalHistoryRow.positionSeconds)
+                                            + " / " + root.formatPlaybackTime(globalHistoryRow.durationSeconds)
+                                        : root.formatPlaybackTime(globalHistoryRow.positionSeconds) + " / --:--"
                                     font.pixelSize: 11
+                                    horizontalAlignment: Text.AlignRight
+                                    elide: Text.ElideRight
                                 }
                             }
                         }
 
                         ColumnLayout {
-                            Layout.preferredWidth: 92
+                            Layout.preferredWidth: 108
+                            Layout.minimumWidth: 108
+                            Layout.maximumWidth: 108
                             Layout.fillHeight: true
                             spacing: 7
 
@@ -11368,6 +11382,7 @@ ApplicationWindow {
 
                             ModernButton {
                                 Layout.fillWidth: true
+                                Layout.preferredHeight: 36
                                 text: globalHistoryRow.available
                                     ? (globalHistoryRow.positionSeconds > 0 && !globalHistoryRow.completed
                                         ? t("action.continue") : t("action.play"))
