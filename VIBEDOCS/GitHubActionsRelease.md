@@ -12,7 +12,7 @@ The pipeline lives at `.github/workflows/build-release.yml` and builds:
 - Linux x86_64: tar.gz, AppImage, `.deb`, `.rpm`, and `.flatpak`
 - Linux arm64: tar.gz, AppImage, `.deb`, `.rpm`, and `.flatpak`
 
-Each push to `main` builds all packages. Pushing a version tag such as `v1.0.0` builds the same packages and publishes them to the matching GitHub Release.
+Each push to `main` builds all packages. Pushing a version tag such as `v1.0.0` or `v1.0.1-beta.1` builds the same packages and publishes them to the matching GitHub Release.
 
 ## Build Model
 
@@ -42,7 +42,13 @@ Native installers are configured by `cmake/Packaging.cmake`. Their independent j
 - `DragNDrop` on macOS
 - `DEB` and `RPM` on Linux
 
-The installer metadata defaults to the numeric version from `project()`. A version tag such as `v1.2.3` overrides it with `1.2.3`; commit builds keep the project version internally while the artifact filename contains the short commit SHA.
+The application and package metadata default to the numeric version from `project()`. A version tag such as `v1.2.3-beta.1` overrides `VIBEPLAYER_PACKAGE_VERSION` with the complete `1.2.3-beta.1` SemVer value; commit builds keep the project version internally while the artifact filename contains the short commit SHA. `cmake/SemVer.cmake` is the shared parser used by the application and CPack configuration.
+
+Windows MSI metadata is limited to the numeric `major.minor.patch` core, while the artifact filename and application version retain the complete SemVer. Native Linux packages translate prereleases so package-manager ordering remains correct:
+
+- DEB: `1.2.3-beta.1` becomes upstream version `1.2.3~beta.1` with package release `1`.
+- RPM: `1.2.3-beta.1` becomes version `1.2.3` with release `0.beta.1.1`.
+- A stable `1.2.3` uses the native release `1`, which sorts after either prerelease form.
 
 ## Qt Deployment
 
@@ -91,14 +97,23 @@ The bundle grants network, IPC, X11, Wayland, PulseAudio, GPU, and host filesyst
 
 ## Release Strategy
 
-The workflow publishes formal releases from Git tags matching `v*.*.*`.
+The workflow publishes releases from `v`-prefixed tags that comply with [Semantic Versioning 2.0.0](https://semver.org/):
 
-For the 1.0.0 release, create and push:
+```text
+v1.0.1
+v1.0.1-alpha
+v1.0.1-beta.1
+v1.0.1-rc.2+build.19
+```
+
+The `major.minor.patch` core is mandatory. Prerelease and build identifiers may contain ASCII letters, digits, and hyphens. Numeric prerelease identifiers cannot contain leading zeros. Tags with a prerelease section create or update a GitHub Release marked as a prerelease and are not marked as the latest release. Artifact filenames use the version without the tag's leading `v`.
+
+For a beta release, create and push:
 
 ```bash
-git tag v1.0.0
+git tag v1.0.1-beta
 git push origin main
-git push origin v1.0.0
+git push origin v1.0.1-beta
 ```
 
 The release job waits for all portable, native, AppImage, and Flatpak package jobs. It downloads only artifacts whose names start with `release-`, so the short-lived internal `build-input-*` archives are never published in the GitHub Release.

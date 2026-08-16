@@ -43,6 +43,7 @@ int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("vibePlayerQT"));
+    QApplication::setApplicationVersion(QStringLiteral(VIBEPLAYER_VERSION));
     QApplication::setOrganizationName(QStringLiteral("vibePlayerQT"));
     QApplication::setQuitOnLastWindowClosed(true);
 

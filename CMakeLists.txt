@@ -6,6 +6,18 @@ project(vibePlayerQT
     LANGUAGES CXX
 )
 
+include(cmake/SemVer.cmake)
+set(VIBEPLAYER_PACKAGE_VERSION "${PROJECT_VERSION}" CACHE STRING
+    "Application version in Semantic Versioning 2.0.0 format"
+)
+vibeplayer_parse_semver("${VIBEPLAYER_PACKAGE_VERSION}" VIBEPLAYER_SEMVER)
+if(NOT VIBEPLAYER_SEMVER_VALID)
+    message(FATAL_ERROR
+        "Invalid VIBEPLAYER_PACKAGE_VERSION '${VIBEPLAYER_PACKAGE_VERSION}': "
+        "${VIBEPLAYER_SEMVER_ERROR}"
+    )
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -206,6 +218,10 @@ target_include_directories(vibePlayerQT PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/player
 )
 
+target_compile_definitions(vibePlayerQT PRIVATE
+    VIBEPLAYER_VERSION="${VIBEPLAYER_SEMVER_FULL}"
+)
+
 target_link_libraries(vibePlayerQT PRIVATE
     Qt6::Concurrent
     Qt6::Qml
@@ -308,6 +324,12 @@ install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+    add_test(
+        NAME semantic_version
+        COMMAND ${CMAKE_COMMAND} -P
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tests/SemVerTest.cmake"
+    )
 
     add_executable(local_media_service_test
         tests/LocalMediaServiceTest.cpp

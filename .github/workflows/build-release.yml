@@ -30,6 +30,7 @@ jobs:
     outputs:
       package-version: ${{ steps.version.outputs.package-version }}
       installer-version: ${{ steps.version.outputs.installer-version }}
+      is-prerelease: ${{ steps.version.outputs.is-prerelease }}
 
     steps:
       - name: Resolve package version
@@ -37,20 +38,37 @@ jobs:
         shell: bash
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            package_version="$GITHUB_REF_NAME"
             tag_version="${GITHUB_REF_NAME#v}"
-            if [[ "$tag_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            semver_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+            if [[ "$GITHUB_REF_NAME" == v* && "$tag_version" =~ $semver_pattern ]]; then
               installer_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+              prerelease="${BASH_REMATCH[5]}"
             else
-              echo "Tag does not contain a numeric installer version: $GITHUB_REF_NAME"
+              echo "Tag must use v-prefixed Semantic Versioning: $GITHUB_REF_NAME"
               exit 1
             fi
+
+            if [[ -n "$prerelease" ]]; then
+              IFS='.' read -ra prerelease_identifiers <<< "$prerelease"
+              for identifier in "${prerelease_identifiers[@]}"; do
+                if [[ "$identifier" =~ ^0[0-9]+$ ]]; then
+                  echo "Numeric prerelease identifiers cannot have leading zeros: $identifier"
+                  exit 1
+                fi
+              done
+              is_prerelease=true
+            else
+              is_prerelease=false
+            fi
+            package_version="$tag_version"
           else
             package_version="${GITHUB_SHA::7}"
             installer_version=""
+            is_prerelease=false
           fi
           echo "package-version=$package_version" >> "$GITHUB_OUTPUT"
           echo "installer-version=$installer_version" >> "$GITHUB_OUTPUT"
+          echo "is-prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.package-suffix }}
@@ -261,7 +279,7 @@ jobs:
             "-DCMAKE_LINKER=$lldLink"
           )
           if ($env:INSTALLER_VERSION) {
-            $cmakeArgs += "-DVIBEPLAYER_PACKAGE_VERSION=$($env:INSTALLER_VERSION)"
+            $cmakeArgs += "-DVIBEPLAYER_PACKAGE_VERSION=$($env:PACKAGE_VERSION)"
           }
           cmake @cmakeArgs
 
@@ -283,7 +301,7 @@ jobs:
             )
           fi
           if [[ -n "$INSTALLER_VERSION" ]]; then
-            cmake_args+=(-DVIBEPLAYER_PACKAGE_VERSION="$INSTALLER_VERSION")
+            cmake_args+=(-DVIBEPLAYER_PACKAGE_VERSION="$PACKAGE_VERSION")
           fi
           cmake "${cmake_args[@]}"
 
@@ -854,6 +872,7 @@ jobs:
     name: Publish GitHub release
     runs-on: ubuntu-24.04
     needs:
+      - metadata
       - portable
       - native
       - appimage
@@ -958,13 +977,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          IS_PRERELEASE: ${{ needs.metadata.outputs.is-prerelease }}
         run: |
           set -euo pipefail
           release_tag="${GITHUB_REF_NAME}"
+          edit_release_flags=(--prerelease=false)
+          create_release_flags=()
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            edit_release_flags=(--prerelease --latest=false)
+            create_release_flags=(--prerelease --latest=false)
+          fi
           if gh release view "$release_tag" >/dev/null 2>&1; then
             gh release edit "$release_tag" \
               --title "vibePlayerQT ${release_tag}" \
-              --notes-file release-notes.md
+              --notes-file release-notes.md \
+              "${edit_release_flags[@]}"
             gh release view "$release_tag" --json assets --jq '.assets[].name' |
               while IFS= read -r asset_name; do
                 gh release delete-asset "$release_tag" "$asset_name" --yes
@@ -974,5 +1001,6 @@ jobs:
             gh release create "$release_tag" \
               release-assets/* \
               --title "vibePlayerQT ${release_tag}" \
-              --notes-file release-notes.md
+              --notes-file release-notes.md \
+              "${create_release_flags[@]}"
           fi
