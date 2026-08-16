@@ -1425,7 +1425,6 @@ ApplicationWindow {
                         glyphSource: "qrc:/app/icons/lucide/ellipsis.svg"
                         description: t("action.more")
                         selected: serviceMorePopup.visible
-                        toolTipEnabled: !serviceMorePopup.visible
                         onClicked: serviceMorePopup.visible
                             ? serviceMorePopup.close() : serviceMorePopup.open()
 
@@ -3144,63 +3143,34 @@ ApplicationWindow {
         property url glyphSource
         property string description: ""
         property bool selected: false
-        property bool toolTipEnabled: true
+        property real glyphSize: 16
 
         implicitWidth: 38
         implicitHeight: 38
         hoverEnabled: true
-        focusPolicy: Qt.StrongFocus
+        focusPolicy: Qt.TabFocus
         opacity: enabled ? 1 : 0.45
         scale: down ? 0.94 : 1
         Accessible.name: description
 
-        ToolTip {
-            id: toolbarGlyphToolTip
-            visible: toolbarGlyphButton.toolTipEnabled
-                && toolbarGlyphButton.hovered
-                && toolbarGlyphButton.description.length > 0
-            text: toolbarGlyphButton.description
-            delay: 450
-            timeout: 2500
-            leftPadding: 9
-            rightPadding: 9
-            topPadding: 6
-            bottomPadding: 6
-
-            contentItem: Label {
-                text: toolbarGlyphToolTip.text
-                color: theme.surface
-                font.pixelSize: 12
-                font.bold: true
-            }
-
-            background: Rectangle {
-                radius: 6
-                color: theme.text
-                border.width: 1
-                border.color: root.withAlpha(theme.surface, 0.20)
-            }
-        }
-
         contentItem: MonochromeIcon {
             anchors.centerIn: parent
-            width: 19
-            height: 19
+            width: toolbarGlyphButton.glyphSize
+            height: toolbarGlyphButton.glyphSize
             source: toolbarGlyphButton.glyphSource
-            iconColor: toolbarGlyphButton.selected ? theme.surface : theme.text
+            iconColor: toolbarGlyphButton.selected ? theme.surface : theme.muted
         }
 
         background: Rectangle {
             radius: 0
             color: toolbarGlyphButton.selected ? theme.text
                 : toolbarGlyphButton.down ? root.withAlpha(theme.text, darkTheme ? 0.20 : 0.12)
-                : toolbarGlyphButton.hovered || toolbarGlyphButton.activeFocus ? theme.elevatedHover
-                : "transparent"
-            border.width: toolbarGlyphButton.activeFocus ? 1 : 0
-            border.color: theme.primary
+                : theme.elevatedHover
+            opacity: toolbarGlyphButton.selected || toolbarGlyphButton.down
+                || toolbarGlyphButton.hovered || toolbarGlyphButton.activeFocus ? 1 : 0
 
-            Behavior on color {
-                ColorAnimation { duration: 110 }
+            Behavior on opacity {
+                NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
             }
         }
 

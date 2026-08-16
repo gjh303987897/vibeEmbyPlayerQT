@@ -52,9 +52,14 @@ QML does not make network requests and does not parse JSON.
 
 - App launch opens the service-card page.
 - Service-card actions are grouped in the upper-right toolbar immediately before
-  the window controls as compact monochrome icon buttons. Keep-alive tasks and history statistics share a stable overflow
+  the window controls as compact monochrome icon buttons. Their 16-pixel optical
+  size and muted icon color match the adjacent window controls. Hover feedback
+  fades a fixed-color button surface through opacity, avoiding transparent-black
+  color interpolation and abrupt foreground changes at pointer entry or exit.
+  Keep-alive tasks and history statistics share a stable overflow
   popover so the action order does not shift with window width; every icon-only
-  action keeps a tooltip and accessible name.
+  action keeps an accessible name without displaying a hover tooltip. Mouse
+  clicks do not retain a focus outline; keyboard tab focus remains available.
 - Service cards derive their visual identity from the existing `serviceType` role. Emby, Jellyfin, WebDAV and IPTV each use a local vector-style mark and a stable accent color, so card rendering never depends on remote image assets.
 - The reusable QML service icon and status-chip components keep the card hierarchy consistent across light and dark themes: service identity and account details stay in the primary row, while login and session state remain in a fixed footer row.
 - Built-in entry cards and saved service cards share the same responsive size contract. The service page selects two or three columns from the available width, calculates one common card width and keeps every card at a fixed 156-pixel height; both the `GridLayout` and `GridView` consume those values so separate sections remain aligned while the window resizes.
