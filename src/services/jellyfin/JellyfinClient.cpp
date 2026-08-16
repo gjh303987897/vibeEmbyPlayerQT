@@ -97,7 +97,8 @@ void JellyfinClient::fetchLibraries(const UserSession& session, std::function<vo
             return;
         }
 
-        callback(parseLibraries(result->body, session.server.baseUrl, session.accessToken));
+        parseLibrariesAsync(result->body, session.server.baseUrl, session.accessToken,
+                            std::move(callback));
     });
 }
 
@@ -135,7 +136,8 @@ void JellyfinClient::fetchLibraryItems(const UserSession& session,
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -179,7 +181,8 @@ void JellyfinClient::searchVideoItems(const UserSession& session,
             callback(std::unexpected(result.error()));
             return;
         }
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -203,7 +206,8 @@ void JellyfinClient::fetchContinueWatching(const UserSession& session, int limit
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -229,7 +233,8 @@ void JellyfinClient::fetchSuggestedSeries(const UserSession& session,
             callback(std::unexpected(result.error()));
             return;
         }
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -261,7 +266,8 @@ void JellyfinClient::fetchSeriesSeasons(const UserSession& session,
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -296,7 +302,8 @@ void JellyfinClient::fetchSeasonEpisodes(const UserSession& session,
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 

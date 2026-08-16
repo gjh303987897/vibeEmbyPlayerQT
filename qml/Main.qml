@@ -15,12 +15,15 @@ ApplicationWindow {
     visible: false
     title: qsTr("vibePlayerQT")
     color: theme.bg
+    flags: Qt.Window | (Qt.platform.os === "windows" ? Qt.FramelessWindowHint : 0)
 
     property int pendingDeleteRow: -1
     property int pendingTsslDeleteRow: -1
     property int pendingScheduledDeleteRow: -1
     property int dragFromRow: -1
     property bool playerImmersive: false
+    readonly property bool usesCustomTitleBar: Qt.platform.os === "windows"
+    readonly property int customTitleBarHeight: usesCustomTitleBar && !playerImmersive ? 38 : 0
     property string downloadWarningTitle: ""
     property string downloadWarningMessage: ""
     property bool darkTheme: appViewModel.effectiveTheme !== "light"
@@ -1121,24 +1124,171 @@ ApplicationWindow {
         }
     }
 
-    header: ToolBar {
-        height: root.playerImmersive || appViewModel.currentView === "player"
-            || appViewModel.currentView === "details"
-            || root.immersiveMediaHome ? 0 : 64
-        visible: !root.playerImmersive && appViewModel.currentView !== "player"
+    Item {
+        id: windowHeader
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        z: 9000
+        readonly property bool applicationToolbarVisible: !root.playerImmersive
+            && appViewModel.currentView !== "player"
             && appViewModel.currentView !== "details"
             && !root.immersiveMediaHome
-        enabled: visible
-        background: Rectangle {
+        height: root.playerImmersive ? 0
+            : root.customTitleBarHeight + (applicationToolbarVisible ? 64 : 0)
+
+        Rectangle {
+            id: customTitleBar
+            width: parent.width
+            height: root.customTitleBarHeight
+            visible: height > 0
             color: theme.surface
-            border.color: theme.border
+            z: 10
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: theme.border
+            }
+
+            Item {
+                id: windowDragArea
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.right: windowControlRow.left
+
+                Row {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 13
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 8
+
+                    Image {
+                        width: 18
+                        height: 18
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: "qrc:/app/icons/icon_black.png"
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                    }
+
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: t("app.title")
+                        color: theme.text
+                        font.pixelSize: 12
+                        font.bold: true
+                    }
+                }
+
+                DragHandler {
+                    target: null
+                    acceptedButtons: Qt.LeftButton
+                    onActiveChanged: {
+                        if (active && root.visibility !== Window.FullScreen) {
+                            windowAppearanceController.startSystemMove()
+                        }
+                    }
+                }
+
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    exclusiveSignals: TapHandler.DoubleTap
+                    onDoubleTapped: {
+                        if (root.visibility === Window.Maximized) {
+                            root.showNormal()
+                        } else {
+                            root.showMaximized()
+                        }
+                    }
+                }
+            }
+
+            Row {
+                id: windowControlRow
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
+
+                WindowControlButton {
+                    controlType: "minimize"
+                    Accessible.name: t("window.minimize")
+                    ToolTip.text: t("window.minimize")
+                    onClicked: root.showMinimized()
+                }
+
+                WindowControlButton {
+                    controlType: root.visibility === Window.Maximized ? "restore" : "maximize"
+                    Accessible.name: root.visibility === Window.Maximized
+                        ? t("window.restore") : t("window.maximize")
+                    ToolTip.text: Accessible.name
+                    onClicked: {
+                        if (root.visibility === Window.Maximized) {
+                            root.showNormal()
+                        } else {
+                            root.showMaximized()
+                        }
+                    }
+                }
+
+                WindowControlButton {
+                    controlType: "close"
+                    Accessible.name: t("window.close")
+                    ToolTip.text: t("window.close")
+                    onClicked: root.close()
+                }
+            }
+
+            WindowResizeHandle {
+                anchors.left: parent.left
+                anchors.leftMargin: 8
+                anchors.right: parent.right
+                anchors.rightMargin: 8
+                anchors.top: parent.top
+                height: 5
+                edges: Qt.TopEdge
+                cursorShape: Qt.SizeVerCursor
+            }
+
+            WindowResizeHandle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                width: 8
+                height: 8
+                edges: Qt.LeftEdge | Qt.TopEdge
+                cursorShape: Qt.SizeFDiagCursor
+            }
+
+            WindowResizeHandle {
+                anchors.right: parent.right
+                anchors.top: parent.top
+                width: 8
+                height: 8
+                edges: Qt.RightEdge | Qt.TopEdge
+                cursorShape: Qt.SizeBDiagCursor
+            }
         }
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 24
-            anchors.rightMargin: 24
-            spacing: 12
+        ToolBar {
+            id: applicationToolbar
+            y: root.customTitleBarHeight
+            width: parent.width
+            height: windowHeader.applicationToolbarVisible ? 64 : 0
+            visible: windowHeader.applicationToolbarVisible
+            enabled: visible
+            background: Rectangle {
+                color: theme.surface
+                border.color: theme.border
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 24
+                anchors.rightMargin: 24
+                spacing: 12
 
             IconButton {
                 id: headerBackButton
@@ -1285,8 +1435,9 @@ ApplicationWindow {
                 }
             }
 
-            BusyIndicator {
-                running: appViewModel.loading || appViewModel.localMediaLoading
+            LoadingSpinner {
+                running: (appViewModel.loading && appViewModel.loadingServiceCardId.length === 0)
+                    || appViewModel.localMediaLoading
                 visible: running
                 implicitWidth: 28
                 implicitHeight: 28
@@ -1413,8 +1564,58 @@ ApplicationWindow {
         }
     }
 
+    }
+
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 5
+        edges: Qt.LeftEdge
+        cursorShape: Qt.SizeHorCursor
+    }
+
+    WindowResizeHandle {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 5
+        edges: Qt.RightEdge
+        cursorShape: Qt.SizeHorCursor
+    }
+
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.leftMargin: 8
+        anchors.right: parent.right
+        anchors.rightMargin: 8
+        anchors.bottom: parent.bottom
+        height: 5
+        edges: Qt.BottomEdge
+        cursorShape: Qt.SizeVerCursor
+    }
+
+    WindowResizeHandle {
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        width: 8
+        height: 8
+        edges: Qt.LeftEdge | Qt.BottomEdge
+        cursorShape: Qt.SizeBDiagCursor
+    }
+
+    WindowResizeHandle {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: 8
+        height: 8
+        edges: Qt.RightEdge | Qt.BottomEdge
+        cursorShape: Qt.SizeFDiagCursor
+    }
+
     Rectangle {
         anchors.fill: parent
+        anchors.topMargin: windowHeader.height
         color: theme.bg
 
         ColumnLayout {
@@ -1689,6 +1890,7 @@ ApplicationWindow {
                                     hasSession: model.hasSession
                                     privateMode: model.privateMode
                                     dragIndex: index
+                                    loading: appViewModel.loadingServiceCardId === model.cardId
                                     onActivated: appViewModel.selectServiceCard(index)
                                     onEditRequested: {
                                         appViewModel.editServiceCard(index)
@@ -1751,6 +1953,12 @@ ApplicationWindow {
                         && appViewModel.recommendedItems.count === 0
                         && appViewModel.libraries.count === 0
                     property int featuredIndex: 0
+                    property Item trendySearchButton: trendyHomeLoader.item
+                        ? trendyHomeLoader.item.searchButton : null
+                    readonly property real trendySearchButtonWidth: trendySearchButton
+                        ? trendySearchButton.width : 46
+                    readonly property real trendySearchButtonHeight: trendySearchButton
+                        ? trendySearchButton.height : 46
 
                     Timer {
                         interval: 10000
@@ -1777,13 +1985,19 @@ ApplicationWindow {
                     Popup {
                         id: homeSearchPopup
                         x: {
-                            var buttonPosition = homeSearchButton.mapToItem(homePage, 0, 0)
+                            if (!homePage.trendySearchButton) {
+                                return Math.max(16, homePage.width - width - 32)
+                            }
+                            var buttonPosition = homePage.trendySearchButton.mapToItem(homePage, 0, 0)
                             return Math.max(16,
-                                buttonPosition.x + homeSearchButton.width - width)
+                                buttonPosition.x + homePage.trendySearchButtonWidth - width)
                         }
                         y: {
-                            var buttonPosition = homeSearchButton.mapToItem(homePage, 0, 0)
-                            return buttonPosition.y + (homeSearchButton.height - height) / 2
+                            if (!homePage.trendySearchButton) {
+                                return 20
+                            }
+                            var buttonPosition = homePage.trendySearchButton.mapToItem(homePage, 0, 0)
+                            return buttonPosition.y + (homePage.trendySearchButtonHeight - height) / 2
                         }
                         readonly property real expandedWidth: Math.min(460,
                             Math.max(240, homePage.width - 48))
@@ -1808,14 +2022,14 @@ ApplicationWindow {
                                 }
                                 NumberAnimation {
                                     property: "width"
-                                    from: homeSearchButton.width
+                                    from: homePage.trendySearchButtonWidth
                                     to: homeSearchPopup.expandedWidth
                                     duration: 220
                                     easing.type: Easing.OutCubic
                                 }
                                 NumberAnimation {
                                     property: "height"
-                                    from: homeSearchButton.height
+                                    from: homePage.trendySearchButtonHeight
                                     to: homeSearchPopup.expandedHeight
                                     duration: 220
                                     easing.type: Easing.OutCubic
@@ -1835,14 +2049,14 @@ ApplicationWindow {
                                 NumberAnimation {
                                     property: "width"
                                     from: homeSearchPopup.expandedWidth
-                                    to: homeSearchButton.width
+                                    to: homePage.trendySearchButtonWidth
                                     duration: 150
                                     easing.type: Easing.InCubic
                                 }
                                 NumberAnimation {
                                     property: "height"
                                     from: homeSearchPopup.expandedHeight
-                                    to: homeSearchButton.height
+                                    to: homePage.trendySearchButtonHeight
                                     duration: 150
                                     easing.type: Easing.InCubic
                                 }
@@ -1874,23 +2088,29 @@ ApplicationWindow {
                         }
                     }
 
-                    Flickable {
-                        id: homeFlick
+                    Loader {
+                        id: trendyHomeLoader
                         anchors.fill: parent
-                        visible: homePage.trendyLayout
-                        enabled: visible
-                        contentWidth: width
-                        contentHeight: homeContent.height
-                        clip: true
+                        active: homePage.visible && homePage.trendyLayout
+                        asynchronous: true
+                        visible: status === Loader.Ready
                         opacity: homePage.showInitialLoading ? 0.24 : 1
-                        boundsBehavior: Flickable.StopAtBounds
 
                         Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-                        Item {
-                            id: homeContent
-                            width: homeFlick.width
-                            height: homeHero.height + homeSections.implicitHeight + 42
+                        sourceComponent: Component {
+                            Flickable {
+                                id: homeFlick
+                                property alias searchButton: homeSearchButton
+                                contentWidth: width
+                                contentHeight: homeContent.height
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                Item {
+                                    id: homeContent
+                                    width: homeFlick.width
+                                    height: homeHero.height + homeSections.implicitHeight + 42
 
                             Rectangle {
                                 id: homeHero
@@ -2387,18 +2607,24 @@ ApplicationWindow {
                                     }
                                 }
                             }
+                                }
+                            }
                         }
                     }
 
-                    TraditionalMediaHome {
+                    Loader {
+                        id: traditionalHomeLoader
                         anchors.fill: parent
-                        visible: !homePage.trendyLayout
-                        enabled: visible
+                        active: homePage.visible && !homePage.trendyLayout
+                        asynchronous: true
+                        sourceComponent: TraditionalMediaHome {}
                     }
 
                     PageLoadingPanel {
                         anchors.centerIn: parent
-                        visible: homePage.trendyLayout && homePage.showInitialLoading
+                        visible: homePage.trendyLayout
+                            && (homePage.showInitialLoading
+                                || trendyHomeLoader.status !== Loader.Ready)
                         title: t("loading.home")
                         subtitle: t("loading.homeHint")
                     }
@@ -2580,7 +2806,7 @@ ApplicationWindow {
                             Layout.preferredHeight: visible ? 30 : 0
                             spacing: 8
 
-                            BusyIndicator {
+                            LoadingSpinner {
                                 running: parent.visible
                                 implicitWidth: 24
                                 implicitHeight: 24
@@ -3798,6 +4024,111 @@ ApplicationWindow {
         }
     }
 
+    component WindowControlButton: Button {
+        id: windowButton
+        property string controlType: "minimize"
+        readonly property bool closeButton: controlType === "close"
+
+        width: 46
+        height: 38
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
+        hoverEnabled: true
+        focusPolicy: Qt.TabFocus
+        ToolTip.visible: hovered && ToolTip.text.length > 0
+
+        contentItem: Item {
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: Math.round(parent.height / 2 + 4)
+                width: 11
+                height: 1
+                visible: windowButton.controlType === "minimize"
+                color: windowButton.hovered ? theme.text : theme.muted
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: 10
+                height: 9
+                visible: windowButton.controlType === "maximize"
+                color: "transparent"
+                border.width: 1
+                border.color: windowButton.hovered ? theme.text : theme.muted
+            }
+
+            Item {
+                anchors.centerIn: parent
+                width: 12
+                height: 11
+                visible: windowButton.controlType === "restore"
+
+                Rectangle {
+                    x: 3
+                    y: 0
+                    width: 9
+                    height: 8
+                    color: theme.surface
+                    border.width: 1
+                    border.color: windowButton.hovered ? theme.text : theme.muted
+                }
+
+                Rectangle {
+                    x: 0
+                    y: 3
+                    width: 9
+                    height: 8
+                    color: windowButton.hovered ? theme.elevatedHover : theme.surface
+                    border.width: 1
+                    border.color: windowButton.hovered ? theme.text : theme.muted
+                }
+            }
+
+            Label {
+                anchors.centerIn: parent
+                visible: windowButton.closeButton
+                text: "\u00d7"
+                color: windowButton.hovered ? "#ffffff" : theme.muted
+                font.pixelSize: 18
+                font.weight: Font.Light
+            }
+        }
+
+        background: Rectangle {
+            color: windowButton.closeButton
+                ? (windowButton.down ? "#b91c2b" : windowButton.hovered ? "#d9363e" : "transparent")
+                : windowButton.down ? root.withAlpha(theme.primary, 0.18)
+                : windowButton.hovered ? theme.elevatedHover : "transparent"
+        }
+    }
+
+    component WindowResizeHandle: Item {
+        id: resizeHandle
+        property int edges: 0
+        property int cursorShape: Qt.ArrowCursor
+
+        enabled: root.usesCustomTitleBar
+            && root.visibility !== Window.Maximized
+            && root.visibility !== Window.FullScreen
+        z: 10000
+
+        HoverHandler {
+            cursorShape: resizeHandle.cursorShape
+        }
+
+        DragHandler {
+            target: null
+            acceptedButtons: Qt.LeftButton
+            onActiveChanged: {
+                if (active) {
+                    windowAppearanceController.startSystemResize(resizeHandle.edges)
+                }
+            }
+        }
+    }
+
     component ThumbnailLoadingIcon: Item {
         id: loadingIcon
         property bool running: false
@@ -3826,7 +4157,7 @@ ApplicationWindow {
             width: Math.max(12, loadingIcon.width - 10)
             height: width
 
-            RotationAnimation on rotation {
+            RotationAnimator on rotation {
                 running: loadingIcon.running
                 from: 0
                 to: 360
@@ -3852,6 +4183,21 @@ ApplicationWindow {
         }
     }
 
+    component LoadingSpinner: Item {
+        property bool running: false
+
+        implicitWidth: 28
+        implicitHeight: 28
+        visible: running
+
+        ThumbnailLoadingIcon {
+            anchors.centerIn: parent
+            iconSize: Math.max(16, Math.round(Math.min(parent.width, parent.height)))
+            running: parent.running
+            backgroundVisible: false
+        }
+    }
+
     component PageLoadingPanel: Rectangle {
         id: loadingPanel
         property string title: ""
@@ -3871,7 +4217,7 @@ ApplicationWindow {
             width: parent.width - 40
             spacing: 10
 
-            BusyIndicator {
+            LoadingSpinner {
                 anchors.horizontalCenter: parent.horizontalCenter
                 running: loadingPanel.visible
                 implicitWidth: 36
@@ -4250,6 +4596,7 @@ ApplicationWindow {
         property bool autoLogin: true
         property bool hasSession: false
         property bool privateMode: false
+        property bool loading: false
         property string leadingStatusText: autoLogin ? t("status.autoLogin") : t("status.passwordRequired")
         property color leadingStatusColor: autoLogin ? theme.success : theme.warning
         property string trailingStatusText: hasSession ? t("status.ready") : t("status.noSession")
@@ -4260,12 +4607,15 @@ ApplicationWindow {
         readonly property color accentColor: root.serviceAccentColor(serviceType)
 
         radius: 14
-        color: cardMouse.containsMouse || dropArea.containsDrag ? theme.elevatedHover : theme.elevated
+        color: loading || cardMouse.containsMouse || dropArea.containsDrag ? theme.elevatedHover : theme.elevated
         border.color: dropArea.containsDrag ? theme.primary
+            : loading ? root.withAlpha(accentColor, 0.82)
             : cardMouse.containsMouse ? root.withAlpha(accentColor, 0.72)
             : theme.border
         border.width: dropArea.containsDrag ? 2 : 1
-        scale: cardMouse.drag.active ? 0.98 : (cardMouse.containsMouse && !editing ? 1.008 : 1.0)
+        scale: cardMouse.drag.active ? 0.98
+            : loading ? 1.004
+            : (cardMouse.containsMouse && !editing ? 1.008 : 1.0)
         opacity: cardMouse.drag.active ? 0.92 : 1.0
         z: cardMouse.drag.active ? 10 : 0
         Drag.active: cardMouse.drag.active && editing
@@ -4332,6 +4682,7 @@ ApplicationWindow {
         MouseArea {
             id: cardMouse
             anchors.fill: parent
+            enabled: !card.loading
             hoverEnabled: true
             drag.target: editing ? card : null
             drag.axis: Drag.XAndYAxis
@@ -4349,6 +4700,9 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: 14
             spacing: 10
+            opacity: card.loading ? 0.56 : 1
+
+            Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
             RowLayout {
                 Layout.fillWidth: true
@@ -4476,6 +4830,75 @@ ApplicationWindow {
                     Layout.maximumWidth: serviceStatusRow.width * 0.46
                     text: card.trailingStatusText
                     accentColor: card.trailingStatusColor
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 1
+            visible: card.loading || opacity > 0
+            opacity: card.loading ? 1 : 0
+            z: 2
+            radius: card.radius - 1
+            color: root.withAlpha(card.accentColor, darkTheme ? 0.10 : 0.07)
+
+            Behavior on opacity {
+                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: loadingStatusRow.implicitWidth + 26
+                height: 46
+                radius: 10
+                color: darkTheme ? "#e61d232b" : "#f2ffffff"
+                border.color: root.withAlpha(card.accentColor, 0.42)
+
+                Row {
+                    id: loadingStatusRow
+                    anchors.centerIn: parent
+                    spacing: 10
+
+                    ThumbnailLoadingIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        running: card.loading
+                        iconSize: 30
+                        accentColor: card.accentColor
+                        backgroundVisible: false
+                    }
+
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: t("status.openingService")
+                        color: theme.text
+                        font.pixelSize: 13
+                        font.bold: true
+                    }
+                }
+            }
+
+            Item {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 3
+                clip: true
+
+                Rectangle {
+                    width: Math.max(56, parent.width * 0.32)
+                    height: parent.height
+                    radius: height / 2
+                    color: card.accentColor
+
+                    NumberAnimation on x {
+                        running: card.loading
+                        from: -Math.max(56, card.width * 0.32)
+                        to: card.width
+                        duration: 920
+                        loops: Animation.Infinite
+                        easing.type: Easing.InOutCubic
+                    }
                 }
             }
         }
@@ -10081,7 +10504,7 @@ ApplicationWindow {
                         anchors.centerIn: parent
                         spacing: 10
 
-                        BusyIndicator {
+                        LoadingSpinner {
                             Layout.alignment: Qt.AlignHCenter
                             running: parent.parent.visible
                             implicitWidth: 44
@@ -10517,7 +10940,7 @@ ApplicationWindow {
 
                 Item { Layout.fillWidth: true }
 
-                BusyIndicator {
+                LoadingSpinner {
                     visible: appViewModel.globalHistoryLoading && appViewModel.globalPlaybackHistory.count > 0
                     running: visible
                     implicitWidth: 22
@@ -10802,15 +11225,12 @@ ApplicationWindow {
         }
     }
 
-    component IptvPage: Flickable {
-        id: iptvFlick
-        contentWidth: width
-        contentHeight: iptvColumn.implicitHeight
-        clip: true
+    component IptvPage: Item {
+        id: iptvPage
 
         ColumnLayout {
             id: iptvColumn
-            width: iptvFlick.width
+            anchors.fill: parent
             spacing: 18
 
             RowLayout {
@@ -10824,7 +11244,7 @@ ApplicationWindow {
                 }
 
                 ModernTextField {
-                    Layout.preferredWidth: Math.min(360, Math.max(220, iptvFlick.width * 0.34))
+                    Layout.preferredWidth: Math.min(360, Math.max(220, iptvPage.width * 0.34))
                     placeholderText: t("iptv.search")
                     text: appViewModel.iptvSearchText
                     onTextChanged: appViewModel.iptvSearchText = text
@@ -10853,22 +11273,46 @@ ApplicationWindow {
             GridView {
                 id: iptvGrid
                 Layout.fillWidth: true
-                Layout.preferredHeight: appViewModel.iptvChannels.count > 0
-                    ? Math.ceil(appViewModel.iptvChannels.count / Math.max(1, Math.floor(width / 214))) * 182
-                    : 120
+                Layout.fillHeight: true
                 clip: true
-                interactive: false
+                boundsBehavior: Flickable.StopAtBounds
+                cacheBuffer: cellHeight * 2
+                reuseItems: true
                 model: appViewModel.iptvChannels
                 cellWidth: Math.max(196, width / Math.max(1, Math.floor(width / 214)))
                 cellHeight: 176
 
-                delegate: IptvChannelCard {
+                delegate: Item {
                     width: iptvGrid.cellWidth - 14
                     height: 164
-                    title: model.name
-                    groupName: model.groupName
-                    logoUrl: model.logoUrl
-                    onActivated: appViewModel.playIptvChannel(index)
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 10
+                        color: theme.elevated
+                        border.color: theme.border
+                        opacity: channelCardLoader.status === Loader.Ready ? 0 : 1
+
+                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                    }
+
+                    Loader {
+                        id: channelCardLoader
+                        anchors.fill: parent
+                        asynchronous: true
+                        opacity: status === Loader.Ready ? 1 : 0
+
+                        Behavior on opacity {
+                            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+                        }
+
+                        sourceComponent: IptvChannelCard {
+                            title: model.name
+                            groupName: model.groupName
+                            logoUrl: model.logoUrl
+                            onActivated: appViewModel.playIptvChannel(index)
+                        }
+                    }
                 }
             }
 
@@ -11132,7 +11576,7 @@ ApplicationWindow {
                 width: Math.min(parent.width - 48, 360)
                 spacing: 12
 
-                BusyIndicator {
+                LoadingSpinner {
                     anchors.horizontalCenter: parent.horizontalCenter
                     running: webDavLoadingOverlay.visible
                     implicitWidth: 46

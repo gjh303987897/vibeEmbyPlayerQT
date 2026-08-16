@@ -28,6 +28,14 @@ protected:
     static MediaItem parseItem(const QJsonObject& object, const QString& baseUrl, const QString& token);
     static std::vector<MediaLibrary> parseLibraries(const QByteArray& body, const QString& baseUrl, const QString& token);
     static std::vector<MediaItem> parseItems(const QByteArray& body, const QString& baseUrl, const QString& token);
+    static void parseLibrariesAsync(QByteArray body,
+                                    QString baseUrl,
+                                    QString token,
+                                    std::function<void(LibraryResult)> callback);
+    static void parseItemsAsync(QByteArray body,
+                                QString baseUrl,
+                                QString token,
+                                std::function<void(ItemResult)> callback);
     static std::expected<MediaItem, NetworkError> parseItemDetails(const QByteArray& body, const QString& baseUrl, const QString& token);
     static QString primaryImageUrl(const QString& baseUrl, const QString& itemId, const QString& imageTag, const QString& token, int width);
     static QString logoImageUrl(const QString& baseUrl, const QString& itemId, const QString& imageTag, const QString& token, int width);

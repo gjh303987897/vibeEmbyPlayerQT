@@ -17,6 +17,10 @@ The QML `ApplicationWindow` handles close events:
 - If minimize-to-tray is enabled, closing the window hides it to tray.
 - If disabled, the application can exit normally.
 
+On Windows the same close path is invoked by the application-drawn title-bar
+button. It calls `ApplicationWindow.close()` rather than terminating the
+process, so minimize-to-tray remains authoritative.
+
 `TrayController` owns platform tray integration through `QSystemTrayIcon`.
 
 ## Tray Behavior

@@ -23,6 +23,7 @@ QML does not make network requests and does not parse JSON.
 
 - `MediaServerClientBase`
   - Shared URL building, authorization header construction, response parsing and image URL construction.
+  - Parses media-library and item-list JSON on Qt Concurrent workers, then returns model-ready values to the client object's UI thread.
 
 - `EmbyClient`
   - Uses Emby REST API paths, including the current-user root item search endpoint.
@@ -61,6 +62,14 @@ QML does not make network requests and does not parse JSON.
   across event-loop turns. This lets the pressed/loading state render before
   SQLite access and home model updates, while responses from a previously
   selected server are ignored.
+- While a saved service is opening, only the activated card is dimmed and
+  covered by a service-colored spinner and loading label. The card ignores
+  repeated clicks until the current operation finishes. IPTV initialization is
+  also deferred by one event-loop turn so this feedback is painted before its
+  local playlist data is read.
+- The trendy and traditional media-home trees are both loaded on demand with
+  asynchronous QML loaders. An inactive layout does not instantiate hidden
+  list delegates or react to home-model resets.
 - If auto-login is disabled or no session is available, clicking a card emits a password-required signal; QML shows a password dialog and the password is used only for that login request.
 - Deleting a card can either soft-hide the card while preserving local data, or delete the server/session records.
 
@@ -134,8 +143,10 @@ The ViewModel converts errors into user-facing messages.
 
 ## Threading
 
-The first version relies on `QNetworkAccessManager` asynchronous requests.
-No network work is performed by QML.
+Requests rely on asynchronous `QNetworkAccessManager`. Potentially large
+library/item JSON responses are parsed through Qt Concurrent before their
+results are applied to QML-facing models. No network or response parsing work
+is performed by QML.
 
 SQLite access is small and synchronous in this phase. Larger cache/index operations should move to a worker in later phases.
 

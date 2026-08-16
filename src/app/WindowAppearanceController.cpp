@@ -65,6 +65,19 @@ void WindowAppearanceController::applyTheme(const QString& effectiveTheme)
     scheduleApply();
 }
 
+bool WindowAppearanceController::startSystemMove()
+{
+    return m_window && m_window->startSystemMove();
+}
+
+bool WindowAppearanceController::startSystemResize(int edges)
+{
+    if (!m_window) {
+        return false;
+    }
+    return m_window->startSystemResize(Qt::Edges(edges));
+}
+
 void WindowAppearanceController::apply()
 {
     if (!m_window) {
@@ -91,14 +104,15 @@ void WindowAppearanceController::apply()
         DwmSetWindowAttribute(hwnd, legacyImmersiveDarkModeAttribute, &useDarkMode, sizeof(useDarkMode));
     }
 
-    const COLORREF captionColor = darkMode ? RGB(15, 18, 23) : RGB(245, 247, 251);
     const COLORREF borderColor = darkMode ? RGB(48, 57, 69) : RGB(216, 224, 234);
-    const COLORREF textColor = darkMode ? RGB(244, 247, 251) : RGB(21, 25, 34);
-    DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &captionColor, sizeof(captionColor));
     DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &borderColor, sizeof(borderColor));
-    DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &textColor, sizeof(textColor));
-
-    refreshNonClientFrame(hwnd, m_window->isActive());
+    if (!(m_window->flags() & Qt::FramelessWindowHint)) {
+        const COLORREF captionColor = darkMode ? RGB(15, 18, 23) : RGB(245, 247, 251);
+        const COLORREF textColor = darkMode ? RGB(244, 247, 251) : RGB(21, 25, 34);
+        DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &captionColor, sizeof(captionColor));
+        DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &textColor, sizeof(textColor));
+        refreshNonClientFrame(hwnd, m_window->isActive());
+    }
 #endif
 }
 

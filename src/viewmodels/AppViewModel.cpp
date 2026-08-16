@@ -42,6 +42,8 @@ constexpr int usageFlushIntervalMs = 15000;
 constexpr qint64 playbackTicksPerSecond = 10'000'000;
 constexpr int recentPlaybackProgressMergeMs = 30000;
 constexpr int continueRefreshAfterStopMs = 1500;
+constexpr int serviceActivationFeedbackMs = 60;
+constexpr int homeDataStartDelayMs = 80;
 
 ServerConfig linkPlaybackUsageServer()
 {
@@ -405,6 +407,10 @@ const QHash<QString, QString>& englishTexts()
 {
     static const QHash<QString, QString> texts {
         { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
+        { QStringLiteral("window.minimize"), QStringLiteral("Minimize") },
+        { QStringLiteral("window.maximize"), QStringLiteral("Maximize") },
+        { QStringLiteral("window.restore"), QStringLiteral("Restore") },
+        { QStringLiteral("window.close"), QStringLiteral("Close") },
         { QStringLiteral("nav.services"), QStringLiteral("Services") },
         { QStringLiteral("nav.settings"), QStringLiteral("Settings") },
         { QStringLiteral("nav.history"), QStringLiteral("Stats") },
@@ -539,6 +545,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("status.passwordRequired"), QStringLiteral("Password required") },
         { QStringLiteral("status.ready"), QStringLiteral("Ready") },
         { QStringLiteral("status.noSession"), QStringLiteral("No session") },
+        { QStringLiteral("status.openingService"), QStringLiteral("Opening service") },
         { QStringLiteral("empty.noServices"), QStringLiteral("No services yet") },
         { QStringLiteral("empty.addService"), QStringLiteral("Add service") },
         { QStringLiteral("local.title"), QStringLiteral("Local Playback") },
@@ -862,6 +869,10 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("dialog.overviewTitle"), QStringLiteral("简介") },
         { QStringLiteral("details.showOverview"), QStringLiteral("显示简介") },
         { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
+        { QStringLiteral("window.minimize"), QStringLiteral("最小化") },
+        { QStringLiteral("window.maximize"), QStringLiteral("最大化") },
+        { QStringLiteral("window.restore"), QStringLiteral("还原") },
+        { QStringLiteral("window.close"), QStringLiteral("关闭") },
         { QStringLiteral("nav.services"), QStringLiteral("服务") },
         { QStringLiteral("nav.settings"), QStringLiteral("设置") },
         { QStringLiteral("nav.chooseSource"), QStringLiteral("选择或添加媒体来源") },
@@ -904,6 +915,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("status.passwordRequired"), QStringLiteral("需要密码") },
         { QStringLiteral("status.ready"), QStringLiteral("可用") },
         { QStringLiteral("status.noSession"), QStringLiteral("无会话") },
+        { QStringLiteral("status.openingService"), QStringLiteral("正在打开服务") },
         { QStringLiteral("empty.noServices"), QStringLiteral("还没有服务") },
         { QStringLiteral("empty.addService"), QStringLiteral("添加服务") },
         { QStringLiteral("local.title"), QStringLiteral("本地播放") },
@@ -2142,6 +2154,14 @@ bool AppViewModel::loading() const
     return m_loading;
 }
 
+QString AppViewModel::loadingServiceCardId() const
+{
+    if (!m_loading || m_currentView != QStringLiteral("services") || !m_pendingServiceCard) {
+        return {};
+    }
+    return m_pendingServiceCard->server.id;
+}
+
 bool AppViewModel::episodeSwitching() const
 {
     return m_episodeSwitching;
@@ -2893,7 +2913,17 @@ void AppViewModel::selectServiceCard(int row)
     setIptvFilePath(card->server.serviceType == ServiceType::IPTV ? card->server.baseUrl : QString {});
 
     if (card->server.serviceType == ServiceType::IPTV) {
-        loadIptvService(*card);
+        const auto selectedServerId = card->server.id;
+        setLoading(true);
+        QTimer::singleShot(serviceActivationFeedbackMs, this, [this, selectedServerId]() {
+            if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
+                || m_pendingServiceCard->server.id != selectedServerId) {
+                setLoading(false);
+                return;
+            }
+            loadIptvService(*m_pendingServiceCard);
+            setLoading(false);
+        });
         return;
     }
     if (card->server.serviceType == ServiceType::WebDAV) {
@@ -2913,7 +2943,7 @@ void AppViewModel::selectServiceCard(int row)
 
     const auto selectedServerId = card->server.id;
     setLoading(true);
-    QTimer::singleShot(0, this, [this, selectedServerId]() {
+    QTimer::singleShot(serviceActivationFeedbackMs, this, [this, selectedServerId]() {
         if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
             || m_pendingServiceCard->server.id != selectedServerId) {
             setLoading(false);
@@ -6759,7 +6789,7 @@ void AppViewModel::loadServiceHome()
     const auto serverId = m_session->server.id;
     beginHomeLoading();
     setCurrentView(QStringLiteral("home"));
-    QTimer::singleShot(0, this, [this, serverId]() {
+    QTimer::singleShot(homeDataStartDelayMs, this, [this, serverId]() {
         if (!m_session || m_session->server.id != serverId
             || m_currentView != QStringLiteral("home")) {
             endHomeLoading();

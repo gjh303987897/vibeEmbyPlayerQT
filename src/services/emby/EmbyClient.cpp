@@ -91,7 +91,8 @@ void EmbyClient::fetchLibraries(const UserSession& session, std::function<void(L
             return;
         }
 
-        callback(parseLibraries(result->body, session.server.baseUrl, session.accessToken));
+        parseLibrariesAsync(result->body, session.server.baseUrl, session.accessToken,
+                            std::move(callback));
     });
 }
 
@@ -128,7 +129,8 @@ void EmbyClient::fetchLibraryItems(const UserSession& session,
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -172,7 +174,8 @@ void EmbyClient::searchVideoItems(const UserSession& session,
             callback(std::unexpected(result.error()));
             return;
         }
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -199,7 +202,8 @@ void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, st
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -229,7 +233,8 @@ void EmbyClient::fetchSuggestedSeries(const UserSession& session,
             callback(std::unexpected(result.error()));
             return;
         }
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -259,7 +264,8 @@ void EmbyClient::fetchRandomPlayableItems(const UserSession& session,
             callback(std::unexpected(result.error()));
             return;
         }
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -291,7 +297,8 @@ void EmbyClient::fetchSeriesSeasons(const UserSession& session,
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 
@@ -328,7 +335,8 @@ void EmbyClient::fetchSeasonEpisodes(const UserSession& session,
             return;
         }
 
-        callback(parseItems(result->body, session.server.baseUrl, session.accessToken));
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        std::move(callback));
     });
 }
 

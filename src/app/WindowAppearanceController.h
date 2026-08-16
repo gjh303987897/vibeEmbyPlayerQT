@@ -14,6 +14,8 @@ public:
 
     Q_INVOKABLE void attachWindow(QObject* window);
     Q_INVOKABLE void applyTheme(const QString& effectiveTheme);
+    Q_INVOKABLE bool startSystemMove();
+    Q_INVOKABLE bool startSystemResize(int edges);
 
 private:
     void apply();

@@ -73,6 +73,12 @@ and the existing details/navigation commands.
 - The combined server button returns to the source selector; search and refresh
   actions remain grouped at the top right. Refresh reloads recommendations,
   continue watching, and libraries through `AppViewModel::refreshHome`.
+- Trendy and traditional roots are asynchronous, mutually exclusive loaders.
+  The selected tree is incubated only while the home page is visible, and a
+  lightweight loading panel remains visible while that work completes.
+- Loading indicators use the shared rectangle-dot spinner and render-thread
+  rotation animator instead of `BusyIndicator`, avoiding a first-use control
+  effect cost when a service is opened.
 
 ## Card Presentation
 

@@ -5,7 +5,9 @@
 
 #include <QJsonDocument>
 #include <QJsonValue>
+#include <QFutureWatcher>
 #include <QUrlQuery>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 #include <functional>
@@ -384,6 +386,40 @@ std::vector<MediaItem> MediaServerClientBase::parseItems(const QByteArray& body,
         }
     }
     return mediaItems;
+}
+
+void MediaServerClientBase::parseLibrariesAsync(QByteArray body,
+                                                QString baseUrl,
+                                                QString token,
+                                                std::function<void(LibraryResult)> callback)
+{
+    auto* watcher = new QFutureWatcher<std::vector<MediaLibrary>>;
+    connect(watcher, &QFutureWatcherBase::finished, watcher,
+            [watcher, callback = std::move(callback)]() mutable {
+                callback(watcher->result());
+                watcher->deleteLater();
+            });
+    watcher->setFuture(QtConcurrent::run(
+        [body = std::move(body), baseUrl = std::move(baseUrl), token = std::move(token)]() {
+            return parseLibraries(body, baseUrl, token);
+        }));
+}
+
+void MediaServerClientBase::parseItemsAsync(QByteArray body,
+                                            QString baseUrl,
+                                            QString token,
+                                            std::function<void(ItemResult)> callback)
+{
+    auto* watcher = new QFutureWatcher<std::vector<MediaItem>>;
+    connect(watcher, &QFutureWatcherBase::finished, watcher,
+            [watcher, callback = std::move(callback)]() mutable {
+                callback(watcher->result());
+                watcher->deleteLater();
+            });
+    watcher->setFuture(QtConcurrent::run(
+        [body = std::move(body), baseUrl = std::move(baseUrl), token = std::move(token)]() {
+            return parseItems(body, baseUrl, token);
+        }));
 }
 
 std::expected<MediaItem, NetworkError> MediaServerClientBase::parseItemDetails(const QByteArray& body, const QString& baseUrl, const QString& token)

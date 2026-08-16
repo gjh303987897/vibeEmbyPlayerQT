@@ -121,6 +121,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(QString loadingServiceCardId READ loadingServiceCardId NOTIFY loadingChanged)
     Q_PROPERTY(bool episodeSwitching READ episodeSwitching NOTIFY episodeSwitchingChanged)
     Q_PROPERTY(bool homeLoading READ homeLoading NOTIFY homeLoadingChanged)
     Q_PROPERTY(bool libraryItemsLoading READ libraryItemsLoading NOTIFY libraryItemsLoadingChanged)
@@ -317,6 +318,7 @@ public:
     int translationRevision() const;
 
     bool loading() const;
+    QString loadingServiceCardId() const;
     bool episodeSwitching() const;
     bool homeLoading() const;
     bool libraryItemsLoading() const;
