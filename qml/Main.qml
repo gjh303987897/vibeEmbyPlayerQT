@@ -1367,86 +1367,182 @@ ApplicationWindow {
                 Layout.maximumWidth: visible ? Layout.preferredWidth : 0
             }
 
-            IconButton {
-                text: appViewModel.privacyMode ? "\uD83D\uDD13" : "\uD83D\uDD12"
+            Item {
                 visible: appViewModel.currentView === "services"
-                ToolTip.visible: hovered
-                ToolTip.text: t("nav.privacy")
-                onClicked: {
-                    if (appViewModel.privacyMode) {
-                        appViewModel.exitPrivacyMode()
-                    } else if (appViewModel.privacyPinConfigured) {
-                        privacyPinDialog.open()
-                    } else {
-                        appViewModel.unlockPrivacyMode("")
-                        appViewModel.openSettings()
-                    }
-                }
+                Layout.fillWidth: visible
+                Layout.minimumWidth: 0
             }
 
-            ModernButton {
-                text: t("privacy.editCards")
-                visible: appViewModel.currentView === "services" && appViewModel.privacyMode
-                onClicked: {
-                    appViewModel.refreshPrivacyCards()
-                    privacyCardsDialog.open()
-                }
-            }
+            Rectangle {
+                id: serviceActionGroup
+                visible: appViewModel.currentView === "services"
+                Layout.preferredWidth: serviceActionRow.implicitWidth + 2
+                Layout.minimumWidth: Layout.preferredWidth
+                Layout.maximumWidth: Layout.preferredWidth
+                Layout.preferredHeight: 40
+                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                radius: 8
+                color: theme.elevated
+                border.width: 1
+                border.color: theme.border
+                clip: true
 
-            ModernButton {
-                text: t("nav.scheduledTasks")
-                visible: appViewModel.currentView === "services" && root.width >= 1400
-                onClicked: appViewModel.openScheduledPlaybackTasks()
-            }
+                RowLayout {
+                    id: serviceActionRow
+                    anchors.centerIn: parent
+                    spacing: 0
 
-            ModernButton {
-                text: t("nav.history")
-                visible: appViewModel.currentView === "services" && root.width >= 1400
-                onClicked: appViewModel.openHistoryStats()
-            }
-
-            IconButton {
-                id: serviceMoreButton
-                width: 42
-                height: 40
-                text: "\u22ef"
-                font.pixelSize: 22
-                visible: appViewModel.currentView === "services" && root.width < 1400
-                Accessible.name: t("action.more")
-                ToolTip.visible: hovered
-                ToolTip.text: t("action.more")
-                onClicked: serviceMoreMenu.open()
-
-                Menu {
-                    id: serviceMoreMenu
-                    y: serviceMoreButton.height + 4
-
-                    MenuItem {
-                        text: t("nav.scheduledTasks")
-                        onTriggered: appViewModel.openScheduledPlaybackTasks()
+                    ToolbarGlyphButton {
+                        glyphSource: appViewModel.privacyMode
+                            ? "qrc:/app/icons/lucide/lock-open.svg"
+                            : "qrc:/app/icons/lucide/lock.svg"
+                        description: t("nav.privacy")
+                        selected: appViewModel.privacyMode
+                        onClicked: {
+                            if (appViewModel.privacyMode) {
+                                appViewModel.exitPrivacyMode()
+                            } else if (appViewModel.privacyPinConfigured) {
+                                privacyPinDialog.open()
+                            } else {
+                                appViewModel.unlockPrivacyMode("")
+                                appViewModel.openSettings()
+                            }
+                        }
                     }
 
-                    MenuItem {
-                        text: t("nav.history")
-                        onTriggered: appViewModel.openHistoryStats()
+                    ToolbarGlyphButton {
+                        visible: appViewModel.privacyMode
+                        glyphSource: "qrc:/app/icons/lucide/shield-ellipsis.svg"
+                        description: t("privacy.editCards")
+                        onClicked: {
+                            appViewModel.refreshPrivacyCards()
+                            privacyCardsDialog.open()
+                        }
+                    }
+
+                    ToolbarGlyphButton {
+                        id: serviceMoreButton
+                        glyphSource: "qrc:/app/icons/lucide/ellipsis.svg"
+                        description: t("action.more")
+                        selected: serviceMorePopup.visible
+                        toolTipEnabled: !serviceMorePopup.visible
+                        onClicked: serviceMorePopup.visible
+                            ? serviceMorePopup.close() : serviceMorePopup.open()
+
+                        Popup {
+                            id: serviceMorePopup
+                            x: serviceMoreButton.width - width + 4
+                            y: serviceMoreButton.height + 10
+                            width: 226
+                            padding: 6
+                            focus: true
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                            transformOrigin: Item.TopLeft
+
+                            enter: Transition {
+                                ParallelAnimation {
+                                    NumberAnimation {
+                                        property: "opacity"
+                                        from: 0
+                                        to: 1
+                                        duration: 130
+                                        easing.type: Easing.OutCubic
+                                    }
+                                    NumberAnimation {
+                                        property: "scale"
+                                        from: 0.96
+                                        to: 1
+                                        duration: 160
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+                            }
+
+                            exit: Transition {
+                                ParallelAnimation {
+                                    NumberAnimation {
+                                        property: "opacity"
+                                        from: 1
+                                        to: 0
+                                        duration: 90
+                                        easing.type: Easing.InCubic
+                                    }
+                                    NumberAnimation {
+                                        property: "scale"
+                                        from: 1
+                                        to: 0.98
+                                        duration: 90
+                                        easing.type: Easing.InCubic
+                                    }
+                                }
+                            }
+
+                            background: Rectangle {
+                                radius: 8
+                                color: theme.surface
+                                border.width: 1
+                                border.color: theme.border
+                            }
+
+                            contentItem: ColumnLayout {
+                                spacing: 2
+
+                                ServiceToolMenuItem {
+                                    Layout.fillWidth: true
+                                    glyphSource: "qrc:/app/icons/lucide/calendar-clock.svg"
+                                    text: t("nav.scheduledTasks")
+                                    onClicked: {
+                                        serviceMorePopup.close()
+                                        appViewModel.openScheduledPlaybackTasks()
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 8
+                                    Layout.rightMargin: 8
+                                    Layout.preferredHeight: 1
+                                    color: theme.border
+                                }
+
+                                ServiceToolMenuItem {
+                                    Layout.fillWidth: true
+                                    glyphSource: "qrc:/app/icons/lucide/chart-no-axes-column-increasing.svg"
+                                    text: t("nav.history")
+                                    onClicked: {
+                                        serviceMorePopup.close()
+                                        appViewModel.openHistoryStats()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ToolbarGlyphButton {
+                        glyphSource: "qrc:/app/icons/lucide/plus.svg"
+                        description: t("action.add")
+                        onClicked: {
+                            appViewModel.editingServices = false
+                            appViewModel.beginAddServiceCard()
+                            serviceDialog.open()
+                        }
+                    }
+
+                    ToolbarGlyphButton {
+                        glyphSource: appViewModel.editingServices
+                            ? "qrc:/app/icons/lucide/check.svg"
+                            : "qrc:/app/icons/lucide/pencil.svg"
+                        description: appViewModel.editingServices ? t("action.done") : t("action.edit")
+                        selected: appViewModel.editingServices
+                        onClicked: appViewModel.editingServices = !appViewModel.editingServices
+                    }
+
+                    ToolbarGlyphButton {
+                        glyphSource: "qrc:/app/icons/lucide/settings.svg"
+                        description: t("nav.settings")
+                        onClicked: appViewModel.openSettings()
                     }
                 }
-            }
-
-            ModernButton {
-                text: t("action.add")
-                visible: appViewModel.currentView === "services"
-                onClicked: {
-                    appViewModel.editingServices = false
-                    appViewModel.beginAddServiceCard()
-                    serviceDialog.open()
-                }
-            }
-
-            ModernButton {
-                text: appViewModel.editingServices ? t("action.done") : t("action.edit")
-                visible: appViewModel.currentView === "services"
-                onClicked: appViewModel.editingServices = !appViewModel.editingServices
             }
 
             ModernButton {
@@ -1472,6 +1568,7 @@ ApplicationWindow {
             ModernButton {
                 text: t("nav.settings")
                 visible: appViewModel.currentView !== "settings"
+                    && appViewModel.currentView !== "services"
                     && !root.useTraditionalMediaHome
                 onClicked: appViewModel.openSettings()
             }
@@ -3016,6 +3113,160 @@ ApplicationWindow {
         implicitWidth: 38
         leftPadding: 0
         rightPadding: 0
+    }
+
+    component MonochromeIcon: Item {
+        id: monochromeIcon
+        property url source
+        property color iconColor: theme.text
+
+        Image {
+            id: monochromeIconSource
+            anchors.fill: parent
+            source: monochromeIcon.source
+            sourceSize.width: Math.max(1, Math.round(width * 2))
+            sourceSize.height: Math.max(1, Math.round(height * 2))
+            fillMode: Image.PreserveAspectFit
+            visible: false
+        }
+
+        MultiEffect {
+            anchors.fill: parent
+            source: monochromeIconSource
+            autoPaddingEnabled: false
+            colorization: 1
+            colorizationColor: monochromeIcon.iconColor
+        }
+    }
+
+    component ToolbarGlyphButton: Button {
+        id: toolbarGlyphButton
+        property url glyphSource
+        property string description: ""
+        property bool selected: false
+        property bool toolTipEnabled: true
+
+        implicitWidth: 38
+        implicitHeight: 38
+        hoverEnabled: true
+        focusPolicy: Qt.StrongFocus
+        opacity: enabled ? 1 : 0.45
+        scale: down ? 0.94 : 1
+        Accessible.name: description
+
+        ToolTip {
+            id: toolbarGlyphToolTip
+            visible: toolbarGlyphButton.toolTipEnabled
+                && toolbarGlyphButton.hovered
+                && toolbarGlyphButton.description.length > 0
+            text: toolbarGlyphButton.description
+            delay: 450
+            timeout: 2500
+            leftPadding: 9
+            rightPadding: 9
+            topPadding: 6
+            bottomPadding: 6
+
+            contentItem: Label {
+                text: toolbarGlyphToolTip.text
+                color: theme.surface
+                font.pixelSize: 12
+                font.bold: true
+            }
+
+            background: Rectangle {
+                radius: 6
+                color: theme.text
+                border.width: 1
+                border.color: root.withAlpha(theme.surface, 0.20)
+            }
+        }
+
+        contentItem: MonochromeIcon {
+            anchors.centerIn: parent
+            width: 19
+            height: 19
+            source: toolbarGlyphButton.glyphSource
+            iconColor: toolbarGlyphButton.selected ? theme.surface : theme.text
+        }
+
+        background: Rectangle {
+            radius: 0
+            color: toolbarGlyphButton.selected ? theme.text
+                : toolbarGlyphButton.down ? root.withAlpha(theme.text, darkTheme ? 0.20 : 0.12)
+                : toolbarGlyphButton.hovered || toolbarGlyphButton.activeFocus ? theme.elevatedHover
+                : "transparent"
+            border.width: toolbarGlyphButton.activeFocus ? 1 : 0
+            border.color: theme.primary
+
+            Behavior on color {
+                ColorAnimation { duration: 110 }
+            }
+        }
+
+        Behavior on scale {
+            NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+        }
+    }
+
+    component ServiceToolMenuItem: Button {
+        id: serviceToolMenuItem
+        property url glyphSource
+
+        implicitWidth: 214
+        implicitHeight: 46
+        leftPadding: 11
+        rightPadding: 11
+        hoverEnabled: true
+        focusPolicy: Qt.StrongFocus
+        Accessible.name: text
+
+        contentItem: RowLayout {
+            spacing: 11
+
+            Rectangle {
+                Layout.preferredWidth: 30
+                Layout.preferredHeight: 30
+                radius: 6
+                color: serviceToolMenuItem.down
+                    ? root.withAlpha(theme.text, darkTheme ? 0.20 : 0.10)
+                    : serviceToolMenuItem.hovered || serviceToolMenuItem.activeFocus
+                        ? root.withAlpha(theme.text, darkTheme ? 0.10 : 0.055)
+                        : root.withAlpha(theme.text, darkTheme ? 0.07 : 0.035)
+
+                MonochromeIcon {
+                    anchors.centerIn: parent
+                    width: 17
+                    height: 17
+                    source: serviceToolMenuItem.glyphSource
+                    iconColor: theme.text
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: serviceToolMenuItem.text
+                color: theme.text
+                font.pixelSize: 13
+                font.bold: true
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
+        background: Rectangle {
+            radius: 6
+            color: serviceToolMenuItem.down
+                ? root.withAlpha(theme.text, darkTheme ? 0.15 : 0.08)
+                : serviceToolMenuItem.hovered || serviceToolMenuItem.activeFocus
+                    ? theme.elevatedHover : "transparent"
+            border.width: serviceToolMenuItem.activeFocus ? 1 : 0
+            border.color: theme.primary
+
+            Behavior on color {
+                ColorAnimation { duration: 100 }
+            }
+        }
     }
 
     component HeroToolbarButton: Button {

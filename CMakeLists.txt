@@ -196,6 +196,16 @@ qt_add_resources(vibePlayerQT "app_icons"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/icon"
     FILES
         icon/icon_black.png
+        icon/lucide/calendar-clock.svg
+        icon/lucide/chart-no-axes-column-increasing.svg
+        icon/lucide/check.svg
+        icon/lucide/ellipsis.svg
+        icon/lucide/lock-open.svg
+        icon/lucide/lock.svg
+        icon/lucide/pencil.svg
+        icon/lucide/plus.svg
+        icon/lucide/settings.svg
+        icon/lucide/shield-ellipsis.svg
 )
 
 if(WIN32)
