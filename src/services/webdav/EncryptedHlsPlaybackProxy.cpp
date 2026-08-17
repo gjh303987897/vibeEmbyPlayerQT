@@ -393,6 +393,32 @@ void EncryptedHlsPlaybackProxy::resolveRootDigest(const ServerConfig& server,
     });
 }
 
+void EncryptedHlsPlaybackProxy::resolveIdentifierPreview(
+    const ServerConfig& server,
+    const QString& password,
+    const QUrl& rootManifestUrl,
+    std::function<void(EncryptedHlsIdentifierPreviewResult)> callback)
+{
+    fetchRemoteBytes(server,
+                     password,
+                     rootManifestUrl,
+                     maximumManifestBytes,
+                     [callback = std::move(callback)](std::expected<QByteArray, QString> manifest) mutable {
+        if (!manifest) {
+            callback(std::unexpected(manifest.error()));
+            return;
+        }
+        auto identifier = HlsManifestValidator::extractM3u8sIdentifier(*manifest);
+        if (!identifier) {
+            callback(std::unexpected(identifier.error()));
+            return;
+        }
+        callback(QStringLiteral("%1...%2")
+                     .arg(QString::fromLatin1(identifier->first(16)),
+                          QString::fromLatin1(identifier->last(12))));
+    });
+}
+
 void EncryptedHlsPlaybackProxy::revoke(const QString& sessionId)
 {
     auto session = m_sessions.find(sessionId);

@@ -794,6 +794,7 @@ private:
     QUrl m_webDavCurrentUrl;
     std::vector<QUrl> m_webDavHistory;
     std::vector<WebDavItem> m_webDavDirectoryItems;
+    quint64 m_webDavDirectoryRequestGeneration { 0 };
     std::optional<MediaLibrary> m_currentLibrary;
     QString m_currentMediaParentId;
     QString m_currentMediaParentName;

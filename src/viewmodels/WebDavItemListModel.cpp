@@ -47,6 +47,8 @@ QVariant WebDavItemListModel::data(const QModelIndex& index, int role) const
         return item.audioPlayable;
     case EncryptedHlsRole:
         return item.encryptedHls;
+    case IdentifierPreviewRole:
+        return item.identifierPreview;
     default:
         return {};
     }
@@ -65,6 +67,7 @@ QHash<int, QByteArray> WebDavItemListModel::roleNames() const
         { PlayableRole, "playable" },
         { AudioPlayableRole, "audioPlayable" },
         { EncryptedHlsRole, "encryptedHls" },
+        { IdentifierPreviewRole, "identifierPreview" },
     };
 }
 
@@ -136,6 +139,27 @@ void WebDavItemListModel::rebuildVisibleItems()
 void WebDavItemListModel::clear()
 {
     setItems({});
+}
+
+void WebDavItemListModel::setIdentifierPreview(const QUrl& url, QString preview)
+{
+    for (auto& item : m_allItems) {
+        if (item.url == url) {
+            item.identifierPreview = preview;
+            break;
+        }
+    }
+
+    for (int row = 0; row < rowCount(); ++row) {
+        auto& item = m_items[static_cast<size_t>(row)];
+        if (item.url != url || item.identifierPreview == preview) {
+            continue;
+        }
+        item.identifierPreview = std::move(preview);
+        const auto changedIndex = index(row, 0);
+        emit dataChanged(changedIndex, changedIndex, { IdentifierPreviewRole });
+        break;
+    }
 }
 
 std::optional<WebDavItem> WebDavItemListModel::itemAt(int row) const

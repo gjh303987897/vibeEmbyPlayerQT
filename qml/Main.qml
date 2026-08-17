@@ -6161,11 +6161,12 @@ ApplicationWindow {
         property bool directory: false
         property bool playable: false
         property bool encryptedHls: false
+        property string identifierPreview: ""
 
         radius: 8
         color: fileMouse.containsMouse ? theme.elevatedHover : theme.elevated
         border.color: fileMouse.containsMouse ? theme.primary : theme.border
-        implicitHeight: 62
+        implicitHeight: encryptedHls && identifierPreview.length > 0 ? 78 : 62
 
         MouseArea {
             id: fileMouse
@@ -6204,6 +6205,14 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: fileRow.subtitle
                     elide: Text.ElideRight
+                }
+                MutedText {
+                    Layout.fillWidth: true
+                    visible: fileRow.encryptedHls && fileRow.identifierPreview.length > 0
+                    text: t("m3u8s.identifier") + "  " + fileRow.identifierPreview
+                    font.family: "monospace"
+                    font.pixelSize: 11
+                    elide: Text.ElideMiddle
                 }
             }
 
@@ -6268,6 +6277,7 @@ ApplicationWindow {
         property real bytes: -1
         property bool directory: false
         property bool encryptedHls: false
+        property string identifierPreview: ""
         readonly property color accentColor: directory ? theme.primary : theme.success
 
         function badgeText() {
@@ -6432,8 +6442,16 @@ ApplicationWindow {
 
                 MutedText {
                     Layout.fillWidth: true
-                    text: mediaCard.detailText()
-                    elide: Text.ElideRight
+                    text: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0
+                        ? t("m3u8s.identifier") + "  " + mediaCard.identifierPreview
+                        : mediaCard.detailText()
+                    font.family: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0
+                        ? "monospace"
+                        : ""
+                    font.pixelSize: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0 ? 10 : 12
+                    elide: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0
+                        ? Text.ElideMiddle
+                        : Text.ElideRight
                 }
 
                 IconButton {
@@ -11890,6 +11908,7 @@ ApplicationWindow {
                         directory: model.directory
                         playable: model.playable
                         encryptedHls: model.encryptedHls
+                        identifierPreview: model.identifierPreview
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
                         onExportTsslRequested: appViewModel.exportWebDavTssl(index)
@@ -11914,6 +11933,7 @@ ApplicationWindow {
                         bytes: model.bytes
                         directory: model.directory
                         encryptedHls: model.encryptedHls
+                        identifierPreview: model.identifierPreview
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
                         onExportTsslRequested: appViewModel.exportWebDavTssl(index)

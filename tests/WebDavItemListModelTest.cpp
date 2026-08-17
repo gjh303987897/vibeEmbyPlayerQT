@@ -34,6 +34,7 @@ private slots:
     void newDirectoryContentsRespectCurrentMode();
     void audioModeShowsOnlyAudioFiles();
     void encryptedHlsRoleIsExposed();
+    void identifierPreviewCanBeUpdatedAfterListing();
 };
 
 void WebDavItemListModelTest::defaultModeShowsEveryItem()
@@ -133,6 +134,29 @@ void WebDavItemListModelTest::encryptedHlsRoleIsExposed()
     QVERIFY(model.data(index, WebDavItemListModel::EncryptedHlsRole).toBool());
     QCOMPARE(model.roleNames().value(WebDavItemListModel::EncryptedHlsRole),
              QByteArrayLiteral("encryptedHls"));
+}
+
+void WebDavItemListModelTest::identifierPreviewCanBeUpdatedAfterListing()
+{
+    auto encrypted = item(QStringLiteral("movie.m3u8s"), false, true);
+    encrypted.url = QUrl(QStringLiteral("https://example.invalid/media/movie.m3u8s"));
+    encrypted.encryptedHls = true;
+    WebDavItemListModel model;
+    model.setItems({ encrypted });
+    QSignalSpy dataChangedSpy(&model, &QAbstractItemModel::dataChanged);
+
+    const auto preview = QStringLiteral("AAAAAAAAAAAAAAAA...AAAAAAAAAAAA");
+    model.setIdentifierPreview(encrypted.url, preview);
+
+    QCOMPARE(dataChangedSpy.count(), 1);
+    QCOMPARE(model.data(model.index(0, 0), WebDavItemListModel::IdentifierPreviewRole).toString(),
+             preview);
+    QCOMPARE(model.itemAt(0)->identifierPreview, preview);
+    QCOMPARE(model.roleNames().value(WebDavItemListModel::IdentifierPreviewRole),
+             QByteArrayLiteral("identifierPreview"));
+
+    model.setDisplayMode(QStringLiteral("video"));
+    QCOMPARE(model.itemAt(0)->identifierPreview, preview);
 }
 
 QTEST_MAIN(WebDavItemListModelTest)

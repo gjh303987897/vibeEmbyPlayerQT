@@ -14,4 +14,5 @@ struct WebDavItem {
     bool playable { false };
     bool audioPlayable { false };
     bool encryptedHls { false };
+    QString identifierPreview;
 };

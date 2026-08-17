@@ -203,6 +203,14 @@ and history replay. Generated `segment_NNNNNN.ts` files are hidden when the
 directory contains an M3U8S manifest so encrypted segments are not offered as
 standalone videos.
 
+WebDAV directory pages display a short identifier preview for each `.m3u8s`
+entry. The directory itself is shown first; manifests are then fetched
+asynchronously with the same authentication and 4 MiB size limit as playback,
+strictly validated, and reduced to the first 16 and last 12 identifier
+characters before reaching QML. A directory-generation check discards stale
+responses after navigation or service changes. An unreadable or invalid
+manifest leaves the preview blank without blocking the directory listing.
+
 `EncryptedHlsPlaybackProxy` uses one verification and HTTP-serving path for
 local and WebDAV packages. Local files are read on worker threads. The local
 preparation worker captures the TSSL storage directory and creates its own

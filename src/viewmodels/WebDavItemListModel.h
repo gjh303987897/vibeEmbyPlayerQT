@@ -22,6 +22,7 @@ public:
         PlayableRole,
         AudioPlayableRole,
         EncryptedHlsRole,
+        IdentifierPreviewRole,
     };
 
     explicit WebDavItemListModel(QObject* parent = nullptr);
@@ -38,6 +39,7 @@ public:
     bool videoMode() const;
     bool audioMode() const;
     void clear();
+    void setIdentifierPreview(const QUrl& url, QString preview);
     std::optional<WebDavItem> itemAt(int row) const;
 
 signals:

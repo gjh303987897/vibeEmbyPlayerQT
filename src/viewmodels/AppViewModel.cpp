@@ -7079,6 +7079,7 @@ void AppViewModel::clearWebDavState()
         m_webDavItems.count() == 0 && m_webDavAudioQueue.empty()) {
         return;
     }
+    ++m_webDavDirectoryRequestGeneration;
     m_currentWebDavCard.reset();
     m_webDavPassword.clear();
     m_webDavCurrentUrl = QUrl();
@@ -7099,12 +7100,31 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
         return;
     }
     const auto directoryUrl = ensureDirectoryUrl(url);
+    const auto server = m_currentWebDavCard->server;
+    const auto password = m_webDavPassword;
+    const auto serverId = server.id;
+    const auto requestGeneration = ++m_webDavDirectoryRequestGeneration;
     setLoading(true);
-    m_webDavClient.listDirectory(m_currentWebDavCard->server, m_webDavPassword, directoryUrl, [this, directoryUrl](WebDavListResult result) {
+    m_webDavClient.listDirectory(server, password, directoryUrl, [this,
+                                                                  directoryUrl,
+                                                                  server,
+                                                                  password,
+                                                                  serverId,
+                                                                  requestGeneration](WebDavListResult result) {
+        if (requestGeneration != m_webDavDirectoryRequestGeneration ||
+            !m_currentWebDavCard || m_currentWebDavCard->server.id != serverId) {
+            return;
+        }
         setLoading(false);
         if (!result) {
             setError(displayNetworkError(result.error()));
             return;
+        }
+        std::vector<QUrl> encryptedManifestUrls;
+        for (const auto& item : *result) {
+            if (item.encryptedHls) {
+                encryptedManifestUrls.push_back(item.url);
+            }
         }
         m_webDavCurrentUrl = directoryUrl;
         m_webDavDirectoryItems = *result;
@@ -7116,6 +7136,25 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
         if (m_webDavDisplayMode == QStringLiteral("audio") &&
             !m_webDavAudioPlaybackActive && !m_webDavAudioQueue.empty()) {
             startWebDavAudioPlayback();
+        }
+        for (const auto& manifestUrl : encryptedManifestUrls) {
+            m_encryptedHlsPlaybackProxy.resolveIdentifierPreview(
+                server,
+                password,
+                manifestUrl,
+                [this, requestGeneration, serverId, directoryUrl, manifestUrl](EncryptedHlsIdentifierPreviewResult preview) {
+                    if (requestGeneration != m_webDavDirectoryRequestGeneration ||
+                        !m_currentWebDavCard || m_currentWebDavCard->server.id != serverId ||
+                        m_webDavCurrentUrl != directoryUrl) {
+                        return;
+                    }
+                    if (!preview) {
+                        AppLogger::warning(QStringLiteral("encrypted-hls"),
+                                           QStringLiteral("Unable to read a WebDAV M3U8S identifier"));
+                        return;
+                    }
+                    m_webDavItems.setIdentifierPreview(manifestUrl, std::move(*preview));
+                });
         }
     });
 }

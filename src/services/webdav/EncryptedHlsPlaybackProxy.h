@@ -24,6 +24,7 @@ struct EncryptedHlsPreparedStream final {
 
 using EncryptedHlsPrepareResult = std::expected<EncryptedHlsPreparedStream, QString>;
 using EncryptedHlsDigestResult = std::expected<QByteArray, QString>;
+using EncryptedHlsIdentifierPreviewResult = std::expected<QString, QString>;
 
 class EncryptedHlsPlaybackProxy final : public QObject {
     Q_OBJECT
@@ -41,6 +42,10 @@ public:
                            const QString& password,
                            const QUrl& rootManifestUrl,
                            std::function<void(EncryptedHlsDigestResult)> callback);
+    void resolveIdentifierPreview(const ServerConfig& server,
+                                  const QString& password,
+                                  const QUrl& rootManifestUrl,
+                                  std::function<void(EncryptedHlsIdentifierPreviewResult)> callback);
     void revoke(const QString& sessionId);
 
 signals:

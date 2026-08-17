@@ -116,10 +116,46 @@ class EncryptedHlsPlaybackProxyTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void remoteIdentifierPreviewIsResolvedWithoutTssl();
     void verifiedPlaintextIsServedAndTamperedTagIsRejected();
     void localPackageRestoresSourceNameAndVerifiesSegments();
     void mismatchedIdentifierIsRejectedBeforePlayback();
 };
+
+void EncryptedHlsPlaybackProxyTest::remoteIdentifierPreviewIsResolvedWithoutTssl()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    FakeWebDavServer origin;
+    QVERIFY(origin.listen());
+
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    EncryptedHlsPlaybackProxy proxy(store);
+    ServerConfig server;
+    server.id = QStringLiteral("preview-webdav");
+    server.name = QStringLiteral("Preview WebDAV");
+    server.baseUrl = origin.manifestUrl().adjusted(QUrl::RemoveFilename).toString();
+    server.serviceType = ServiceType::WebDAV;
+
+    std::optional<EncryptedHlsIdentifierPreviewResult> resolved;
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    proxy.resolveIdentifierPreview(server, {}, origin.manifestUrl(),
+                                   [&](EncryptedHlsIdentifierPreviewResult result) {
+        resolved.emplace(std::move(result));
+        loop.quit();
+    });
+    timer.start(5000);
+    loop.exec();
+
+    QVERIFY(resolved.has_value());
+    if (!resolved->has_value()) {
+        QFAIL(qPrintable(resolved->error()));
+    }
+    QCOMPARE(**resolved, QStringLiteral("AAAAAAAAAAAAAAAA...AAAAAAAAAAAA"));
+}
 
 void EncryptedHlsPlaybackProxyTest::verifiedPlaintextIsServedAndTamperedTagIsRejected()
 {
