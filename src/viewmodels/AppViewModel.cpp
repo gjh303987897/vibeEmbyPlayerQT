@@ -1,5 +1,6 @@
 #include "viewmodels/AppViewModel.h"
 
+#include "services/emby/EmbyRecommendationCache.h"
 #include "services/credentials/CredentialStore.h"
 #include "services/iptv/IptvParser.h"
 #include "services/iptv/IptvPlaylistStore.h"
@@ -46,6 +47,8 @@ constexpr int recentPlaybackProgressMergeMs = 30000;
 constexpr int continueRefreshAfterStopMs = 1500;
 constexpr int serviceActivationFeedbackMs = 60;
 constexpr int homeDataStartDelayMs = 80;
+constexpr int embyRecommendationFetchLimit = 32;
+constexpr qsizetype embyRecommendationVisibleLimit = 8;
 
 struct ServiceActivationData final {
     std::optional<UserSession> session;
@@ -839,6 +842,17 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin home layout") },
         { QStringLiteral("settings.playerLayout"), QStringLiteral("Player layout") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("Page transition animations") },
+        { QStringLiteral("settings.recommendations"), QStringLiteral("Emby recommendations") },
+        { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("Recommendation updates") },
+        { QStringLiteral("settings.embyRecommendationFilter"), QStringLiteral("Excluded series genres") },
+        { QStringLiteral("recommendations.dailyRefresh"), QStringLiteral("Automatically refreshed once per day") },
+        { QStringLiteral("recommendations.manualRefresh"), QStringLiteral("Refresh now") },
+        { QStringLiteral("recommendations.refreshing"), QStringLiteral("Refreshing recommendations...") },
+        { QStringLiteral("recommendations.refreshQueued"), QStringLiteral("Will refresh when you next open an Emby service") },
+        { QStringLiteral("recommendations.refreshFailed"), QStringLiteral("Refresh failed; existing recommendations were kept") },
+        { QStringLiteral("recommendations.lastUpdated"), QStringLiteral("Last updated %1") },
+        { QStringLiteral("recommendations.genreLoading"), QStringLiteral("Loading series genres...") },
+        { QStringLiteral("recommendations.genreUnavailable"), QStringLiteral("Open an Emby service once to load available genres") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
         { QStringLiteral("settings.privacy"), QStringLiteral("Privacy") },
@@ -1210,6 +1224,17 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin 首页样式") },
         { QStringLiteral("settings.playerLayout"), QStringLiteral("播放器样式") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("页面切换动画") },
+        { QStringLiteral("settings.recommendations"), QStringLiteral("Emby 推荐") },
+        { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("推荐更新") },
+        { QStringLiteral("settings.embyRecommendationFilter"), QStringLiteral("排除的剧集类型") },
+        { QStringLiteral("recommendations.dailyRefresh"), QStringLiteral("每天自动更新一次") },
+        { QStringLiteral("recommendations.manualRefresh"), QStringLiteral("立即刷新") },
+        { QStringLiteral("recommendations.refreshing"), QStringLiteral("正在刷新推荐…") },
+        { QStringLiteral("recommendations.refreshQueued"), QStringLiteral("将在下次进入 Emby 服务时刷新") },
+        { QStringLiteral("recommendations.refreshFailed"), QStringLiteral("刷新失败，已保留原有推荐") },
+        { QStringLiteral("recommendations.lastUpdated"), QStringLiteral("上次更新：%1") },
+        { QStringLiteral("recommendations.genreLoading"), QStringLiteral("正在加载剧集类型…") },
+        { QStringLiteral("recommendations.genreUnavailable"), QStringLiteral("进入一次 Emby 服务后即可选择类型") },
         { QStringLiteral("settings.desktop"), QStringLiteral("桌面") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("最小化到托盘") },
         { QStringLiteral("option.system"), QStringLiteral("跟随系统") },
@@ -2184,6 +2209,7 @@ void AppViewModel::setLanguageMode(const QString& value)
     emit languageModeChanged();
     emit translationsChanged();
     emit missedScheduledPlaybackTasksChanged();
+    emit embyRecommendationSettingsChanged();
 }
 
 QString AppViewModel::embyHomeLayout() const
@@ -2199,6 +2225,80 @@ void AppViewModel::setEmbyHomeLayout(const QString& value)
     }
     m_repository.setEmbyHomeLayout(normalized);
     emit embyHomeLayoutChanged();
+}
+
+QVariantList AppViewModel::embyRecommendationGenreOptions() const
+{
+    auto genres = m_repository.embyRecommendationAvailableGenres();
+    const auto excludedGenres = m_repository.embyRecommendationExcludedGenres();
+    for (const auto& genre : excludedGenres) {
+        if (!genres.contains(genre, Qt::CaseInsensitive)) {
+            genres.append(genre);
+        }
+    }
+    std::sort(genres.begin(), genres.end(), [](const QString& left, const QString& right) {
+        return left.localeAwareCompare(right) < 0;
+    });
+
+    QVariantList options;
+    options.reserve(genres.size());
+    for (const auto& genre : genres) {
+        options.append(QVariantMap {
+            { QStringLiteral("name"), genre },
+            { QStringLiteral("excluded"), excludedGenres.contains(genre, Qt::CaseInsensitive) },
+        });
+    }
+    return options;
+}
+
+bool AppViewModel::embyRecommendationGenresLoading() const
+{
+    return m_embyRecommendationGenresLoading;
+}
+
+void AppViewModel::setEmbyRecommendationGenreExcluded(const QString& genre, bool excluded)
+{
+    const auto normalized = genre.trimmed();
+    if (normalized.isEmpty()) {
+        return;
+    }
+
+    auto excludedGenres = m_repository.embyRecommendationExcludedGenres();
+    const auto existingIndex = excludedGenres.indexOf(normalized, 0, Qt::CaseInsensitive);
+    if (excluded && existingIndex < 0) {
+        excludedGenres.append(normalized);
+    } else if (!excluded && existingIndex >= 0) {
+        excludedGenres.removeAt(existingIndex);
+    } else {
+        return;
+    }
+    m_repository.setEmbyRecommendationExcludedGenres(excludedGenres);
+    applyEmbyRecommendationFilter();
+    emit embyRecommendationSettingsChanged();
+}
+
+bool AppViewModel::embyRecommendationRefreshing() const
+{
+    return m_embyRecommendationRefreshing;
+}
+
+QString AppViewModel::embyRecommendationRefreshStatus() const
+{
+    if (m_embyRecommendationStatus == QStringLiteral("refreshing")) {
+        return trText(QStringLiteral("recommendations.refreshing"));
+    }
+    if (m_embyRecommendationStatus == QStringLiteral("queued")) {
+        return trText(QStringLiteral("recommendations.refreshQueued"));
+    }
+    if (m_embyRecommendationStatus == QStringLiteral("failed")) {
+        return trText(QStringLiteral("recommendations.refreshFailed"));
+    }
+    if (m_embyRecommendationUpdatedAt.isValid()) {
+        return trText(QStringLiteral("recommendations.lastUpdated"))
+            .arg(QLocale(effectiveLanguage(m_languageMode))
+                     .toString(m_embyRecommendationUpdatedAt.toLocalTime(), QLocale::ShortFormat));
+    }
+    return trText(QStringLiteral("recommendations.dailyRefresh"));
 }
 
 QString AppViewModel::jellyfinHomeLayout() const
@@ -5152,6 +5252,7 @@ void AppViewModel::logout()
     m_libraries.clear();
     m_continueItems.clear();
     m_recommendedItems.clear();
+    resetEmbyRecommendationRuntimeState();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();
@@ -5180,6 +5281,7 @@ void AppViewModel::backToServices()
     m_libraries.clear();
     m_continueItems.clear();
     m_recommendedItems.clear();
+    resetEmbyRecommendationRuntimeState();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();
@@ -5284,6 +5386,10 @@ void AppViewModel::openSettings()
     clearCurrentPlayback();
     emit playbackChanged();
     setCurrentView(QStringLiteral("settings"));
+    if (m_session && m_session->server.serviceType == ServiceType::Emby
+        && m_repository.embyRecommendationAvailableGenres().isEmpty()) {
+        refreshEmbyRecommendationGenres();
+    }
 }
 
 void AppViewModel::openHistoryStats()
@@ -5584,6 +5690,29 @@ void AppViewModel::refreshHome()
     refreshLibraries();
 }
 
+void AppViewModel::refreshEmbyRecommendations()
+{
+    clearError();
+    if (m_embyRecommendationRefreshing) {
+        return;
+    }
+
+    if (m_session && m_session->server.serviceType == ServiceType::Emby) {
+        refreshRecommendations(true);
+        return;
+    }
+
+    if (auto result = m_repository.clearEmbyRecommendationCaches(); !result) {
+        AppLogger::warning(QStringLiteral("recommendations"),
+                           QStringLiteral("Clear Emby recommendation caches failed: %1").arg(result.error()));
+        m_embyRecommendationStatus = QStringLiteral("failed");
+    } else {
+        m_embyRecommendationUpdatedAt = {};
+        m_embyRecommendationStatus = QStringLiteral("queued");
+    }
+    emit embyRecommendationSettingsChanged();
+}
+
 void AppViewModel::refreshLibraries()
 {
     if (!m_session) {
@@ -5692,7 +5821,7 @@ void AppViewModel::refreshContinueWatching()
     });
 }
 
-void AppViewModel::refreshRecommendations()
+void AppViewModel::refreshRecommendations(bool force)
 {
     if (!m_session
         || (m_session->server.serviceType != ServiceType::Emby
@@ -5701,32 +5830,186 @@ void AppViewModel::refreshRecommendations()
         return;
     }
 
-    beginHomeLoading();
     const auto serviceType = m_session->server.serviceType;
+    if (serviceType == ServiceType::Emby && m_embyRecommendationRefreshing) {
+        return;
+    }
+
+    const auto serverId = m_session->server.id;
+    const auto userId = m_session->userId;
+    const auto needsGenreOptions = m_repository.embyRecommendationAvailableGenres().isEmpty();
+    if (serviceType == ServiceType::Emby) {
+        const auto cached = m_repository.loadEmbyRecommendationCache(serverId, userId);
+        if (!cached) {
+            AppLogger::warning(QStringLiteral("recommendations"),
+                               QStringLiteral("Load Emby recommendation cache failed: %1").arg(cached.error()));
+        } else if (cached->has_value()) {
+            const auto decoded = EmbyRecommendationCache::deserialize((*cached)->payload, m_session->accessToken);
+            if (!decoded) {
+                AppLogger::warning(QStringLiteral("recommendations"), decoded.error());
+            } else {
+                m_unfilteredEmbyRecommendations = *decoded;
+                m_embyRecommendationUpdatedAt = (*cached)->refreshedAt;
+                m_embyRecommendationStatus = QStringLiteral("updated");
+                mergeEmbyRecommendationGenresFromItems();
+                applyEmbyRecommendationFilter();
+                emit embyRecommendationSettingsChanged();
+                if (!force && EmbyRecommendationCache::refreshedToday((*cached)->refreshedAt)) {
+                    if (needsGenreOptions) {
+                        refreshEmbyRecommendationGenres();
+                    }
+                    AppLogger::info(QStringLiteral("recommendations"),
+                                    QStringLiteral("Using today's cached Emby recommendations for %1")
+                                        .arg(QUrl(m_session->server.baseUrl).host()));
+                    return;
+                }
+            }
+        }
+    }
+
+    beginHomeLoading();
+    if (serviceType == ServiceType::Emby) {
+        refreshEmbyRecommendationGenres();
+        m_embyRecommendationRefreshing = true;
+        m_embyRecommendationStatus = QStringLiteral("refreshing");
+        emit embyRecommendationSettingsChanged();
+    }
     AppLogger::info(QStringLiteral("recommendations"),
                     QStringLiteral("Fetching %1 suggested series from %2")
                         .arg(serviceType == ServiceType::Emby ? QStringLiteral("Emby") : QStringLiteral("Jellyfin"),
                              QUrl(m_session->server.baseUrl).host()));
-    const auto serverId = m_session->server.id;
-    auto handleResult = [this, serverId](ItemResult result) {
+    auto handleResult = [this, serverId, userId, serviceType](ItemResult result) {
         endHomeLoading();
-        if (!m_session || m_session->server.id != serverId) {
+        if (!m_session || m_session->server.id != serverId || m_session->userId != userId) {
             return;
         }
+        if (serviceType == ServiceType::Emby) {
+            m_embyRecommendationRefreshing = false;
+        }
         if (!result) {
-            m_recommendedItems.clear();
+            if (serviceType == ServiceType::Emby) {
+                m_embyRecommendationStatus = QStringLiteral("failed");
+                emit embyRecommendationSettingsChanged();
+            } else {
+                m_recommendedItems.clear();
+            }
             AppLogger::warning(QStringLiteral("recommendations"),
                                QStringLiteral("Fetch suggested series failed: %1")
                                    .arg(displayNetworkError(result.error())));
+            return;
+        }
+        if (serviceType == ServiceType::Emby) {
+            m_unfilteredEmbyRecommendations = std::move(*result);
+            const auto refreshedAt = QDateTime::currentDateTimeUtc();
+            const auto payload = EmbyRecommendationCache::serialize(m_unfilteredEmbyRecommendations);
+            if (auto saved = m_repository.saveEmbyRecommendationCache(serverId, userId, payload, refreshedAt); !saved) {
+                AppLogger::warning(QStringLiteral("recommendations"),
+                                   QStringLiteral("Save Emby recommendation cache failed: %1").arg(saved.error()));
+            }
+            m_embyRecommendationUpdatedAt = refreshedAt;
+            m_embyRecommendationStatus = QStringLiteral("updated");
+            mergeEmbyRecommendationGenresFromItems();
+            applyEmbyRecommendationFilter();
+            emit embyRecommendationSettingsChanged();
             return;
         }
         m_recommendedItems.setItems(std::move(*result));
     };
 
     if (serviceType == ServiceType::Emby) {
-        m_embyClient.fetchSuggestedSeries(*m_session, 8, std::move(handleResult));
+        m_embyClient.fetchSuggestedSeries(*m_session, embyRecommendationFetchLimit, std::move(handleResult));
     } else {
         m_jellyfinClient.fetchSuggestedSeries(*m_session, 8, std::move(handleResult));
+    }
+}
+
+void AppViewModel::applyEmbyRecommendationFilter()
+{
+    if (!m_session || m_session->server.serviceType != ServiceType::Emby) {
+        return;
+    }
+    m_recommendedItems.setItems(EmbyRecommendationCache::filtered(
+        m_unfilteredEmbyRecommendations,
+        m_repository.embyRecommendationExcludedGenres(),
+        embyRecommendationVisibleLimit));
+}
+
+bool AppViewModel::mergeEmbyRecommendationGenres(const QStringList& genres)
+{
+    auto availableGenres = m_repository.embyRecommendationAvailableGenres();
+    const auto previousGenres = availableGenres;
+    for (const auto& genre : genres) {
+        const auto normalized = genre.trimmed();
+        if (!normalized.isEmpty() && !availableGenres.contains(normalized, Qt::CaseInsensitive)) {
+            availableGenres.append(normalized);
+        }
+    }
+    std::sort(availableGenres.begin(), availableGenres.end(), [](const QString& left, const QString& right) {
+        return left.localeAwareCompare(right) < 0;
+    });
+    if (availableGenres == previousGenres) {
+        return false;
+    }
+    m_repository.setEmbyRecommendationAvailableGenres(availableGenres);
+    return true;
+}
+
+bool AppViewModel::mergeEmbyRecommendationGenresFromItems()
+{
+    QStringList genres;
+    for (const auto& item : m_unfilteredEmbyRecommendations) {
+        genres.append(item.genres.split(QLatin1Char(','), Qt::SkipEmptyParts));
+    }
+    return mergeEmbyRecommendationGenres(genres);
+}
+
+void AppViewModel::refreshEmbyRecommendationGenres()
+{
+    if (!m_session || m_session->server.serviceType != ServiceType::Emby
+        || m_embyRecommendationGenresLoading) {
+        return;
+    }
+
+    const auto serverId = m_session->server.id;
+    const auto requestId = ++m_embyRecommendationGenreRequestId;
+    m_embyRecommendationGenresLoading = true;
+    emit embyRecommendationSettingsChanged();
+    m_embyClient.fetchSeriesGenres(*m_session, [this, serverId, requestId](GenreResult result) {
+        const auto isLatestRequest = requestId == m_embyRecommendationGenreRequestId;
+        if (isLatestRequest) {
+            m_embyRecommendationGenresLoading = false;
+        }
+        if (!result) {
+            AppLogger::warning(QStringLiteral("recommendations"),
+                               QStringLiteral("Fetch Emby series genres failed for service %1: %2")
+                                   .arg(serverId, displayNetworkError(result.error())));
+            if (isLatestRequest) {
+                emit embyRecommendationSettingsChanged();
+            }
+            return;
+        }
+
+        const auto genresChanged = mergeEmbyRecommendationGenres(*result);
+        if (isLatestRequest || genresChanged) {
+            emit embyRecommendationSettingsChanged();
+        }
+    });
+}
+
+void AppViewModel::resetEmbyRecommendationRuntimeState()
+{
+    const auto changed = m_embyRecommendationRefreshing
+        || m_embyRecommendationGenresLoading
+        || m_embyRecommendationUpdatedAt.isValid()
+        || m_embyRecommendationStatus != QStringLiteral("idle");
+    m_unfilteredEmbyRecommendations.clear();
+    m_embyRecommendationUpdatedAt = {};
+    m_embyRecommendationStatus = QStringLiteral("idle");
+    m_embyRecommendationRefreshing = false;
+    m_embyRecommendationGenresLoading = false;
+    ++m_embyRecommendationGenreRequestId;
+    if (changed) {
+        emit embyRecommendationSettingsChanged();
     }
 }
 
@@ -7009,6 +7292,7 @@ void AppViewModel::applyIptvService(const ServiceCard& card,
     m_libraries.clear();
     m_continueItems.clear();
     m_recommendedItems.clear();
+    resetEmbyRecommendationRuntimeState();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();
@@ -7133,6 +7417,7 @@ void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& pas
     m_libraries.clear();
     m_continueItems.clear();
     m_recommendedItems.clear();
+    resetEmbyRecommendationRuntimeState();
     m_items.clear();
     emit loggedInChanged();
     emit currentUserChanged();

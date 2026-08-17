@@ -2,6 +2,8 @@
 
 #include "services/media/MediaServerClientBase.h"
 
+using GenreResult = std::expected<QStringList, NetworkError>;
+
 class EmbyClient final : public MediaServerClientBase {
     Q_OBJECT
 
@@ -32,6 +34,8 @@ public:
 
     void fetchSuggestedSeries(const UserSession& session, int limit, std::function<void(ItemResult)> callback);
 
+    void fetchSeriesGenres(const UserSession& session, std::function<void(GenreResult)> callback);
+
     void fetchRandomPlayableItems(const UserSession& session, int limit, std::function<void(ItemResult)> callback);
 
     void fetchSeriesSeasons(const UserSession& session,
@@ -56,4 +60,6 @@ private:
     void fetchSuggestedSeriesFallback(const UserSession& session,
                                       int limit,
                                       std::function<void(ItemResult)> callback);
+    void fetchSeriesGenresFallback(const UserSession& session,
+                                   std::function<void(GenreResult)> callback);
 };

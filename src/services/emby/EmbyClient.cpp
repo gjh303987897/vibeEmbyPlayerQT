@@ -31,6 +31,45 @@ std::expected<QJsonObject, NetworkError> parseObject(const QByteArray& body)
     return document.object();
 }
 
+QStringList genreNamesFromArray(const QJsonArray& values)
+{
+    QStringList genres;
+    for (const auto& value : values) {
+        const auto name = value.isString()
+            ? value.toString().trimmed()
+            : jsonStringAny(value.toObject(), { QStringLiteral("Name"), QStringLiteral("name") }).trimmed();
+        if (!name.isEmpty() && !genres.contains(name, Qt::CaseInsensitive)) {
+            genres.append(name);
+        }
+    }
+    std::sort(genres.begin(), genres.end(), [](const QString& left, const QString& right) {
+        return left.localeAwareCompare(right) < 0;
+    });
+    return genres;
+}
+
+std::expected<QStringList, NetworkError> parseFilterGenres(const QByteArray& body)
+{
+    const auto root = parseObject(body);
+    if (!root) {
+        return std::unexpected(root.error());
+    }
+
+    const auto values = root->value(QStringLiteral("Genres"))
+                            .toArray(root->value(QStringLiteral("genres")).toArray());
+    return genreNamesFromArray(values);
+}
+
+std::expected<QStringList, NetworkError> parseGenreItems(const QByteArray& body)
+{
+    const auto root = parseObject(body);
+    if (!root) {
+        return std::unexpected(root.error());
+    }
+    return genreNamesFromArray(root->value(QStringLiteral("Items"))
+                                   .toArray(root->value(QStringLiteral("items")).toArray()));
+}
+
 void addSuggestedSeriesFields(QUrlQuery& query)
 {
     query.addQueryItem(QStringLiteral("Fields"),
@@ -265,6 +304,59 @@ void EmbyClient::fetchSuggestedSeries(const UserSession& session,
                                    .arg(QUrl(session.server.baseUrl).host()));
             fetchSuggestedSeriesFallback(session, limit, std::move(callback));
         });
+    });
+}
+
+void EmbyClient::fetchSeriesGenres(const UserSession& session, std::function<void(GenreResult)> callback)
+{
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Items/Filters"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("UserId"), session.userId);
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Series"));
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [this, session, callback = std::move(callback)](NetworkResult result) mutable {
+        if (result) {
+            auto genres = parseFilterGenres(result->body);
+            if (genres && !genres->isEmpty()) {
+                callback(std::move(genres));
+                return;
+            }
+        }
+
+        AppLogger::warning(QStringLiteral("recommendations"),
+                           QStringLiteral("Emby item filters did not provide series genres; using the genres endpoint for %1")
+                               .arg(QUrl(session.server.baseUrl).host()));
+        fetchSeriesGenresFallback(session, std::move(callback));
+    });
+}
+
+void EmbyClient::fetchSeriesGenresFallback(const UserSession& session,
+                                           std::function<void(GenreResult)> callback)
+{
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Genres"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("UserId"), session.userId);
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Series"));
+    query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("SortName"));
+    query.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Ascending"));
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [callback = std::move(callback)](NetworkResult result) mutable {
+        if (!result) {
+            callback(std::unexpected(result.error()));
+            return;
+        }
+        callback(parseGenreItems(result->body));
     });
 }
 

@@ -76,6 +76,8 @@ qt_add_executable(vibePlayerQT
     src/app/TrayController.h
     src/app/WindowAppearanceController.cpp
     src/app/WindowAppearanceController.h
+    src/services/emby/EmbyRecommendationCache.cpp
+    src/services/emby/EmbyRecommendationCache.h
     src/database/SessionRepository.cpp
     src/database/SessionRepository.h
     src/models/IptvChannel.h
@@ -616,6 +618,25 @@ if(BUILD_TESTING)
 
     add_test(NAME media_server_search COMMAND media_server_search_test)
     set_tests_properties(media_server_search PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(emby_recommendation_cache_test
+        tests/EmbyRecommendationCacheTest.cpp
+        src/services/emby/EmbyRecommendationCache.cpp
+        src/services/emby/EmbyRecommendationCache.h
+        src/models/MediaItem.h
+        src/models/MediaPerson.h
+    )
+    target_include_directories(emby_recommendation_cache_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(emby_recommendation_cache_test PRIVATE
+        Qt6::Test
+    )
+
+    add_test(NAME emby_recommendation_cache COMMAND emby_recommendation_cache_test)
+    set_tests_properties(emby_recommendation_cache PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 

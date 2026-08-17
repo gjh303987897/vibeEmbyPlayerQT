@@ -13821,6 +13821,88 @@ ApplicationWindow {
             }
 
             SettingsGroup {
+                title: t("settings.recommendations")
+
+                SettingRow {
+                    label: t("settings.embyRecommendationRefresh")
+
+                    RowLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 10
+
+                        MutedText {
+                            Layout.fillWidth: true
+                            text: appViewModel.embyRecommendationRefreshStatus
+                            wrapMode: Text.WordWrap
+                        }
+
+                        ModernButton {
+                            text: appViewModel.embyRecommendationRefreshing
+                                ? t("recommendations.refreshing")
+                                : t("recommendations.manualRefresh")
+                            enabled: !appViewModel.embyRecommendationRefreshing
+                            onClicked: appViewModel.refreshEmbyRecommendations()
+                        }
+                    }
+                }
+
+                SettingRow {
+                    label: t("settings.embyRecommendationFilter")
+
+                    ColumnLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 8
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: appViewModel.embyRecommendationGenresLoading
+                            spacing: 8
+
+                            BusyIndicator {
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                                running: visible
+                            }
+
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("recommendations.genreLoading")
+                            }
+                        }
+
+                        MutedText {
+                            Layout.fillWidth: true
+                            visible: !appViewModel.embyRecommendationGenresLoading
+                                && appViewModel.embyRecommendationGenreOptions.length === 0
+                            text: t("recommendations.genreUnavailable")
+                            wrapMode: Text.WordWrap
+                        }
+
+                        GridLayout {
+                            id: recommendationGenreGrid
+                            Layout.fillWidth: true
+                            visible: appViewModel.embyRecommendationGenreOptions.length > 0
+                            columns: 2
+                            columnSpacing: 12
+                            rowSpacing: 6
+
+                            Repeater {
+                                model: appViewModel.embyRecommendationGenreOptions
+
+                                delegate: ModernCheckBox {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.name
+                                    checked: modelData.excluded
+                                    onToggled: appViewModel.setEmbyRecommendationGenreExcluded(modelData.name, checked)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            SettingsGroup {
                 title: t("settings.privacy")
 
                 SettingRow {

@@ -151,6 +151,8 @@ private slots:
     void embySearchesCurrentUserRootRecursively();
     void jellyfinSearchesCurrentUserRootRecursively();
     void embyRequestsSuggestedSeries();
+    void embyRequestsSeriesGenres();
+    void embyFallsBackToGenresEndpoint();
     void embyFallsBackWhenSuggestionsReturnNonSeriesItems();
     void jellyfinRequestsSuggestedSeries();
     void embyDetailsPreferItemLogoArtwork();
@@ -267,6 +269,72 @@ void MediaServerSearchTest::embyRequestsSuggestedSeries()
     QCOMPARE(query.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("true"));
     QVERIFY(server.header(QByteArrayLiteral("authorization")).startsWith(QByteArrayLiteral("Emby ")));
     QCOMPARE(server.header(QByteArrayLiteral("x-emby-token")), QByteArrayLiteral("secret-token"));
+}
+
+void MediaServerSearchTest::embyRequestsSeriesGenres()
+{
+    LocalMediaServer server(QByteArrayLiteral(
+        R"({"Genres":["Drama","Horror",{"Name":"Reality"},"drama",""]})"));
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    EmbyClient client(networkClient);
+    std::optional<GenreResult> result;
+
+    client.fetchSeriesGenres(sessionFor(server, ServiceType::Emby),
+                             [&result](GenreResult value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    QCOMPARE(result->value().size(), qsizetype { 3 });
+    QVERIFY(result->value().contains(QStringLiteral("Drama")));
+    QVERIFY(result->value().contains(QStringLiteral("Horror")));
+    QVERIFY(result->value().contains(QStringLiteral("Reality")));
+
+    const QUrl requestUrl(QStringLiteral("http://127.0.0.1") + QString::fromLatin1(server.requestTarget()));
+    const QUrlQuery query(requestUrl);
+    QCOMPARE(requestUrl.path(), QStringLiteral("/Items/Filters"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-id"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Series"));
+    QVERIFY(server.header(QByteArrayLiteral("authorization")).startsWith(QByteArrayLiteral("Emby ")));
+    QCOMPARE(server.header(QByteArrayLiteral("x-emby-token")), QByteArrayLiteral("secret-token"));
+}
+
+void MediaServerSearchTest::embyFallsBackToGenresEndpoint()
+{
+    LocalMediaServer server(std::vector<QByteArray> {
+        QByteArrayLiteral(R"({"Genres":[]})"),
+        QByteArrayLiteral(R"({"Items":[{"Name":"Animation"},{"Name":"Comedy"},{"Name":"animation"}],"TotalRecordCount":3})"),
+    });
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    EmbyClient client(networkClient);
+    std::optional<GenreResult> result;
+
+    client.fetchSeriesGenres(sessionFor(server, ServiceType::Emby),
+                             [&result](GenreResult value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    QCOMPARE(result->value(), QStringList({ QStringLiteral("Animation"), QStringLiteral("Comedy") }));
+    QCOMPARE(server.requestCount(), 2);
+
+    const QUrl filtersUrl(QStringLiteral("http://127.0.0.1")
+                          + QString::fromLatin1(server.requestTargetAt(0)));
+    QCOMPARE(filtersUrl.path(), QStringLiteral("/Items/Filters"));
+
+    const QUrl genresUrl(QStringLiteral("http://127.0.0.1")
+                         + QString::fromLatin1(server.requestTargetAt(1)));
+    const QUrlQuery genresQuery(genresUrl);
+    QCOMPARE(genresUrl.path(), QStringLiteral("/Genres"));
+    QCOMPARE(genresQuery.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-id"));
+    QCOMPARE(genresQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Series"));
+    QCOMPARE(genresQuery.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(genresQuery.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("SortName"));
+    QCOMPARE(genresQuery.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Ascending"));
 }
 
 void MediaServerSearchTest::embyFallsBackWhenSuggestionsReturnNonSeriesItems()

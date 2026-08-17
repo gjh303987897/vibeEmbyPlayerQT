@@ -117,6 +117,10 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString effectiveTheme READ effectiveTheme NOTIFY effectiveThemeChanged)
     Q_PROPERTY(QString languageMode READ languageMode WRITE setLanguageMode NOTIFY languageModeChanged)
     Q_PROPERTY(QString embyHomeLayout READ embyHomeLayout WRITE setEmbyHomeLayout NOTIFY embyHomeLayoutChanged)
+    Q_PROPERTY(QVariantList embyRecommendationGenreOptions READ embyRecommendationGenreOptions NOTIFY embyRecommendationSettingsChanged)
+    Q_PROPERTY(bool embyRecommendationGenresLoading READ embyRecommendationGenresLoading NOTIFY embyRecommendationSettingsChanged)
+    Q_PROPERTY(bool embyRecommendationRefreshing READ embyRecommendationRefreshing NOTIFY embyRecommendationSettingsChanged)
+    Q_PROPERTY(QString embyRecommendationRefreshStatus READ embyRecommendationRefreshStatus NOTIFY embyRecommendationSettingsChanged)
     Q_PROPERTY(QString jellyfinHomeLayout READ jellyfinHomeLayout WRITE setJellyfinHomeLayout NOTIFY jellyfinHomeLayoutChanged)
     Q_PROPERTY(QString playerLayout READ playerLayout WRITE setPlayerLayout NOTIFY playerLayoutChanged)
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
@@ -311,6 +315,10 @@ public:
     void setLanguageMode(const QString& value);
     QString embyHomeLayout() const;
     void setEmbyHomeLayout(const QString& value);
+    QVariantList embyRecommendationGenreOptions() const;
+    bool embyRecommendationGenresLoading() const;
+    bool embyRecommendationRefreshing() const;
+    QString embyRecommendationRefreshStatus() const;
     QString jellyfinHomeLayout() const;
     void setJellyfinHomeLayout(const QString& value);
     QString playerLayout() const;
@@ -514,6 +522,8 @@ public:
                                                         const QString& scheduleDays) const;
     Q_INVOKABLE QString formatDuration(qint64 seconds) const;
     Q_INVOKABLE void refreshHome();
+    Q_INVOKABLE void refreshEmbyRecommendations();
+    Q_INVOKABLE void setEmbyRecommendationGenreExcluded(const QString& genre, bool excluded);
     Q_INVOKABLE void refreshLibraries();
     Q_INVOKABLE void searchMediaServer();
     Q_INVOKABLE void clearServerSearch();
@@ -573,6 +583,7 @@ signals:
     void effectiveThemeChanged();
     void languageModeChanged();
     void embyHomeLayoutChanged();
+    void embyRecommendationSettingsChanged();
     void jellyfinHomeLayoutChanged();
     void playerLayoutChanged();
     void pageTransitionsEnabledChanged();
@@ -716,7 +727,12 @@ private:
     void applyReportedPlaybackProgress(const QString& itemId, qint64 positionTicks);
     void mergeRecentPlaybackProgress(std::vector<MediaItem>& items) const;
     void refreshContinueWatching();
-    void refreshRecommendations();
+    void refreshRecommendations(bool force = false);
+    void applyEmbyRecommendationFilter();
+    bool mergeEmbyRecommendationGenres(const QStringList& genres);
+    bool mergeEmbyRecommendationGenresFromItems();
+    void refreshEmbyRecommendationGenres();
+    void resetEmbyRecommendationRuntimeState();
     void clearServerSearchState(bool clearText = true);
     void loadServerSearchResults(bool resetItems);
     void openMediaItemDetails(const MediaItem& item, bool returnToSearch);
@@ -773,6 +789,12 @@ private:
     bool m_loading { false };
     bool m_episodeSwitching { false };
     int m_homeLoadingRequests { 0 };
+    std::vector<MediaItem> m_unfilteredEmbyRecommendations;
+    QDateTime m_embyRecommendationUpdatedAt;
+    QString m_embyRecommendationStatus { QStringLiteral("idle") };
+    bool m_embyRecommendationRefreshing { false };
+    bool m_embyRecommendationGenresLoading { false };
+    quint64 m_embyRecommendationGenreRequestId { 0 };
     bool m_libraryItemsLoading { false };
     QString m_serverSearchText;
     QString m_activeServerSearchTerm;

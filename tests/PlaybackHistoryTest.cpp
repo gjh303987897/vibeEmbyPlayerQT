@@ -16,6 +16,7 @@ private slots:
     void migratesExistingLinkHistory();
     void deduplicatesExistingGlobalHistory();
     void usesManagedPathForIptvServiceCards();
+    void persistsAndClearsEmbyRecommendationCache();
 };
 
 namespace {
@@ -198,6 +199,41 @@ void PlaybackHistoryTest::usesManagedPathForIptvServiceCards()
     QVERIFY(cards.has_value());
     QCOMPARE(cards->size(), size_t { 1 });
     QCOMPARE(cards->front().server.baseUrl, managedPath);
+}
+
+void PlaybackHistoryTest::persistsAndClearsEmbyRecommendationCache()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    SessionRepository repository(uniqueConnectionName(), directory.filePath(QStringLiteral("recommendations.sqlite3")));
+    QVERIFY(repository.initialize().has_value());
+    ServerConfig server {
+        .id = QStringLiteral("emby-service"),
+        .name = QStringLiteral("Emby"),
+        .baseUrl = QStringLiteral("https://emby.example"),
+        .serviceType = ServiceType::Emby,
+    };
+    QVERIFY(repository.saveServer(server).has_value());
+
+    const QByteArray payload = R"([{"id":"series-1"}])";
+    const auto refreshedAt = QDateTime::fromString(QStringLiteral("2026-08-18T01:02:03.456Z"), Qt::ISODateWithMs);
+    QVERIFY(repository.saveEmbyRecommendationCache(server.id,
+                                                   QStringLiteral("user-1"),
+                                                   payload,
+                                                   refreshedAt)
+                .has_value());
+
+    const auto loaded = repository.loadEmbyRecommendationCache(server.id, QStringLiteral("user-1"));
+    QVERIFY(loaded.has_value());
+    QVERIFY(loaded->has_value());
+    QCOMPARE((*loaded)->payload, payload);
+    QCOMPARE((*loaded)->refreshedAt.toUTC(), refreshedAt);
+
+    QVERIFY(repository.clearEmbyRecommendationCaches().has_value());
+    const auto cleared = repository.loadEmbyRecommendationCache(server.id, QStringLiteral("user-1"));
+    QVERIFY(cleared.has_value());
+    QVERIFY(!cleared->has_value());
 }
 
 void PlaybackHistoryTest::migratesExistingLinkHistory()

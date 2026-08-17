@@ -335,6 +335,19 @@ std::expected<void, QString> SessionRepository::initialize()
         return std::unexpected(sqlError(localMediaRootsQuery));
     }
 
+    QSqlQuery recommendationCacheQuery(m_database);
+    if (!recommendationCacheQuery.exec(QStringLiteral(
+            "CREATE TABLE IF NOT EXISTS emby_recommendation_cache ("
+            "server_id TEXT NOT NULL,"
+            "user_id TEXT NOT NULL,"
+            "payload BLOB NOT NULL,"
+            "refreshed_at TEXT NOT NULL,"
+            "PRIMARY KEY(server_id, user_id),"
+            "FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE"
+            ")"))) {
+        return std::unexpected(sqlError(recommendationCacheQuery));
+    }
+
     if (auto pruneResult = pruneOldDailyUsage(); !pruneResult) {
         return pruneResult;
     }
@@ -1213,6 +1226,75 @@ std::expected<std::optional<UserSession>, QString> SessionRepository::loadSessio
     return sessionFromQuery(query);
 }
 
+std::expected<std::optional<RecommendationCacheRecord>, QString> SessionRepository::loadEmbyRecommendationCache(
+    const QString& serverId,
+    const QString& userId)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "SELECT payload, refreshed_at FROM emby_recommendation_cache "
+        "WHERE server_id = :server_id AND user_id = :user_id LIMIT 1"));
+    query.bindValue(QStringLiteral(":server_id"), serverId);
+    query.bindValue(QStringLiteral(":user_id"), userId);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    if (!query.next()) {
+        return std::optional<RecommendationCacheRecord> {};
+    }
+
+    const auto refreshedAt = QDateTime::fromString(query.value(1).toString(), Qt::ISODateWithMs);
+    if (!refreshedAt.isValid()) {
+        return std::unexpected(QStringLiteral("Stored Emby recommendation refresh time is invalid"));
+    }
+    return std::optional<RecommendationCacheRecord> { RecommendationCacheRecord {
+        .payload = query.value(0).toByteArray(),
+        .refreshedAt = refreshedAt,
+    } };
+}
+
+std::expected<void, QString> SessionRepository::saveEmbyRecommendationCache(const QString& serverId,
+                                                                              const QString& userId,
+                                                                              const QByteArray& payload,
+                                                                              const QDateTime& refreshedAt)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "INSERT INTO emby_recommendation_cache (server_id, user_id, payload, refreshed_at) "
+        "VALUES (:server_id, :user_id, :payload, :refreshed_at) "
+        "ON CONFLICT(server_id, user_id) DO UPDATE SET "
+        "payload = excluded.payload, refreshed_at = excluded.refreshed_at"));
+    query.bindValue(QStringLiteral(":server_id"), serverId);
+    query.bindValue(QStringLiteral(":user_id"), userId);
+    query.bindValue(QStringLiteral(":payload"), payload);
+    query.bindValue(QStringLiteral(":refreshed_at"), refreshedAt.toUTC().toString(Qt::ISODateWithMs));
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::clearEmbyRecommendationCaches()
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral("DELETE FROM emby_recommendation_cache"))) {
+        return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
 std::expected<void, QString> SessionRepository::deleteServer(const QString& serverId, bool deleteLocalData)
 {
     if (auto openResult = ensureOpen(); !openResult) {
@@ -1254,6 +1336,15 @@ std::expected<void, QString> SessionRepository::deleteServer(const QString& serv
         historyQuery.bindValue(QStringLiteral(":server_id"), serverId);
         if (!historyQuery.exec()) {
             return std::unexpected(sqlError(historyQuery));
+        }
+    }
+
+    {
+        QSqlQuery recommendationQuery(m_database);
+        recommendationQuery.prepare(QStringLiteral("DELETE FROM emby_recommendation_cache WHERE server_id = :server_id"));
+        recommendationQuery.bindValue(QStringLiteral(":server_id"), serverId);
+        if (!recommendationQuery.exec()) {
+            return std::unexpected(sqlError(recommendationQuery));
         }
     }
 
@@ -1487,6 +1578,26 @@ bool SessionRepository::pageTransitionsEnabled() const
 void SessionRepository::setPageTransitionsEnabled(bool enabled)
 {
     m_settings.setValue(QStringLiteral("appearance/pageTransitionsEnabled"), enabled);
+}
+
+QStringList SessionRepository::embyRecommendationExcludedGenres() const
+{
+    return m_settings.value(QStringLiteral("recommendations/embyExcludedGenres")).toStringList();
+}
+
+void SessionRepository::setEmbyRecommendationExcludedGenres(const QStringList& genres)
+{
+    m_settings.setValue(QStringLiteral("recommendations/embyExcludedGenres"), genres);
+}
+
+QStringList SessionRepository::embyRecommendationAvailableGenres() const
+{
+    return m_settings.value(QStringLiteral("recommendations/embyAvailableGenres")).toStringList();
+}
+
+void SessionRepository::setEmbyRecommendationAvailableGenres(const QStringList& genres)
+{
+    m_settings.setValue(QStringLiteral("recommendations/embyAvailableGenres"), genres);
 }
 
 QString SessionRepository::defaultDownloadDirectory() const

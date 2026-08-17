@@ -10,6 +10,8 @@
 #include "models/ServiceCard.h"
 #include "models/UserSession.h"
 
+#include <QByteArray>
+#include <QDateTime>
 #include <QSettings>
 #include <QSqlDatabase>
 #include <QString>
@@ -18,6 +20,11 @@
 #include <expected>
 #include <optional>
 #include <vector>
+
+struct RecommendationCacheRecord final {
+    QByteArray payload;
+    QDateTime refreshedAt;
+};
 
 class SessionRepository final {
 public:
@@ -71,6 +78,14 @@ public:
     void setPendingMissedScheduledPlaybackTaskIds(const QStringList& taskIds);
     std::expected<std::optional<UserSession>, QString> loadLastSession();
     std::expected<std::optional<UserSession>, QString> loadSession(const QString& serverId);
+    std::expected<std::optional<RecommendationCacheRecord>, QString> loadEmbyRecommendationCache(
+        const QString& serverId,
+        const QString& userId);
+    std::expected<void, QString> saveEmbyRecommendationCache(const QString& serverId,
+                                                             const QString& userId,
+                                                             const QByteArray& payload,
+                                                             const QDateTime& refreshedAt);
+    std::expected<void, QString> clearEmbyRecommendationCaches();
     std::expected<void, QString> deleteServer(const QString& serverId, bool deleteLocalData);
     std::expected<void, QString> moveServer(const QString& serverId, int direction, bool privacyMode);
     std::expected<void, QString> moveServerTo(const QString& serverId, int targetIndex, bool privacyMode);
@@ -95,6 +110,10 @@ public:
     void setPlayerLayout(const QString& layout);
     bool pageTransitionsEnabled() const;
     void setPageTransitionsEnabled(bool enabled);
+    QStringList embyRecommendationExcludedGenres() const;
+    void setEmbyRecommendationExcludedGenres(const QStringList& genres);
+    QStringList embyRecommendationAvailableGenres() const;
+    void setEmbyRecommendationAvailableGenres(const QStringList& genres);
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& directory);
     QString m3u8sOutputDirectory() const;
