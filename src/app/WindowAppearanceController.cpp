@@ -110,7 +110,7 @@ void WindowAppearanceController::apply()
         DwmSetWindowAttribute(hwnd, legacyImmersiveDarkModeAttribute, &useDarkMode, sizeof(useDarkMode));
     }
 
-    const COLORREF borderColor = darkMode ? RGB(48, 57, 69) : RGB(216, 224, 234);
+    const COLORREF borderColor = DWMWA_COLOR_NONE;
     DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &borderColor, sizeof(borderColor));
     if (!(m_window->flags() & Qt::FramelessWindowHint)) {
         const COLORREF captionColor = darkMode ? RGB(15, 18, 23) : RGB(245, 247, 251);
