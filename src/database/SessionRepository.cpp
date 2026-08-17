@@ -98,8 +98,13 @@ SessionRepository::SessionRepository(QString connectionName, QString databasePat
 
 SessionRepository::~SessionRepository()
 {
+    const auto connectionName = m_connectionName;
     if (m_database.isValid()) {
         m_database.close();
+        m_database = QSqlDatabase {};
+    }
+    if (QSqlDatabase::contains(connectionName)) {
+        QSqlDatabase::removeDatabase(connectionName);
     }
 }
 

@@ -650,8 +650,10 @@ private:
     void startLogin(const ServerConfig& server, const QString& password);
     void loadServiceHome();
     void loadIptvService(const ServiceCard& card);
+    void applyIptvService(const ServiceCard& card,
+                          IptvPlaylist playlist,
+                          std::vector<IptvChannel> channels);
     void clearIptvState();
-    void refreshIptvChannels();
     void applyIptvFilters();
     std::expected<IptvPlaylist, QString> importIptvPlaylistFile(const ServerConfig& server, std::vector<IptvChannel>& channels) const;
     void loadWebDavService(const ServiceCard& card, const QString& password);

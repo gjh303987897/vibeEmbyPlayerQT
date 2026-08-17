@@ -67,15 +67,22 @@ QML does not make network requests and does not parse JSON.
 - Adding a card stores service name, base URL, username, service type, certificate policy and auto-login preference.
 - If a password is provided while saving, the card is logged in immediately and the token is persisted through `SessionRepository`.
 - If auto-login is enabled, clicking a card attempts to restore the saved session and opens the service home.
-- Saved-session restoration and the initial home request fan-out are deferred
-  across event-loop turns. This lets the pressed/loading state render before
-  SQLite access and home model updates, while responses from a previously
-  selected server are ignored.
+- Service activation sets only the selected card and loading state on the
+  click turn. After the feedback has rendered, saved-session restoration,
+  WebDAV credential lookup, and IPTV playlist/channel reads run through
+  `QtConcurrent` instead of blocking the GUI thread. Each SQLite worker creates
+  and destroys its own thread-local connection, matching Qt's SQL threading
+  contract. The resulting value data is applied to QML models on the GUI
+  thread, while responses from a previously selected server are ignored.
+- The initial media-home request fan-out remains deferred until after the home
+  page is visible, so home model resets and network startup do not compete with
+  the service-card feedback frame.
 - While a saved service is opening, only the activated card is dimmed and
   covered by a service-colored spinner and loading label. The card ignores
-  repeated clicks until the current operation finishes. IPTV initialization is
-  also deferred by one event-loop turn so this feedback is painted before its
-  local playlist data is read.
+  repeated clicks until the current operation finishes. The loading state is
+  established before editor-bound service properties are synchronized, so a
+  cold credential provider, SQLite connection, or first page initialization
+  cannot delay the feedback's first frame.
 - The trendy and traditional media-home trees are both loaded on demand with
   asynchronous QML loaders. An inactive layout does not instantiate hidden
   list delegates or react to home-model resets.

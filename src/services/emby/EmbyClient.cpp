@@ -1,5 +1,6 @@
 #include "services/emby/EmbyClient.h"
 
+#include "utils/AppLogger.h"
 #include "utils/JsonUtils.h"
 
 #include <QDateTime>
@@ -28,6 +29,23 @@ std::expected<QJsonObject, NetworkError> parseObject(const QByteArray& body)
         return std::unexpected(parseError(QStringLiteral("Invalid JSON response")));
     }
     return document.object();
+}
+
+void addSuggestedSeriesFields(QUrlQuery& query)
+{
+    query.addQueryItem(QStringLiteral("Fields"),
+                       QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,ParentId"));
+    query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("ImageTypeLimit"), QStringLiteral("2"));
+    query.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary,Backdrop"));
+    query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+}
+
+void keepSeriesItems(std::vector<MediaItem>& items)
+{
+    std::erase_if(items, [](const MediaItem& item) {
+        return item.itemType.compare(QStringLiteral("Series"), Qt::CaseInsensitive) != 0;
+    });
 }
 }
 
@@ -216,12 +234,51 @@ void EmbyClient::fetchSuggestedSeries(const UserSession& session,
     query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
     query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Series"));
     query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
-    query.addQueryItem(QStringLiteral("Fields"),
-                       QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,DateCreated,RunTimeTicks,CommunityRating,OfficialRating,BackdropImageTags,ParentId"));
-    query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
-    query.addQueryItem(QStringLiteral("ImageTypeLimit"), QStringLiteral("2"));
-    query.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary,Backdrop"));
-    query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+    addSuggestedSeriesFields(query);
+    url.setQuery(query);
+
+    const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
+    m_networkClient.get(url,
+                        headers,
+                        session.server.trustSelfSignedCertificate,
+                        [this, session, limit, callback = std::move(callback)](NetworkResult result) mutable {
+        if (!result) {
+            callback(std::unexpected(result.error()));
+            return;
+        }
+        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
+                        [this, session, limit, callback = std::move(callback)](ItemResult parsed) mutable {
+            if (!parsed) {
+                callback(std::unexpected(parsed.error()));
+                return;
+            }
+
+            auto items = std::move(*parsed);
+            keepSeriesItems(items);
+            if (!items.empty()) {
+                callback(std::move(items));
+                return;
+            }
+
+            AppLogger::warning(QStringLiteral("recommendations"),
+                               QStringLiteral("Emby Suggestions returned no Series items; using the user-items fallback for %1")
+                                   .arg(QUrl(session.server.baseUrl).host()));
+            fetchSuggestedSeriesFallback(session, limit, std::move(callback));
+        });
+    });
+}
+
+void EmbyClient::fetchSuggestedSeriesFallback(const UserSession& session,
+                                              int limit,
+                                              std::function<void(ItemResult)> callback)
+{
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Items").arg(session.userId));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Series"));
+    query.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("Random"));
+    query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
+    addSuggestedSeriesFields(query);
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
@@ -233,8 +290,18 @@ void EmbyClient::fetchSuggestedSeries(const UserSession& session,
             callback(std::unexpected(result.error()));
             return;
         }
-        parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
-                        std::move(callback));
+        parseItemsAsync(result->body,
+                        session.server.baseUrl,
+                        session.accessToken,
+                        [callback = std::move(callback)](ItemResult parsed) mutable {
+            if (!parsed) {
+                callback(std::unexpected(parsed.error()));
+                return;
+            }
+            auto items = std::move(*parsed);
+            keepSeriesItems(items);
+            callback(std::move(items));
+        });
     });
 }
 

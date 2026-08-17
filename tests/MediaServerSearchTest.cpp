@@ -9,9 +9,11 @@
 #include <QTest>
 #include <QUrlQuery>
 
+#include <algorithm>
 #include <expected>
 #include <optional>
 #include <utility>
+#include <vector>
 
 namespace {
 class LocalMediaServer final : public QObject {
@@ -19,10 +21,17 @@ class LocalMediaServer final : public QObject {
 
 public:
     explicit LocalMediaServer(QByteArray responseBody = {}, QObject* parent = nullptr)
+        : LocalMediaServer(std::vector<QByteArray> {
+              responseBody.isEmpty()
+                  ? QByteArrayLiteral(R"({"Items":[{"Id":"movie-1","Name":"Alien","Type":"Movie","ProductionYear":1979,"ImageTags":{"Primary":"poster-tag"},"UserData":{"PlayedPercentage":25.0}}],"TotalRecordCount":1})")
+                  : std::move(responseBody),
+          }, parent)
+    {
+    }
+
+    explicit LocalMediaServer(std::vector<QByteArray> responseBodies, QObject* parent = nullptr)
         : QObject(parent)
-        , m_responseBody(responseBody.isEmpty()
-              ? QByteArrayLiteral(R"({"Items":[{"Id":"movie-1","Name":"Alien","Type":"Movie","ProductionYear":1979,"ImageTags":{"Primary":"poster-tag"},"UserData":{"PlayedPercentage":25.0}}],"TotalRecordCount":1})")
-              : std::move(responseBody))
+        , m_responseBodies(std::move(responseBodies))
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this]() {
             while (auto* socket = m_server.nextPendingConnection()) {
@@ -37,6 +46,9 @@ public:
                     const auto headerLines = buffer.first(headerEnd).split('\n');
                     const auto requestParts = headerLines.value(0).trimmed().split(' ');
                     m_requestTarget = requestParts.value(1);
+                    m_requestTargets.push_back(m_requestTarget);
+                    const auto responseIndex = std::min(m_requestCount,
+                                                        static_cast<int>(m_responseBodies.size()) - 1);
                     ++m_requestCount;
                     m_headers.clear();
                     for (qsizetype index = 1; index < headerLines.size(); ++index) {
@@ -49,8 +61,9 @@ public:
                     }
                     m_buffers.remove(socket);
 
+                    const auto& responseBody = m_responseBodies.at(static_cast<size_t>(responseIndex));
                     const auto response = QByteArrayLiteral("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ")
-                        + QByteArray::number(m_responseBody.size()) + QByteArrayLiteral("\r\n\r\n") + m_responseBody;
+                        + QByteArray::number(responseBody.size()) + QByteArrayLiteral("\r\n\r\n") + responseBody;
                     socket->write(response);
                     socket->disconnectFromHost();
                 });
@@ -77,6 +90,11 @@ public:
         return m_requestTarget;
     }
 
+    QByteArray requestTargetAt(int index) const
+    {
+        return m_requestTargets.at(static_cast<size_t>(index));
+    }
+
     QByteArray header(const QByteArray& name) const
     {
         return m_headers.value(name.toLower());
@@ -91,7 +109,8 @@ private:
     QTcpServer m_server;
     QHash<QTcpSocket*, QByteArray> m_buffers;
     QHash<QByteArray, QByteArray> m_headers;
-    QByteArray m_responseBody;
+    std::vector<QByteArray> m_responseBodies;
+    std::vector<QByteArray> m_requestTargets;
     QByteArray m_requestTarget;
     int m_requestCount { 0 };
 };
@@ -132,6 +151,7 @@ private slots:
     void embySearchesCurrentUserRootRecursively();
     void jellyfinSearchesCurrentUserRootRecursively();
     void embyRequestsSuggestedSeries();
+    void embyFallsBackWhenSuggestionsReturnNonSeriesItems();
     void jellyfinRequestsSuggestedSeries();
     void embyDetailsPreferItemLogoArtwork();
     void embyEpisodeDetailsUseInheritedSeriesLogoArtwork();
@@ -247,6 +267,48 @@ void MediaServerSearchTest::embyRequestsSuggestedSeries()
     QCOMPARE(query.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("true"));
     QVERIFY(server.header(QByteArrayLiteral("authorization")).startsWith(QByteArrayLiteral("Emby ")));
     QCOMPARE(server.header(QByteArrayLiteral("x-emby-token")), QByteArrayLiteral("secret-token"));
+}
+
+void MediaServerSearchTest::embyFallsBackWhenSuggestionsReturnNonSeriesItems()
+{
+    LocalMediaServer server(std::vector<QByteArray> {
+        QByteArrayLiteral(R"({"Items":[{"Id":"studio-1","Name":"Wrong Studio","Type":"Studio"}],"TotalRecordCount":1})"),
+        QByteArrayLiteral(R"({"Items":[{"Id":"series-1","Name":"Fallback Show","Type":"Series","Overview":"Fallback overview","ImageTags":{"Primary":"poster-tag"},"BackdropImageTags":["backdrop-tag"]}],"TotalRecordCount":1})"),
+    });
+    QVERIFY(server.listen());
+    NetworkClient networkClient;
+    EmbyClient client(networkClient);
+    std::optional<ItemResult> result;
+
+    client.fetchSuggestedSeries(sessionFor(server, ServiceType::Emby),
+                                8,
+                                [&result](ItemResult value) {
+        result = std::move(value);
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
+    QVERIFY(result->has_value());
+    QCOMPARE(result->value().size(), size_t { 1 });
+    QCOMPARE(result->value().front().id, QStringLiteral("series-1"));
+    QCOMPARE(result->value().front().itemType, QStringLiteral("Series"));
+    QCOMPARE(result->value().front().overview, QStringLiteral("Fallback overview"));
+    QVERIFY(!result->value().front().imageUrl.isEmpty());
+    QVERIFY(!result->value().front().backdropImageUrl.isEmpty());
+    QCOMPARE(server.requestCount(), 2);
+
+    const QUrl suggestionsUrl(QStringLiteral("http://127.0.0.1")
+                              + QString::fromLatin1(server.requestTargetAt(0)));
+    QCOMPARE(suggestionsUrl.path(), QStringLiteral("/Users/user-id/Suggestions"));
+
+    const QUrl fallbackUrl(QStringLiteral("http://127.0.0.1")
+                           + QString::fromLatin1(server.requestTargetAt(1)));
+    const QUrlQuery fallbackQuery(fallbackUrl);
+    QCOMPARE(fallbackUrl.path(), QStringLiteral("/Users/user-id/Items"));
+    QCOMPARE(fallbackQuery.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(fallbackQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Series"));
+    QCOMPARE(fallbackQuery.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("Random"));
+    QCOMPARE(fallbackQuery.queryItemValue(QStringLiteral("Limit")), QStringLiteral("8"));
+    QCOMPARE(fallbackQuery.queryItemValue(QStringLiteral("EnableImageTypes")), QStringLiteral("Primary,Backdrop"));
 }
 
 void MediaServerSearchTest::jellyfinRequestsSuggestedSeries()

@@ -146,6 +146,13 @@ Emby:
   `EnableImageTypes=Primary,Backdrop`, `EnableUserData=true`
 - The response uses the normal item query-result shape and is parsed into the
   existing `MediaItemListModel`.
+- Some Emby-compatible servers return `Studio` or `Genre` entries even when
+  `IncludeItemTypes=Series` is present. The client discards every non-Series
+  entry. If no valid Series remains, it requests the same user root through
+  `GET /Users/{UserId}/Items` with `Recursive=true`,
+  `IncludeItemTypes=Series`, and `SortBy=Random`, retaining the same metadata
+  and image fields. The fallback response is type-checked again before it is
+  exposed to QML.
 - This model is used only for the home featured carousel. Empty or failed
   responses do not surface a blocking page error; the ViewModel falls back to
   continue watching.

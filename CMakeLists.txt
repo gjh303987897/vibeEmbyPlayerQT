@@ -609,6 +609,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_link_libraries(media_server_search_test PRIVATE
+        Qt6::Concurrent
         Qt6::Network
         Qt6::Test
     )

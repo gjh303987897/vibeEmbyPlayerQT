@@ -51,4 +51,9 @@ public:
     void reportPlaybackStart(const UserSession& session, const PlaybackReport& report) override;
     void reportPlaybackProgress(const UserSession& session, const PlaybackReport& report) override;
     void reportPlaybackStopped(const UserSession& session, const PlaybackReport& report) override;
+
+private:
+    void fetchSuggestedSeriesFallback(const UserSession& session,
+                                      int limit,
+                                      std::function<void(ItemResult)> callback);
 };

@@ -47,6 +47,72 @@ constexpr int continueRefreshAfterStopMs = 1500;
 constexpr int serviceActivationFeedbackMs = 60;
 constexpr int homeDataStartDelayMs = 80;
 
+struct ServiceActivationData final {
+    std::optional<UserSession> session;
+    std::optional<QString> webDavPassword;
+    std::optional<IptvPlaylist> iptvPlaylist;
+    std::vector<IptvChannel> iptvChannels;
+    QString warning;
+};
+
+using ServiceActivationResult = std::expected<ServiceActivationData, QString>;
+
+QString serviceActivationConnectionName()
+{
+    return QStringLiteral("vibeplayer_service_activation_%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+}
+
+ServiceActivationResult prepareServiceActivation(const ServiceCard& card)
+{
+    ServiceActivationData data;
+    switch (card.server.serviceType) {
+    case ServiceType::IPTV: {
+        SessionRepository repository(serviceActivationConnectionName());
+        auto playlist = repository.loadIptvPlaylist(card.server.id);
+        if (!playlist) {
+            return std::unexpected(playlist.error());
+        }
+        if (!playlist->has_value()) {
+            return std::unexpected(QStringLiteral("IPTV playlist data was not found"));
+        }
+        auto channels = repository.loadIptvChannels(card.server.id);
+        if (!channels) {
+            return std::unexpected(channels.error());
+        }
+        data.iptvPlaylist = std::move(**playlist);
+        data.iptvChannels = std::move(*channels);
+        break;
+    }
+    case ServiceType::WebDAV:
+        if (card.server.autoLogin && CredentialStore::isAvailable()) {
+            auto password = CredentialStore::loadPassword(card.server.id);
+            if (!password) {
+                data.warning = password.error();
+            } else if (password->has_value()) {
+                data.webDavPassword = std::move(**password);
+            }
+        }
+        break;
+    case ServiceType::Emby:
+    case ServiceType::Jellyfin:
+        if (card.server.autoLogin) {
+            SessionRepository repository(serviceActivationConnectionName());
+            auto session = repository.loadSession(card.server.id);
+            if (!session) {
+                return std::unexpected(session.error());
+            }
+            if (session->has_value()) {
+                data.session = std::move(**session);
+            }
+        }
+        break;
+    default:
+        break;
+    }
+    return data;
+}
+
 ServerConfig linkPlaybackUsageServer()
 {
     return ServerConfig {
@@ -2939,67 +3005,75 @@ void AppViewModel::selectServiceCard(int row)
     }
 
     m_pendingServiceCard = *card;
-    setServerUrl(card->server.baseUrl);
-    setServerName(card->server.name);
-    setUsername(card->server.username);
-    setServiceType(serviceTypeToString(card->server.serviceType));
-    setTrustSelfSignedCertificate(card->server.trustSelfSignedCertificate);
-    setAutoLogin(card->server.autoLogin);
-    setIptvFilePath(card->server.serviceType == ServiceType::IPTV ? card->server.baseUrl : QString {});
+    const auto selectedServerId = card->server.id;
+    setLoading(true);
+    QTimer::singleShot(serviceActivationFeedbackMs, this, [this, card = *card, selectedServerId]() {
+        if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
+            || m_pendingServiceCard->server.id != selectedServerId) {
+            return;
+        }
 
-    if (card->server.serviceType == ServiceType::IPTV) {
-        const auto selectedServerId = card->server.id;
-        setLoading(true);
-        QTimer::singleShot(serviceActivationFeedbackMs, this, [this, selectedServerId]() {
+        auto* watcher = new QFutureWatcher<ServiceActivationResult>(this);
+        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, card, selectedServerId]() mutable {
+            auto result = watcher->result();
+            watcher->deleteLater();
             if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
                 || m_pendingServiceCard->server.id != selectedServerId) {
+                return;
+            }
+            if (!result) {
+                setLoading(false);
+                setError(result.error());
+                return;
+            }
+
+            setServerUrl(card.server.baseUrl);
+            setServerName(card.server.name);
+            setUsername(card.server.username);
+            setServiceType(serviceTypeToString(card.server.serviceType));
+            setTrustSelfSignedCertificate(card.server.trustSelfSignedCertificate);
+            setAutoLogin(card.server.autoLogin);
+            setIptvFilePath(card.server.serviceType == ServiceType::IPTV
+                                ? card.server.baseUrl
+                                : QString {});
+
+            if (card.server.serviceType == ServiceType::IPTV) {
+                if (!result->iptvPlaylist) {
+                    setLoading(false);
+                    setError(QStringLiteral("IPTV playlist data was not found"));
+                    return;
+                }
+                applyIptvService(card,
+                                 std::move(*result->iptvPlaylist),
+                                 std::move(result->iptvChannels));
                 setLoading(false);
                 return;
             }
-            loadIptvService(*m_pendingServiceCard);
+            if (card.server.serviceType == ServiceType::WebDAV) {
+                if (!result->warning.isEmpty()) {
+                    setError(result->warning);
+                }
+                if (card.server.autoLogin && result->webDavPassword) {
+                    loadWebDavService(card, *result->webDavPassword);
+                    return;
+                }
+                setLoading(false);
+                emit passwordRequired(card.server.name, card.server.username);
+                return;
+            }
+            if (!card.server.autoLogin || !result->session) {
+                setLoading(false);
+                emit passwordRequired(card.server.name, card.server.username);
+                return;
+            }
+
+            setSession(std::move(*result->session));
+            loadServiceHome();
             setLoading(false);
         });
-        return;
-    }
-    if (card->server.serviceType == ServiceType::WebDAV) {
-        const auto password = loadWebDavPassword(card->server);
-        if (card->server.autoLogin && password) {
-            loadWebDavService(*card, *password);
-            return;
-        }
-        emit passwordRequired(card->server.name, card->server.username);
-        return;
-    }
-
-    if (!card->server.autoLogin) {
-        emit passwordRequired(card->server.name, card->server.username);
-        return;
-    }
-
-    const auto selectedServerId = card->server.id;
-    setLoading(true);
-    QTimer::singleShot(serviceActivationFeedbackMs, this, [this, selectedServerId]() {
-        if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
-            || m_pendingServiceCard->server.id != selectedServerId) {
-            setLoading(false);
-            return;
-        }
-
-        const auto sessionResult = m_repository.loadSession(selectedServerId);
-        setLoading(false);
-        if (!sessionResult) {
-            setError(sessionResult.error());
-            return;
-        }
-
-        if (!sessionResult->has_value()) {
-            emit passwordRequired(m_pendingServiceCard->server.name,
-                                  m_pendingServiceCard->server.username);
-            return;
-        }
-
-        setSession(**sessionResult);
-        loadServiceHome();
+        watcher->setFuture(QtConcurrent::run([card]() {
+            return prepareServiceActivation(card);
+        }));
     });
 }
 
@@ -6896,9 +6970,32 @@ void AppViewModel::loadServiceHome()
 
 void AppViewModel::loadIptvService(const ServiceCard& card)
 {
+    const auto playlistResult = m_repository.loadIptvPlaylist(card.server.id);
+    if (!playlistResult) {
+        setError(playlistResult.error());
+        return;
+    }
+    if (!playlistResult->has_value()) {
+        setError(QStringLiteral("IPTV playlist data was not found"));
+        return;
+    }
+    auto channelsResult = m_repository.loadIptvChannels(card.server.id);
+    if (!channelsResult) {
+        setError(channelsResult.error());
+        return;
+    }
+
+    applyIptvService(card, std::move(**playlistResult), std::move(*channelsResult));
+}
+
+void AppViewModel::applyIptvService(const ServiceCard& card,
+                                    IptvPlaylist playlist,
+                                    std::vector<IptvChannel> channels)
+{
     clearError();
     m_session.reset();
     m_currentIptvCard = card;
+    m_currentIptvPlaylist = std::move(playlist);
     if (!m_iptvSearchText.isEmpty()) {
         m_iptvSearchText.clear();
         emit iptvSearchTextChanged();
@@ -6920,17 +7017,26 @@ void AppViewModel::loadIptvService(const ServiceCard& card)
     emit selectedItemChanged();
     emit playbackChanged();
 
-    const auto playlistResult = m_repository.loadIptvPlaylist(card.server.id);
-    if (!playlistResult) {
-        setError(playlistResult.error());
-        return;
+    m_allIptvChannels = std::move(channels);
+
+    QStringList groups { allIptvGroup() };
+    for (const auto& channel : m_allIptvChannels) {
+        const auto group = channel.groupName.isEmpty() ? defaultIptvGroup() : channel.groupName;
+        if (!groups.contains(group, Qt::CaseInsensitive)) {
+            groups.push_back(group);
+        }
     }
-    if (!playlistResult->has_value()) {
-        setError(QStringLiteral("IPTV playlist data was not found"));
-        return;
+    std::sort(groups.begin() + 1, groups.end(), [](const QString& left, const QString& right) {
+        return left.localeAwareCompare(right) < 0;
+    });
+    m_iptvGroups = groups;
+    emit iptvGroupsChanged();
+
+    if (!m_iptvGroups.contains(m_iptvSelectedGroup, Qt::CaseInsensitive)) {
+        m_iptvSelectedGroup = allIptvGroup();
+        emit iptvSelectedGroupChanged();
     }
-    m_currentIptvPlaylist = **playlistResult;
-    refreshIptvChannels();
+    applyIptvFilters();
     setCurrentView(QStringLiteral("iptv"));
 }
 
@@ -6955,42 +7061,6 @@ void AppViewModel::clearIptvState()
     if (hadIptvPlayback) {
         emit playbackChanged();
     }
-}
-
-void AppViewModel::refreshIptvChannels()
-{
-    if (!m_currentIptvCard) {
-        m_allIptvChannels.clear();
-        m_iptvChannels.clear();
-        return;
-    }
-
-    const auto channelsResult = m_repository.loadIptvChannels(m_currentIptvCard->server.id);
-    if (!channelsResult) {
-        setError(channelsResult.error());
-        return;
-    }
-
-    m_allIptvChannels = *channelsResult;
-
-    QStringList groups { allIptvGroup() };
-    for (const auto& channel : m_allIptvChannels) {
-        const auto group = channel.groupName.isEmpty() ? defaultIptvGroup() : channel.groupName;
-        if (!groups.contains(group, Qt::CaseInsensitive)) {
-            groups.push_back(group);
-        }
-    }
-    std::sort(groups.begin() + 1, groups.end(), [](const QString& left, const QString& right) {
-        return left.localeAwareCompare(right) < 0;
-    });
-    m_iptvGroups = groups;
-    emit iptvGroupsChanged();
-
-    if (!m_iptvGroups.contains(m_iptvSelectedGroup, Qt::CaseInsensitive)) {
-        m_iptvSelectedGroup = allIptvGroup();
-        emit iptvSelectedGroupChanged();
-    }
-    applyIptvFilters();
 }
 
 void AppViewModel::applyIptvFilters()
