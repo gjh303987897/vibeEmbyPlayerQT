@@ -97,6 +97,12 @@ void WindowAppearanceController::apply()
         return;
     }
 
+    const DWM_WINDOW_CORNER_PREFERENCE cornerPreference = DWMWCP_ROUND;
+    DwmSetWindowAttribute(hwnd,
+                          DWMWA_WINDOW_CORNER_PREFERENCE,
+                          &cornerPreference,
+                          sizeof(cornerPreference));
+
     const BOOL useDarkMode = darkMode ? TRUE : FALSE;
     const auto darkResult = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkMode, sizeof(useDarkMode));
     if (FAILED(darkResult)) {

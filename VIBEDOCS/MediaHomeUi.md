@@ -73,6 +73,10 @@ and the existing details/navigation commands.
 - The combined server button returns to the source selector; search and refresh
   actions remain grouped at the top right. Refresh reloads recommendations,
   continue watching, and libraries through `AppViewModel::refreshHome`.
+- On Windows, the empty space between the server button and the right-side
+  actions is a native window-move area. Dragging it moves the frameless window,
+  while double-clicking toggles maximized and normal states without intercepting
+  the adjacent toolbar actions.
 - Trendy and traditional roots are asynchronous, mutually exclusive loaders.
   The selected tree is incubated only while the home page is visible, and a
   lightweight loading panel remains visible while that work completes.

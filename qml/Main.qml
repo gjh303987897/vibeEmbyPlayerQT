@@ -2650,7 +2650,34 @@ ApplicationWindow {
                                         Accessible.name: t("action.backToServices")
                                     }
 
-                                    Item { Layout.fillWidth: true }
+                                    Item {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+
+                                        DragHandler {
+                                            target: null
+                                            acceptedButtons: Qt.LeftButton
+                                            enabled: root.usesCustomTitleBar
+                                            onActiveChanged: {
+                                                if (active && root.visibility !== Window.FullScreen) {
+                                                    windowAppearanceController.startSystemMove()
+                                                }
+                                            }
+                                        }
+
+                                        TapHandler {
+                                            acceptedButtons: Qt.LeftButton
+                                            enabled: root.usesCustomTitleBar
+                                            exclusiveSignals: TapHandler.DoubleTap
+                                            onDoubleTapped: {
+                                                if (root.visibility === Window.Maximized) {
+                                                    root.showNormal()
+                                                } else {
+                                                    root.showMaximized()
+                                                }
+                                            }
+                                        }
+                                    }
 
                                     HeroToolbarButton {
                                         id: homeSearchButton
