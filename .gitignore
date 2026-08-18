@@ -38,6 +38,7 @@ tests/*
 !tests/PlaybackHistoryTest.cpp
 !tests/IptvPlaylistStoreTest.cpp
 !tests/EmbyRecommendationCacheTest.cpp
+!tests/UpdateServiceTest.cpp
 test-runtime/
 local-data/
 local-data*/

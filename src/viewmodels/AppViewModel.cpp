@@ -845,6 +845,19 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.recommendations"), QStringLiteral("Emby recommendations") },
         { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("Recommendation updates") },
         { QStringLiteral("settings.embyRecommendationFilter"), QStringLiteral("Excluded series genres") },
+        { QStringLiteral("settings.updates"), QStringLiteral("Updates") },
+        { QStringLiteral("updates.currentVersion"), QStringLiteral("Current version") },
+        { QStringLiteral("updates.channel"), QStringLiteral("Update channel") },
+        { QStringLiteral("updates.stable"), QStringLiteral("Stable") },
+        { QStringLiteral("updates.beta"), QStringLiteral("Beta") },
+        { QStringLiteral("updates.alpha"), QStringLiteral("Alpha") },
+        { QStringLiteral("updates.automatic"), QStringLiteral("Check automatically once per day") },
+        { QStringLiteral("updates.status"), QStringLiteral("Check status") },
+        { QStringLiteral("updates.notChecked"), QStringLiteral("Not checked yet") },
+        { QStringLiteral("updates.check"), QStringLiteral("Check now") },
+        { QStringLiteral("updates.checking"), QStringLiteral("Checking...") },
+        { QStringLiteral("updates.cancel"), QStringLiteral("Cancel") },
+        { QStringLiteral("updates.latest"), QStringLiteral("Available update") },
         { QStringLiteral("recommendations.dailyRefresh"), QStringLiteral("Automatically refreshed once per day") },
         { QStringLiteral("recommendations.manualRefresh"), QStringLiteral("Refresh now") },
         { QStringLiteral("recommendations.refreshing"), QStringLiteral("Refreshing recommendations...") },
@@ -1227,6 +1240,19 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.recommendations"), QStringLiteral("Emby 推荐") },
         { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("推荐更新") },
         { QStringLiteral("settings.embyRecommendationFilter"), QStringLiteral("排除的剧集类型") },
+        { QStringLiteral("settings.updates"), QStringLiteral("更新") },
+        { QStringLiteral("updates.currentVersion"), QStringLiteral("当前版本") },
+        { QStringLiteral("updates.channel"), QStringLiteral("更新通道") },
+        { QStringLiteral("updates.stable"), QStringLiteral("稳定版") },
+        { QStringLiteral("updates.beta"), QStringLiteral("测试版") },
+        { QStringLiteral("updates.alpha"), QStringLiteral("预览版") },
+        { QStringLiteral("updates.automatic"), QStringLiteral("每天自动检查一次") },
+        { QStringLiteral("updates.status"), QStringLiteral("检查状态") },
+        { QStringLiteral("updates.notChecked"), QStringLiteral("尚未检查") },
+        { QStringLiteral("updates.check"), QStringLiteral("立即检查") },
+        { QStringLiteral("updates.checking"), QStringLiteral("检查中...") },
+        { QStringLiteral("updates.cancel"), QStringLiteral("取消") },
+        { QStringLiteral("updates.latest"), QStringLiteral("可用更新") },
         { QStringLiteral("recommendations.dailyRefresh"), QStringLiteral("每天自动更新一次") },
         { QStringLiteral("recommendations.manualRefresh"), QStringLiteral("立即刷新") },
         { QStringLiteral("recommendations.refreshing"), QStringLiteral("正在刷新推荐…") },
@@ -1492,6 +1518,7 @@ AppViewModel::AppViewModel(QObject* parent)
     , m_webDavDownloadPlanner(m_webDavClient)
     , m_encryptedHlsPlaybackProxy(m_tsslStore, this)
     , m_m3u8sPackager(m_tsslStore, this)
+    , m_updateService(this)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
     wireUsageSignals();
@@ -1510,6 +1537,48 @@ AppViewModel::AppViewModel(QObject* parent)
     }
     connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
     connect(&m_transferManager, &TransferManager::selectionChanged, this, &AppViewModel::transferSelectionChanged);
+    connect(&m_updateService, &UpdateService::checkFinished, this, [this](const UpdateCheckResult& result, const QByteArray& etag) {
+        m_updateChecking = false;
+        if (!etag.isEmpty()) m_repository.setUpdateEtag(etag);
+        m_repository.setUpdateLastCheckedAt(QDateTime::currentDateTimeUtc());
+        if (!result.success) {
+            m_updateStatus = QStringLiteral("Update check failed: ") + result.error;
+        } else if (result.notModified) {
+            m_updateStatus = QStringLiteral("No new update");
+        } else if (result.release) {
+            m_latestUpdateVersion = result.release->version.toString();
+            m_latestUpdateNotes = result.release->notes;
+            m_latestUpdatePublishedAt = result.release->publishedAt;
+            m_updateAssets = result.release->assets;
+            m_updateAvailable = !m_latestUpdateVersion.isEmpty();
+            m_updateStatus = m_updateAvailable ? QStringLiteral("Update available") : QStringLiteral("No new update");
+            if (m_updateAvailable) m_repository.setUpdateLastVersion(m_latestUpdateVersion);
+        } else {
+            m_latestUpdateVersion.clear();
+            m_updateAssets.clear();
+            m_updateAvailable = false;
+            m_updateStatus = QStringLiteral("No new update");
+        }
+        emit updateStateChanged();
+    });
+    connect(&m_updateService, &UpdateService::downloadStateChanged, this, [this](bool active) {
+        m_updateDownloading = active;
+        if (!active) m_updateDownloadProgress = 0.0;
+        emit updateStateChanged();
+    });
+    connect(&m_updateService, &UpdateService::downloadProgress, this, [this](qint64 received, qint64 total) {
+        m_updateDownloadProgress = total > 0 ? static_cast<double>(received) / static_cast<double>(total) : 0.0;
+        emit updateStateChanged();
+    });
+    connect(&m_updateService, &UpdateService::downloadFailed, this, [this](const QString& error) {
+        m_updateStatus = QStringLiteral("Update download failed: ") + error;
+        emit updateStateChanged();
+    });
+    connect(&m_updateService, &UpdateService::downloadFinished, this, [this](const QString& path) {
+        m_updateStatus = QStringLiteral("Update verified and opened");
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+        emit updateStateChanged();
+    });
     connect(&m_m3u8sPackager, &EncryptedHlsBatchPackager::runningChanged, this, &AppViewModel::m3u8sPackagingChanged);
     connect(&m_m3u8sPackager, &EncryptedHlsBatchPackager::progressChanged, this, &AppViewModel::m3u8sPackagingChanged);
     connect(&m_m3u8sPackager, &EncryptedHlsBatchPackager::phaseChanged, this, &AppViewModel::m3u8sPackagingChanged);
@@ -2301,6 +2370,112 @@ QString AppViewModel::embyRecommendationRefreshStatus() const
     return trText(QStringLiteral("recommendations.dailyRefresh"));
 }
 
+QString AppViewModel::currentVersion() const
+{
+    return QString::fromLatin1(VIBEPLAYER_VERSION);
+}
+
+QString AppViewModel::updateChannel() const
+{
+    const auto value = m_repository.updateChannel().toLower();
+    return UpdateService::channelFromString(value).has_value() ? value : QStringLiteral("stable");
+}
+
+void AppViewModel::setUpdateChannel(const QString& value)
+{
+    const auto channel = UpdateService::channelFromString(value);
+    if (!channel || updateChannel() == UpdateService::channelToString(*channel)) return;
+    m_repository.setUpdateChannel(UpdateService::channelToString(*channel));
+    m_latestUpdateVersion.clear();
+    m_latestUpdateNotes.clear();
+    m_updateAvailable = false;
+    emit updateSettingsChanged();
+    emit updateStateChanged();
+    checkForUpdates();
+}
+
+bool AppViewModel::automaticUpdateCheck() const
+{
+    return m_repository.automaticUpdateCheck();
+}
+
+void AppViewModel::setAutomaticUpdateCheck(bool value)
+{
+    if (automaticUpdateCheck() == value) return;
+    m_repository.setAutomaticUpdateCheck(value);
+    emit updateSettingsChanged();
+    if (value) checkForUpdates();
+}
+
+bool AppViewModel::updateChecking() const { return m_updateChecking; }
+bool AppViewModel::updateDownloading() const { return m_updateDownloading; }
+double AppViewModel::updateDownloadProgress() const { return m_updateDownloadProgress; }
+bool AppViewModel::updateAvailable() const { return m_updateAvailable; }
+bool AppViewModel::updateVersionValid() const { return m_updateVersionValid; }
+QString AppViewModel::latestUpdateVersion() const { return m_latestUpdateVersion; }
+QString AppViewModel::latestUpdateNotes() const { return m_latestUpdateNotes; }
+
+QString AppViewModel::latestUpdatePublishedAt() const
+{
+    return m_latestUpdatePublishedAt.isValid()
+        ? QLocale(effectiveLanguage(m_languageMode)).toString(m_latestUpdatePublishedAt.toLocalTime(), QLocale::ShortFormat)
+        : QString {};
+}
+
+QString AppViewModel::updateStatus() const { return m_updateStatus; }
+
+QString AppViewModel::updateLastCheckedAt() const
+{
+    const auto value = m_repository.updateLastCheckedAt();
+    return value.isValid()
+        ? QLocale(effectiveLanguage(m_languageMode)).toString(value.toLocalTime(), QLocale::ShortFormat)
+        : QString {};
+}
+
+QVariantList AppViewModel::updateAssets() const
+{
+    QVariantList result;
+    for (const auto& asset : m_updateAssets) {
+        result.append(QVariantMap {
+            { QStringLiteral("name"), asset.name },
+            { QStringLiteral("size"), asset.size },
+            { QStringLiteral("preferred"), asset.preferred },
+            { QStringLiteral("checksumAvailable"), asset.checksumAvailable },
+        });
+    }
+    return result;
+}
+
+void AppViewModel::checkForUpdates()
+{
+    if (m_updateChecking) return;
+    const auto parsedChannel = UpdateService::channelFromString(updateChannel());
+    const auto current = UpdateService::parseVersion(currentVersion());
+    if (!parsedChannel) return;
+    m_updateVersionValid = current.has_value();
+    const SemVersion currentVersion = current.value_or(SemVersion {});
+    if (!m_updateVersionValid) m_updateStatus = QStringLiteral("Development build: update can be viewed but not installed");
+    m_updateChecking = true;
+    if (m_updateVersionValid) m_updateStatus = QStringLiteral("Checking for updates...");
+    emit updateStateChanged();
+    m_updateService.check(*parsedChannel, currentVersion, m_repository.updateEtag());
+}
+
+void AppViewModel::downloadUpdate(const QString& assetName)
+{
+    if (!m_updateVersionValid) return;
+    const auto it = std::find_if(m_updateAssets.cbegin(), m_updateAssets.cend(), [&assetName](const auto& asset) {
+        return asset.name == assetName;
+    });
+    if (it == m_updateAssets.cend()) return;
+    m_updateService.download(*it);
+}
+
+void AppViewModel::cancelUpdateDownload()
+{
+    m_updateService.cancelDownload();
+}
+
 QString AppViewModel::jellyfinHomeLayout() const
 {
     return normalizedMediaHomeLayout(m_repository.jellyfinHomeLayout());
@@ -2968,6 +3143,15 @@ void AppViewModel::initialize()
     refreshScheduledEmbySources();
     refreshScheduledPlaybackTasks();
     setCurrentView(QStringLiteral("services"));
+    if (automaticUpdateCheck()) {
+        const auto lastChecked = m_repository.updateLastCheckedAt();
+        if (!lastChecked.isValid() || lastChecked.toLocalTime().date() != QDate::currentDate()) {
+            QTimer::singleShot(1500, this, [this]() { checkForUpdates(); });
+        } else {
+            m_updateStatus = QStringLiteral("Already checked today");
+            emit updateStateChanged();
+        }
+    }
 }
 
 void AppViewModel::beginAddServiceCard()

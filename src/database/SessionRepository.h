@@ -124,6 +124,16 @@ public:
     void setM3u8sAudioEncoding(const QString& encoding);
     QString m3u8sVideoQuality() const;
     void setM3u8sVideoQuality(const QString& quality);
+    QString updateChannel() const;
+    void setUpdateChannel(const QString& channel);
+    bool automaticUpdateCheck() const;
+    void setAutomaticUpdateCheck(bool enabled);
+    QDateTime updateLastCheckedAt() const;
+    void setUpdateLastCheckedAt(const QDateTime& value);
+    QByteArray updateEtag() const;
+    void setUpdateEtag(const QByteArray& value);
+    QString updateLastVersion() const;
+    void setUpdateLastVersion(const QString& value);
 
 private:
     QString databasePath() const;

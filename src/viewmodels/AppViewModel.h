@@ -16,6 +16,7 @@
 #include "services/jellyfin/JellyfinClient.h"
 #include "services/local/LocalMediaService.h"
 #include "services/scheduler/ScheduledPlaybackManager.h"
+#include "services/update/UpdateService.h"
 #include "viewmodels/IptvChannelListModel.h"
 #include "viewmodels/LocalMediaItemListModel.h"
 #include "viewmodels/LocalMediaRootListModel.h"
@@ -121,6 +122,20 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool embyRecommendationGenresLoading READ embyRecommendationGenresLoading NOTIFY embyRecommendationSettingsChanged)
     Q_PROPERTY(bool embyRecommendationRefreshing READ embyRecommendationRefreshing NOTIFY embyRecommendationSettingsChanged)
     Q_PROPERTY(QString embyRecommendationRefreshStatus READ embyRecommendationRefreshStatus NOTIFY embyRecommendationSettingsChanged)
+    Q_PROPERTY(QString currentVersion READ currentVersion CONSTANT)
+    Q_PROPERTY(QString updateChannel READ updateChannel WRITE setUpdateChannel NOTIFY updateSettingsChanged)
+    Q_PROPERTY(bool automaticUpdateCheck READ automaticUpdateCheck WRITE setAutomaticUpdateCheck NOTIFY updateSettingsChanged)
+    Q_PROPERTY(bool updateChecking READ updateChecking NOTIFY updateStateChanged)
+    Q_PROPERTY(bool updateDownloading READ updateDownloading NOTIFY updateStateChanged)
+    Q_PROPERTY(double updateDownloadProgress READ updateDownloadProgress NOTIFY updateStateChanged)
+    Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateStateChanged)
+    Q_PROPERTY(bool updateVersionValid READ updateVersionValid CONSTANT)
+    Q_PROPERTY(QString latestUpdateVersion READ latestUpdateVersion NOTIFY updateStateChanged)
+    Q_PROPERTY(QString latestUpdateNotes READ latestUpdateNotes NOTIFY updateStateChanged)
+    Q_PROPERTY(QString latestUpdatePublishedAt READ latestUpdatePublishedAt NOTIFY updateStateChanged)
+    Q_PROPERTY(QString updateStatus READ updateStatus NOTIFY updateStateChanged)
+    Q_PROPERTY(QString updateLastCheckedAt READ updateLastCheckedAt NOTIFY updateStateChanged)
+    Q_PROPERTY(QVariantList updateAssets READ updateAssets NOTIFY updateStateChanged)
     Q_PROPERTY(QString jellyfinHomeLayout READ jellyfinHomeLayout WRITE setJellyfinHomeLayout NOTIFY jellyfinHomeLayoutChanged)
     Q_PROPERTY(QString playerLayout READ playerLayout WRITE setPlayerLayout NOTIFY playerLayoutChanged)
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
@@ -319,6 +334,22 @@ public:
     bool embyRecommendationGenresLoading() const;
     bool embyRecommendationRefreshing() const;
     QString embyRecommendationRefreshStatus() const;
+    QString currentVersion() const;
+    QString updateChannel() const;
+    void setUpdateChannel(const QString& value);
+    bool automaticUpdateCheck() const;
+    void setAutomaticUpdateCheck(bool value);
+    bool updateChecking() const;
+    bool updateDownloading() const;
+    double updateDownloadProgress() const;
+    bool updateAvailable() const;
+    bool updateVersionValid() const;
+    QString latestUpdateVersion() const;
+    QString latestUpdateNotes() const;
+    QString latestUpdatePublishedAt() const;
+    QString updateStatus() const;
+    QString updateLastCheckedAt() const;
+    QVariantList updateAssets() const;
     QString jellyfinHomeLayout() const;
     void setJellyfinHomeLayout(const QString& value);
     QString playerLayout() const;
@@ -523,6 +554,9 @@ public:
     Q_INVOKABLE QString formatDuration(qint64 seconds) const;
     Q_INVOKABLE void refreshHome();
     Q_INVOKABLE void refreshEmbyRecommendations();
+    Q_INVOKABLE void checkForUpdates();
+    Q_INVOKABLE void downloadUpdate(const QString& assetName);
+    Q_INVOKABLE void cancelUpdateDownload();
     Q_INVOKABLE void setEmbyRecommendationGenreExcluded(const QString& genre, bool excluded);
     Q_INVOKABLE void refreshLibraries();
     Q_INVOKABLE void searchMediaServer();
@@ -584,6 +618,8 @@ signals:
     void languageModeChanged();
     void embyHomeLayoutChanged();
     void embyRecommendationSettingsChanged();
+    void updateSettingsChanged();
+    void updateStateChanged();
     void jellyfinHomeLayoutChanged();
     void playerLayoutChanged();
     void pageTransitionsEnabledChanged();
@@ -886,6 +922,7 @@ private:
     LocalMediaService m_localMediaService;
     TransferManager m_transferManager;
     SessionRepository m_repository;
+    UpdateService m_updateService;
     ScheduledPlaybackManager m_scheduledPlaybackManager;
     ServiceCardListModel m_services;
     ServiceCardListModel m_privacyCards;
@@ -931,4 +968,14 @@ private:
     PersonListModel m_selectedPeople;
     std::function<void(bool)> m_pendingDownloadWarningReply;
     std::function<void()> m_pendingFolderDownload;
+    bool m_updateChecking { false };
+    bool m_updateDownloading { false };
+    double m_updateDownloadProgress { 0.0 };
+    bool m_updateAvailable { false };
+    bool m_updateVersionValid { true };
+    QString m_latestUpdateVersion;
+    QString m_latestUpdateNotes;
+    QDateTime m_latestUpdatePublishedAt;
+    QString m_updateStatus;
+    QList<UpdateAsset> m_updateAssets;
 };

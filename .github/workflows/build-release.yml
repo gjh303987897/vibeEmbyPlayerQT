@@ -39,10 +39,10 @@ jobs:
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             tag_version="${GITHUB_REF_NAME#v}"
-            semver_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+            semver_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta)(\.[0-9]+)?)?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
             if [[ "$GITHUB_REF_NAME" == v* && "$tag_version" =~ $semver_pattern ]]; then
               installer_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-              prerelease="${BASH_REMATCH[5]}"
+              prerelease="${BASH_REMATCH[4]}"
             else
               echo "Tag must use v-prefixed Semantic Versioning: $GITHUB_REF_NAME"
               exit 1
@@ -907,6 +907,22 @@ jobs:
             exit 1
           fi
 
+      - name: Generate SHA-256 sidecars
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for asset in release-assets/*; do
+            [[ -f "$asset" && "$asset" != *.sha256 ]] || continue
+            hash=$(sha256sum "$asset" | awk '{print $1}')
+            printf '%s  %s\n' "$hash" "$(basename "$asset")" > "${asset}.sha256"
+          done
+          package_count=$(find release-assets -maxdepth 1 -type f ! -name '*.sha256' | wc -l)
+          checksum_count=$(find release-assets -maxdepth 1 -type f -name '*.sha256' | wc -l)
+          [[ "$package_count" -eq "$checksum_count" ]] || {
+            echo "Every release package must have exactly one SHA-256 sidecar"
+            exit 1
+          }
+
       - name: Guard release assets
         run: |
           set -euo pipefail
@@ -915,6 +931,15 @@ jobs:
           for asset in release-assets/*; do
             echo "Inspecting ${asset}"
             case "$asset" in
+              *.sha256)
+                package_asset="${asset%.sha256}"
+                [[ -f "$package_asset" ]] || { echo "Orphan SHA-256 sidecar: ${asset}"; exit 1; }
+                awk 'NF == 2 && $1 ~ /^[0-9A-Fa-f]{64}$/ { found=1 } END { exit found ? 0 : 1 }' "$asset" || {
+                  echo "Invalid SHA-256 sidecar: ${asset}"
+                  exit 1
+                }
+                continue
+                ;;
               *.zip)
                 zipinfo -1 "$asset" > asset-contents.txt
                 ;;

@@ -13711,9 +13711,58 @@ ApplicationWindow {
         property string oldPrivacyPin: ""
         property string newPrivacyPin: ""
         property string confirmPrivacyPin: ""
+        property bool updateDialogShown: false
         contentWidth: width
         contentHeight: settingsColumn.implicitHeight
         clip: true
+
+        Connections {
+            target: appViewModel
+            function onUpdateStateChanged() {
+                if (appViewModel.updateAvailable && !settingsFlick.updateDialogShown) {
+                    settingsFlick.updateDialogShown = true
+                    updateDialog.open()
+                }
+            }
+        }
+
+        ModernDialog {
+            id: updateDialog
+            title: t("updates.latest")
+            standardButtons: Dialog.Cancel
+            width: Math.min(settingsFlick.width - 24, 560)
+
+            Label {
+                Layout.fillWidth: true
+                text: appViewModel.latestUpdateVersion
+                color: theme.text
+                font.pixelSize: 18
+                font.bold: true
+            }
+
+            MutedText {
+                Layout.fillWidth: true
+                text: appViewModel.latestUpdateNotes
+                visible: text.length > 0
+                wrapMode: Text.WordWrap
+                maximumLineCount: 10
+                elide: Text.ElideRight
+            }
+
+            Repeater {
+                model: appViewModel.updateAssets
+                delegate: ModernButton {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    text: modelData.name + (modelData.checksumAvailable ? "" : "  [SHA-256 missing]")
+                    enabled: appViewModel.updateVersionValid && !appViewModel.updateDownloading && modelData.checksumAvailable
+                    onClicked: {
+                        appViewModel.downloadUpdate(modelData.name)
+                        updateDialog.close()
+                    }
+                }
+            }
+        }
 
         function savePrivacyPin() {
             if (appViewModel.changePrivacyPin(settingsFlick.oldPrivacyPin, settingsFlick.newPrivacyPin, settingsFlick.confirmPrivacyPin)) {
@@ -13897,6 +13946,103 @@ ApplicationWindow {
                                     onToggled: appViewModel.setEmbyRecommendationGenreExcluded(modelData.name, checked)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            SettingsGroup {
+                title: t("settings.updates")
+
+                SettingRow {
+                    label: t("updates.currentVersion")
+                    MutedText {
+                        Layout.preferredWidth: 420
+                        text: appViewModel.currentVersion
+                    }
+                }
+
+                SettingRow {
+                    label: t("updates.channel")
+                    ModernComboBox {
+                        Layout.preferredWidth: 220
+                        textRole: "label"
+                        valueRole: "value"
+                        model: [
+                            { label: t("updates.stable"), value: "stable" },
+                            { label: t("updates.beta"), value: "beta" },
+                            { label: t("updates.alpha"), value: "alpha" }
+                        ]
+                        currentIndex: appViewModel.updateChannel === "stable" ? 0 : appViewModel.updateChannel === "beta" ? 1 : 2
+                        onActivated: appViewModel.updateChannel = model[index].value
+                    }
+                }
+
+                SettingRow {
+                    label: t("updates.automatic")
+                    ModernCheckBox {
+                        checked: appViewModel.automaticUpdateCheck
+                        onToggled: appViewModel.automaticUpdateCheck = checked
+                    }
+                }
+
+                SettingRow {
+                    label: t("updates.status")
+                    RowLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 10
+                        MutedText {
+                            Layout.fillWidth: true
+                            text: appViewModel.updateStatus.length > 0 ? appViewModel.updateStatus : t("updates.notChecked")
+                            wrapMode: Text.WordWrap
+                        }
+                        ModernButton {
+                            text: appViewModel.updateChecking ? t("updates.checking") : t("updates.check")
+                            enabled: !appViewModel.updateChecking
+                            onClicked: appViewModel.checkForUpdates()
+                        }
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.updateAvailable
+                    label: t("updates.latest")
+                    ColumnLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 8
+                        Label {
+                            Layout.fillWidth: true
+                            text: appViewModel.latestUpdateVersion + (appViewModel.latestUpdatePublishedAt.length > 0 ? "  " + appViewModel.latestUpdatePublishedAt : "")
+                            color: theme.text
+                            font.bold: true
+                        }
+                        MutedText {
+                            Layout.fillWidth: true
+                            text: appViewModel.latestUpdateNotes
+                            visible: text.length > 0
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 8
+                            elide: Text.ElideRight
+                        }
+                        Repeater {
+                            model: appViewModel.updateAssets
+                            delegate: ModernButton {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                text: modelData.name + (modelData.checksumAvailable ? "" : "  [SHA-256 missing]")
+                                enabled: appViewModel.updateVersionValid && !appViewModel.updateDownloading && modelData.checksumAvailable
+                                onClicked: appViewModel.downloadUpdate(modelData.name)
+                            }
+                        }
+                        ProgressBar {
+                            Layout.fillWidth: true
+                            visible: appViewModel.updateDownloading
+                            value: appViewModel.updateDownloadProgress
+                        }
+                        ModernButton {
+                            visible: appViewModel.updateDownloading
+                            text: t("updates.cancel")
+                            onClicked: appViewModel.cancelUpdateDownload()
                         }
                     }
                 }

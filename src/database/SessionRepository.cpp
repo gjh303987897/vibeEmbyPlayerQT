@@ -1650,6 +1650,56 @@ void SessionRepository::setM3u8sVideoQuality(const QString& quality)
     m_settings.setValue(QStringLiteral("m3u8s/videoQuality"), quality);
 }
 
+QString SessionRepository::updateChannel() const
+{
+    return m_settings.value(QStringLiteral("updates/channel"), QStringLiteral("stable")).toString();
+}
+
+void SessionRepository::setUpdateChannel(const QString& channel)
+{
+    m_settings.setValue(QStringLiteral("updates/channel"), channel);
+}
+
+bool SessionRepository::automaticUpdateCheck() const
+{
+    return m_settings.value(QStringLiteral("updates/automaticCheck"), true).toBool();
+}
+
+void SessionRepository::setAutomaticUpdateCheck(bool enabled)
+{
+    m_settings.setValue(QStringLiteral("updates/automaticCheck"), enabled);
+}
+
+QDateTime SessionRepository::updateLastCheckedAt() const
+{
+    return QDateTime::fromString(m_settings.value(QStringLiteral("updates/lastCheckedAt")).toString(), Qt::ISODate);
+}
+
+void SessionRepository::setUpdateLastCheckedAt(const QDateTime& value)
+{
+    m_settings.setValue(QStringLiteral("updates/lastCheckedAt"), value.toUTC().toString(Qt::ISODate));
+}
+
+QByteArray SessionRepository::updateEtag() const
+{
+    return m_settings.value(QStringLiteral("updates/etag")).toByteArray();
+}
+
+void SessionRepository::setUpdateEtag(const QByteArray& value)
+{
+    m_settings.setValue(QStringLiteral("updates/etag"), value);
+}
+
+QString SessionRepository::updateLastVersion() const
+{
+    return m_settings.value(QStringLiteral("updates/lastVersion")).toString();
+}
+
+void SessionRepository::setUpdateLastVersion(const QString& value)
+{
+    m_settings.setValue(QStringLiteral("updates/lastVersion"), value);
+}
+
 QString SessionRepository::databasePath() const
 {
     if (!m_databasePathOverride.isEmpty()) {
