@@ -18,6 +18,8 @@
 /resources/** export-ignore
 /tests export-ignore
 /tests/** export-ignore
+/cmake/tests export-ignore
+/cmake/tests/** export-ignore
 /scripts export-ignore
 /scripts/** export-ignore
 /TODO.md export-ignore
