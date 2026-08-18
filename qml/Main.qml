@@ -117,6 +117,12 @@ ApplicationWindow {
         return Qt.rgba(value.r, value.g, value.b, alpha)
     }
 
+    function showErrorDialog() {
+        if (appViewModel.errorMessage.length > 0 && !errorDialog.visible) {
+            errorDialog.open()
+        }
+    }
+
     function serviceAccentColor(serviceType) {
         switch (String(serviceType).toLowerCase()) {
         case "emby":
@@ -189,6 +195,7 @@ ApplicationWindow {
         windowAppearanceController.applyTheme(appViewModel.effectiveTheme)
         root.visible = true
         appViewModel.initialize()
+        Qt.callLater(root.showErrorDialog)
     }
 
     onClosing: function(close) {
@@ -253,6 +260,103 @@ ApplicationWindow {
                 missedScheduleNotification.close()
             }
         }
+
+        function onErrorMessageChanged() {
+            if (appViewModel.errorMessage.length > 0) {
+                root.showErrorDialog()
+            } else if (errorDialog.visible) {
+                errorDialog.close()
+            }
+        }
+    }
+
+    ModernDialog {
+        id: errorDialog
+        title: t("dialog.errorTitle")
+        standardButtons: Dialog.Ok
+        width: Math.min(root.width - 64, 520)
+        transformOrigin: Item.Center
+
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 160; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: 220; easing.type: Easing.OutBack }
+            }
+        }
+
+        exit: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120; easing.type: Easing.InCubic }
+                NumberAnimation { property: "scale"; from: 1; to: 0.97; duration: 120; easing.type: Easing.InCubic }
+            }
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 16
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Rectangle {
+                    Layout.preferredWidth: 42
+                    Layout.preferredHeight: 42
+                    radius: 21
+                    color: root.withAlpha(theme.danger, 0.15)
+                    border.color: root.withAlpha(theme.danger, 0.48)
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "!"
+                        color: theme.danger
+                        font.pixelSize: 22
+                        font.bold: true
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 3
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("dialog.errorSummary")
+                        color: theme.text
+                        font.pixelSize: 15
+                        font.bold: true
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: t("dialog.errorHint")
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: errorMessageText.implicitHeight + 24
+                radius: 9
+                color: theme.errorBg
+                border.color: root.withAlpha(theme.danger, 0.42)
+
+                BodyText {
+                    id: errorMessageText
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    text: appViewModel.errorMessage
+                    color: theme.errorText
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 8
+                    elide: Text.ElideRight
+                }
+            }
+        }
+
+        onAccepted: appViewModel.clearError()
+        onRejected: appViewModel.clearError()
     }
 
     Popup {
@@ -2183,36 +2287,6 @@ ApplicationWindow {
                 || appViewModel.currentView === "player" || root.immersiveMediaHome ? 0 : 26
             spacing: root.playerImmersive || appViewModel.currentView === "details"
                 || appViewModel.currentView === "player" || root.immersiveMediaHome ? 0 : 16
-
-            Rectangle {
-                visible: appViewModel.errorMessage.length > 0
-                    && !root.playerImmersive && appViewModel.currentView !== "player"
-                Layout.fillWidth: true
-                radius: 8
-                color: theme.errorBg
-                border.color: theme.danger
-                implicitHeight: errorRow.implicitHeight + 18
-
-                RowLayout {
-                    id: errorRow
-                    anchors.fill: parent
-                    anchors.margins: 9
-                    spacing: 10
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: appViewModel.errorMessage
-                        color: theme.errorText
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: 13
-                    }
-
-                    ModernButton {
-                        text: t("action.dismiss")
-                        onClicked: appViewModel.clearError()
-                    }
-                }
-            }
 
             StackLayout {
                 id: pageStack

@@ -90,8 +90,9 @@ No other module should include `mpv/client.h`.
 
 The player page uses a full-content native video surface with player chrome
 floating above the top and bottom edges. While `currentView` is `player`, the
-application header, page margins, spacing, and application error row are
-removed so the player is the only in-app surface; the operating-system window
+application header, page margins, and spacing are removed so the player is the
+only in-app surface; application errors are presented through the global modal
+error dialog; the operating-system window
 frame remains available unless the user enters system fullscreen.
 
 With libmpv Window Embedding, the video surface is a platform-native child window and can cover ordinary QML items that overlap it. The current layout avoids mixing player startup with overlay state: `MpvVideoItem` owns only the native video window, while the top title / exit bar and bottom playback controls live in two narrow transparent Qt Quick tool windows that follow the player page geometry.

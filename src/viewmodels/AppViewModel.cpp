@@ -516,6 +516,9 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("action.previous"), QStringLiteral("Previous") },
         { QStringLiteral("action.next"), QStringLiteral("Next") },
         { QStringLiteral("dialog.passwordTitle"), QStringLiteral("Password required") },
+        { QStringLiteral("dialog.errorTitle"), QStringLiteral("Error") },
+        { QStringLiteral("dialog.errorSummary"), QStringLiteral("Something went wrong") },
+        { QStringLiteral("dialog.errorHint"), QStringLiteral("Review the details below, then try again.") },
         { QStringLiteral("dialog.serviceTitle"), QStringLiteral("Service") },
         { QStringLiteral("dialog.deleteTitle"), QStringLiteral("Delete service") },
         { QStringLiteral("dialog.deletePrompt"), QStringLiteral("Remove this service card?") },
@@ -975,6 +978,9 @@ const QHash<QString, QString>& englishTexts()
 const QHash<QString, QString>& chineseTexts()
 {
     static const QHash<QString, QString> texts {
+        { QStringLiteral("dialog.errorTitle"), QStringLiteral("错误") },
+        { QStringLiteral("dialog.errorSummary"), QStringLiteral("操作未完成") },
+        { QStringLiteral("dialog.errorHint"), QStringLiteral("请查看下面的详细信息，然后重试。") },
         { QStringLiteral("dialog.overviewTitle"), QStringLiteral("简介") },
         { QStringLiteral("details.showOverview"), QStringLiteral("显示简介") },
         { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
