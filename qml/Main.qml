@@ -35,6 +35,24 @@ ApplicationWindow {
     property bool immersiveMediaHome: appViewModel.currentView === "home"
         && !root.useTraditionalMediaHome
     property var theme: darkTheme ? dark : light
+    property bool windowControlsRevealed: false
+    readonly property bool windowControlsAvailable: root.usesCustomTitleBar
+        && root.visibility !== Window.FullScreen
+    readonly property bool embyWindowControlsHoverMode: root.windowControlsAvailable
+        && appViewModel.serviceType === "Emby"
+        && (appViewModel.currentView === "home"
+            || appViewModel.currentView === "library"
+            || appViewModel.currentView === "search"
+            || appViewModel.currentView === "details")
+    readonly property bool windowControlsShouldShow: root.windowControlsAvailable
+        && (root.embyWindowControlsHoverMode
+            ? root.windowControlsRevealed : windowHeader.applicationToolbarVisible)
+
+    onEmbyWindowControlsHoverModeChanged: {
+        windowControlsRevealTimer.stop()
+        windowControlsHideTimer.stop()
+        root.windowControlsRevealed = false
+    }
     property var dark: ({
         bg: "#0f1217",
         surface: "#171c22",
@@ -202,6 +220,14 @@ ApplicationWindow {
         if (appViewModel.minimizeToTray && trayController.trayAvailable) {
             close.accepted = false
             trayController.hideToTray()
+        }
+    }
+
+    onVisibilityChanged: {
+        if (root.visibility === Window.FullScreen) {
+            windowControlsRevealTimer.stop()
+            windowControlsHideTimer.stop()
+            root.windowControlsRevealed = false
         }
     }
 
@@ -1930,23 +1956,122 @@ ApplicationWindow {
 
     }
 
-    Rectangle {
-        visible: root.usesCustomTitleBar && windowHeader.applicationToolbarVisible
+    Timer {
+        id: windowControlsRevealTimer
+        interval: 500
+        repeat: false
+        onTriggered: {
+            if (windowControlsTopHover.hovered || windowControlsPanelHover.hovered) {
+                root.windowControlsRevealed = true
+            }
+        }
+    }
+
+    Timer {
+        id: windowControlsHideTimer
+        interval: 260
+        repeat: false
+        onTriggered: {
+            if (!windowControlsTopHover.hovered && !windowControlsPanelHover.hovered) {
+                root.windowControlsRevealed = false
+            }
+        }
+    }
+
+    Item {
+        id: windowControlsHoverZone
+        anchors.left: parent.left
         anchors.right: parent.right
-        anchors.rightMargin: 16
         anchors.top: parent.top
-        anchors.topMargin: 12
-        width: 116
-        height: 40
-        radius: 8
-        color: theme.elevated
-        border.width: 1
+        height: 24
+        z: 9002
+        visible: root.embyWindowControlsHoverMode
+
+        HoverHandler {
+            id: windowControlsTopHover
+            onHoveredChanged: {
+                if (hovered) {
+                    windowControlsHideTimer.stop()
+                    windowControlsRevealTimer.restart()
+                } else {
+                    windowControlsRevealTimer.stop()
+                    windowControlsHideTimer.restart()
+                }
+            }
+        }
+
+        DragHandler {
+            id: embyPageWindowDrag
+            target: null
+            acceptedButtons: Qt.LeftButton
+            enabled: root.embyWindowControlsHoverMode
+            onActiveChanged: {
+                if (active && root.visibility !== Window.FullScreen) {
+                    windowAppearanceController.startSystemMove()
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        id: windowControlsPanel
+        visible: root.usesCustomTitleBar
+            && (root.embyWindowControlsHoverMode || windowHeader.applicationToolbarVisible)
+        x: parent.width - width - 16
+        y: root.embyWindowControlsHoverMode
+            ? (root.windowControlsShouldShow ? 12 : -60) : 12
+        width: root.embyWindowControlsHoverMode ? 164 : 116
+        height: root.embyWindowControlsHoverMode ? 48 : 40
+        radius: root.embyWindowControlsHoverMode ? 14 : 8
+        opacity: root.embyWindowControlsHoverMode
+            ? (root.windowControlsShouldShow ? 1 : 0) : 1
+        enabled: root.embyWindowControlsHoverMode
+            ? root.windowControlsShouldShow : true
+        color: root.embyWindowControlsHoverMode
+            ? (root.darkTheme
+                ? Qt.rgba(0.059, 0.071, 0.090, 0.78)
+                : Qt.rgba(1.0, 1.0, 1.0, 0.90))
+            : theme.elevated
+        border.width: root.embyWindowControlsHoverMode ? 0 : 1
         border.color: theme.border
         clip: true
-        z: 9001
+        z: root.embyWindowControlsHoverMode ? 9003 : 9001
+
+        Behavior on y {
+            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        }
+
+        Behavior on opacity {
+            NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+        }
+
+        HoverHandler {
+            id: windowControlsPanelHover
+            enabled: root.embyWindowControlsHoverMode && root.windowControlsRevealed
+            onHoveredChanged: {
+                if (hovered) {
+                    windowControlsHideTimer.stop()
+                    root.windowControlsRevealed = true
+                } else {
+                    windowControlsHideTimer.restart()
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: 2
+            radius: root.embyWindowControlsHoverMode ? 14 : 1
+            color: root.withAlpha(theme.primary, 0.72)
+            visible: root.embyWindowControlsHoverMode
+        }
 
         Row {
-            anchors.centerIn: parent
+            anchors.verticalCenter: parent.verticalCenter
+            x: root.embyWindowControlsHoverMode
+                ? (parent.width - width) / 2 : (parent.width - width) / 2
 
             WindowControlButton {
                 controlType: "minimize"
@@ -9096,6 +9221,29 @@ ApplicationWindow {
             }
             onDoubleClicked: {
                 playerPage.toggleFullscreen()
+            }
+        }
+
+        Item {
+            id: embyPlayerWindowDragZone
+            x: 0
+            y: 0
+            width: playerPage.width
+            height: Math.min(72, playerPage.height)
+            visible: root.usesCustomTitleBar
+                && appViewModel.serviceType === "Emby"
+                && appViewModel.currentView === "player"
+                && !playerPage.immersive
+
+            DragHandler {
+                id: embyPlayerWindowDrag
+                target: null
+                acceptedButtons: Qt.LeftButton
+                onActiveChanged: {
+                    if (active && root.visibility !== Window.FullScreen) {
+                        windowAppearanceController.startSystemMove()
+                    }
+                }
             }
         }
 
