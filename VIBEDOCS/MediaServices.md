@@ -64,6 +64,14 @@ QML does not make network requests and does not parse JSON.
 - The reusable QML service icon and status-chip components keep the card hierarchy consistent across light and dark themes: service identity and account details stay in the primary row, while login and session state remain in a fixed footer row.
 - Built-in entry cards and saved service cards share the same responsive size contract. The service page selects two or three columns from the available width, calculates one common card width and keeps every card at a fixed 156-pixel height; both the `GridLayout` and `GridView` consume those values so separate sections remain aligned while the window resizes.
 - Hover, drag and edit states reuse the same service accent without changing the card's information layout or invoking service-layer logic.
+- Opening any built-in service starts from the activated card's mapped window
+  rectangle. Saved external services first keep the activated card's loading
+  overlay visible while the asynchronous connection and initial page load
+  complete; only then does the theme-aware surface expand to the content bounds
+  before revealing the destination page. Returning to the service list runs the
+  geometry in reverse toward the stored card rectangle. The overlay stays below
+  the title bar, blocks repeated input only while visible, and follows the
+  global page-transition preference.
 - Adding a card stores service name, base URL, username, service type, certificate policy and auto-login preference.
 - If a password is provided while saving, the card is logged in immediately and the token is persisted through `SessionRepository`.
 - If auto-login is enabled, clicking a card attempts to restore the saved session and opens the service home.
@@ -83,6 +91,14 @@ QML does not make network requests and does not parse JSON.
   established before editor-bound service properties are synchronized, so a
   cold credential provider, SQLite connection, or first page initialization
   cannot delay the feedback's first frame.
+- The first home data load for a saved Emby or Jellyfin service completes while
+  the card remains in its loading state. Navigation enters the home page only
+  after at least one valid media-data collection is received. If all initial
+  collections are empty/invalid, the session is cleared and navigation returns
+  to the service-card page with the most relevant error preserved (for example,
+  HTTP 522). Partial initial failures do not block entry when another
+  collection contains valid data; later refresh failures after a service has
+  opened remain on the current page and only update its error state.
 - The trendy and traditional media-home trees are both loaded on demand with
   asynchronous QML loaders. An inactive layout does not instantiate hidden
   list delegates or react to home-model resets.
@@ -116,6 +132,10 @@ QML does not make network requests and does not parse JSON.
   them in both layouts.
 - Continue-watching episode cards prefer the parent series primary image when the server returns `SeriesId` and `SeriesPrimaryImageTag`; otherwise they fall back to the item primary image.
 - Continue-watching cards expose title, parent series name, season / episode text and watched percentage through the C++ model and ViewModel formatting helpers.
+- Emby continue-watching requests are sorted by `DatePlayed` descending as
+  defined by the official API. The client keeps the first resumable episode
+  for each `SeriesId` (falling back to a normalized series name), so one series
+  appears only once and represents its most recent record.
 - Continue playback uses `UserData.PlaybackPositionTicks` to resume from the server-reported position.
 - When a continue-watching card opens the details page, the original resume ticks are retained as a fallback. Some server detail responses may omit or reset `PlaybackPositionTicks`, and the ViewModel must not overwrite a valid resume position from the continue-watching list with zero.
 

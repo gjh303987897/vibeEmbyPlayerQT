@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QUrlQuery>
 
 #include <algorithm>
@@ -85,6 +86,30 @@ void keepSeriesItems(std::vector<MediaItem>& items)
     std::erase_if(items, [](const MediaItem& item) {
         return item.itemType.compare(QStringLiteral("Series"), Qt::CaseInsensitive) != 0;
     });
+}
+
+std::vector<MediaItem> keepLatestContinueItems(std::vector<MediaItem> items)
+{
+    QSet<QString> seenSeries;
+    std::vector<MediaItem> filtered;
+    filtered.reserve(items.size());
+
+    for (auto& item : items) {
+        if (item.itemType.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0) {
+            const auto seriesKey = !item.seriesId.isEmpty()
+                ? item.seriesId
+                : item.seriesName.trimmed().toCaseFolded();
+            if (!seriesKey.isEmpty() && seenSeries.contains(seriesKey)) {
+                continue;
+            }
+            if (!seriesKey.isEmpty()) {
+                seenSeries.insert(seriesKey);
+            }
+        }
+        filtered.push_back(std::move(item));
+    }
+
+    return filtered;
 }
 }
 
@@ -260,7 +285,13 @@ void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, st
         }
 
         parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
-                        std::move(callback));
+                        [callback = std::move(callback)](ItemResult parsed) mutable {
+            if (!parsed) {
+                callback(std::unexpected(parsed.error()));
+                return;
+            }
+            callback(keepLatestContinueItems(std::move(*parsed)));
+        });
     });
 }
 

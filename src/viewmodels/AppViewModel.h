@@ -787,6 +787,8 @@ private:
     void beginHomeLoading();
     void endHomeLoading();
     void setLibraryItemsLoading(bool value);
+    bool failInitialServiceLoad(const QString& message);
+    void completeInitialServiceLoad();
     void setError(QString message);
     void setWebDavTsslStatus(QString message);
     void setSession(UserSession session);
@@ -825,6 +827,9 @@ private:
     bool m_loading { false };
     bool m_episodeSwitching { false };
     int m_homeLoadingRequests { 0 };
+    bool m_initialServiceLoadActive { false };
+    bool m_initialServiceHasValidData { false };
+    QString m_initialServiceError;
     std::vector<MediaItem> m_unfilteredEmbyRecommendations;
     QDateTime m_embyRecommendationUpdatedAt;
     QString m_embyRecommendationStatus { QStringLiteral("idle") };

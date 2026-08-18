@@ -5450,6 +5450,13 @@ void AppViewModel::logout()
 void AppViewModel::backToServices()
 {
     setLoading(false);
+    m_initialServiceLoadActive = false;
+    m_initialServiceHasValidData = false;
+    m_initialServiceError.clear();
+    if (m_homeLoadingRequests > 0) {
+        m_homeLoadingRequests = 0;
+        emit homeLoadingChanged();
+    }
     m_session.reset();
     m_pendingServiceCard.reset();
     clearIptvState();
@@ -5916,18 +5923,32 @@ void AppViewModel::refreshLibraries()
     AppLogger::info(QStringLiteral("library"),
                     QStringLiteral("Fetching libraries from %1").arg(QUrl(m_session->server.baseUrl).host()));
     client->fetchLibraries(*m_session, [this, serverId](LibraryResult result) {
-        endHomeLoading();
         if (!m_session || m_session->server.id != serverId) {
+            endHomeLoading();
             return;
         }
-        setLoading(false);
         if (!result) {
             AppLogger::warning(QStringLiteral("library"), QStringLiteral("Fetch libraries failed: %1").arg(displayNetworkError(result.error())));
-            setError(displayNetworkError(result.error()));
+            const auto message = displayNetworkError(result.error());
+            if (m_initialServiceLoadActive) {
+                m_initialServiceError = message;
+                endHomeLoading();
+                return;
+            }
+            endHomeLoading();
+            setLoading(false);
+            setError(message);
             return;
         }
         AppLogger::info(QStringLiteral("library"), QStringLiteral("Fetched %1 libraries").arg(result->size()));
+        if (m_initialServiceLoadActive && !result->empty()) {
+            m_initialServiceHasValidData = true;
+        }
         m_libraries.setLibraries(std::move(*result));
+        endHomeLoading();
+        if (!m_initialServiceLoadActive) {
+            setLoading(false);
+        }
     });
 }
 
@@ -5990,18 +6011,29 @@ void AppViewModel::refreshContinueWatching()
     beginHomeLoading();
     AppLogger::info(QStringLiteral("continue"), QStringLiteral("Fetching resume items from %1").arg(QUrl(m_session->server.baseUrl).host()));
     client->fetchContinueWatching(*m_session, 24, [this, serverId](ItemResult result) {
-        endHomeLoading();
         if (!m_session || m_session->server.id != serverId) {
+            endHomeLoading();
             return;
         }
         if (!result) {
             AppLogger::warning(QStringLiteral("continue"), QStringLiteral("Fetch resume items failed: %1").arg(displayNetworkError(result.error())));
-            setError(displayNetworkError(result.error()));
+            const auto message = displayNetworkError(result.error());
+            if (m_initialServiceLoadActive) {
+                m_initialServiceError = message;
+                endHomeLoading();
+                return;
+            }
+            endHomeLoading();
+            setError(message);
             return;
         }
         auto items = std::move(*result);
         mergeRecentPlaybackProgress(items);
+        if (m_initialServiceLoadActive && !items.empty()) {
+            m_initialServiceHasValidData = true;
+        }
         m_continueItems.setItems(std::move(items));
+        endHomeLoading();
     });
 }
 
@@ -6032,6 +6064,9 @@ void AppViewModel::refreshRecommendations(bool force)
             if (!decoded) {
                 AppLogger::warning(QStringLiteral("recommendations"), decoded.error());
             } else {
+                if (m_initialServiceLoadActive && !decoded->empty()) {
+                    m_initialServiceHasValidData = true;
+                }
                 m_unfilteredEmbyRecommendations = *decoded;
                 m_embyRecommendationUpdatedAt = (*cached)->refreshedAt;
                 m_embyRecommendationStatus = QStringLiteral("updated");
@@ -6063,8 +6098,8 @@ void AppViewModel::refreshRecommendations(bool force)
                         .arg(serviceType == ServiceType::Emby ? QStringLiteral("Emby") : QStringLiteral("Jellyfin"),
                              QUrl(m_session->server.baseUrl).host()));
     auto handleResult = [this, serverId, userId, serviceType](ItemResult result) {
-        endHomeLoading();
         if (!m_session || m_session->server.id != serverId || m_session->userId != userId) {
+            endHomeLoading();
             return;
         }
         if (serviceType == ServiceType::Emby) {
@@ -6077,12 +6112,22 @@ void AppViewModel::refreshRecommendations(bool force)
             } else {
                 m_recommendedItems.clear();
             }
+            const auto message = displayNetworkError(result.error());
+            if (m_initialServiceLoadActive) {
+                m_initialServiceError = message;
+                endHomeLoading();
+                return;
+            }
+            endHomeLoading();
             AppLogger::warning(QStringLiteral("recommendations"),
                                QStringLiteral("Fetch suggested series failed: %1")
-                                   .arg(displayNetworkError(result.error())));
+                                   .arg(message));
             return;
         }
         if (serviceType == ServiceType::Emby) {
+            if (m_initialServiceLoadActive && !result->empty()) {
+                m_initialServiceHasValidData = true;
+            }
             m_unfilteredEmbyRecommendations = std::move(*result);
             const auto refreshedAt = QDateTime::currentDateTimeUtc();
             const auto payload = EmbyRecommendationCache::serialize(m_unfilteredEmbyRecommendations);
@@ -6095,9 +6140,14 @@ void AppViewModel::refreshRecommendations(bool force)
             mergeEmbyRecommendationGenresFromItems();
             applyEmbyRecommendationFilter();
             emit embyRecommendationSettingsChanged();
+            endHomeLoading();
             return;
         }
+        if (m_initialServiceLoadActive && !result->empty()) {
+            m_initialServiceHasValidData = true;
+        }
         m_recommendedItems.setItems(std::move(*result));
+        endHomeLoading();
     };
 
     if (serviceType == ServiceType::Emby) {
@@ -7406,6 +7456,9 @@ void AppViewModel::startLogin(const ServerConfig& server, const QString& passwor
 void AppViewModel::loadServiceHome()
 {
     if (!m_session) {
+        m_initialServiceLoadActive = false;
+        m_initialServiceHasValidData = false;
+        m_initialServiceError.clear();
         setCurrentView(QStringLiteral("services"));
         return;
     }
@@ -7422,16 +7475,16 @@ void AppViewModel::loadServiceHome()
     emit currentLibraryChanged();
     emit selectedItemChanged();
     const auto serverId = m_session->server.id;
-    beginHomeLoading();
-    setCurrentView(QStringLiteral("home"));
+    m_initialServiceLoadActive = true;
+    m_initialServiceHasValidData = false;
+    m_initialServiceError.clear();
+    setLoading(true);
     QTimer::singleShot(homeDataStartDelayMs, this, [this, serverId]() {
         if (!m_session || m_session->server.id != serverId
-            || m_currentView != QStringLiteral("home")) {
-            endHomeLoading();
+            || !m_initialServiceLoadActive) {
             return;
         }
         refreshHome();
-        endHomeLoading();
     });
 }
 
@@ -8127,6 +8180,9 @@ void AppViewModel::setCurrentView(QString view)
     if (m_currentView == view) {
         return;
     }
+    if (view != QStringLiteral("home")) {
+        m_initialServiceLoadActive = false;
+    }
     if (m_currentView == QStringLiteral("globalHistory") &&
         view != QStringLiteral("globalHistory") && view != QStringLiteral("player")) {
         ++m_globalHistoryReplayGeneration;
@@ -8175,6 +8231,9 @@ void AppViewModel::endHomeLoading()
     if (wasLoading && !homeLoading()) {
         emit homeLoadingChanged();
     }
+    if (m_initialServiceLoadActive && !homeLoading()) {
+        completeInitialServiceLoad();
+    }
 }
 
 void AppViewModel::setLibraryItemsLoading(bool value)
@@ -8185,6 +8244,47 @@ void AppViewModel::setLibraryItemsLoading(bool value)
 
     m_libraryItemsLoading = value;
     emit libraryItemsLoadingChanged();
+}
+
+bool AppViewModel::failInitialServiceLoad(const QString& message)
+{
+    if (!m_initialServiceLoadActive || !m_session) {
+        return false;
+    }
+
+    m_initialServiceLoadActive = false;
+    m_initialServiceHasValidData = false;
+    if (m_homeLoadingRequests > 0) {
+        m_homeLoadingRequests = 0;
+        emit homeLoadingChanged();
+    }
+    backToServices();
+    setError(message);
+    return true;
+}
+
+void AppViewModel::completeInitialServiceLoad()
+{
+    if (!m_initialServiceLoadActive || homeLoading()) {
+        return;
+    }
+
+    if (!m_initialServiceHasValidData) {
+        const auto message = m_initialServiceError.isEmpty()
+            ? QStringLiteral("Server returned no valid media data")
+            : m_initialServiceError;
+        failInitialServiceLoad(message);
+        return;
+    }
+
+    const auto partialError = m_initialServiceError;
+    m_initialServiceLoadActive = false;
+    m_initialServiceError.clear();
+    setLoading(false);
+    setCurrentView(QStringLiteral("home"));
+    if (!partialError.isEmpty()) {
+        setError(partialError);
+    }
 }
 
 void AppViewModel::setError(QString message)

@@ -141,6 +141,16 @@ ApplicationWindow {
         }
     }
 
+    function openServiceFromCard(sourceCard, openAction) {
+        serviceTransitionOverlay.openFromCard(sourceCard)
+        openAction()
+    }
+
+    function prepareExternalServiceFromCard(sourceCard, openAction) {
+        serviceTransitionOverlay.prepareFromCard(sourceCard)
+        openAction()
+    }
+
     function formatHistoryDate(value) {
         if (!value || value.length < 10) {
             return value
@@ -195,6 +205,15 @@ ApplicationWindow {
             if (appViewModel.currentView !== "player" && root.playerImmersive) {
                 root.exitPlayerFullscreen()
             }
+            if (appViewModel.currentView === "services") {
+                serviceTransitionOverlay.closeToCard()
+            } else {
+                serviceTransitionOverlay.maybeOpenPrepared()
+            }
+        }
+
+        function onLoadingChanged() {
+            serviceTransitionOverlay.maybeOpenPrepared()
         }
 
         function onPasswordRequired(serviceName, username) {
@@ -215,6 +234,7 @@ ApplicationWindow {
         function onPageTransitionsEnabledChanged() {
             if (!appViewModel.pageTransitionsEnabled) {
                 pageStack.resetTransition()
+                serviceTransitionOverlay.cancelTransition()
             }
         }
 
@@ -1930,6 +1950,228 @@ ApplicationWindow {
         cursorShape: Qt.SizeFDiagCursor
     }
 
+    Item {
+        id: serviceTransitionOverlay
+        anchors.top: windowHeader.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 500
+        visible: false
+        clip: true
+
+        property bool hasSource: false
+        property bool openPending: false
+        property real sourceX: 0
+        property real sourceY: 0
+        property real sourceWidth: 0
+        property real sourceHeight: 0
+        property real sourceRadius: 14
+        property color sourceAccent: theme.primary
+        property string sourceTitle: ""
+        property string sourceType: ""
+
+        function captureSource(sourceCard) {
+            if (!appViewModel.pageTransitionsEnabled || !sourceCard || !sourceCard.visible) {
+                return
+            }
+
+            var topLeft = sourceCard.mapToItem(serviceTransitionOverlay, 0, 0)
+            var bottomRight = sourceCard.mapToItem(serviceTransitionOverlay,
+                sourceCard.width, sourceCard.height)
+            sourceX = topLeft.x
+            sourceY = topLeft.y
+            sourceWidth = Math.max(1, bottomRight.x - topLeft.x)
+            sourceHeight = Math.max(1, bottomRight.y - topLeft.y)
+            sourceRadius = sourceCard.radius
+            sourceAccent = sourceCard.accentColor
+            sourceTitle = sourceCard.serviceName
+            sourceType = sourceCard.serviceType
+            hasSource = true
+            return true
+        }
+
+        function prepareFromCard(sourceCard) {
+            if (!captureSource(sourceCard)) {
+                return
+            }
+            openPending = true
+        }
+
+        function openFromCard(sourceCard) {
+            if (!captureSource(sourceCard)) {
+                return
+            }
+            openPending = false
+            openPrepared()
+        }
+
+        function maybeOpenPrepared() {
+            if (!openPending || !hasSource || appViewModel.loading
+                || appViewModel.currentView === "services") {
+                return
+            }
+            openPending = false
+            openPrepared()
+        }
+
+        function openPrepared() {
+
+            openAnimation.stop()
+            closeAnimation.stop()
+            expansionSurface.x = sourceX
+            expansionSurface.y = sourceY
+            expansionSurface.width = sourceWidth
+            expansionSurface.height = sourceHeight
+            expansionSurface.cornerRadius = sourceRadius
+            expansionSurface.opacity = 1
+            visible = true
+            openAnimation.start()
+        }
+
+        function closeToCard() {
+            if (openPending) {
+                openPending = false
+                hasSource = false
+                return
+            }
+            if (!hasSource || !appViewModel.pageTransitionsEnabled) {
+                return
+            }
+
+            openAnimation.stop()
+            closeAnimation.stop()
+            expansionSurface.x = 0
+            expansionSurface.y = 0
+            expansionSurface.width = width
+            expansionSurface.height = height
+            expansionSurface.cornerRadius = 0
+            expansionSurface.opacity = 1
+            visible = true
+            closeAnimation.start()
+        }
+
+        function finishTransition() {
+            visible = false
+            expansionSurface.opacity = 0
+        }
+
+        function cancelTransition() {
+            openAnimation.stop()
+            closeAnimation.stop()
+            finishTransition()
+            openPending = false
+            hasSource = false
+        }
+
+        Rectangle {
+            id: expansionSurface
+            property real cornerRadius: 14
+
+            color: theme.surface
+            radius: cornerRadius
+            border.width: 1
+            border.color: root.withAlpha(serviceTransitionOverlay.sourceAccent, 0.62)
+            clip: true
+
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: 1
+                radius: Math.max(0, expansionSurface.cornerRadius - 1)
+                color: root.withAlpha(serviceTransitionOverlay.sourceAccent,
+                    root.darkTheme ? 0.09 : 0.055)
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: Math.min(4, parent.width)
+                color: serviceTransitionOverlay.sourceAccent
+                opacity: 0.9
+            }
+
+            Column {
+                anchors.centerIn: parent
+                width: Math.max(0, Math.min(260, parent.width - 24))
+                spacing: 9
+                opacity: Math.min(1, expansionSurface.width / 220)
+
+                ServiceTypeIcon {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 46
+                    height: 46
+                    serviceType: serviceTransitionOverlay.sourceType
+                }
+
+                Label {
+                    width: parent.width
+                    text: serviceTransitionOverlay.sourceTitle
+                    color: theme.text
+                    font.pixelSize: 16
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                }
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: serviceTransitionOverlay.visible
+            onClicked: {}
+        }
+
+        SequentialAnimation {
+            id: openAnimation
+
+            ParallelAnimation {
+                NumberAnimation { target: expansionSurface; property: "x"; to: 0; duration: 390; easing.type: Easing.OutCubic }
+                NumberAnimation { target: expansionSurface; property: "y"; to: 0; duration: 390; easing.type: Easing.OutCubic }
+                NumberAnimation { target: expansionSurface; property: "width"; to: serviceTransitionOverlay.width; duration: 390; easing.type: Easing.OutCubic }
+                NumberAnimation { target: expansionSurface; property: "height"; to: serviceTransitionOverlay.height; duration: 390; easing.type: Easing.OutCubic }
+                NumberAnimation { target: expansionSurface; property: "cornerRadius"; to: 0; duration: 390; easing.type: Easing.OutCubic }
+            }
+
+            NumberAnimation {
+                target: expansionSurface
+                property: "opacity"
+                to: 0
+                duration: 150
+                easing.type: Easing.InCubic
+            }
+
+            ScriptAction { script: serviceTransitionOverlay.finishTransition() }
+        }
+
+        SequentialAnimation {
+            id: closeAnimation
+
+            ParallelAnimation {
+                NumberAnimation { target: expansionSurface; property: "x"; to: serviceTransitionOverlay.sourceX; duration: 390; easing.type: Easing.InOutCubic }
+                NumberAnimation { target: expansionSurface; property: "y"; to: serviceTransitionOverlay.sourceY; duration: 390; easing.type: Easing.InOutCubic }
+                NumberAnimation { target: expansionSurface; property: "width"; to: serviceTransitionOverlay.sourceWidth; duration: 390; easing.type: Easing.InOutCubic }
+                NumberAnimation { target: expansionSurface; property: "height"; to: serviceTransitionOverlay.sourceHeight; duration: 390; easing.type: Easing.InOutCubic }
+                NumberAnimation { target: expansionSurface; property: "cornerRadius"; to: serviceTransitionOverlay.sourceRadius; duration: 390; easing.type: Easing.InOutCubic }
+            }
+
+            NumberAnimation {
+                target: expansionSurface
+                property: "opacity"
+                to: 0
+                duration: 150
+                easing.type: Easing.OutCubic
+            }
+
+            ScriptAction {
+                script: {
+                    serviceTransitionOverlay.finishTransition()
+                    serviceTransitionOverlay.hasSource = false
+                }
+            }
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         anchors.topMargin: windowHeader.height
@@ -2116,7 +2358,9 @@ ApplicationWindow {
                                 leadingStatusColor: theme.success
                                 trailingStatusText: t("local.folderCount").arg(appViewModel.localMediaRoots.count)
                                 trailingStatusColor: theme.primary
-                                onActivated: appViewModel.openLocalMedia()
+                                onActivated: root.openServiceFromCard(sourceCard, function() {
+                                    appViewModel.openLocalMedia()
+                                })
                             }
 
                             ServiceCard {
@@ -2134,7 +2378,9 @@ ApplicationWindow {
                                 leadingStatusColor: theme.success
                                 trailingStatusText: t("link.protocols")
                                 trailingStatusColor: root.serviceAccentColor("Link")
-                                onActivated: appViewModel.openLinkPlayback()
+                                onActivated: root.openServiceFromCard(sourceCard, function() {
+                                    appViewModel.openLinkPlayback()
+                                })
                             }
 
                             ServiceCard {
@@ -2152,7 +2398,9 @@ ApplicationWindow {
                                 leadingStatusColor: theme.success
                                 trailingStatusText: t("globalHistory.localIndex")
                                 trailingStatusColor: root.serviceAccentColor("History")
-                                onActivated: appViewModel.openGlobalHistory()
+                                onActivated: root.openServiceFromCard(sourceCard, function() {
+                                    appViewModel.openGlobalHistory()
+                                })
                             }
 
                             ServiceCard {
@@ -2170,7 +2418,9 @@ ApplicationWindow {
                                 leadingStatusColor: theme.success
                                 trailingStatusText: t("m3u8s.packageCount").arg(appViewModel.tsslPackages.count)
                                 trailingStatusColor: root.serviceAccentColor("M3u8s")
-                                onActivated: appViewModel.openM3u8sManager()
+                                onActivated: root.openServiceFromCard(sourceCard, function() {
+                                    appViewModel.openM3u8sManager()
+                                })
                             }
                         }
 
@@ -2208,7 +2458,9 @@ ApplicationWindow {
                                     privateMode: model.privateMode
                                     dragIndex: index
                                     loading: appViewModel.loadingServiceCardId === model.cardId
-                                    onActivated: appViewModel.selectServiceCard(index)
+                                    onActivated: root.prepareExternalServiceFromCard(sourceCard, function() {
+                                        appViewModel.selectServiceCard(index)
+                                    })
                                     onEditRequested: {
                                         appViewModel.editServiceCard(index)
                                         serviceDialog.open()
@@ -4717,6 +4969,7 @@ ApplicationWindow {
         property string imageUrl: ""
         property string fallbackText: "?"
         radius: 8
+        antialiasing: true
         color: posterImage.status === Image.Ready ? "transparent" : theme.input
         border.color: theme.border
         border.width: 0
@@ -4735,9 +4988,11 @@ ApplicationWindow {
             id: posterMask
             anchors.fill: parent
             radius: posterFrame.radius
+            antialiasing: true
             color: "#ffffff"
             visible: false
             layer.enabled: true
+            layer.smooth: true
         }
 
         MultiEffect {
@@ -5051,7 +5306,7 @@ ApplicationWindow {
 
     component ServiceCard: Rectangle {
         id: card
-        signal activated()
+        signal activated(var sourceCard)
         signal editRequested()
         signal deleteRequested()
         signal dragStarted()
@@ -5162,7 +5417,7 @@ ApplicationWindow {
                 }
             }
             onCanceled: if (editing) card.finishDrag()
-            onClicked: if (!editing) card.activated()
+            onClicked: if (!editing) card.activated(card)
         }
 
         ColumnLayout {
@@ -5873,6 +6128,8 @@ ApplicationWindow {
             anchors.right: continueImage.right
             anchors.bottom: continueImage.bottom
             height: 48
+            radius: continueImage.radius
+            clip: true
             gradient: Gradient {
                 GradientStop { position: 0.0; color: "#00000000" }
                 GradientStop { position: 0.28; color: "#73000000" }

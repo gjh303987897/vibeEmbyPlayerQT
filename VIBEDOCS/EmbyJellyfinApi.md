@@ -136,6 +136,10 @@ Jellyfin:
 
 Continue-watching items open the media details page. Direct play from this section is not part of the current implementation.
 
+Emby results are requested with `SortBy=DatePlayed` and descending order. The
+client keeps only the first resumable episode for each series, so repeated
+episodes from one series collapse to its most recent record.
+
 ## Suggested Series
 
 Emby:
