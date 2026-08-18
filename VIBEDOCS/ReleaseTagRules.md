@@ -8,14 +8,14 @@ vMAJOR.MINOR.PATCH
 
 ## Stable
 
-Stable 版本不带预发布后缀：
+Stable 版本必须显式使用 `stable` 标识：
 
 ```text
-v1.0.0
-v1.2.3
+v1.0.0-stable
+v1.2.3-stable
 ```
 
-Stable 通道只接受没有预发布标识的版本。
+Stable 通道只接受 `-stable` 版本。
 
 ## Beta
 
@@ -53,6 +53,7 @@ v1.0.1-nightly         # 不支持 nightly
 v1.0.1-dev             # 不支持 dev
 v1.0.1-beta.preview    # beta 序号必须是数字
 v1.0.1-alpha.01         # 数字序号不能有前导零
+v1.0.1                  # 缺少 stable、alpha 或 beta 标识
 ```
 
 ## Build Metadata
@@ -60,7 +61,7 @@ v1.0.1-alpha.01         # 数字序号不能有前导零
 Semantic Versioning 的 build metadata 可以存在，但不参与版本比较：
 
 ```text
-v1.0.1+build.42
+v1.0.1-stable+build.42
 v1.0.1-beta.2+commit.abc123
 ```
 
@@ -73,4 +74,3 @@ alpha < alpha.1 < beta < beta.1 < stable
 ```
 
 GitHub Actions 在发布前会校验标签格式；客户端从 GitHub Releases 列表中再次进行相同的通道筛选。
-

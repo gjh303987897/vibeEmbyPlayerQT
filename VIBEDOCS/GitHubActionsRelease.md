@@ -100,13 +100,13 @@ The bundle grants network, IPC, X11, Wayland, PulseAudio, GPU, and host filesyst
 The workflow publishes releases from `v`-prefixed tags that comply with [Semantic Versioning 2.0.0](https://semver.org/):
 
 ```text
-v1.0.1
+v1.0.1-stable
 v1.0.1-alpha
 v1.0.1-beta.1
-v1.0.1-rc.2+build.19
+v1.0.1-stable+build.19
 ```
 
-The `major.minor.patch` core is mandatory. Prerelease and build identifiers may contain ASCII letters, digits, and hyphens. Numeric prerelease identifiers cannot contain leading zeros. Tags with a prerelease section create or update a GitHub Release marked as a prerelease and are not marked as the latest release. Artifact filenames use the version without the tag's leading `v`.
+The `major.minor.patch` core and one of the `stable`, `alpha`, or `beta` channel suffixes are mandatory. Alpha and beta may include a numeric suffix; Stable may not. Unknown or missing channel suffixes are ignored. Build identifiers may contain ASCII letters, digits, and hyphens. Numeric prerelease identifiers cannot contain leading zeros. Alpha and Beta tags create or update a GitHub Release marked as a prerelease; Stable tags are marked as the latest release. Artifact filenames use the version without the tag's leading `v`.
 
 For a beta release, create and push:
 

@@ -26,7 +26,7 @@ void UpdateServiceTest::comparesSemanticVersions()
 {
     const auto alpha = *UpdateService::parseVersion(QStringLiteral("1.0.0-alpha"));
     const auto beta = *UpdateService::parseVersion(QStringLiteral("1.0.0-beta.1"));
-    const auto stable = *UpdateService::parseVersion(QStringLiteral("1.0.0"));
+    const auto stable = *UpdateService::parseVersion(QStringLiteral("1.0.0-stable"));
     QVERIFY(UpdateService::compareVersions(alpha, beta) < 0);
     QVERIFY(UpdateService::compareVersions(beta, stable) < 0);
     QCOMPARE(UpdateService::compareVersions(stable, stable), 0);
@@ -34,11 +34,13 @@ void UpdateServiceTest::comparesSemanticVersions()
 
 void UpdateServiceTest::filtersChannels()
 {
-    const auto stable = *UpdateService::parseVersion(QStringLiteral("1.0.1"));
+    const auto stable = *UpdateService::parseVersion(QStringLiteral("1.0.1-stable"));
     const auto beta = *UpdateService::parseVersion(QStringLiteral("1.0.1-beta.2"));
     const auto alpha = *UpdateService::parseVersion(QStringLiteral("1.0.1-alpha"));
     const auto rc = *UpdateService::parseVersion(QStringLiteral("1.0.1-rc.1"));
+    const auto unmarked = *UpdateService::parseVersion(QStringLiteral("1.0.1"));
     QVERIFY(UpdateService::channelAccepts(stable, UpdateChannel::Stable));
+    QVERIFY(!UpdateService::classifyVersion(unmarked));
     QVERIFY(!UpdateService::channelAccepts(beta, UpdateChannel::Stable));
     QVERIFY(UpdateService::channelAccepts(beta, UpdateChannel::Beta));
     QVERIFY(!UpdateService::channelAccepts(alpha, UpdateChannel::Beta));
@@ -60,15 +62,15 @@ void UpdateServiceTest::parsesChecksumSidecar()
 
 void UpdateServiceTest::selectsHighestRelease()
 {
-    const auto current = *UpdateService::parseVersion(QStringLiteral("1.0.0"));
+    const auto current = *UpdateService::parseVersion(QStringLiteral("1.0.0-stable"));
     const auto json = QByteArrayLiteral(R"json([
-        {"tag_name":"v1.0.1","draft":false,"body":"stable","assets":[]},
+        {"tag_name":"v1.0.1-stable","draft":false,"body":"stable","assets":[]},
         {"tag_name":"v1.0.3","draft":true,"body":"draft","assets":[]},
-        {"tag_name":"v1.0.2","draft":false,"body":"new","assets":[]}
+        {"tag_name":"v1.0.2-stable","draft":false,"body":"new","assets":[]}
     ])json");
     const auto result = UpdateService::parseReleases(json, UpdateChannel::Stable, current);
     QVERIFY(result);
-    QCOMPARE(result->version.toString(), QStringLiteral("1.0.2"));
+    QCOMPARE(result->version.toString(), QStringLiteral("1.0.2-stable"));
     QCOMPARE(result->notes, QStringLiteral("new"));
 }
 

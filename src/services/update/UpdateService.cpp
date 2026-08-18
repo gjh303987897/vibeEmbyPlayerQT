@@ -133,13 +133,14 @@ bool UpdateService::channelAccepts(const SemVersion& version, UpdateChannel chan
 std::optional<UpdateChannel> UpdateService::classifyVersion(const SemVersion& version)
 {
     if (!version.valid) return std::nullopt;
-    if (version.prerelease.isEmpty()) return UpdateChannel::Stable;
     if (version.prerelease.size() != 1 && version.prerelease.size() != 2) return std::nullopt;
     const auto& label = version.prerelease.front();
     const auto channel = label == QStringLiteral("alpha") ? UpdateChannel::Alpha
-        : label == QStringLiteral("beta") ? UpdateChannel::Beta : UpdateChannel::Stable;
-    if (channel == UpdateChannel::Stable
-        || (version.prerelease.size() == 2 && !isNumericIdentifier(version.prerelease[1]))) return std::nullopt;
+        : label == QStringLiteral("beta") ? UpdateChannel::Beta
+        : label == QStringLiteral("stable") ? UpdateChannel::Stable : UpdateChannel::Alpha;
+    if (label != QStringLiteral("alpha") && label != QStringLiteral("beta") && label != QStringLiteral("stable")) return std::nullopt;
+    if (channel == UpdateChannel::Stable && version.prerelease.size() != 1) return std::nullopt;
+    if (version.prerelease.size() == 2 && !isNumericIdentifier(version.prerelease[1])) return std::nullopt;
     return channel;
 }
 

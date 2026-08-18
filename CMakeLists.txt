@@ -7,7 +7,7 @@ project(vibePlayerQT
 )
 
 include(cmake/SemVer.cmake)
-set(VIBEPLAYER_PACKAGE_VERSION "${PROJECT_VERSION}" CACHE STRING
+set(VIBEPLAYER_PACKAGE_VERSION "${PROJECT_VERSION}-stable" CACHE STRING
     "Application version in Semantic Versioning 2.0.0 format"
 )
 vibeplayer_parse_semver("${VIBEPLAYER_PACKAGE_VERSION}" VIBEPLAYER_SEMVER)
@@ -16,6 +16,15 @@ if(NOT VIBEPLAYER_SEMVER_VALID)
         "Invalid VIBEPLAYER_PACKAGE_VERSION '${VIBEPLAYER_PACKAGE_VERSION}': "
         "${VIBEPLAYER_SEMVER_ERROR}"
     )
+endif()
+if(NOT VIBEPLAYER_SEMVER_PRERELEASE MATCHES "^(stable|alpha|beta)(\\.[0-9]+)?$")
+    message(FATAL_ERROR
+        "VIBEPLAYER_PACKAGE_VERSION '${VIBEPLAYER_PACKAGE_VERSION}' must end with "
+        "-stable, -alpha, or -beta (with an optional numeric alpha/beta suffix)"
+    )
+endif()
+if(VIBEPLAYER_SEMVER_PRERELEASE MATCHES "^stable\\.")
+    message(FATAL_ERROR "Stable versions cannot have a numeric prerelease suffix")
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
