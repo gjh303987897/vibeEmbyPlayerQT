@@ -146,17 +146,24 @@ void WebDavItemListModelTest::identifierPreviewCanBeUpdatedAfterListing()
     QSignalSpy dataChangedSpy(&model, &QAbstractItemModel::dataChanged);
 
     const auto preview = QStringLiteral("AAAAAAAAAAAAAAAA...AAAAAAAAAAAA");
-    model.setIdentifierPreview(encrypted.url, preview);
+    const auto sourceFileName = QStringLiteral("Original Movie.mkv");
+    model.setM3u8sMetadata(encrypted.url, preview, sourceFileName);
 
     QCOMPARE(dataChangedSpy.count(), 1);
     QCOMPARE(model.data(model.index(0, 0), WebDavItemListModel::IdentifierPreviewRole).toString(),
              preview);
     QCOMPARE(model.itemAt(0)->identifierPreview, preview);
+    QCOMPARE(model.data(model.index(0, 0), WebDavItemListModel::SourceFileNameRole).toString(),
+             sourceFileName);
+    QCOMPARE(model.itemAt(0)->sourceFileName, sourceFileName);
     QCOMPARE(model.roleNames().value(WebDavItemListModel::IdentifierPreviewRole),
              QByteArrayLiteral("identifierPreview"));
+    QCOMPARE(model.roleNames().value(WebDavItemListModel::SourceFileNameRole),
+             QByteArrayLiteral("sourceFileName"));
 
     model.setDisplayMode(QStringLiteral("video"));
     QCOMPARE(model.itemAt(0)->identifierPreview, preview);
+    QCOMPARE(model.itemAt(0)->sourceFileName, sourceFileName);
 }
 
 QTEST_MAIN(WebDavItemListModelTest)

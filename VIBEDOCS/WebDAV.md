@@ -1,5 +1,13 @@
 # WebDAV 模块说明
 
+## M3U8S metadata visibility
+
+WebDAV M3U8S entries expose a shortened identifier and, when a matching local
+TSSL v3 package is available, the authenticated original source filename.
+Settings persist two independent visibility switches for these fields. Both
+switches default to enabled; hiding either field affects presentation only and
+does not change manifest verification or playback behavior.
+
 ## 模块边界
 
 WebDAV 下载相关功能拆成五层：

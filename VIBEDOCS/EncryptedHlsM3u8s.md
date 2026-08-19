@@ -100,7 +100,9 @@ The application checks its executable directory first and then `PATH` for
 `ffmpeg` (`ffmpeg.exe` on Windows). A missing executable is reported before a
 job starts.
 
-The file picker accepts one or more source videos. `EncryptedHlsBatchPackager`
+The Qt Quick file picker accepts one or more source videos asynchronously. The
+selection is validated in the ViewModel after the dialog closes, then
+`EncryptedHlsBatchPackager`
 queues the resulting requests and runs the existing single-file packager
 serially. Each source therefore keeps its own staging directory, random
 identifier, encrypted source name, digest-named output directory, and local
@@ -203,13 +205,18 @@ and history replay. Generated `segment_NNNNNN.ts` files are hidden when the
 directory contains an M3U8S manifest so encrypted segments are not offered as
 standalone videos.
 
-WebDAV directory pages display a short identifier preview for each `.m3u8s`
-entry. The directory itself is shown first; manifests are then fetched
-asynchronously with the same authentication and 4 MiB size limit as playback,
-strictly validated, and reduced to the first 16 and last 12 identifier
-characters before reaching QML. A directory-generation check discards stale
-responses after navigation or service changes. An unreadable or invalid
-manifest leaves the preview blank without blocking the directory listing.
+WebDAV directory pages can display a short identifier preview and the
+authenticated original source filename for each `.m3u8s` entry. The directory
+itself is shown first; manifests are then fetched asynchronously with the same
+authentication and 4 MiB size limit as playback. Identifiers are strictly
+validated and reduced to the first 16 and last 12 characters before reaching
+QML. Original filenames are returned only when a matching local TSSL v3
+package authenticates and decrypts the filename metadata. A
+directory-generation check discards stale responses after navigation or
+service changes. An unreadable or invalid manifest leaves both fields blank
+without blocking the directory listing. Two persistent WebDAV settings
+independently control identifier and original-filename visibility; both are
+enabled by default.
 
 `EncryptedHlsPlaybackProxy` uses one verification and HTTP-serving path for
 local and WebDAV packages. Local files are read on worker threads. The local

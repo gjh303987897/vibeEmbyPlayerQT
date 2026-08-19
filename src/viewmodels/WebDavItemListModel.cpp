@@ -49,6 +49,8 @@ QVariant WebDavItemListModel::data(const QModelIndex& index, int role) const
         return item.encryptedHls;
     case IdentifierPreviewRole:
         return item.identifierPreview;
+    case SourceFileNameRole:
+        return item.sourceFileName;
     default:
         return {};
     }
@@ -68,6 +70,7 @@ QHash<int, QByteArray> WebDavItemListModel::roleNames() const
         { AudioPlayableRole, "audioPlayable" },
         { EncryptedHlsRole, "encryptedHls" },
         { IdentifierPreviewRole, "identifierPreview" },
+        { SourceFileNameRole, "sourceFileName" },
     };
 }
 
@@ -158,6 +161,34 @@ void WebDavItemListModel::setIdentifierPreview(const QUrl& url, QString preview)
         item.identifierPreview = std::move(preview);
         const auto changedIndex = index(row, 0);
         emit dataChanged(changedIndex, changedIndex, { IdentifierPreviewRole });
+        break;
+    }
+}
+
+void WebDavItemListModel::setM3u8sMetadata(const QUrl& url,
+                                           QString identifierPreview,
+                                           QString sourceFileName)
+{
+    for (auto& item : m_allItems) {
+        if (item.url == url) {
+            item.identifierPreview = identifierPreview;
+            item.sourceFileName = sourceFileName;
+            break;
+        }
+    }
+
+    for (int row = 0; row < rowCount(); ++row) {
+        auto& item = m_items[static_cast<size_t>(row)];
+        if (item.url != url) {
+            continue;
+        }
+        if (item.identifierPreview == identifierPreview && item.sourceFileName == sourceFileName) {
+            break;
+        }
+        item.identifierPreview = std::move(identifierPreview);
+        item.sourceFileName = std::move(sourceFileName);
+        const auto changedIndex = index(row, 0);
+        emit dataChanged(changedIndex, changedIndex, { IdentifierPreviewRole, SourceFileNameRole });
         break;
     }
 }

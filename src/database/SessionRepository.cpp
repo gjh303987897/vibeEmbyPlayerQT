@@ -1610,6 +1610,26 @@ void SessionRepository::setDefaultDownloadDirectory(const QString& directory)
     m_settings.setValue(QStringLiteral("webdav/defaultDownloadDirectory"), directory);
 }
 
+bool SessionRepository::webDavShowM3u8sIdentifier() const
+{
+    return m_settings.value(QStringLiteral("webdav/showM3u8sIdentifier"), true).toBool();
+}
+
+void SessionRepository::setWebDavShowM3u8sIdentifier(bool enabled)
+{
+    m_settings.setValue(QStringLiteral("webdav/showM3u8sIdentifier"), enabled);
+}
+
+bool SessionRepository::webDavShowM3u8sSourceFileName() const
+{
+    return m_settings.value(QStringLiteral("webdav/showM3u8sSourceFileName"), true).toBool();
+}
+
+void SessionRepository::setWebDavShowM3u8sSourceFileName(bool enabled)
+{
+    m_settings.setValue(QStringLiteral("webdav/showM3u8sSourceFileName"), enabled);
+}
+
 QString SessionRepository::m3u8sOutputDirectory() const
 {
     return m_settings.value(QStringLiteral("m3u8s/outputDirectory")).toString();

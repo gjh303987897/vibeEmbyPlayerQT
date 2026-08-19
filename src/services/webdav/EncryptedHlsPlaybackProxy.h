@@ -24,7 +24,12 @@ struct EncryptedHlsPreparedStream final {
 
 using EncryptedHlsPrepareResult = std::expected<EncryptedHlsPreparedStream, QString>;
 using EncryptedHlsDigestResult = std::expected<QByteArray, QString>;
-using EncryptedHlsIdentifierPreviewResult = std::expected<QString, QString>;
+struct EncryptedHlsIdentifierPreview final {
+    QString identifier;
+    QString sourceFileName;
+};
+
+using EncryptedHlsIdentifierPreviewResult = std::expected<EncryptedHlsIdentifierPreview, QString>;
 
 class EncryptedHlsPlaybackProxy final : public QObject {
     Q_OBJECT

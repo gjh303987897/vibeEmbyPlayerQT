@@ -117,6 +117,7 @@ class EncryptedHlsPlaybackProxyTest final : public QObject {
 
 private slots:
     void remoteIdentifierPreviewIsResolvedWithoutTssl();
+    void remoteMetadataRestoresSourceFileNameWithTssl();
     void verifiedPlaintextIsServedAndTamperedTagIsRejected();
     void localPackageRestoresSourceNameAndVerifiesSegments();
     void mismatchedIdentifierIsRejectedBeforePlayback();
@@ -154,7 +155,74 @@ void EncryptedHlsPlaybackProxyTest::remoteIdentifierPreviewIsResolvedWithoutTssl
     if (!resolved->has_value()) {
         QFAIL(qPrintable(resolved->error()));
     }
-    QCOMPARE(**resolved, QStringLiteral("AAAAAAAAAAAAAAAA...AAAAAAAAAAAA"));
+    QCOMPARE((**resolved).identifier, QStringLiteral("AAAAAAAAAAAAAAAA...AAAAAAAAAAAA"));
+    QVERIFY((**resolved).sourceFileName.isEmpty());
+}
+
+void EncryptedHlsPlaybackProxyTest::remoteMetadataRestoresSourceFileNameWithTssl()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    FakeWebDavServer origin;
+    QVERIFY(origin.listen());
+
+    const auto identifier = identifierBytes('S');
+    const auto sourceFileName = QStringLiteral("Remote Original Movie.mkv");
+    const auto sourceNameKey = QByteArray(32, '\x35');
+    const auto sourceNameIv = QByteArray(16, '\x17');
+    const auto encryptedSourceName = AesGcmDecryptor::encryptAuthenticatedData(
+        sourceFileName.toUtf8(),
+        sourceNameKey,
+        sourceNameIv,
+        TsslPackage::sourceFileNameAuthenticatedData(identifier));
+    QVERIFY(encryptedSourceName.has_value());
+
+    const QByteArray plainManifest =
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n";
+    auto manifest = HlsManifestValidator::insertM3u8sIdentifier(plainManifest, identifier);
+    QVERIFY(manifest.has_value());
+    manifest = HlsManifestValidator::insertEncryptedSourceFileName(*manifest, *encryptedSourceName);
+    QVERIFY(manifest.has_value());
+    origin.manifest = *manifest;
+
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    const TsslPackage package {
+        .version = 3,
+        .identifier = identifier,
+        .rootManifestDigest = QCryptographicHash::hash(*manifest, QCryptographicHash::Sha256),
+        .encryptedSourceFileName = *encryptedSourceName,
+        .sourceFileNameKey = sourceNameKey,
+        .segmentKeys = {
+            { QStringLiteral("segment.ts"), QByteArray(32, '\x42') },
+        },
+    };
+    QVERIFY(store.savePackage(package).has_value());
+    EncryptedHlsPlaybackProxy proxy(store);
+    ServerConfig server;
+    server.id = QStringLiteral("metadata-webdav");
+    server.name = QStringLiteral("Metadata WebDAV");
+    server.baseUrl = origin.manifestUrl().adjusted(QUrl::RemoveFilename).toString();
+    server.serviceType = ServiceType::WebDAV;
+
+    std::optional<EncryptedHlsIdentifierPreviewResult> resolved;
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    proxy.resolveIdentifierPreview(server, {}, origin.manifestUrl(),
+                                   [&](EncryptedHlsIdentifierPreviewResult result) {
+        resolved.emplace(std::move(result));
+        loop.quit();
+    });
+    timer.start(5000);
+    loop.exec();
+
+    QVERIFY(resolved.has_value());
+    if (!resolved->has_value()) {
+        QFAIL(qPrintable(resolved->error()));
+    }
+    QCOMPARE((**resolved).identifier, QStringLiteral("SSSSSSSSSSSSSSSS...SSSSSSSSSSSS"));
+    QCOMPARE((**resolved).sourceFileName, sourceFileName);
 }
 
 void EncryptedHlsPlaybackProxyTest::verifiedPlaintextIsServedAndTamperedTagIsRejected()

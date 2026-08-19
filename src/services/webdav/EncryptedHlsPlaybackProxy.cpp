@@ -403,7 +403,7 @@ void EncryptedHlsPlaybackProxy::resolveIdentifierPreview(
                      password,
                      rootManifestUrl,
                      maximumManifestBytes,
-                     [callback = std::move(callback)](std::expected<QByteArray, QString> manifest) mutable {
+                     [this, callback = std::move(callback)](std::expected<QByteArray, QString> manifest) mutable {
         if (!manifest) {
             callback(std::unexpected(manifest.error()));
             return;
@@ -413,9 +413,15 @@ void EncryptedHlsPlaybackProxy::resolveIdentifierPreview(
             callback(std::unexpected(identifier.error()));
             return;
         }
-        callback(QStringLiteral("%1...%2")
-                     .arg(QString::fromLatin1(identifier->first(16)),
-                          QString::fromLatin1(identifier->last(12))));
+        EncryptedHlsIdentifierPreview result {
+            .identifier = QStringLiteral("%1...%2")
+                .arg(QString::fromLatin1(identifier->first(16)),
+                     QString::fromLatin1(identifier->last(12))),
+        };
+        if (auto resolved = resolvePackageBytes(std::move(*manifest), m_store); resolved) {
+            result.sourceFileName = std::move(resolved->sourceFileName);
+        }
+        callback(std::move(result));
     });
 }
 

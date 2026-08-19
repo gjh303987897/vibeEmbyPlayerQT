@@ -550,6 +550,9 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.videoEmpty"), QStringLiteral("No folders or videos in this folder") },
         { QStringLiteral("webdav.audioEmpty"), QStringLiteral("No audio files in this folder") },
         { QStringLiteral("webdav.displayMode"), QStringLiteral("View") },
+        { QStringLiteral("webdav.showM3u8sIdentifier"), QStringLiteral("Show M3U8S identifier") },
+        { QStringLiteral("webdav.showM3u8sSourceFileName"), QStringLiteral("Show original filename") },
+        { QStringLiteral("webdav.originalFileName"), QStringLiteral("Original") },
         { QStringLiteral("webdav.modeDefault"), QStringLiteral("Default") },
         { QStringLiteral("webdav.modeVideo"), QStringLiteral("Video") },
         { QStringLiteral("webdav.modeAudio"), QStringLiteral("Audio") },
@@ -683,6 +686,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.createTitle"), QStringLiteral("Create encrypted video packages") },
         { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("Choose one or more local videos. Each upload-ready output contains an M3U8S manifest and authenticated TS segments; its TSSL keys stay on this device.") },
         { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose videos and create") },
+        { QStringLiteral("m3u8s.videoFiles"), QStringLiteral("Video files (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts)") },
+        { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("One or more selected videos are unavailable or not local files") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("Output folder") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("Choose folder") },
         { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("Video encoding") },
@@ -1094,6 +1099,8 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.createTitle"), QStringLiteral("创建加密视频包") },
         { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("可选择一个或多个本地视频。每个待上传目录仅包含 M3U8S 清单和经过认证的 TS 分片；TSSL 密钥只保存在本机。") },
         { QStringLiteral("m3u8s.createAction"), QStringLiteral("选择多个视频并创建") },
+        { QStringLiteral("m3u8s.videoFiles"), QStringLiteral("视频文件 (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts)") },
+        { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("选择的视频不可用或不是本地文件") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("输出目录") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("选择目录") },
         { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("视频编码") },
@@ -1326,6 +1333,9 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("webdav.videoEmpty"), QStringLiteral("当前文件夹中没有子文件夹或视频") },
         { QStringLiteral("webdav.audioEmpty"), QStringLiteral("当前文件夹中没有音频文件") },
         { QStringLiteral("webdav.displayMode"), QStringLiteral("显示模式") },
+        { QStringLiteral("webdav.showM3u8sIdentifier"), QStringLiteral("显示 M3U8S 识别码") },
+        { QStringLiteral("webdav.showM3u8sSourceFileName"), QStringLiteral("显示原始文件名") },
+        { QStringLiteral("webdav.originalFileName"), QStringLiteral("原文件名") },
         { QStringLiteral("webdav.modeDefault"), QStringLiteral("默认") },
         { QStringLiteral("webdav.modeVideo"), QStringLiteral("视频") },
         { QStringLiteral("webdav.modeAudio"), QStringLiteral("音频") },
@@ -1605,13 +1615,15 @@ AppViewModel::AppViewModel(QObject* parent)
             this,
             [this](const EncryptedHlsPackageResult& result) {
                 m_m3u8sLastOutputDirectory = result.outputDirectory;
-                refreshTsslPackages();
                 emit m3u8sStatusChanged();
             });
     connect(&m_m3u8sPackager,
             &EncryptedHlsBatchPackager::completed,
             this,
             [this](const EncryptedHlsBatchResult& result) {
+        // Refresh the model once after the complete batch. Resetting it for every
+        // item can repeatedly block the UI while large TSSL stores are scanned.
+        refreshTsslPackages();
         const auto succeeded = result.packages.size();
         const auto failed = result.failures.size();
         if (result.requestedCount == 1 && failed == 0) {
@@ -1654,6 +1666,7 @@ AppViewModel::AppViewModel(QObject* parent)
             &EncryptedHlsBatchPackager::canceled,
             this,
             [this](const EncryptedHlsBatchResult& result) {
+        refreshTsslPackages();
         const auto processed = result.packages.size() + result.failures.size();
         m_m3u8sStatus = result.requestedCount == 1
             ? trText(QStringLiteral("m3u8s.canceledStatus"))
@@ -2101,6 +2114,36 @@ void AppViewModel::setWebDavDisplayMode(const QString& value)
 QString AppViewModel::defaultDownloadDirectory() const
 {
     return m_defaultDownloadDirectory;
+}
+
+bool AppViewModel::webDavShowM3u8sIdentifier() const
+{
+    return m_webDavShowM3u8sIdentifier;
+}
+
+void AppViewModel::setWebDavShowM3u8sIdentifier(bool enabled)
+{
+    if (m_webDavShowM3u8sIdentifier == enabled) {
+        return;
+    }
+    m_webDavShowM3u8sIdentifier = enabled;
+    m_repository.setWebDavShowM3u8sIdentifier(enabled);
+    emit webDavDisplaySettingsChanged();
+}
+
+bool AppViewModel::webDavShowM3u8sSourceFileName() const
+{
+    return m_webDavShowM3u8sSourceFileName;
+}
+
+void AppViewModel::setWebDavShowM3u8sSourceFileName(bool enabled)
+{
+    if (m_webDavShowM3u8sSourceFileName == enabled) {
+        return;
+    }
+    m_webDavShowM3u8sSourceFileName = enabled;
+    m_repository.setWebDavShowM3u8sSourceFileName(enabled);
+    emit webDavDisplaySettingsChanged();
 }
 
 void AppViewModel::setDefaultDownloadDirectory(const QString& value)
@@ -3125,6 +3168,8 @@ void AppViewModel::initialize()
     m_themeMode = normalizedTheme(m_repository.themeMode());
     m_languageMode = normalizedLanguage(m_repository.languageMode());
     m_defaultDownloadDirectory = m_repository.defaultDownloadDirectory();
+    m_webDavShowM3u8sIdentifier = m_repository.webDavShowM3u8sIdentifier();
+    m_webDavShowM3u8sSourceFileName = m_repository.webDavShowM3u8sSourceFileName();
     const auto savedM3u8sOutputDirectory = m_repository.m3u8sOutputDirectory();
     m_m3u8sOutputDirectory = savedM3u8sOutputDirectory.isEmpty()
         ? defaultM3u8sOutputDirectory()
@@ -3136,6 +3181,7 @@ void AppViewModel::initialize()
     emit effectiveThemeChanged();
     emit languageModeChanged();
     emit defaultDownloadDirectoryChanged();
+    emit webDavDisplaySettingsChanged();
     emit m3u8sSettingsChanged();
     emit privacyPinChanged();
     emit translationsChanged();
@@ -5028,7 +5074,7 @@ void AppViewModel::deleteManagedTssl(int row)
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Deleted a managed TSSL package"));
 }
 
-void AppViewModel::chooseM3u8sVideo()
+void AppViewModel::createM3u8sFromVideos(const QVariantList& files)
 {
     clearError();
     if (m_m3u8sPackager.isRunning()) {
@@ -5039,13 +5085,24 @@ void AppViewModel::chooseM3u8sVideo()
         setError(trText(QStringLiteral("m3u8s.invalidOutput")));
         return;
     }
-    const auto sources = QFileDialog::getOpenFileNames(
-        nullptr,
-        trText(QStringLiteral("m3u8s.chooseVideo")),
-        QStandardPaths::writableLocation(QStandardPaths::MoviesLocation),
-        QStringLiteral("Video files (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts);;All files (*)"));
-    if (sources.isEmpty()) {
+    if (files.isEmpty()) {
         return;
+    }
+
+    QStringList sources;
+    sources.reserve(files.size());
+    for (const auto& value : files) {
+        const auto url = value.toUrl();
+        if (!url.isLocalFile()) {
+            setError(trText(QStringLiteral("m3u8s.invalidVideo")));
+            return;
+        }
+        const QFileInfo sourceInfo(url.toLocalFile());
+        if (!sourceInfo.exists() || !sourceInfo.isFile() || !sourceInfo.isReadable()) {
+            setError(trText(QStringLiteral("m3u8s.invalidVideo")));
+            return;
+        }
+        sources.append(sourceInfo.absoluteFilePath());
     }
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.processingStatus"));
@@ -5063,12 +5120,19 @@ void AppViewModel::chooseM3u8sVideo()
             .videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality),
         });
     }
-    const auto started = m_m3u8sPackager.start(std::move(batch));
-    if (!started) {
-        m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
-        emit m3u8sStatusChanged();
-        setError(started.error());
-    }
+    // Let the native file dialog finish unwinding before starting QProcess. This
+    // avoids re-entering Qt's platform dialog code from the selection callback.
+    QTimer::singleShot(0, this, [this, batch = std::move(batch)]() mutable {
+        if (m_m3u8sPackager.isRunning()) {
+            return;
+        }
+        const auto started = m_m3u8sPackager.start(std::move(batch));
+        if (!started) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
+            emit m3u8sStatusChanged();
+            setError(started.error());
+        }
+    });
 }
 
 void AppViewModel::chooseM3u8sOutputDirectory()
@@ -7783,7 +7847,9 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
                                            QStringLiteral("Unable to read a WebDAV M3U8S identifier"));
                         return;
                     }
-                    m_webDavItems.setIdentifierPreview(manifestUrl, std::move(*preview));
+                    m_webDavItems.setM3u8sMetadata(manifestUrl,
+                                                   std::move(preview->identifier),
+                                                   std::move(preview->sourceFileName));
                 });
         }
     });

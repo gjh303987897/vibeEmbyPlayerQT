@@ -116,6 +116,10 @@ public:
     void setEmbyRecommendationAvailableGenres(const QStringList& genres);
     QString defaultDownloadDirectory() const;
     void setDefaultDownloadDirectory(const QString& directory);
+    bool webDavShowM3u8sIdentifier() const;
+    void setWebDavShowM3u8sIdentifier(bool enabled);
+    bool webDavShowM3u8sSourceFileName() const;
+    void setWebDavShowM3u8sSourceFileName(bool enabled);
     QString m3u8sOutputDirectory() const;
     void setM3u8sOutputDirectory(const QString& directory);
     QString m3u8sVideoEncoding() const;

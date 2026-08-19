@@ -1955,6 +1955,17 @@ ApplicationWindow {
         }
     }
 
+    FileDialog {
+        id: m3u8sVideoDialog
+        title: t("m3u8s.chooseVideo")
+        fileMode: FileDialog.OpenFiles
+        nameFilters: [
+            t("m3u8s.videoFiles"),
+            t("player.allFiles") + " (*)"
+        ]
+        onAccepted: appViewModel.createM3u8sFromVideos(selectedFiles)
+    }
+
     }
 
     Timer {
@@ -6652,11 +6663,16 @@ ApplicationWindow {
         property bool playable: false
         property bool encryptedHls: false
         property string identifierPreview: ""
+        property string sourceFileName: ""
 
         radius: 8
         color: fileMouse.containsMouse ? theme.elevatedHover : theme.elevated
         border.color: fileMouse.containsMouse ? theme.primary : theme.border
-        implicitHeight: encryptedHls && identifierPreview.length > 0 ? 78 : 62
+        implicitHeight: encryptedHls && ((appViewModel.webDavShowM3u8sIdentifier && identifierPreview.length > 0)
+            || (appViewModel.webDavShowM3u8sSourceFileName && sourceFileName.length > 0))
+            ? ((appViewModel.webDavShowM3u8sIdentifier && identifierPreview.length > 0
+                && appViewModel.webDavShowM3u8sSourceFileName && sourceFileName.length > 0) ? 94 : 78)
+            : 62
 
         MouseArea {
             id: fileMouse
@@ -6698,11 +6714,19 @@ ApplicationWindow {
                 }
                 MutedText {
                     Layout.fillWidth: true
-                    visible: fileRow.encryptedHls && fileRow.identifierPreview.length > 0
+                    visible: fileRow.encryptedHls && appViewModel.webDavShowM3u8sIdentifier
+                        && fileRow.identifierPreview.length > 0
                     text: t("m3u8s.identifier") + "  " + fileRow.identifierPreview
                     font.family: "monospace"
                     font.pixelSize: 11
                     elide: Text.ElideMiddle
+                }
+                MutedText {
+                    Layout.fillWidth: true
+                    visible: fileRow.encryptedHls && appViewModel.webDavShowM3u8sSourceFileName
+                        && fileRow.sourceFileName.length > 0
+                    text: t("webdav.originalFileName") + "  " + fileRow.sourceFileName
+                    elide: Text.ElideRight
                 }
             }
 
@@ -6768,6 +6792,10 @@ ApplicationWindow {
         property bool directory: false
         property bool encryptedHls: false
         property string identifierPreview: ""
+        property string sourceFileName: ""
+        readonly property int visibleMetadataRows:
+            (encryptedHls && appViewModel.webDavShowM3u8sIdentifier && identifierPreview.length > 0 ? 1 : 0)
+            + (encryptedHls && appViewModel.webDavShowM3u8sSourceFileName && sourceFileName.length > 0 ? 1 : 0)
         readonly property color accentColor: directory ? theme.primary : theme.success
 
         function badgeText() {
@@ -6927,21 +6955,41 @@ ApplicationWindow {
 
             RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: mediaCard.visibleMetadataRows > 1 ? 42 : 28
                 spacing: 6
 
-                MutedText {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0
-                        ? t("m3u8s.identifier") + "  " + mediaCard.identifierPreview
-                        : mediaCard.detailText()
-                    font.family: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0
-                        ? "monospace"
-                        : ""
-                    font.pixelSize: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0 ? 10 : 12
-                    elide: mediaCard.encryptedHls && mediaCard.identifierPreview.length > 0
-                        ? Text.ElideMiddle
-                        : Text.ElideRight
+                    spacing: 1
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: mediaCard.encryptedHls && appViewModel.webDavShowM3u8sIdentifier
+                            && mediaCard.identifierPreview.length > 0
+                        text: t("m3u8s.identifier") + "  " + mediaCard.identifierPreview
+                        font.family: "monospace"
+                        font.pixelSize: 10
+                        elide: Text.ElideMiddle
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: mediaCard.encryptedHls && appViewModel.webDavShowM3u8sSourceFileName
+                            && mediaCard.sourceFileName.length > 0
+                        text: t("webdav.originalFileName") + "  " + mediaCard.sourceFileName
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: !mediaCard.encryptedHls
+                            || ((!appViewModel.webDavShowM3u8sIdentifier || mediaCard.identifierPreview.length === 0)
+                                && (!appViewModel.webDavShowM3u8sSourceFileName || mediaCard.sourceFileName.length === 0))
+                        text: mediaCard.detailText()
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
                 }
 
                 IconButton {
@@ -12423,6 +12471,7 @@ ApplicationWindow {
                         playable: model.playable
                         encryptedHls: model.encryptedHls
                         identifierPreview: model.identifierPreview
+                        sourceFileName: model.sourceFileName
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
                         onExportTsslRequested: appViewModel.exportWebDavTssl(index)
@@ -12448,6 +12497,7 @@ ApplicationWindow {
                         directory: model.directory
                         encryptedHls: model.encryptedHls
                         identifierPreview: model.identifierPreview
+                        sourceFileName: model.sourceFileName
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
                         onExportTsslRequested: appViewModel.exportWebDavTssl(index)
@@ -13844,7 +13894,7 @@ ApplicationWindow {
                             enabled: appViewModel.m3u8sFfmpegAvailable
                                 && appViewModel.m3u8sOutputDirectory.length > 0
                             text: t("m3u8s.createAction")
-                            onClicked: appViewModel.chooseM3u8sVideo()
+                            onClicked: m3u8sVideoDialog.open()
                         }
                     }
 
@@ -14605,6 +14655,22 @@ ApplicationWindow {
                             text: t("action.choose")
                             onClicked: appViewModel.chooseDefaultDownloadDirectory()
                         }
+                    }
+                }
+
+                SettingRow {
+                    label: t("webdav.showM3u8sIdentifier")
+                    ModernCheckBox {
+                        checked: appViewModel.webDavShowM3u8sIdentifier
+                        onToggled: appViewModel.webDavShowM3u8sIdentifier = checked
+                    }
+                }
+
+                SettingRow {
+                    label: t("webdav.showM3u8sSourceFileName")
+                    ModernCheckBox {
+                        checked: appViewModel.webDavShowM3u8sSourceFileName
+                        onToggled: appViewModel.webDavShowM3u8sSourceFileName = checked
                     }
                 }
             }

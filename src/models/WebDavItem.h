@@ -15,4 +15,5 @@ struct WebDavItem {
     bool audioPlayable { false };
     bool encryptedHls { false };
     QString identifierPreview;
+    QString sourceFileName;
 };

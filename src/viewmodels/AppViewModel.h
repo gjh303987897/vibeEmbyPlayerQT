@@ -74,6 +74,8 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
+    Q_PROPERTY(bool webDavShowM3u8sIdentifier READ webDavShowM3u8sIdentifier WRITE setWebDavShowM3u8sIdentifier NOTIFY webDavDisplaySettingsChanged)
+    Q_PROPERTY(bool webDavShowM3u8sSourceFileName READ webDavShowM3u8sSourceFileName WRITE setWebDavShowM3u8sSourceFileName NOTIFY webDavDisplaySettingsChanged)
     Q_PROPERTY(QString webDavTsslStatus READ webDavTsslStatus NOTIFY webDavTsslStatusChanged)
     Q_PROPERTY(TsslPackageListModel* tsslPackages READ tsslPackages CONSTANT)
     Q_PROPERTY(bool m3u8sPackaging READ m3u8sPackaging NOTIFY m3u8sPackagingChanged)
@@ -270,6 +272,10 @@ public:
     WebDavItemListModel* webDavItems();
     QString webDavCurrentPath() const;
     QString webDavDisplayMode() const;
+    bool webDavShowM3u8sIdentifier() const;
+    void setWebDavShowM3u8sIdentifier(bool enabled);
+    bool webDavShowM3u8sSourceFileName() const;
+    void setWebDavShowM3u8sSourceFileName(bool enabled);
     QString webDavTsslStatus() const;
     TsslPackageListModel* tsslPackages();
     bool m3u8sPackaging() const;
@@ -495,7 +501,7 @@ public:
     Q_INVOKABLE void exportManagedTssl(int row);
     Q_INVOKABLE void exportManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void deleteManagedTssl(int row);
-    Q_INVOKABLE void chooseM3u8sVideo();
+    Q_INVOKABLE void createM3u8sFromVideos(const QVariantList& files);
     Q_INVOKABLE void chooseM3u8sOutputDirectory();
     Q_INVOKABLE void openM3u8sConfiguredOutputDirectory();
     Q_INVOKABLE void cancelM3u8sPackaging();
@@ -598,6 +604,7 @@ signals:
     void linkPlaybackAddressChanged();
     void webDavCurrentPathChanged();
     void webDavDisplayModeChanged();
+    void webDavDisplaySettingsChanged();
     void webDavTsslStatusChanged();
     void m3u8sPackagingChanged();
     void m3u8sStatusChanged();
@@ -809,6 +816,8 @@ private:
     QString m_globalHistoryFilter { QStringLiteral("All") };
     QString m_webDavPassword;
     QString m_webDavDisplayMode { QStringLiteral("default") };
+    bool m_webDavShowM3u8sIdentifier { true };
+    bool m_webDavShowM3u8sSourceFileName { true };
     QString m_webDavTsslStatus;
     std::vector<WebDavItem> m_webDavAudioQueue;
     int m_webDavAudioCurrentIndex { -1 };
