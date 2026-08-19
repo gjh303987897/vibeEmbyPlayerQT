@@ -19,12 +19,21 @@ The feature follows the existing UI/ViewModel/service/repository split:
 
 - `Main.qml` displays the fixed card, configured roots, and current directory entries.
 - `AppViewModel` owns navigation, path validation, playback context, and UI state.
-- `LocalMediaService` enumerates a single directory on `QThreadPool` and filters supported video extensions.
+- `LocalMediaService` resolves, validates, and enumerates a single directory on `QThreadPool`, then filters supported video extensions.
 - `LocalMediaService` also validates a dropped URL as a canonical, readable, supported local video file before playback.
 - `LocalMediaRootListModel` and `LocalMediaItemListModel` expose presentation-only list data to QML.
 - `SessionRepository` persists roots in the `local_media_roots` SQLite table.
 
 QML never scans the filesystem or invokes libmpv directly.
+
+The add-folder flow uses the non-blocking Qt Quick `FolderDialog`. After the
+user accepts a folder, canonical-path resolution, readability checks, root
+boundary validation, and directory enumeration all run on the worker pool.
+The UI thread only persists the validated root and updates the list models.
+This avoids intermittent UI stalls caused by slow disks, disconnected paths,
+or Windows shell/file-system calls. Stored roots are not synchronously probed
+when the local page opens; a failed asynchronous browse marks that root as
+unavailable until the next refresh or successful selection.
 
 ## Directory Safety
 
@@ -68,6 +77,7 @@ The extension list controls visibility only. Actual codec/container support rema
 - Directories and supported video files are listed.
 - Unrelated files are filtered out.
 - Missing directories return a traceable error.
+- A requested directory outside its configured canonical root is rejected.
 - Asynchronous browsing delivers its result back to the owning thread.
 - Dropped local video URLs resolve to canonical paths while unsupported and remote URLs are rejected.
 - `.m3u8s` manifests are discoverable while generated encrypted TS segments are not presented as standalone videos.

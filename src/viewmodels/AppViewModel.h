@@ -465,7 +465,7 @@ public:
     Q_INVOKABLE void selectIptvGroup(const QString& groupName);
     Q_INVOKABLE void playIptvChannel(int row);
     Q_INVOKABLE void openLocalMedia();
-    Q_INVOKABLE void chooseLocalMediaRoot();
+    Q_INVOKABLE void addLocalMediaRoot(const QUrl& folderUrl);
     Q_INVOKABLE void openLocalMediaRoot(int row);
     Q_INVOKABLE void deleteLocalMediaRoot(int row);
     Q_INVOKABLE void openLocalMediaItem(int row);

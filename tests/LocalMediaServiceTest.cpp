@@ -14,7 +14,9 @@ private slots:
     void listsFoldersAndSupportedVideosOnly();
     void resolvesDroppedVideoFile();
     void rejectsMissingDirectory();
+    void rejectsDirectoryOutsideRoot();
     void invokesAsyncCallback();
+    void invokesScopedAsyncCallback();
 };
 
 void LocalMediaServiceTest::listsFoldersAndSupportedVideosOnly()
@@ -102,6 +104,24 @@ void LocalMediaServiceTest::rejectsMissingDirectory()
     QVERIFY(!result.error().isEmpty());
 }
 
+void LocalMediaServiceTest::rejectsDirectoryOutsideRoot()
+{
+    QTemporaryDir rootDirectory;
+    QTemporaryDir outsideDirectory;
+    QVERIFY(rootDirectory.isValid());
+    QVERIFY(outsideDirectory.isValid());
+
+    const auto result = LocalMediaService::browseDirectoryWithinRoot(
+        rootDirectory.path(), outsideDirectory.path());
+    QVERIFY(!result.has_value());
+    QVERIFY(!result.error().isEmpty());
+
+    const auto rootResult = LocalMediaService::browseDirectoryWithinRoot(
+        rootDirectory.path(), rootDirectory.path());
+    QVERIFY(rootResult.has_value());
+    QCOMPARE(rootResult->path, QFileInfo(rootDirectory.path()).canonicalFilePath());
+}
+
 void LocalMediaServiceTest::invokesAsyncCallback()
 {
     QTemporaryDir temporaryDirectory;
@@ -113,6 +133,23 @@ void LocalMediaServiceTest::invokesAsyncCallback()
         QVERIFY(result.has_value());
         completed = true;
     });
+    QTRY_VERIFY_WITH_TIMEOUT(completed, 3000);
+}
+
+void LocalMediaServiceTest::invokesScopedAsyncCallback()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+
+    LocalMediaService service;
+    bool completed = false;
+    service.browseDirectoryWithinRootAsync(
+        temporaryDirectory.path(),
+        temporaryDirectory.path(),
+        [&completed](LocalMediaService::DirectoryListingResult result) {
+            QVERIFY(result.has_value());
+            completed = true;
+        });
     QTRY_VERIFY_WITH_TIMEOUT(completed, 3000);
 }
 

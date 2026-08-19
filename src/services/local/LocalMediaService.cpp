@@ -11,6 +11,34 @@
 #include <algorithm>
 #include <utility>
 
+namespace {
+bool pathIsInsideRoot(const QString& rootPath, const QString& candidatePath)
+{
+    const auto root = QDir::fromNativeSeparators(QDir::cleanPath(rootPath));
+    const auto candidate = QDir::fromNativeSeparators(QDir::cleanPath(candidatePath));
+    const auto prefix = root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/');
+#ifdef Q_OS_WIN
+    return candidate.compare(root, Qt::CaseInsensitive) == 0
+        || candidate.startsWith(prefix, Qt::CaseInsensitive);
+#else
+    return candidate == root || candidate.startsWith(prefix);
+#endif
+}
+
+std::expected<QString, QString> resolveReadableDirectory(const QString& path)
+{
+    const QFileInfo directoryInfo(path);
+    const auto canonicalPath = directoryInfo.canonicalFilePath();
+    if (canonicalPath.isEmpty() || !directoryInfo.isDir()) {
+        return std::unexpected(QStringLiteral("The local media folder does not exist"));
+    }
+    if (!directoryInfo.isReadable()) {
+        return std::unexpected(QStringLiteral("The local media folder is not readable"));
+    }
+    return QDir::cleanPath(canonicalPath);
+}
+}
+
 LocalMediaService::LocalMediaService(QObject* parent)
     : QObject(parent)
 {
@@ -55,15 +83,12 @@ LocalMediaService::VideoFileResult LocalMediaService::resolveVideoFile(const QUr
 
 LocalMediaService::BrowseResult LocalMediaService::browseDirectory(const QString& path)
 {
-    const QFileInfo directoryInfo(path);
-    if (!directoryInfo.exists() || !directoryInfo.isDir()) {
-        return std::unexpected(QStringLiteral("The local media folder does not exist"));
-    }
-    if (!directoryInfo.isReadable()) {
-        return std::unexpected(QStringLiteral("The local media folder is not readable"));
+    const auto resolvedPath = resolveReadableDirectory(path);
+    if (!resolvedPath) {
+        return std::unexpected(resolvedPath.error());
     }
 
-    const QDir directory(directoryInfo.absoluteFilePath());
+    const QDir directory(*resolvedPath);
     const auto entries = directory.entryInfoList(
         QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot | QDir::Readable,
         QDir::DirsFirst | QDir::Name | QDir::IgnoreCase);
@@ -106,6 +131,32 @@ LocalMediaService::BrowseResult LocalMediaService::browseDirectory(const QString
     return items;
 }
 
+LocalMediaService::DirectoryListingResult LocalMediaService::browseDirectoryWithinRoot(
+    const QString& rootPath,
+    const QString& path)
+{
+    const auto resolvedRoot = resolveReadableDirectory(rootPath);
+    if (!resolvedRoot) {
+        return std::unexpected(resolvedRoot.error());
+    }
+    const auto resolvedPath = resolveReadableDirectory(path);
+    if (!resolvedPath) {
+        return std::unexpected(resolvedPath.error());
+    }
+    if (!pathIsInsideRoot(*resolvedRoot, *resolvedPath)) {
+        return std::unexpected(QStringLiteral("The local media folder is outside the configured root"));
+    }
+
+    auto items = browseDirectory(*resolvedPath);
+    if (!items) {
+        return std::unexpected(items.error());
+    }
+    return DirectoryListing {
+        .path = *resolvedPath,
+        .items = std::move(*items),
+    };
+}
+
 void LocalMediaService::browseDirectoryAsync(QString path, BrowseCallback callback)
 {
     const QPointer<LocalMediaService> owner(this);
@@ -120,4 +171,29 @@ void LocalMediaService::browseDirectoryAsync(QString path, BrowseCallback callba
             }
         }, Qt::QueuedConnection);
     });
+}
+
+void LocalMediaService::browseDirectoryWithinRootAsync(QString rootPath,
+                                                       QString path,
+                                                       DirectoryListingCallback callback)
+{
+    const QPointer<LocalMediaService> owner(this);
+    QThreadPool::globalInstance()->start(
+        [owner,
+         rootPath = std::move(rootPath),
+         path = std::move(path),
+         callback = std::move(callback)]() mutable {
+            auto result = browseDirectoryWithinRoot(rootPath, path);
+            if (!owner) {
+                return;
+            }
+            QMetaObject::invokeMethod(
+                owner,
+                [owner, callback = std::move(callback), result = std::move(result)]() mutable {
+                    if (owner) {
+                        callback(std::move(result));
+                    }
+                },
+                Qt::QueuedConnection);
+        });
 }

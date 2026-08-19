@@ -3455,63 +3455,85 @@ void AppViewModel::openLocalMedia()
     setCurrentView(QStringLiteral("local"));
 }
 
-void AppViewModel::chooseLocalMediaRoot()
+void AppViewModel::addLocalMediaRoot(const QUrl& folderUrl)
 {
     clearError();
-    const auto selected = QFileDialog::getExistingDirectory(
-        nullptr,
-        trText(QStringLiteral("local.addFolder")),
-        QStandardPaths::writableLocation(QStandardPaths::MoviesLocation));
-    if (selected.isEmpty()) {
-        return;
-    }
-
-    const QFileInfo selectedInfo(selected);
-    const auto canonicalPath = selectedInfo.canonicalFilePath();
-    if (canonicalPath.isEmpty() || !selectedInfo.isDir() || !selectedInfo.isReadable()) {
+    if (!folderUrl.isLocalFile()) {
         setError(trText(QStringLiteral("local.folderUnavailable")));
         return;
     }
 
-    const auto normalizedPath = QDir::cleanPath(canonicalPath);
-    const auto id = localMediaRootIdFor(normalizedPath);
-    for (int row = 0; row < m_localMediaRoots.count(); ++row) {
-        const auto existing = m_localMediaRoots.rootAt(row);
-        if (existing && existing->id == id) {
-            openLocalMediaRoot(row);
-            return;
-        }
+    const auto requestGeneration = ++m_localMediaRequestGeneration;
+    if (!m_localMediaLoading) {
+        m_localMediaLoading = true;
+        emit localMediaLoadingChanged();
     }
+    const auto selectedPath = folderUrl.toLocalFile();
+    m_localMediaService.browseDirectoryWithinRootAsync(
+        selectedPath,
+        selectedPath,
+        [this, requestGeneration](LocalMediaService::DirectoryListingResult result) mutable {
+            if (requestGeneration != m_localMediaRequestGeneration) {
+                return;
+            }
+            if (!result) {
+                m_localMediaLoading = false;
+                emit localMediaLoadingChanged();
+                setError(trText(QStringLiteral("local.folderUnavailable")));
+                AppLogger::warning(QStringLiteral("local-media"), result.error());
+                return;
+            }
 
-    auto displayName = QFileInfo(normalizedPath).fileName();
-    if (displayName.isEmpty()) {
-        displayName = QDir(normalizedPath).dirName();
-    }
-    if (displayName.isEmpty()) {
-        displayName = QDir::toNativeSeparators(normalizedPath);
-    }
+            const auto id = localMediaRootIdFor(result->path);
+            LocalMediaRoot root;
+            int rootRow = -1;
+            for (int row = 0; row < m_localMediaRoots.count(); ++row) {
+                const auto existing = m_localMediaRoots.rootAt(row);
+                if (existing && existing->id == id) {
+                    root = *existing;
+                    root.available = true;
+                    rootRow = row;
+                    m_localMediaRoots.setRootAvailable(row, true);
+                    break;
+                }
+            }
 
-    LocalMediaRoot root {
-        .id = id,
-        .name = displayName,
-        .path = normalizedPath,
-        .sortOrder = m_localMediaRoots.count(),
-        .available = true,
-    };
-    if (auto result = m_repository.saveLocalMediaRoot(root); !result) {
-        setError(result.error());
-        return;
-    }
+            if (rootRow < 0) {
+                auto displayName = QFileInfo(result->path).fileName();
+                if (displayName.isEmpty()) {
+                    displayName = QDir(result->path).dirName();
+                }
+                if (displayName.isEmpty()) {
+                    displayName = QDir::toNativeSeparators(result->path);
+                }
+                root = LocalMediaRoot {
+                    .id = id,
+                    .name = displayName,
+                    .path = result->path,
+                    .sortOrder = m_localMediaRoots.count(),
+                    .available = true,
+                };
+                if (auto saved = m_repository.saveLocalMediaRoot(root); !saved) {
+                    m_localMediaLoading = false;
+                    emit localMediaLoadingChanged();
+                    setError(saved.error());
+                    return;
+                }
+                m_localMediaRoots.appendRoot(root);
+                AppLogger::info(QStringLiteral("local-media"),
+                                QStringLiteral("Added a local media folder"));
+            }
 
-    AppLogger::info(QStringLiteral("local-media"), QStringLiteral("Added a local media folder"));
-    refreshLocalMediaRoots();
-    for (int row = 0; row < m_localMediaRoots.count(); ++row) {
-        const auto saved = m_localMediaRoots.rootAt(row);
-        if (saved && saved->id == id) {
-            openLocalMediaRoot(row);
-            break;
-        }
-    }
+            m_currentLocalMediaRoot = std::move(root);
+            m_localMediaCurrentPath = std::move(result->path);
+            m_localMediaItems.setItems(std::move(result->items));
+            m_localMediaLoading = false;
+            emit localMediaLoadingChanged();
+            emit localMediaDirectoryChanged();
+            AppLogger::info(QStringLiteral("local-media"),
+                            QStringLiteral("Loaded %1 local directory entries")
+                                .arg(m_localMediaItems.count()));
+        });
 }
 
 void AppViewModel::openLocalMediaRoot(int row)
@@ -7303,42 +7325,52 @@ void AppViewModel::refreshLocalMediaRoots()
 
     auto roots = *result;
     for (auto& root : roots) {
-        const QFileInfo info(root.path);
-        root.available = info.exists() && info.isDir() && info.isReadable();
+        root.available = true;
     }
     m_localMediaRoots.setRoots(std::move(roots));
 }
 
 void AppViewModel::loadLocalMediaDirectory(const QString& path)
 {
-    if (!m_currentLocalMediaRoot || !localMediaPathIsInsideRoot(path)) {
+    if (!m_currentLocalMediaRoot) {
         setError(trText(QStringLiteral("local.folderUnavailable")));
         return;
     }
 
-    const QFileInfo pathInfo(path);
-    const auto canonicalPath = pathInfo.canonicalFilePath();
-    const auto normalizedPath = QDir::cleanPath(canonicalPath.isEmpty() ? pathInfo.absoluteFilePath() : canonicalPath);
+    const auto root = *m_currentLocalMediaRoot;
+    const bool openingRoot = m_localMediaCurrentPath.isEmpty();
     const auto requestGeneration = ++m_localMediaRequestGeneration;
     if (!m_localMediaLoading) {
         m_localMediaLoading = true;
         emit localMediaLoadingChanged();
     }
 
-    m_localMediaService.browseDirectoryAsync(normalizedPath, [this, requestGeneration, normalizedPath](LocalMediaService::BrowseResult result) mutable {
+    m_localMediaService.browseDirectoryWithinRootAsync(root.path, path, [this, requestGeneration, root, openingRoot](LocalMediaService::DirectoryListingResult result) mutable {
         if (requestGeneration != m_localMediaRequestGeneration) {
             return;
         }
         m_localMediaLoading = false;
         emit localMediaLoadingChanged();
         if (!result) {
-            m_localMediaItems.clear();
-            setError(result.error());
+            if (openingRoot) {
+                m_localMediaItems.clear();
+                for (int row = 0; row < m_localMediaRoots.count(); ++row) {
+                    const auto existing = m_localMediaRoots.rootAt(row);
+                    if (existing && existing->id == root.id) {
+                        m_localMediaRoots.setRootAvailable(row, false);
+                        break;
+                    }
+                }
+                m_currentLocalMediaRoot.reset();
+                emit localMediaDirectoryChanged();
+            }
+            setError(trText(QStringLiteral("local.folderUnavailable")));
+            AppLogger::warning(QStringLiteral("local-media"), result.error());
             return;
         }
 
-        m_localMediaCurrentPath = normalizedPath;
-        m_localMediaItems.setItems(std::move(*result));
+        m_localMediaCurrentPath = std::move(result->path);
+        m_localMediaItems.setItems(std::move(result->items));
         emit localMediaDirectoryChanged();
         AppLogger::info(QStringLiteral("local-media"),
                         QStringLiteral("Loaded %1 local directory entries").arg(m_localMediaItems.count()));

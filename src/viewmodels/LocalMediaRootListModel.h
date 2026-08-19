@@ -27,6 +27,8 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void setRoots(std::vector<LocalMediaRoot> roots);
+    void appendRoot(LocalMediaRoot root);
+    void setRootAvailable(int row, bool available);
     void clear();
     std::optional<LocalMediaRoot> rootAt(int row) const;
 

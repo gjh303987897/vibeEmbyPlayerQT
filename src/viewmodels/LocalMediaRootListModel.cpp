@@ -56,6 +56,29 @@ void LocalMediaRootListModel::setRoots(std::vector<LocalMediaRoot> roots)
     emit countChanged();
 }
 
+void LocalMediaRootListModel::appendRoot(LocalMediaRoot root)
+{
+    const auto row = rowCount();
+    beginInsertRows({}, row, row);
+    m_roots.push_back(std::move(root));
+    endInsertRows();
+    emit countChanged();
+}
+
+void LocalMediaRootListModel::setRootAvailable(int row, bool available)
+{
+    if (row < 0 || row >= rowCount()) {
+        return;
+    }
+    auto& root = m_roots[static_cast<size_t>(row)];
+    if (root.available == available) {
+        return;
+    }
+    root.available = available;
+    const auto modelIndex = index(row);
+    emit dataChanged(modelIndex, modelIndex, { AvailableRole });
+}
+
 void LocalMediaRootListModel::clear()
 {
     setRoots({});

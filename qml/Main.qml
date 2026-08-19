@@ -1930,7 +1930,8 @@ ApplicationWindow {
             ModernButton {
                 text: t("local.addFolder")
                 visible: appViewModel.currentView === "local"
-                onClicked: appViewModel.chooseLocalMediaRoot()
+                enabled: !appViewModel.localMediaLoading
+                onClicked: localMediaFolderDialog.open()
             }
 
             ModernButton {
@@ -1976,6 +1977,12 @@ ApplicationWindow {
                 root.windowControlsRevealed = false
             }
         }
+    }
+
+    FolderDialog {
+        id: localMediaFolderDialog
+        title: t("local.addFolder")
+        onAccepted: appViewModel.addLocalMediaRoot(selectedFolder)
     }
 
     Item {
@@ -11250,11 +11257,12 @@ ApplicationWindow {
                 ModernButton {
                     text: appViewModel.localMediaDirectoryOpen
                         ? t("local.back") : t("local.addFolder")
+                    enabled: !appViewModel.localMediaLoading
                     onClicked: {
                         if (appViewModel.localMediaDirectoryOpen) {
                             appViewModel.localMediaBack()
                         } else {
-                            appViewModel.chooseLocalMediaRoot()
+                            localMediaFolderDialog.open()
                         }
                     }
                 }
@@ -11454,7 +11462,7 @@ ApplicationWindow {
                         visible: !appViewModel.localMediaDirectoryOpen
                         Layout.alignment: Qt.AlignHCenter
                         text: t("local.addFolder")
-                        onClicked: appViewModel.chooseLocalMediaRoot()
+                        onClicked: localMediaFolderDialog.open()
                     }
                 }
 
