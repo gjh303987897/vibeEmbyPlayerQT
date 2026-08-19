@@ -113,6 +113,24 @@ failure. Canceling stops the active FFmpeg/encryption job and discards every
 request that has not started. A one-file selection follows the same queue path
 and preserves the original single-package behavior.
 
+The source picker can accumulate individual videos and folders in one batch.
+Folder discovery runs through `EncryptedHlsSourcePlanner` on a worker thread,
+recursively finds supported videos, and preserves each selected folder's
+relative hierarchy beneath the configured output directory. For example,
+selecting `videoA.mp4` and `FolderB/season-01/episode.mkv` produces the first
+package directly below the output root and the second below
+`output/FolderB/season-01`. The packager still creates its digest-named leaf
+directory at each location, so source names are not exposed by completed
+package directories.
+
+Direct files already covered by a selected folder are deduplicated. Symbolic
+links and unsupported files found during recursive discovery are skipped;
+unsupported files selected directly are rejected. The planner prunes the
+configured output subtree to prevent generated packages from being discovered
+again, caps one batch at 4096 videos, and observes cancellation throughout the
+scan. Selected folders with the same basename receive deterministic `_2`,
+`_3`, and subsequent output suffixes rather than overwriting one another.
+
 The page offers these encoding modes:
 
 - Video stream copy preserves the original encoded video without decode or
@@ -283,7 +301,9 @@ covers identifier matching plus authenticated WebDAV and local playback.
 `EncryptedHlsPackagerTest` covers in-place HLS encryption, opaque output names,
 source-name recovery, cancellation, tag-tamper rejection, FFmpeg argument
 selection for copy/H.264/H.265 modes, an end-to-end FFmpeg package, and a batch
-that continues to a later valid source after an intermediate failure.
+that continues to a later valid source after an intermediate failure. It also
+covers mixed file/folder source planning, nested hierarchy preservation,
+deduplication, unsupported direct files, and discovery cancellation.
 `LocalMediaServiceTest` covers local M3U8S discovery and generated-segment
 filtering.
 

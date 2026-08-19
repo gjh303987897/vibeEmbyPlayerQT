@@ -2,6 +2,7 @@
 
 #include "services/emby/EmbyRecommendationCache.h"
 #include "services/credentials/CredentialStore.h"
+#include "services/encryptedhls/EncryptedHlsSourcePlanner.h"
 #include "services/iptv/IptvParser.h"
 #include "services/iptv/IptvPlaylistStore.h"
 #include "services/link/LinkPlaybackService.h"
@@ -685,7 +686,16 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.packageCount"), QStringLiteral("%1 TSSL packages") },
         { QStringLiteral("m3u8s.createTitle"), QStringLiteral("Create encrypted video packages") },
         { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("Choose one or more local videos. Each upload-ready output contains an M3U8S manifest and authenticated TS segments; its TSSL keys stay on this device.") },
-        { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose videos and create") },
+        { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose videos or folders") },
+        { QStringLiteral("m3u8s.sourceDialogTitle"), QStringLiteral("Choose packaging sources") },
+        { QStringLiteral("m3u8s.addVideos"), QStringLiteral("Add videos") },
+        { QStringLiteral("m3u8s.addFolder"), QStringLiteral("Add folder") },
+        { QStringLiteral("m3u8s.startCreating"), QStringLiteral("Start creating") },
+        { QStringLiteral("m3u8s.noSelectedSources"), QStringLiteral("Add one or more videos or folders. Folders are scanned recursively.") },
+        { QStringLiteral("m3u8s.selectedSourceCount"), QStringLiteral("%1 selected sources") },
+        { QStringLiteral("action.remove"), QStringLiteral("Remove") },
+        { QStringLiteral("m3u8s.phase.discovering"), QStringLiteral("Scanning folders and preparing the output structure") },
+        { QStringLiteral("m3u8s.discoveringStatus"), QStringLiteral("Scanning selected folders for supported videos...") },
         { QStringLiteral("m3u8s.videoFiles"), QStringLiteral("Video files (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts)") },
         { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("One or more selected videos are unavailable or not local files") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("Output folder") },
@@ -1098,7 +1108,16 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.packageCount"), QStringLiteral("%1 个 TSSL 密钥包") },
         { QStringLiteral("m3u8s.createTitle"), QStringLiteral("创建加密视频包") },
         { QStringLiteral("m3u8s.createSubtitle"), QStringLiteral("可选择一个或多个本地视频。每个待上传目录仅包含 M3U8S 清单和经过认证的 TS 分片；TSSL 密钥只保存在本机。") },
-        { QStringLiteral("m3u8s.createAction"), QStringLiteral("选择多个视频并创建") },
+        { QStringLiteral("m3u8s.createAction"), QStringLiteral("选择视频或文件夹并创建") },
+        { QStringLiteral("m3u8s.sourceDialogTitle"), QStringLiteral("选择打包来源") },
+        { QStringLiteral("m3u8s.addVideos"), QStringLiteral("添加视频") },
+        { QStringLiteral("m3u8s.addFolder"), QStringLiteral("添加文件夹") },
+        { QStringLiteral("m3u8s.startCreating"), QStringLiteral("开始创建") },
+        { QStringLiteral("m3u8s.noSelectedSources"), QStringLiteral("请添加一个或多个视频或文件夹，文件夹会被递归扫描。") },
+        { QStringLiteral("m3u8s.selectedSourceCount"), QStringLiteral("已选择 %1 个来源") },
+        { QStringLiteral("action.remove"), QStringLiteral("移除") },
+        { QStringLiteral("m3u8s.phase.discovering"), QStringLiteral("正在扫描文件夹并准备输出目录结构") },
+        { QStringLiteral("m3u8s.discoveringStatus"), QStringLiteral("正在递归查找所选文件夹中的视频……") },
         { QStringLiteral("m3u8s.videoFiles"), QStringLiteral("视频文件 (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts)") },
         { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("选择的视频不可用或不是本地文件") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("输出目录") },
@@ -1933,17 +1952,23 @@ TsslPackageListModel* AppViewModel::tsslPackages()
 
 bool AppViewModel::m3u8sPackaging() const
 {
-    return m_m3u8sPackager.isRunning();
+    return m_m3u8sPreparing || m_m3u8sPackager.isRunning();
 }
 
 double AppViewModel::m3u8sPackagingProgress() const
 {
-    return m_m3u8sPackager.progress();
+    return m_m3u8sPreparing ? 0.0 : m_m3u8sPackager.progress();
 }
 
 QString AppViewModel::m3u8sPackagingPhase() const
 {
-    return m_m3u8sPackager.phase();
+    if (!m_m3u8sPreparing) {
+        return m_m3u8sPackager.phase();
+    }
+    return m_m3u8sSourceScanCanceled &&
+            m_m3u8sSourceScanCanceled->load(std::memory_order_relaxed)
+        ? QStringLiteral("canceling")
+        : QStringLiteral("discovering");
 }
 
 QString AppViewModel::m3u8sStatus() const
@@ -1959,6 +1984,11 @@ bool AppViewModel::m3u8sBatchExporting() const
 QString AppViewModel::m3u8sLastOutputDirectory() const
 {
     return m_m3u8sLastOutputDirectory;
+}
+
+QStringList AppViewModel::m3u8sSelectedSources() const
+{
+    return m_m3u8sSelectedSources;
 }
 
 bool AppViewModel::m3u8sFfmpegAvailable() const
@@ -5074,23 +5104,13 @@ void AppViewModel::deleteManagedTssl(int row)
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Deleted a managed TSSL package"));
 }
 
-void AppViewModel::createM3u8sFromVideos(const QVariantList& files)
+void AppViewModel::addM3u8sVideoSources(const QVariantList& files)
 {
     clearError();
-    if (m_m3u8sPackager.isRunning()) {
+    if (m3u8sPackaging()) {
         return;
     }
-    const QFileInfo outputDirectory(m_m3u8sOutputDirectory);
-    if (!outputDirectory.exists() || !outputDirectory.isDir() || !outputDirectory.isWritable()) {
-        setError(trText(QStringLiteral("m3u8s.invalidOutput")));
-        return;
-    }
-    if (files.isEmpty()) {
-        return;
-    }
-
-    QStringList sources;
-    sources.reserve(files.size());
+    bool changed = false;
     for (const auto& value : files) {
         const auto url = value.toUrl();
         if (!url.isLocalFile()) {
@@ -5102,42 +5122,160 @@ void AppViewModel::createM3u8sFromVideos(const QVariantList& files)
             setError(trText(QStringLiteral("m3u8s.invalidVideo")));
             return;
         }
-        sources.append(sourceInfo.absoluteFilePath());
-    }
-
-    m_m3u8sStatus = trText(QStringLiteral("m3u8s.processingStatus"));
-    m_m3u8sLastOutputDirectory.clear();
-    emit m3u8sStatusChanged();
-    EncryptedHlsBatchRequest batch;
-    batch.packages.reserve(sources.size());
-    for (const auto& source : sources) {
-        batch.packages.append(EncryptedHlsPackageRequest {
-            .sourcePath = QFileInfo(source).absoluteFilePath(),
-            .outputDirectory = outputDirectory.absoluteFilePath(),
-            .segmentDurationSeconds = m_m3u8sSegmentDuration,
-            .videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding),
-            .audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding),
-            .videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality),
-        });
-    }
-    // Let the native file dialog finish unwinding before starting QProcess. This
-    // avoids re-entering Qt's platform dialog code from the selection callback.
-    QTimer::singleShot(0, this, [this, batch = std::move(batch)]() mutable {
-        if (m_m3u8sPackager.isRunning()) {
+        if (!EncryptedHlsSourcePlanner::isSupportedVideoFile(sourceInfo.fileName())) {
+            setError(trText(QStringLiteral("m3u8s.invalidVideo")));
             return;
         }
+        const auto sourcePath = QDir::cleanPath(sourceInfo.absoluteFilePath());
+        const auto duplicate = std::ranges::any_of(m_m3u8sSelectedSources, [&sourcePath](const QString& existing) {
+            return existing.compare(sourcePath,
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+                                    Qt::CaseInsensitive
+#else
+                                    Qt::CaseSensitive
+#endif
+                                    ) == 0;
+        });
+        if (!duplicate) {
+            m_m3u8sSelectedSources.append(sourcePath);
+            changed = true;
+        }
+    }
+    if (changed) {
+        emit m3u8sSourceSelectionChanged();
+    }
+}
+
+void AppViewModel::addM3u8sFolderSource(const QUrl& folder)
+{
+    clearError();
+    if (m3u8sPackaging() || !folder.isLocalFile()) {
+        return;
+    }
+    const QFileInfo folderInfo(folder.toLocalFile());
+    if (!folderInfo.exists() || !folderInfo.isDir() || !folderInfo.isReadable() || folderInfo.isSymLink()) {
+        setError(trText(QStringLiteral("m3u8s.invalidVideo")));
+        return;
+    }
+    const auto folderPath = QDir::cleanPath(folderInfo.absoluteFilePath());
+    const auto duplicate = std::ranges::any_of(m_m3u8sSelectedSources, [&folderPath](const QString& existing) {
+        return existing.compare(folderPath,
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+                                Qt::CaseInsensitive
+#else
+                                Qt::CaseSensitive
+#endif
+                                ) == 0;
+    });
+    if (!duplicate) {
+        m_m3u8sSelectedSources.append(folderPath);
+        emit m3u8sSourceSelectionChanged();
+    }
+}
+
+void AppViewModel::removeM3u8sSource(int index)
+{
+    if (m3u8sPackaging() || index < 0 || index >= m_m3u8sSelectedSources.size()) {
+        return;
+    }
+    m_m3u8sSelectedSources.removeAt(index);
+    emit m3u8sSourceSelectionChanged();
+}
+
+void AppViewModel::clearM3u8sSources()
+{
+    if (m3u8sPackaging() || m_m3u8sSelectedSources.isEmpty()) {
+        return;
+    }
+    m_m3u8sSelectedSources.clear();
+    emit m3u8sSourceSelectionChanged();
+}
+
+bool AppViewModel::createM3u8sFromSelectedSources()
+{
+    clearError();
+    if (m3u8sPackaging() || m_m3u8sSelectedSources.isEmpty()) {
+        return false;
+    }
+    const QFileInfo outputDirectory(m_m3u8sOutputDirectory);
+    if (!outputDirectory.exists() || !outputDirectory.isDir() || !outputDirectory.isWritable()) {
+        setError(trText(QStringLiteral("m3u8s.invalidOutput")));
+        return false;
+    }
+
+    const auto selectedSources = std::exchange(m_m3u8sSelectedSources, {});
+    emit m3u8sSourceSelectionChanged();
+    const auto outputRoot = outputDirectory.absoluteFilePath();
+    const auto segmentDuration = m_m3u8sSegmentDuration;
+    const auto videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding);
+    const auto audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding);
+    const auto videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality);
+
+    m_m3u8sStatus = trText(QStringLiteral("m3u8s.discoveringStatus"));
+    m_m3u8sLastOutputDirectory.clear();
+    m_m3u8sPreparing = true;
+    m_m3u8sSourceScanCanceled = std::make_shared<std::atomic_bool>(false);
+    emit m3u8sStatusChanged();
+    emit m3u8sPackagingChanged();
+
+    using PlanResult = std::expected<EncryptedHlsSourcePlan, QString>;
+    auto* watcher = new QFutureWatcher<PlanResult>(this);
+    const auto cancelFlag = m_m3u8sSourceScanCanceled;
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, cancelFlag, segmentDuration, videoEncoding, audioEncoding, videoQuality]() {
+        auto plan = watcher->result();
+        watcher->deleteLater();
+        const auto canceled = cancelFlag->load(std::memory_order_relaxed);
+        if (m_m3u8sSourceScanCanceled == cancelFlag) {
+            m_m3u8sSourceScanCanceled.reset();
+        }
+        if (canceled) {
+            m_m3u8sPreparing = false;
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.canceledStatus"));
+            emit m3u8sPackagingChanged();
+            emit m3u8sStatusChanged();
+            return;
+        }
+        if (!plan) {
+            m_m3u8sPreparing = false;
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
+            emit m3u8sPackagingChanged();
+            emit m3u8sStatusChanged();
+            setError(plan.error());
+            return;
+        }
+
+        EncryptedHlsBatchRequest batch;
+        batch.packages.reserve(plan->sources.size());
+        for (const auto& source : plan->sources) {
+            batch.packages.append(EncryptedHlsPackageRequest {
+                .sourcePath = source.sourcePath,
+                .outputDirectory = source.outputDirectory,
+                .segmentDurationSeconds = segmentDuration,
+                .videoEncoding = videoEncoding,
+                .audioEncoding = audioEncoding,
+                .videoQuality = videoQuality,
+            });
+        }
         const auto started = m_m3u8sPackager.start(std::move(batch));
+        m_m3u8sPreparing = false;
+        emit m3u8sPackagingChanged();
         if (!started) {
             m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
             emit m3u8sStatusChanged();
             setError(started.error());
         }
     });
+    watcher->setFuture(QtConcurrent::run(
+        [selectedSources, outputRoot, cancelFlag]() {
+            return EncryptedHlsSourcePlanner::plan(selectedSources, outputRoot, *cancelFlag);
+        }));
+    return true;
 }
 
 void AppViewModel::chooseM3u8sOutputDirectory()
 {
-    if (m_m3u8sPackager.isRunning()) {
+    if (m3u8sPackaging()) {
         return;
     }
     const auto directory = QFileDialog::getExistingDirectory(
@@ -5163,6 +5301,11 @@ void AppViewModel::openM3u8sConfiguredOutputDirectory()
 
 void AppViewModel::cancelM3u8sPackaging()
 {
+    if (m_m3u8sSourceScanCanceled) {
+        m_m3u8sSourceScanCanceled->store(true, std::memory_order_relaxed);
+        emit m3u8sPackagingChanged();
+        return;
+    }
     m_m3u8sPackager.cancel();
 }
 

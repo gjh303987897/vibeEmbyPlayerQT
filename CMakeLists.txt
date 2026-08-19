@@ -123,6 +123,8 @@ qt_add_executable(vibePlayerQT
     src/services/encryptedhls/EncryptedHlsBatchPackager.h
     src/services/encryptedhls/EncryptedHlsPackager.cpp
     src/services/encryptedhls/EncryptedHlsPackager.h
+    src/services/encryptedhls/EncryptedHlsSourcePlanner.cpp
+    src/services/encryptedhls/EncryptedHlsSourcePlanner.h
     src/services/credentials/CredentialStore.cpp
     src/services/credentials/CredentialStore.h
     src/services/iptv/IptvParser.cpp
@@ -557,6 +559,8 @@ if(BUILD_TESTING)
         src/services/encryptedhls/EncryptedHlsBatchPackager.h
         src/services/encryptedhls/EncryptedHlsPackager.cpp
         src/services/encryptedhls/EncryptedHlsPackager.h
+        src/services/encryptedhls/EncryptedHlsSourcePlanner.cpp
+        src/services/encryptedhls/EncryptedHlsSourcePlanner.h
         src/services/webdav/AesGcmDecryptor.cpp
         src/services/webdav/AesGcmDecryptor.h
         src/services/webdav/HlsManifestValidator.cpp

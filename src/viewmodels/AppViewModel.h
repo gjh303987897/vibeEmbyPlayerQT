@@ -41,6 +41,7 @@
 #include <QUrl>
 #include <QVariantList>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -84,6 +85,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString m3u8sStatus READ m3u8sStatus NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(bool m3u8sBatchExporting READ m3u8sBatchExporting NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(QString m3u8sLastOutputDirectory READ m3u8sLastOutputDirectory NOTIFY m3u8sStatusChanged)
+    Q_PROPERTY(QStringList m3u8sSelectedSources READ m3u8sSelectedSources NOTIFY m3u8sSourceSelectionChanged)
     Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
     Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
     Q_PROPERTY(QString m3u8sOutputDirectory READ m3u8sOutputDirectory NOTIFY m3u8sSettingsChanged)
@@ -284,6 +286,7 @@ public:
     QString m3u8sStatus() const;
     bool m3u8sBatchExporting() const;
     QString m3u8sLastOutputDirectory() const;
+    QStringList m3u8sSelectedSources() const;
     bool m3u8sFfmpegAvailable() const;
     int m3u8sSegmentDuration() const;
     void setM3u8sSegmentDuration(int value);
@@ -501,7 +504,11 @@ public:
     Q_INVOKABLE void exportManagedTssl(int row);
     Q_INVOKABLE void exportManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void deleteManagedTssl(int row);
-    Q_INVOKABLE void createM3u8sFromVideos(const QVariantList& files);
+    Q_INVOKABLE void addM3u8sVideoSources(const QVariantList& files);
+    Q_INVOKABLE void addM3u8sFolderSource(const QUrl& folder);
+    Q_INVOKABLE void removeM3u8sSource(int index);
+    Q_INVOKABLE void clearM3u8sSources();
+    Q_INVOKABLE bool createM3u8sFromSelectedSources();
     Q_INVOKABLE void chooseM3u8sOutputDirectory();
     Q_INVOKABLE void openM3u8sConfiguredOutputDirectory();
     Q_INVOKABLE void cancelM3u8sPackaging();
@@ -608,6 +615,7 @@ signals:
     void webDavTsslStatusChanged();
     void m3u8sPackagingChanged();
     void m3u8sStatusChanged();
+    void m3u8sSourceSelectionChanged();
     void m3u8sSegmentDurationChanged();
     void m3u8sSettingsChanged();
     void webDavAudioPlaybackChanged();
@@ -960,6 +968,9 @@ private:
     QString m_m3u8sStatus;
     bool m_m3u8sBatchExporting { false };
     QString m_m3u8sLastOutputDirectory;
+    QStringList m_m3u8sSelectedSources;
+    std::shared_ptr<std::atomic_bool> m_m3u8sSourceScanCanceled;
+    bool m_m3u8sPreparing { false };
     int m_m3u8sSegmentDuration { 6 };
     QString m_m3u8sOutputDirectory;
     QString m_m3u8sVideoEncoding { QStringLiteral("h264") };

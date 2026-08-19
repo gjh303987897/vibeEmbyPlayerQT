@@ -1,8 +1,10 @@
 #include "services/encryptedhls/EncryptedHlsBatchPackager.h"
 #include "services/encryptedhls/EncryptedHlsPackager.h"
+#include "services/encryptedhls/EncryptedHlsSourcePlanner.h"
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
 
+#include <QDir>
 #include <QFile>
 #include <QEventLoop>
 #include <QFileInfo>
@@ -10,6 +12,7 @@
 #include <QTest>
 #include <QTimer>
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 
@@ -49,7 +52,96 @@ private slots:
     void packagesNormalVideoThroughFfmpeg();
     void packagesBatchAndContinuesAfterFailure();
     void cancelsBatchBeforeStartingRemainingItems();
+    void plansFilesAndNestedFoldersWithoutFlattening();
+    void deduplicatesSourcesCoveredByASelectedFolder();
+    void rejectsUnsupportedFilesAndHonorsDiscoveryCancellation();
 };
+
+void EncryptedHlsPackagerTest::plansFilesAndNestedFoldersWithoutFlattening()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    QDir root(temporary.path());
+    QVERIFY(root.mkpath(QStringLiteral("sources/FolderB/season-01/extras")));
+    QVERIFY(root.mkpath(QStringLiteral("output")));
+
+    const auto videoA = root.filePath(QStringLiteral("sources/videoA.mp4"));
+    const auto folderB = root.filePath(QStringLiteral("sources/FolderB"));
+    const auto episode = root.filePath(QStringLiteral("sources/FolderB/season-01/episode.mkv"));
+    const auto extra = root.filePath(QStringLiteral("sources/FolderB/season-01/extras/clip.mov"));
+    QVERIFY(writeBytes(videoA, QByteArrayLiteral("video-a")));
+    QVERIFY(writeBytes(episode, QByteArrayLiteral("episode")));
+    QVERIFY(writeBytes(extra, QByteArrayLiteral("extra")));
+    QVERIFY(writeBytes(root.filePath(QStringLiteral("sources/FolderB/readme.txt")),
+                       QByteArrayLiteral("ignored")));
+
+    const auto outputRoot = root.filePath(QStringLiteral("output"));
+    std::atomic_bool canceled { false };
+    const auto planned = EncryptedHlsSourcePlanner::plan(
+        { videoA, folderB }, outputRoot, canceled);
+    if (!planned) {
+        QFAIL(qPrintable(planned.error()));
+    }
+    QCOMPARE(planned->sources.size(), 3);
+
+    const auto outputFor = [&planned](const QString& sourcePath) {
+        const auto match = std::ranges::find_if(planned->sources, [&sourcePath](const auto& source) {
+            return QFileInfo(source.sourcePath) == QFileInfo(sourcePath);
+        });
+        return match == planned->sources.end() ? QString() : match->outputDirectory;
+    };
+    QCOMPARE(QDir::cleanPath(outputFor(videoA)), QDir::cleanPath(outputRoot));
+    QCOMPARE(QDir::cleanPath(outputFor(episode)),
+             QDir(outputRoot).filePath(QStringLiteral("FolderB/season-01")));
+    QCOMPARE(QDir::cleanPath(outputFor(extra)),
+             QDir(outputRoot).filePath(QStringLiteral("FolderB/season-01/extras")));
+    QVERIFY(QDir(outputFor(episode)).exists());
+    QVERIFY(QDir(outputFor(extra)).exists());
+}
+
+void EncryptedHlsPackagerTest::deduplicatesSourcesCoveredByASelectedFolder()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    QDir root(temporary.path());
+    QVERIFY(root.mkpath(QStringLiteral("FolderB/nested")));
+    QVERIFY(root.mkpath(QStringLiteral("output")));
+    const auto folder = root.filePath(QStringLiteral("FolderB"));
+    const auto video = root.filePath(QStringLiteral("FolderB/nested/video.webm"));
+    QVERIFY(writeBytes(video, QByteArrayLiteral("video")));
+
+    std::atomic_bool canceled { false };
+    const auto planned = EncryptedHlsSourcePlanner::plan(
+        { folder, video, folder }, root.filePath(QStringLiteral("output")), canceled);
+    if (!planned) {
+        QFAIL(qPrintable(planned.error()));
+    }
+    QCOMPARE(planned->sources.size(), 1);
+    QCOMPARE(QDir::cleanPath(planned->sources.constFirst().outputDirectory),
+             root.filePath(QStringLiteral("output/FolderB/nested")));
+}
+
+void EncryptedHlsPackagerTest::rejectsUnsupportedFilesAndHonorsDiscoveryCancellation()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    QDir root(temporary.path());
+    QVERIFY(root.mkpath(QStringLiteral("output")));
+    const auto textFile = root.filePath(QStringLiteral("notes.txt"));
+    QVERIFY(writeBytes(textFile, QByteArrayLiteral("not a video")));
+
+    std::atomic_bool active { false };
+    const auto unsupported = EncryptedHlsSourcePlanner::plan(
+        { textFile }, root.filePath(QStringLiteral("output")), active);
+    QVERIFY(!unsupported.has_value());
+    QVERIFY(unsupported.error().contains(QStringLiteral("not a supported video")));
+
+    std::atomic_bool canceled { true };
+    const auto canceledPlan = EncryptedHlsSourcePlanner::plan(
+        { temporary.path() }, root.filePath(QStringLiteral("output")), canceled);
+    QVERIFY(!canceledPlan.has_value());
+    QVERIFY(canceledPlan.error().contains(QStringLiteral("canceled")));
+}
 
 void EncryptedHlsPackagerTest::encryptsEverySegmentAndCreatesMatchingMetadata()
 {

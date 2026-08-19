@@ -1955,6 +1955,126 @@ ApplicationWindow {
         }
     }
 
+    ModernDialog {
+        id: m3u8sSourceDialog
+        title: t("m3u8s.sourceDialogTitle")
+        standardButtons: Dialog.Cancel
+        parent: Overlay.overlay
+        x: Math.max(0, Math.round((parent.width - width) / 2))
+        y: Math.max(0, Math.round((parent.height - height) / 2))
+        width: Math.min(root.width - 64, 640)
+        height: Math.min(root.height - 48, 400)
+
+        ColumnLayout {
+            id: m3u8sSourceColumn
+            width: parent.width
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                ModernButton {
+                    text: t("m3u8s.addVideos")
+                    onClicked: m3u8sVideoDialog.open()
+                }
+
+                ModernButton {
+                    text: t("m3u8s.addFolder")
+                    onClicked: m3u8sFolderDialog.open()
+                }
+
+                Item { Layout.fillWidth: true }
+
+                MutedText {
+                    visible: appViewModel.m3u8sSelectedSources.length > 0
+                    text: t("m3u8s.selectedSourceCount").arg(appViewModel.m3u8sSelectedSources.length)
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.minimumHeight: 88
+                Layout.preferredHeight: Math.min(180,
+                    Math.max(88, appViewModel.m3u8sSelectedSources.length * 48 + 12))
+                radius: 8
+                color: theme.input
+                border.color: theme.border
+
+                MutedText {
+                    anchors.centerIn: parent
+                    width: parent.width - 32
+                    visible: appViewModel.m3u8sSelectedSources.length === 0
+                    text: t("m3u8s.noSelectedSources")
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+
+                ListView {
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    visible: appViewModel.m3u8sSelectedSources.length > 0
+                    clip: true
+                    spacing: 4
+                    model: appViewModel.m3u8sSelectedSources
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    delegate: Rectangle {
+                        required property string modelData
+                        required property int index
+                        width: ListView.view.width
+                        height: 44
+                        radius: 7
+                        color: theme.surface
+                        border.color: theme.border
+
+                        Label {
+                            anchors.left: parent.left
+                            anchors.right: removeSourceButton.left
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: parent.modelData
+                            color: theme.text
+                            font.pixelSize: 12
+                            elide: Text.ElideMiddle
+                        }
+
+                        ToolbarGlyphButton {
+                            id: removeSourceButton
+                            anchors.right: parent.right
+                            anchors.rightMargin: 4
+                            anchors.verticalCenter: parent.verticalCenter
+                            glyphSource: "qrc:/app/icons/lucide/x.svg"
+                            description: t("action.remove")
+                            onClicked: appViewModel.removeM3u8sSource(parent.index)
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Item { Layout.fillWidth: true }
+
+                ModernButton {
+                    text: t("m3u8s.startCreating")
+                    enabled: appViewModel.m3u8sSelectedSources.length > 0
+                    onClicked: {
+                        if (appViewModel.createM3u8sFromSelectedSources()) {
+                            m3u8sSourceDialog.close()
+                        }
+                    }
+                }
+            }
+        }
+
+        onRejected: appViewModel.clearM3u8sSources()
+    }
+
     FileDialog {
         id: m3u8sVideoDialog
         title: t("m3u8s.chooseVideo")
@@ -1963,7 +2083,13 @@ ApplicationWindow {
             t("m3u8s.videoFiles"),
             t("player.allFiles") + " (*)"
         ]
-        onAccepted: appViewModel.createM3u8sFromVideos(selectedFiles)
+        onAccepted: appViewModel.addM3u8sVideoSources(selectedFiles)
+    }
+
+    FolderDialog {
+        id: m3u8sFolderDialog
+        title: t("m3u8s.addFolder")
+        onAccepted: appViewModel.addM3u8sFolderSource(selectedFolder)
     }
 
     }
@@ -13894,7 +14020,10 @@ ApplicationWindow {
                             enabled: appViewModel.m3u8sFfmpegAvailable
                                 && appViewModel.m3u8sOutputDirectory.length > 0
                             text: t("m3u8s.createAction")
-                            onClicked: m3u8sVideoDialog.open()
+                            onClicked: {
+                                appViewModel.clearM3u8sSources()
+                                m3u8sSourceDialog.open()
+                            }
                         }
                     }
 
