@@ -13,6 +13,11 @@ QString targetName(const QString& key)
     return QStringLiteral("vibePlayerQT/WebDAV/%1").arg(key);
 }
 
+QString secretTargetName(const QString& key)
+{
+    return QStringLiteral("vibePlayerQT/Secret/%1").arg(key);
+}
+
 QString unavailableMessage()
 {
     return QStringLiteral("System credential store is not available on this platform");
@@ -90,6 +95,64 @@ std::expected<void, QString> CredentialStore::deletePassword(const QString& key)
         if (error != ERROR_NOT_FOUND) {
             return std::unexpected(QStringLiteral("Unable to delete password from Windows Credential Manager"));
         }
+    }
+    return {};
+#else
+    Q_UNUSED(key)
+    return std::unexpected(unavailableMessage());
+#endif
+}
+
+std::expected<void, QString> CredentialStore::saveSecret(const QString& key, const QString& secret)
+{
+#ifdef Q_OS_WIN
+    const auto target = secretTargetName(key).toStdWString();
+    const auto bytes = secret.toUtf8();
+    CREDENTIALW credential {};
+    credential.Type = CRED_TYPE_GENERIC;
+    credential.TargetName = const_cast<LPWSTR>(target.c_str());
+    credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
+    credential.CredentialBlobSize = static_cast<DWORD>(bytes.size());
+    credential.CredentialBlob = reinterpret_cast<LPBYTE>(const_cast<char*>(bytes.constData()));
+    if (!CredWriteW(&credential, 0)) {
+        return std::unexpected(QStringLiteral("Unable to save secret to Windows Credential Manager"));
+    }
+    return {};
+#else
+    Q_UNUSED(key)
+    Q_UNUSED(secret)
+    return std::unexpected(unavailableMessage());
+#endif
+}
+
+std::expected<std::optional<QString>, QString> CredentialStore::loadSecret(const QString& key)
+{
+#ifdef Q_OS_WIN
+    const auto target = secretTargetName(key).toStdWString();
+    PCREDENTIALW credential = nullptr;
+    if (!CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &credential)) {
+        if (GetLastError() == ERROR_NOT_FOUND) {
+            return std::optional<QString> {};
+        }
+        return std::unexpected(QStringLiteral("Unable to read secret from Windows Credential Manager"));
+    }
+    const QByteArray bytes(reinterpret_cast<const char*>(credential->CredentialBlob),
+                           static_cast<int>(credential->CredentialBlobSize));
+    const auto result = QString::fromUtf8(bytes);
+    CredFree(credential);
+    return std::optional<QString> { result };
+#else
+    Q_UNUSED(key)
+    return std::unexpected(unavailableMessage());
+#endif
+}
+
+std::expected<void, QString> CredentialStore::deleteSecret(const QString& key)
+{
+#ifdef Q_OS_WIN
+    const auto target = secretTargetName(key).toStdWString();
+    if (!CredDeleteW(target.c_str(), CRED_TYPE_GENERIC, 0) && GetLastError() != ERROR_NOT_FOUND) {
+        return std::unexpected(QStringLiteral("Unable to delete secret from Windows Credential Manager"));
     }
     return {};
 #else

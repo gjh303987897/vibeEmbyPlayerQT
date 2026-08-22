@@ -13,6 +13,7 @@
 #include "services/webdav/TsslStore.h"
 #include "services/webdav/WebDavPlaybackProxy.h"
 #include "services/emby/EmbyClient.h"
+#include "services/backup/TsslBackupService.h"
 #include "services/jellyfin/JellyfinClient.h"
 #include "services/local/LocalMediaService.h"
 #include "services/scheduler/ScheduledPlaybackManager.h"
@@ -78,6 +79,18 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool webDavShowM3u8sIdentifier READ webDavShowM3u8sIdentifier WRITE setWebDavShowM3u8sIdentifier NOTIFY webDavDisplaySettingsChanged)
     Q_PROPERTY(bool webDavShowM3u8sSourceFileName READ webDavShowM3u8sSourceFileName WRITE setWebDavShowM3u8sSourceFileName NOTIFY webDavDisplaySettingsChanged)
     Q_PROPERTY(QString webDavTsslStatus READ webDavTsslStatus NOTIFY webDavTsslStatusChanged)
+    Q_PROPERTY(QString tsslBackupTarget READ tsslBackupTarget WRITE setTsslBackupTarget NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupWebDavServiceId READ tsslBackupWebDavServiceId WRITE setTsslBackupWebDavServiceId NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupWebDavPath READ tsslBackupWebDavPath WRITE setTsslBackupWebDavPath NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QVariantList tsslBackupWebDavServices READ tsslBackupWebDavServices NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupS3Endpoint READ tsslBackupS3Endpoint WRITE setTsslBackupS3Endpoint NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupS3Bucket READ tsslBackupS3Bucket WRITE setTsslBackupS3Bucket NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupS3Region READ tsslBackupS3Region WRITE setTsslBackupS3Region NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupS3Prefix READ tsslBackupS3Prefix WRITE setTsslBackupS3Prefix NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupS3AccessKey READ tsslBackupS3AccessKey WRITE setTsslBackupS3AccessKey NOTIFY tsslBackupChanged)
+    Q_PROPERTY(bool tsslBackupS3SecretConfigured READ tsslBackupS3SecretConfigured NOTIFY tsslBackupChanged)
+    Q_PROPERTY(bool tsslBackupRunning READ tsslBackupRunning NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupStatus READ tsslBackupStatus NOTIFY tsslBackupChanged)
     Q_PROPERTY(TsslPackageListModel* tsslPackages READ tsslPackages CONSTANT)
     Q_PROPERTY(bool m3u8sPackaging READ m3u8sPackaging NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(double m3u8sPackagingProgress READ m3u8sPackagingProgress NOTIFY m3u8sPackagingChanged)
@@ -279,6 +292,26 @@ public:
     bool webDavShowM3u8sSourceFileName() const;
     void setWebDavShowM3u8sSourceFileName(bool enabled);
     QString webDavTsslStatus() const;
+    QString tsslBackupTarget() const;
+    void setTsslBackupTarget(const QString& value);
+    QString tsslBackupWebDavServiceId() const;
+    void setTsslBackupWebDavServiceId(const QString& value);
+    QString tsslBackupWebDavPath() const;
+    void setTsslBackupWebDavPath(const QString& value);
+    QVariantList tsslBackupWebDavServices() const;
+    QString tsslBackupS3Endpoint() const;
+    void setTsslBackupS3Endpoint(const QString& value);
+    QString tsslBackupS3Bucket() const;
+    void setTsslBackupS3Bucket(const QString& value);
+    QString tsslBackupS3Region() const;
+    void setTsslBackupS3Region(const QString& value);
+    QString tsslBackupS3Prefix() const;
+    void setTsslBackupS3Prefix(const QString& value);
+    QString tsslBackupS3AccessKey() const;
+    void setTsslBackupS3AccessKey(const QString& value);
+    bool tsslBackupS3SecretConfigured() const;
+    bool tsslBackupRunning() const;
+    QString tsslBackupStatus() const;
     TsslPackageListModel* tsslPackages();
     bool m3u8sPackaging() const;
     double m3u8sPackagingProgress() const;
@@ -512,6 +545,9 @@ public:
     Q_INVOKABLE void chooseM3u8sOutputDirectory();
     Q_INVOKABLE void openM3u8sConfiguredOutputDirectory();
     Q_INVOKABLE void cancelM3u8sPackaging();
+    Q_INVOKABLE void setTsslBackupS3Secret(const QString& secret);
+    Q_INVOKABLE void backupTsslToConfiguredTarget();
+    Q_INVOKABLE void cancelTsslBackup();
     Q_INVOKABLE void openM3u8sOutputDirectory();
     Q_INVOKABLE void openTsslStorageDirectory();
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
@@ -613,6 +649,7 @@ signals:
     void webDavDisplayModeChanged();
     void webDavDisplaySettingsChanged();
     void webDavTsslStatusChanged();
+    void tsslBackupChanged();
     void m3u8sPackagingChanged();
     void m3u8sStatusChanged();
     void m3u8sSourceSelectionChanged();
@@ -936,6 +973,7 @@ private:
     EmbyClient m_embyClient;
     JellyfinClient m_jellyfinClient;
     WebDavClient m_webDavClient;
+    TsslBackupService m_tsslBackupService;
     WebDavDownloadPlanner m_webDavDownloadPlanner;
     WebDavPlaybackProxy m_webDavPlaybackProxy;
     TsslStore m_tsslStore;
@@ -976,6 +1014,17 @@ private:
     QString m_m3u8sVideoEncoding { QStringLiteral("h264") };
     QString m_m3u8sAudioEncoding { QStringLiteral("aac") };
     QString m_m3u8sVideoQuality { QStringLiteral("balanced") };
+    QString m_tsslBackupTarget { QStringLiteral("none") };
+    QString m_tsslBackupWebDavServiceId;
+    QString m_tsslBackupWebDavPath { QStringLiteral("vibePlayerQT/tssl") };
+    QString m_tsslBackupS3Endpoint;
+    QString m_tsslBackupS3Bucket;
+    QString m_tsslBackupS3Region { QStringLiteral("us-east-1") };
+    QString m_tsslBackupS3Prefix { QStringLiteral("vibePlayerQT/tssl") };
+    QString m_tsslBackupS3AccessKey;
+    bool m_tsslBackupS3SecretConfigured { false };
+    bool m_tsslBackupRunning { false };
+    QString m_tsslBackupStatus;
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
     qint64 m_historyTotalNetworkBytesIn { 0 };

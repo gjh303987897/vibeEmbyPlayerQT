@@ -886,6 +886,34 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("recommendations.genreUnavailable"), QStringLiteral("Open an Emby service once to load available genres") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
+        { QStringLiteral("settings.tsslBackup"), QStringLiteral("TSSL backup") },
+        { QStringLiteral("tsslBackup.target"), QStringLiteral("Backup target") },
+        { QStringLiteral("tsslBackup.none"), QStringLiteral("Not configured") },
+        { QStringLiteral("tsslBackup.webdav"), QStringLiteral("WebDAV") },
+        { QStringLiteral("tsslBackup.s3"), QStringLiteral("S3") },
+        { QStringLiteral("tsslBackup.webDavService"), QStringLiteral("WebDAV service") },
+        { QStringLiteral("tsslBackup.remotePath"), QStringLiteral("Remote folder") },
+        { QStringLiteral("tsslBackup.endpoint"), QStringLiteral("S3 endpoint") },
+        { QStringLiteral("tsslBackup.bucket"), QStringLiteral("S3 bucket") },
+        { QStringLiteral("tsslBackup.region"), QStringLiteral("S3 region") },
+        { QStringLiteral("tsslBackup.prefix"), QStringLiteral("Object prefix") },
+        { QStringLiteral("tsslBackup.accessKey"), QStringLiteral("Access key") },
+        { QStringLiteral("tsslBackup.secret"), QStringLiteral("Secret key") },
+        { QStringLiteral("tsslBackup.secretConfigured"), QStringLiteral("Secret key saved") },
+        { QStringLiteral("tsslBackup.secretPlaceholder"), QStringLiteral("Enter a secret key") },
+        { QStringLiteral("tsslBackup.saveSecret"), QStringLiteral("Save secret") },
+        { QStringLiteral("tsslBackup.backup"), QStringLiteral("Back up TSSL now") },
+        { QStringLiteral("tsslBackup.cancel"), QStringLiteral("Cancel backup") },
+        { QStringLiteral("tsslBackup.statusPreparing"), QStringLiteral("Preparing %1 TSSL packages...") },
+        { QStringLiteral("tsslBackup.statusProgress"), QStringLiteral("Uploading %1/%2 TSSL packages...") },
+        { QStringLiteral("tsslBackup.statusDone"), QStringLiteral("Backed up %1 TSSL packages") },
+        { QStringLiteral("tsslBackup.statusFailed"), QStringLiteral("TSSL backup failed") },
+        { QStringLiteral("tsslBackup.statusCanceling"), QStringLiteral("Canceling TSSL backup...") },
+        { QStringLiteral("tsslBackup.noTarget"), QStringLiteral("Choose a backup target first") },
+        { QStringLiteral("tsslBackup.noWebDavService"), QStringLiteral("Select an available WebDAV service") },
+        { QStringLiteral("tsslBackup.webDavPasswordRequired"), QStringLiteral("Save the WebDAV password before backing up") },
+        { QStringLiteral("tsslBackup.s3SecretRequired"), QStringLiteral("Save the S3 secret key before backing up") },
+        { QStringLiteral("tsslBackup.noPackages"), QStringLiteral("No valid TSSL packages to back up") },
         { QStringLiteral("settings.privacy"), QStringLiteral("Privacy") },
         { QStringLiteral("settings.privacyPin"), QStringLiteral("Privacy PIN") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("Minimize to tray") },
@@ -1273,6 +1301,34 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("推荐更新") },
         { QStringLiteral("settings.embyRecommendationFilter"), QStringLiteral("排除的剧集类型") },
         { QStringLiteral("settings.updates"), QStringLiteral("更新") },
+        { QStringLiteral("settings.tsslBackup"), QStringLiteral("TSSL 备份") },
+        { QStringLiteral("tsslBackup.target"), QStringLiteral("备份目标") },
+        { QStringLiteral("tsslBackup.none"), QStringLiteral("未配置") },
+        { QStringLiteral("tsslBackup.webdav"), QStringLiteral("WebDAV") },
+        { QStringLiteral("tsslBackup.s3"), QStringLiteral("S3") },
+        { QStringLiteral("tsslBackup.webDavService"), QStringLiteral("WebDAV 服务") },
+        { QStringLiteral("tsslBackup.remotePath"), QStringLiteral("远程目录") },
+        { QStringLiteral("tsslBackup.endpoint"), QStringLiteral("S3 端点") },
+        { QStringLiteral("tsslBackup.bucket"), QStringLiteral("S3 存储桶") },
+        { QStringLiteral("tsslBackup.region"), QStringLiteral("S3 区域") },
+        { QStringLiteral("tsslBackup.prefix"), QStringLiteral("对象前缀") },
+        { QStringLiteral("tsslBackup.accessKey"), QStringLiteral("访问密钥") },
+        { QStringLiteral("tsslBackup.secret"), QStringLiteral("秘密密钥") },
+        { QStringLiteral("tsslBackup.secretConfigured"), QStringLiteral("秘密密钥已保存") },
+        { QStringLiteral("tsslBackup.secretPlaceholder"), QStringLiteral("输入秘密密钥") },
+        { QStringLiteral("tsslBackup.saveSecret"), QStringLiteral("保存密钥") },
+        { QStringLiteral("tsslBackup.backup"), QStringLiteral("立即备份 TSSL") },
+        { QStringLiteral("tsslBackup.cancel"), QStringLiteral("取消备份") },
+        { QStringLiteral("tsslBackup.statusPreparing"), QStringLiteral("正在准备 %1 个 TSSL 包……") },
+        { QStringLiteral("tsslBackup.statusProgress"), QStringLiteral("正在上传 %1/%2 个 TSSL 包……") },
+        { QStringLiteral("tsslBackup.statusDone"), QStringLiteral("已备份 %1 个 TSSL 包") },
+        { QStringLiteral("tsslBackup.statusFailed"), QStringLiteral("TSSL 备份失败") },
+        { QStringLiteral("tsslBackup.statusCanceling"), QStringLiteral("正在取消 TSSL 备份……") },
+        { QStringLiteral("tsslBackup.noTarget"), QStringLiteral("请先选择备份目标") },
+        { QStringLiteral("tsslBackup.noWebDavService"), QStringLiteral("请选择可用的 WebDAV 服务") },
+        { QStringLiteral("tsslBackup.webDavPasswordRequired"), QStringLiteral("请先保存 WebDAV 密码") },
+        { QStringLiteral("tsslBackup.s3SecretRequired"), QStringLiteral("请先保存 S3 秘密密钥") },
+        { QStringLiteral("tsslBackup.noPackages"), QStringLiteral("没有可备份的有效 TSSL 包") },
         { QStringLiteral("updates.currentVersion"), QStringLiteral("当前版本") },
         { QStringLiteral("updates.channel"), QStringLiteral("更新通道") },
         { QStringLiteral("updates.stable"), QStringLiteral("稳定版") },
@@ -1720,6 +1776,12 @@ AppViewModel::AppViewModel(QObject* parent)
             &ScheduledPlaybackManager::missedTasksChanged,
             this,
             &AppViewModel::missedScheduledPlaybackTasksChanged);
+    connect(&m_tsslBackupService, &TsslBackupService::progressChanged, this,
+            [this](int completed, int total) {
+                m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusProgress"))
+                    .arg(completed).arg(total);
+                emit tsslBackupChanged();
+            });
 }
 
 QString AppViewModel::serverUrl() const
@@ -1944,6 +2006,105 @@ QString AppViewModel::webDavTsslStatus() const
 {
     return m_webDavTsslStatus;
 }
+
+QString AppViewModel::tsslBackupTarget() const
+{
+    return m_tsslBackupTarget;
+}
+
+void AppViewModel::setTsslBackupTarget(const QString& value)
+{
+    const auto normalized = value.trimmed().toLower();
+    const auto target = normalized == QStringLiteral("webdav") || normalized == QStringLiteral("s3")
+        ? normalized : QStringLiteral("none");
+    if (m_tsslBackupTarget == target) return;
+    m_tsslBackupTarget = target;
+    m_repository.setTsslBackupTarget(target);
+    emit tsslBackupChanged();
+}
+
+QString AppViewModel::tsslBackupWebDavServiceId() const { return m_tsslBackupWebDavServiceId; }
+
+void AppViewModel::setTsslBackupWebDavServiceId(const QString& value)
+{
+    if (m_tsslBackupWebDavServiceId == value) return;
+    m_tsslBackupWebDavServiceId = value;
+    m_repository.setTsslBackupWebDavServiceId(value);
+    emit tsslBackupChanged();
+}
+
+QString AppViewModel::tsslBackupWebDavPath() const { return m_tsslBackupWebDavPath; }
+
+void AppViewModel::setTsslBackupWebDavPath(const QString& value)
+{
+    auto normalized = value.trimmed();
+    while (normalized.startsWith(QLatin1Char('/'))) normalized.remove(0, 1);
+    if (m_tsslBackupWebDavPath == normalized) return;
+    m_tsslBackupWebDavPath = normalized;
+    m_repository.setTsslBackupWebDavPath(normalized);
+    emit tsslBackupChanged();
+}
+
+QVariantList AppViewModel::tsslBackupWebDavServices() const
+{
+    QVariantList services;
+    for (int row = 0; row < m_services.count(); ++row) {
+        const auto card = m_services.cardAt(row);
+        if (!card || card->server.serviceType != ServiceType::WebDAV) continue;
+        services.push_back(QVariantMap {{QStringLiteral("id"), card->server.id},
+                                        {QStringLiteral("name"), card->server.name}});
+    }
+    return services;
+}
+
+QString AppViewModel::tsslBackupS3Endpoint() const { return m_tsslBackupS3Endpoint; }
+void AppViewModel::setTsslBackupS3Endpoint(const QString& value)
+{
+    if (m_tsslBackupS3Endpoint == value) return;
+    m_tsslBackupS3Endpoint = value.trimmed();
+    m_repository.setTsslBackupS3Endpoint(m_tsslBackupS3Endpoint);
+    emit tsslBackupChanged();
+}
+
+QString AppViewModel::tsslBackupS3Bucket() const { return m_tsslBackupS3Bucket; }
+void AppViewModel::setTsslBackupS3Bucket(const QString& value)
+{
+    if (m_tsslBackupS3Bucket == value) return;
+    m_tsslBackupS3Bucket = value.trimmed();
+    m_repository.setTsslBackupS3Bucket(m_tsslBackupS3Bucket);
+    emit tsslBackupChanged();
+}
+
+QString AppViewModel::tsslBackupS3Region() const { return m_tsslBackupS3Region; }
+void AppViewModel::setTsslBackupS3Region(const QString& value)
+{
+    if (m_tsslBackupS3Region == value) return;
+    m_tsslBackupS3Region = value.trimmed();
+    m_repository.setTsslBackupS3Region(m_tsslBackupS3Region);
+    emit tsslBackupChanged();
+}
+
+QString AppViewModel::tsslBackupS3Prefix() const { return m_tsslBackupS3Prefix; }
+void AppViewModel::setTsslBackupS3Prefix(const QString& value)
+{
+    if (m_tsslBackupS3Prefix == value) return;
+    m_tsslBackupS3Prefix = value.trimmed();
+    m_repository.setTsslBackupS3Prefix(m_tsslBackupS3Prefix);
+    emit tsslBackupChanged();
+}
+
+QString AppViewModel::tsslBackupS3AccessKey() const { return m_tsslBackupS3AccessKey; }
+void AppViewModel::setTsslBackupS3AccessKey(const QString& value)
+{
+    if (m_tsslBackupS3AccessKey == value) return;
+    m_tsslBackupS3AccessKey = value.trimmed();
+    m_repository.setTsslBackupS3AccessKey(m_tsslBackupS3AccessKey);
+    emit tsslBackupChanged();
+}
+
+bool AppViewModel::tsslBackupS3SecretConfigured() const { return m_tsslBackupS3SecretConfigured; }
+bool AppViewModel::tsslBackupRunning() const { return m_tsslBackupRunning; }
+QString AppViewModel::tsslBackupStatus() const { return m_tsslBackupStatus; }
 
 TsslPackageListModel* AppViewModel::tsslPackages()
 {
@@ -3207,12 +3368,27 @@ void AppViewModel::initialize()
     m_m3u8sVideoEncoding = normalizedM3u8sVideoEncoding(m_repository.m3u8sVideoEncoding());
     m_m3u8sAudioEncoding = normalizedM3u8sAudioEncoding(m_repository.m3u8sAudioEncoding());
     m_m3u8sVideoQuality = normalizedM3u8sVideoQuality(m_repository.m3u8sVideoQuality());
+    m_tsslBackupTarget = m_repository.tsslBackupTarget();
+    if (m_tsslBackupTarget != QStringLiteral("webdav") && m_tsslBackupTarget != QStringLiteral("s3")) {
+        m_tsslBackupTarget = QStringLiteral("none");
+    }
+    m_tsslBackupWebDavServiceId = m_repository.tsslBackupWebDavServiceId();
+    m_tsslBackupWebDavPath = m_repository.tsslBackupWebDavPath();
+    m_tsslBackupS3Endpoint = m_repository.tsslBackupS3Endpoint();
+    m_tsslBackupS3Bucket = m_repository.tsslBackupS3Bucket();
+    m_tsslBackupS3Region = m_repository.tsslBackupS3Region();
+    m_tsslBackupS3Prefix = m_repository.tsslBackupS3Prefix();
+    m_tsslBackupS3AccessKey = m_repository.tsslBackupS3AccessKey();
+    if (const auto secret = CredentialStore::loadSecret(QStringLiteral("tsslBackupS3Secret")); secret && *secret) {
+        m_tsslBackupS3SecretConfigured = !(*secret)->isEmpty();
+    }
     emit themeModeChanged();
     emit effectiveThemeChanged();
     emit languageModeChanged();
     emit defaultDownloadDirectoryChanged();
     emit webDavDisplaySettingsChanged();
     emit m3u8sSettingsChanged();
+    emit tsslBackupChanged();
     emit privacyPinChanged();
     emit translationsChanged();
     refreshServiceCards();
@@ -5025,6 +5201,105 @@ void AppViewModel::exportManagedTssl(int row)
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.exportedStatus"));
     emit m3u8sStatusChanged();
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Exported a managed TSSL package"));
+}
+
+void AppViewModel::setTsslBackupS3Secret(const QString& secret)
+{
+    clearError();
+    const auto normalized = secret.trimmed();
+    std::expected<void, QString> result = normalized.isEmpty()
+        ? CredentialStore::deleteSecret(QStringLiteral("tsslBackupS3Secret"))
+        : CredentialStore::saveSecret(QStringLiteral("tsslBackupS3Secret"), normalized);
+    if (!result) {
+        setError(result.error());
+        return;
+    }
+    m_tsslBackupS3SecretConfigured = !normalized.isEmpty();
+    emit tsslBackupChanged();
+}
+
+void AppViewModel::backupTsslToConfiguredTarget()
+{
+    clearError();
+    if (m_tsslBackupRunning) return;
+
+    const auto packages = m_tsslStore.listPackages();
+    if (!packages) {
+        setError(packages.error());
+        return;
+    }
+    QStringList files;
+    for (const auto& package : *packages) {
+        if (package.valid && QFileInfo::exists(package.filePath)) files.append(package.filePath);
+    }
+    if (files.isEmpty()) {
+        setError(trText(QStringLiteral("tsslBackup.noPackages")));
+        return;
+    }
+
+    TsslBackupTarget target;
+    if (m_tsslBackupTarget == QStringLiteral("webdav")) {
+        std::optional<ServiceCard> selected;
+        for (int row = 0; row < m_services.count(); ++row) {
+            const auto card = m_services.cardAt(row);
+            if (card && card->server.serviceType == ServiceType::WebDAV &&
+                card->server.id == m_tsslBackupWebDavServiceId) {
+                selected = card;
+                break;
+            }
+        }
+        if (!selected) {
+            setError(trText(QStringLiteral("tsslBackup.noWebDavService")));
+            return;
+        }
+        const auto password = loadWebDavPassword(selected->server);
+        if (!password) {
+            setError(trText(QStringLiteral("tsslBackup.webDavPasswordRequired")));
+            return;
+        }
+        target.type = TsslBackupTarget::Type::WebDav;
+        target.webDavServer = selected->server;
+        target.webDavPassword = *password;
+        target.webDavPath = m_tsslBackupWebDavPath;
+    } else if (m_tsslBackupTarget == QStringLiteral("s3")) {
+        const auto secret = CredentialStore::loadSecret(QStringLiteral("tsslBackupS3Secret"));
+        if (!secret || !*secret || (*secret)->isEmpty()) {
+            setError(secret ? trText(QStringLiteral("tsslBackup.s3SecretRequired")) : secret.error());
+            return;
+        }
+        target.type = TsslBackupTarget::Type::S3;
+        target.s3Endpoint = QUrl(m_tsslBackupS3Endpoint.trimmed());
+        target.s3Bucket = m_tsslBackupS3Bucket.trimmed();
+        target.s3Region = m_tsslBackupS3Region.trimmed();
+        target.s3Prefix = m_tsslBackupS3Prefix.trimmed();
+        target.s3AccessKey = m_tsslBackupS3AccessKey.trimmed();
+        target.s3SecretKey = **secret;
+    } else {
+        setError(trText(QStringLiteral("tsslBackup.noTarget")));
+        return;
+    }
+
+    m_tsslBackupRunning = true;
+    m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusPreparing")).arg(files.size());
+    emit tsslBackupChanged();
+    m_tsslBackupService.backup(target, std::move(files), [this](TsslBackupResult result) {
+        m_tsslBackupRunning = false;
+        if (result) {
+            m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusDone")).arg(*result);
+        } else {
+            m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusFailed"));
+            setError(result.error());
+        }
+        emit tsslBackupChanged();
+    });
+}
+
+void AppViewModel::cancelTsslBackup()
+{
+    if (!m_tsslBackupRunning) return;
+    m_tsslBackupService.cancel();
+    m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusCanceling"));
+    emit tsslBackupChanged();
 }
 
 void AppViewModel::exportManagedTsslBatch(const QVariantList& rows)
@@ -7519,6 +7794,7 @@ void AppViewModel::refreshServiceCards()
         return;
     }
     m_services.setCards(*cardsResult);
+    emit tsslBackupChanged();
     refreshScheduledEmbySources();
 }
 

@@ -1630,6 +1630,86 @@ void SessionRepository::setWebDavShowM3u8sSourceFileName(bool enabled)
     m_settings.setValue(QStringLiteral("webdav/showM3u8sSourceFileName"), enabled);
 }
 
+QString SessionRepository::tsslBackupTarget() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/target"), QStringLiteral("none")).toString();
+}
+
+void SessionRepository::setTsslBackupTarget(const QString& target)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/target"), target);
+}
+
+QString SessionRepository::tsslBackupWebDavServiceId() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/webDavServiceId")).toString();
+}
+
+void SessionRepository::setTsslBackupWebDavServiceId(const QString& serviceId)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/webDavServiceId"), serviceId);
+}
+
+QString SessionRepository::tsslBackupWebDavPath() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/webDavPath"), QStringLiteral("vibePlayerQT/tssl")).toString();
+}
+
+void SessionRepository::setTsslBackupWebDavPath(const QString& path)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/webDavPath"), path);
+}
+
+QString SessionRepository::tsslBackupS3Endpoint() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/s3Endpoint")).toString();
+}
+
+void SessionRepository::setTsslBackupS3Endpoint(const QString& endpoint)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/s3Endpoint"), endpoint);
+}
+
+QString SessionRepository::tsslBackupS3Bucket() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/s3Bucket")).toString();
+}
+
+void SessionRepository::setTsslBackupS3Bucket(const QString& bucket)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/s3Bucket"), bucket);
+}
+
+QString SessionRepository::tsslBackupS3Region() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/s3Region"), QStringLiteral("us-east-1")).toString();
+}
+
+void SessionRepository::setTsslBackupS3Region(const QString& region)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/s3Region"), region);
+}
+
+QString SessionRepository::tsslBackupS3Prefix() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/s3Prefix"), QStringLiteral("vibePlayerQT/tssl")).toString();
+}
+
+void SessionRepository::setTsslBackupS3Prefix(const QString& prefix)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/s3Prefix"), prefix);
+}
+
+QString SessionRepository::tsslBackupS3AccessKey() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/s3AccessKey")).toString();
+}
+
+void SessionRepository::setTsslBackupS3AccessKey(const QString& accessKey)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/s3AccessKey"), accessKey);
+}
+
 QString SessionRepository::m3u8sOutputDirectory() const
 {
     return m_settings.value(QStringLiteral("m3u8s/outputDirectory")).toString();

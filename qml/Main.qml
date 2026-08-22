@@ -14377,6 +14377,7 @@ ApplicationWindow {
         property string oldPrivacyPin: ""
         property string newPrivacyPin: ""
         property string confirmPrivacyPin: ""
+        property string tsslBackupSecretDraft: ""
         property bool updateDialogShown: false
         contentWidth: width
         contentHeight: settingsColumn.implicitHeight
@@ -14436,6 +14437,15 @@ ApplicationWindow {
                 settingsFlick.newPrivacyPin = ""
                 settingsFlick.confirmPrivacyPin = ""
             }
+        }
+
+        function tsslBackupWebDavServiceIndex() {
+            var services = appViewModel.tsslBackupWebDavServices
+            for (var index = 0; index < services.length; ++index) {
+                if (services[index].id === appViewModel.tsslBackupWebDavServiceId)
+                    return index
+            }
+            return -1
         }
 
         ColumnLayout {
@@ -14762,6 +14772,147 @@ ApplicationWindow {
                             id: privacyPinSaveButton
                             text: appViewModel.privacyPinConfigured ? t("privacy.changePin") : t("privacy.setPin")
                             onClicked: settingsFlick.savePrivacyPin()
+                        }
+                    }
+                }
+            }
+
+            SettingsGroup {
+                title: t("settings.tsslBackup")
+
+                SettingRow {
+                    label: t("tsslBackup.target")
+                    ModernComboBox {
+                        Layout.preferredWidth: 220
+                        textRole: "label"
+                        valueRole: "value"
+                        model: [
+                            { label: t("tsslBackup.none"), value: "none" },
+                            { label: t("tsslBackup.webdav"), value: "webdav" },
+                            { label: t("tsslBackup.s3"), value: "s3" }
+                        ]
+                        currentIndex: appViewModel.tsslBackupTarget === "webdav" ? 1 : appViewModel.tsslBackupTarget === "s3" ? 2 : 0
+                        onActivated: appViewModel.tsslBackupTarget = model[index].value
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "webdav"
+                    label: t("tsslBackup.webDavService")
+                    ModernComboBox {
+                        Layout.preferredWidth: 420
+                        textRole: "name"
+                        valueRole: "id"
+                        model: appViewModel.tsslBackupWebDavServices
+                        currentIndex: settingsFlick.tsslBackupWebDavServiceIndex()
+                        onActivated: appViewModel.tsslBackupWebDavServiceId = model[index].id
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "webdav"
+                    label: t("tsslBackup.remotePath")
+                    ModernTextField {
+                        Layout.preferredWidth: 420
+                        text: appViewModel.tsslBackupWebDavPath
+                        placeholderText: "vibePlayerQT/tssl"
+                        onTextChanged: appViewModel.tsslBackupWebDavPath = text
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "s3"
+                    label: t("tsslBackup.endpoint")
+                    ModernTextField {
+                        Layout.preferredWidth: 420
+                        text: appViewModel.tsslBackupS3Endpoint
+                        placeholderText: "https://s3.example.com"
+                        onTextChanged: appViewModel.tsslBackupS3Endpoint = text
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "s3"
+                    label: t("tsslBackup.bucket")
+                    ModernTextField {
+                        Layout.preferredWidth: 420
+                        text: appViewModel.tsslBackupS3Bucket
+                        onTextChanged: appViewModel.tsslBackupS3Bucket = text
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "s3"
+                    label: t("tsslBackup.region")
+                    ModernTextField {
+                        Layout.preferredWidth: 420
+                        text: appViewModel.tsslBackupS3Region
+                        placeholderText: "us-east-1"
+                        onTextChanged: appViewModel.tsslBackupS3Region = text
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "s3"
+                    label: t("tsslBackup.prefix")
+                    ModernTextField {
+                        Layout.preferredWidth: 420
+                        text: appViewModel.tsslBackupS3Prefix
+                        placeholderText: "vibePlayerQT/tssl"
+                        onTextChanged: appViewModel.tsslBackupS3Prefix = text
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "s3"
+                    label: t("tsslBackup.accessKey")
+                    ModernTextField {
+                        Layout.preferredWidth: 420
+                        text: appViewModel.tsslBackupS3AccessKey
+                        onTextChanged: appViewModel.tsslBackupS3AccessKey = text
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "s3"
+                    label: t("tsslBackup.secret")
+                    RowLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 8
+                        ModernTextField {
+                            Layout.fillWidth: true
+                            placeholderText: appViewModel.tsslBackupS3SecretConfigured
+                                ? t("tsslBackup.secretConfigured") : t("tsslBackup.secretPlaceholder")
+                            echoMode: TextInput.Password
+                            text: settingsFlick.tsslBackupSecretDraft
+                            onTextChanged: settingsFlick.tsslBackupSecretDraft = text
+                        }
+                        ModernButton {
+                            text: t("tsslBackup.saveSecret")
+                            onClicked: {
+                                appViewModel.setTsslBackupS3Secret(settingsFlick.tsslBackupSecretDraft)
+                                settingsFlick.tsslBackupSecretDraft = ""
+                            }
+                        }
+                    }
+                }
+
+                SettingRow {
+                    label: t("tsslBackup.target")
+                    RowLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 8
+                        MutedText {
+                            Layout.fillWidth: true
+                            text: appViewModel.tsslBackupStatus.length > 0
+                                ? appViewModel.tsslBackupStatus : t("tsslBackup.none")
+                            wrapMode: Text.WordWrap
+                        }
+                        ModernButton {
+                            text: appViewModel.tsslBackupRunning ? t("tsslBackup.cancel") : t("tsslBackup.backup")
+                            enabled: appViewModel.tsslBackupRunning || appViewModel.tsslBackupTarget !== "none"
+                            onClicked: appViewModel.tsslBackupRunning
+                                ? appViewModel.cancelTsslBackup() : appViewModel.backupTsslToConfiguredTarget()
                         }
                     }
                 }
