@@ -234,9 +234,10 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
     const auto versionValue = root.value(QStringLiteral("version"));
     const auto version = versionValue.isDouble() && versionValue.toDouble() == 2.0
         ? 2
-        : versionValue.isDouble() && versionValue.toDouble() == 3.0 ? 3 : 0;
+        : versionValue.isDouble() && versionValue.toDouble() == 3.0 ? 3
+        : versionValue.isDouble() && versionValue.toDouble() == 4.0 ? 4 : 0;
     if (root.value(QStringLiteral("format")).toString() != QStringLiteral("TSSL") ||
-        !versionValue.isDouble() || (version != 2 && version != 3) ||
+        !versionValue.isDouble() || (version != 2 && version != 3 && version != 4) ||
         root.value(QStringLiteral("algorithm")).toString() != QStringLiteral("AES-256-GCM")) {
         return std::unexpected(QStringLiteral("Unsupported TSSL format, version, or algorithm"));
     }
@@ -252,9 +253,30 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
         return std::unexpected(rootDigest.error());
     }
 
+    QString containerFormat;
+    QByteArray containerIndexSha256;
+    qint64 containerLength = 0;
+    if (version == 4) {
+        containerFormat = root.value(QStringLiteral("containerFormat")).toString();
+        if (containerFormat != QStringLiteral("m3u8sp-tar-index-v1")) {
+            return std::unexpected(QStringLiteral("TSSL v4 contains an unsupported container format"));
+        }
+        auto indexDigest = parseDigest(root.value(QStringLiteral("containerIndexSha256")),
+                                       QStringLiteral("containerIndexSha256"));
+        if (!indexDigest) {
+            return std::unexpected(indexDigest.error());
+        }
+        containerIndexSha256 = std::move(*indexDigest);
+        bool lengthOk = false;
+        containerLength = root.value(QStringLiteral("containerLength")).toVariant().toLongLong(&lengthOk);
+        if (!lengthOk || containerLength <= 0) {
+            return std::unexpected(QStringLiteral("containerLength must be a positive integer"));
+        }
+    }
+
     QByteArray encryptedSourceFileName;
     QByteArray sourceFileNameKey;
-    if (version == 3) {
+    if (version == 3 || version == 4) {
         const auto sourceNameValue = root.value(QStringLiteral("sourceName"));
         if (!sourceNameValue.isObject()) {
             return std::unexpected(QStringLiteral("TSSL v3 requires sourceName metadata"));
@@ -271,7 +293,7 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
         sourceFileNameKey = std::move(*parsedKey);
         encryptedSourceFileName = std::move(*parsedEncrypted);
     } else if (root.contains(QStringLiteral("sourceName"))) {
-        return std::unexpected(QStringLiteral("TSSL v2 must not contain v3 sourceName metadata"));
+        return std::unexpected(QStringLiteral("TSSL v2 must not contain sourceName metadata"));
     }
     auto manifests = parseEntries(root.value(QStringLiteral("manifests")),
                                   QStringLiteral("manifests"),
@@ -321,6 +343,9 @@ std::expected<TsslPackage, QString> TsslPackage::parse(QByteArrayView document)
 
     TsslPackage package {
         .version = version,
+        .containerFormat = std::move(containerFormat),
+        .containerIndexSha256 = std::move(containerIndexSha256),
+        .containerLength = containerLength,
         .identifier = std::move(*identifier),
         .rootManifestDigest = std::move(*rootDigest),
         .encryptedSourceFileName = std::move(encryptedSourceFileName),
@@ -347,7 +372,12 @@ QByteArray TsslPackage::toJson() const
         { QStringLiteral("segments"), keyEntries(segmentKeys) },
         { QStringLiteral("resources"), digestEntries(resourceDigests) },
     };
-    if (version == 3) {
+    if (version == 4) {
+        root.insert(QStringLiteral("containerFormat"), containerFormat);
+        root.insert(QStringLiteral("containerIndexSha256"), QString::fromLatin1(containerIndexSha256.toHex()));
+        root.insert(QStringLiteral("containerLength"), QJsonValue::fromVariant(containerLength));
+    }
+    if (version == 3 || version == 4) {
         root.insert(QStringLiteral("sourceName"), QJsonObject {
             { QStringLiteral("encrypted"), QString::fromLatin1(encryptedSourceFileName.toBase64()) },
             { QStringLiteral("key"), QString::fromLatin1(sourceFileNameKey.toBase64()) },
@@ -364,7 +394,7 @@ std::expected<std::optional<QString>, QString> TsslPackage::decryptedSourceFileN
         }
         return std::optional<QString> {};
     }
-    if (version != 3 || identifier.size() != identifierLength || sourceFileNameKey.size() != 32 ||
+    if ((version != 3 && version != 4) || identifier.size() != identifierLength || sourceFileNameKey.size() != 32 ||
         encryptedSourceFileName.size() <= 32 ||
         encryptedSourceFileName.size() > HlsManifestValidator::maximumEncryptedSourceNameBytes) {
         return std::unexpected(QStringLiteral("TSSL v3 source filename metadata is incomplete"));

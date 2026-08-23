@@ -84,7 +84,7 @@ bool isVideoFile(const QString& name)
         QStringLiteral("mp4"), QStringLiteral("mkv"), QStringLiteral("avi"), QStringLiteral("mov"),
         QStringLiteral("webm"), QStringLiteral("ts"), QStringLiteral("m2ts"), QStringLiteral("flv"),
         QStringLiteral("wmv"), QStringLiteral("mpg"), QStringLiteral("mpeg"), QStringLiteral("m4v"),
-        QStringLiteral("3gp"), QStringLiteral("ogv"), QStringLiteral("m3u8s")
+        QStringLiteral("3gp"), QStringLiteral("ogv"), QStringLiteral("m3u8s"), QStringLiteral("m3u8sp")
     };
     return extensions.contains(suffix);
 }
@@ -170,7 +170,8 @@ std::vector<WebDavItem> parseList(const QByteArray& body, const QUrl& baseUrl)
         item.lastModified = childText(prop, QStringLiteral("getlastmodified"));
         item.directory = isDirectory;
         item.playable = !isDirectory && isVideoFile(name);
-        item.encryptedHls = !isDirectory && name.endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive);
+        item.encryptedHls = !isDirectory && (name.endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive) ||
+                                             name.endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive));
         item.audioPlayable = !isDirectory &&
             (isAudioFile(name) || item.contentType.startsWith(QStringLiteral("audio/"), Qt::CaseInsensitive));
 
@@ -287,7 +288,8 @@ void WebDavClient::statItem(const ServerConfig& server,
             item.url = itemUrl;
             item.directory = itemUrl.path().endsWith(QLatin1Char('/'));
             item.playable = !item.directory && isVideoFile(item.name);
-            item.encryptedHls = !item.directory && item.name.endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive);
+            item.encryptedHls = !item.directory && (item.name.endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive) ||
+                                                    item.name.endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive));
             item.audioPlayable = !item.directory &&
                 (isAudioFile(item.name) || item.contentType.startsWith(QStringLiteral("audio/"), Qt::CaseInsensitive));
             callback(std::move(item));

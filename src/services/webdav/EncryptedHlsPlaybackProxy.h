@@ -2,6 +2,7 @@
 
 #include "models/ServerConfig.h"
 #include "services/webdav/TsslStore.h"
+#include "services/encryptedhls/EncryptedHlsTarContainer.h"
 
 #include <QByteArray>
 #include <QHash>
@@ -65,15 +66,27 @@ private:
         QByteArray rootManifest;
         TsslPackage package;
         QString sourceFileName;
+        std::optional<EncryptedHlsTarIndex> containerIndex;
+    };
+
+    struct RemoteRangeResult {
+        QByteArray bytes;
+        QByteArray etag;
+        qint64 totalLength { 0 };
     };
 
     struct Session {
         bool localSource { false };
+        bool containerSource { false };
         ServerConfig server;
         QString password;
         QUrl remoteDirectoryUrl;
         QString localDirectoryPath;
         QString localManifestName;
+        QString localContainerPath;
+        QUrl remoteContainerUrl;
+        QByteArray remoteContainerEtag;
+        std::optional<EncryptedHlsTarIndex> containerIndex;
         QByteArray rootManifest;
         TsslPackage package;
     };
@@ -92,12 +105,22 @@ private:
                                     const QString& password,
                                     const QUrl& url,
                                     qint64 maximumBytes,
+                                    const QByteArray& range,
                                     std::function<void(std::expected<QByteArray, QString>)> callback);
+    QNetworkReply* fetchRemoteRange(const ServerConfig& server,
+                                    const QString& password,
+                                    const QUrl& url,
+                                    qint64 start,
+                                    qint64 end,
+                                    qint64 maximumBytes,
+                                    const QByteArray& expectedEtag,
+                                    std::function<void(std::expected<RemoteRangeResult, QString>)> callback);
     void fetchLocalBytes(const QString& path,
                          qint64 maximumBytes,
                          std::function<void(std::expected<QByteArray, QString>)> callback);
     QNetworkReply* fetchSessionBytes(const Session& session,
                                      const QUrl& sourceUrl,
+                                     const QString& relativePath,
                                      qint64 maximumBytes,
                                      std::function<void(std::expected<QByteArray, QString>)> callback);
     bool ensureListening();

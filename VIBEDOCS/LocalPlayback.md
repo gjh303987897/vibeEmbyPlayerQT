@@ -8,7 +8,7 @@ Local playback is intentionally a lightweight file player. It provides:
 - Multiple user-selected video folders.
 - One-directory-at-a-time browsing of child folders and supported video files.
 - Direct playback of one local video dropped anywhere on the main application window.
-- Authenticated local playback of encrypted `.m3u8s` HLS packages when their TSSL is available.
+- Authenticated local playback of encrypted `.m3u8s` HLS packages and indexed `.m3u8sp` TAR containers when their TSSL is available.
 - Playback through the existing `PlayerController` and embedded libmpv window.
 
 It does not recursively index folders, scrape metadata, download posters, or create a local media library.

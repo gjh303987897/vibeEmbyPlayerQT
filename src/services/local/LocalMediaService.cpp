@@ -55,13 +55,16 @@ bool LocalMediaService::isSupportedVideoFile(const QString& path)
         QStringLiteral("rm"), QStringLiteral("rmvb"), QStringLiteral("ts"),
         QStringLiteral("vob"), QStringLiteral("webm"), QStringLiteral("wmv"),
         QStringLiteral("m3u8s"),
+        QStringLiteral("m3u8sp"),
     };
     return extensions.contains(QFileInfo(path).suffix().toLower());
 }
 
 bool LocalMediaService::isEncryptedHlsManifest(const QString& path)
 {
-    return QFileInfo(path).suffix().compare(QStringLiteral("m3u8s"), Qt::CaseInsensitive) == 0;
+    const auto suffix = QFileInfo(path).suffix();
+    return suffix.compare(QStringLiteral("m3u8s"), Qt::CaseInsensitive) == 0 ||
+        suffix.compare(QStringLiteral("m3u8sp"), Qt::CaseInsensitive) == 0;
 }
 
 LocalMediaService::VideoFileResult LocalMediaService::resolveVideoFile(const QUrl& url)

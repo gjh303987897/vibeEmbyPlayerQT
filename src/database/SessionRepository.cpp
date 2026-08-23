@@ -1750,6 +1750,16 @@ void SessionRepository::setM3u8sVideoQuality(const QString& quality)
     m_settings.setValue(QStringLiteral("m3u8s/videoQuality"), quality);
 }
 
+QString SessionRepository::m3u8sContainerFormat() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/containerFormat"), QStringLiteral("m3u8sp")).toString();
+}
+
+void SessionRepository::setM3u8sContainerFormat(const QString& format)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/containerFormat"), format);
+}
+
 QString SessionRepository::updateChannel() const
 {
     return m_settings.value(QStringLiteral("updates/channel"), QStringLiteral("stable")).toString();

@@ -18,6 +18,7 @@
 #include "services/local/LocalMediaService.h"
 #include "services/scheduler/ScheduledPlaybackManager.h"
 #include "services/update/UpdateService.h"
+#include "utils/ErrorPresentation.h"
 #include "viewmodels/IptvChannelListModel.h"
 #include "viewmodels/LocalMediaItemListModel.h"
 #include "viewmodels/LocalMediaRootListModel.h"
@@ -105,6 +106,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString m3u8sVideoEncoding READ m3u8sVideoEncoding WRITE setM3u8sVideoEncoding NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sAudioEncoding READ m3u8sAudioEncoding WRITE setM3u8sAudioEncoding NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sVideoQuality READ m3u8sVideoQuality WRITE setM3u8sVideoQuality NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sContainerFormat READ m3u8sContainerFormat WRITE setM3u8sContainerFormat NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(bool webDavAudioPlaybackActive READ webDavAudioPlaybackActive NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioCurrentIndex READ webDavAudioCurrentIndex NOTIFY webDavAudioPlaybackChanged)
     Q_PROPERTY(int webDavAudioQueueCount READ webDavAudioQueueCount NOTIFY webDavAudioPlaybackChanged)
@@ -173,6 +175,12 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString currentLibraryName READ currentLibraryName NOTIFY currentLibraryChanged)
     Q_PROPERTY(QString currentView READ currentView NOTIFY currentViewChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(bool hasError READ hasError NOTIFY errorMessageChanged)
+    Q_PROPERTY(QString errorTitle READ errorTitle NOTIFY errorMessageChanged)
+    Q_PROPERTY(QString errorSummary READ errorSummary NOTIFY errorMessageChanged)
+    Q_PROPERTY(QString errorHint READ errorHint NOTIFY errorMessageChanged)
+    Q_PROPERTY(QString errorDetails READ errorDetails NOTIFY errorMessageChanged)
+    Q_PROPERTY(bool errorDetailsAvailable READ errorDetailsAvailable NOTIFY errorMessageChanged)
     Q_PROPERTY(QString selectedItemId READ selectedItemId NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemName READ selectedItemName NOTIFY selectedItemChanged)
     Q_PROPERTY(QString selectedItemType READ selectedItemType NOTIFY selectedItemChanged)
@@ -329,6 +337,8 @@ public:
     QString m3u8sAudioEncoding() const;
     void setM3u8sAudioEncoding(const QString& value);
     QString m3u8sVideoQuality() const;
+    QString m3u8sContainerFormat() const;
+    void setM3u8sContainerFormat(const QString& format);
     void setM3u8sVideoQuality(const QString& value);
     void setWebDavDisplayMode(const QString& value);
     bool webDavAudioPlaybackActive() const;
@@ -417,6 +427,12 @@ public:
     QString currentLibraryName() const;
     QString currentView() const;
     QString errorMessage() const;
+    bool hasError() const;
+    QString errorTitle() const;
+    QString errorSummary() const;
+    QString errorHint() const;
+    QString errorDetails() const;
+    bool errorDetailsAvailable() const;
     QString selectedItemId() const;
     QString selectedItemName() const;
     QString selectedItemType() const;
@@ -537,7 +553,7 @@ public:
     Q_INVOKABLE void exportManagedTssl(int row);
     Q_INVOKABLE void exportManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void deleteManagedTssl(int row);
-    Q_INVOKABLE void addM3u8sVideoSources(const QVariantList& files);
+    Q_INVOKABLE void addM3u8sVideoSource(const QUrl& file);
     Q_INVOKABLE void addM3u8sFolderSource(const QUrl& folder);
     Q_INVOKABLE void removeM3u8sSource(int index);
     Q_INVOKABLE void clearM3u8sSources();
@@ -627,6 +643,7 @@ public:
     Q_INVOKABLE void closePlayerToDetails();
     Q_INVOKABLE void loadMoreItems();
     Q_INVOKABLE void clearError();
+    Q_INVOKABLE void copyCurrentErrorDetails();
 
     void openLocalPlaybackForVerification(const QUrl& url);
 
@@ -900,6 +917,7 @@ private:
     int m_serverSearchRequestGeneration { 0 };
     bool m_detailsReturnToSearch { false };
     QString m_errorMessage;
+    AppErrorPresentation m_errorPresentation;
     std::optional<UserSession> m_session;
     std::optional<ServiceCard> m_pendingServiceCard;
     std::optional<ServiceCard> m_currentIptvCard;
@@ -1014,6 +1032,7 @@ private:
     QString m_m3u8sVideoEncoding { QStringLiteral("h264") };
     QString m_m3u8sAudioEncoding { QStringLiteral("aac") };
     QString m_m3u8sVideoQuality { QStringLiteral("balanced") };
+    QString m_m3u8sContainerFormat { QStringLiteral("m3u8sp") };
     QString m_tsslBackupTarget { QStringLiteral("none") };
     QString m_tsslBackupWebDavServiceId;
     QString m_tsslBackupWebDavPath { QStringLiteral("vibePlayerQT/tssl") };

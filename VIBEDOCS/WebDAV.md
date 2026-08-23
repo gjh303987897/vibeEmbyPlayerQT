@@ -2,6 +2,8 @@
 
 ## M3U8S metadata visibility
 
+WebDAV also recognizes the single-file `.m3u8sp` TAR container. It remains one playable item; TAR members are never exposed as separate WebDAV entries. Playback requires byte-range responses (`206 Partial Content`) and a stable `ETag`; servers that return the whole object (`200`) are rejected for this format.
+
 WebDAV M3U8S entries expose a shortened identifier and, when a matching local
 TSSL v3 package is available, the authenticated original source filename.
 Settings persist two independent visibility switches for these fields. Both

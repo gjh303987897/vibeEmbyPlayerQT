@@ -17,6 +17,7 @@
 #include <QRegularExpression>
 #include <QTcpSocket>
 #include <QTimer>
+#include <QTemporaryFile>
 #include <QUuid>
 #include <QtConcurrentRun>
 
@@ -267,6 +268,47 @@ void EncryptedHlsPlaybackProxy::prepareStream(const ServerConfig& server,
                                               const QUrl& rootManifestUrl,
                                               std::function<void(EncryptedHlsPrepareResult)> callback)
 {
+    if (rootManifestUrl.path(QUrl::FullyDecoded).endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive)) {
+        constexpr qint64 indexPrefixBytes = 16 * 1024 * 1024 + 512;
+        fetchRemoteRange(server, password, rootManifestUrl, 0, indexPrefixBytes - 1,
+                         indexPrefixBytes, {},
+                         [this, server, password, rootManifestUrl, callback = std::move(callback)](std::expected<RemoteRangeResult, QString> prefix) mutable {
+            if (!prefix) { callback(std::unexpected(prefix.error())); return; }
+            if (prefix->etag.isEmpty()) {
+                callback(std::unexpected(QStringLiteral("Remote M3U8SP object has no stable ETag")));
+                return;
+            }
+            auto index = EncryptedHlsTarContainer::readIndexPrefix(prefix->bytes, prefix->totalLength);
+            if (!index) { callback(std::unexpected(index.error())); return; }
+            const auto* manifestEntry = index->entry(index->manifestPath);
+            if (!manifestEntry) { callback(std::unexpected(QStringLiteral("M3U8SP manifest entry is missing"))); return; }
+            const auto etag = prefix->etag;
+            fetchRemoteRange(server, password, rootManifestUrl, manifestEntry->dataOffset,
+                             manifestEntry->dataOffset + manifestEntry->size - 1,
+                             maximumManifestBytes, etag,
+                             [this, server, password, rootManifestUrl, index = std::move(*index), etag, callback = std::move(callback)](std::expected<RemoteRangeResult, QString> manifest) mutable {
+                if (!manifest) { callback(std::unexpected(manifest.error())); return; }
+                auto resolved = resolvePackageBytes(std::move(manifest->bytes), m_store);
+                if (!resolved) { callback(std::unexpected(resolved.error())); return; }
+                if (resolved->package.version != 4 || resolved->package.containerIndexSha256 != index.sha256 ||
+                    resolved->package.containerLength != index.containerLength) {
+                    callback(std::unexpected(QStringLiteral("M3U8SP container metadata does not match TSSL"))); return;
+                }
+                Session session {
+                    .containerSource = true,
+                    .server = server,
+                    .password = password,
+                    .remoteDirectoryUrl = remoteDirectoryFor(rootManifestUrl),
+                    .localManifestName = localManifestNameFor(rootManifestUrl),
+                    .remoteContainerUrl = rootManifestUrl,
+                    .remoteContainerEtag = etag,
+                    .containerIndex = std::move(index),
+                };
+                finishPreparingStream(std::move(*resolved), std::move(session), QFileInfo(rootManifestUrl.path(QUrl::FullyDecoded)).fileName(), std::move(callback));
+            });
+        });
+        return;
+    }
     resolvePackage(server,
                    password,
                    rootManifestUrl,
@@ -294,6 +336,36 @@ void EncryptedHlsPlaybackProxy::prepareLocalStream(
     std::function<void(EncryptedHlsPrepareResult)> callback)
 {
     const QFileInfo manifestInfo(rootManifestPath);
+    if (manifestInfo.fileName().endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive)) {
+        const auto archivePath = QDir::cleanPath(manifestInfo.canonicalFilePath());
+        const auto storeDirectory = m_store.storageDirectory();
+        auto* watcher = new QFutureWatcher<std::expected<ResolvedPackage, QString>>(this);
+        connect(watcher, &QFutureWatcherBase::finished, watcher,
+                [this, watcher, archivePath, callback = std::move(callback)]() mutable {
+            auto resolved = watcher->result(); watcher->deleteLater();
+            if (!resolved) { callback(std::unexpected(resolved.error())); return; }
+            Session session { .localSource = true, .containerSource = true,
+                .localManifestName = QStringLiteral("index.m3u8"), .localContainerPath = archivePath,
+                .containerIndex = std::move(resolved->containerIndex) };
+            finishPreparingStream(std::move(*resolved), std::move(session), QFileInfo(archivePath).fileName(), std::move(callback));
+        });
+        watcher->setFuture(QtConcurrent::run([archivePath, storeDirectory]() -> std::expected<ResolvedPackage, QString> {
+            auto index = EncryptedHlsTarContainer::readIndex(archivePath);
+            if (!index) return std::unexpected(index.error());
+            auto manifest = EncryptedHlsTarContainer::readEntry(archivePath, *index, index->manifestPath, maximumManifestBytes);
+            if (!manifest) return std::unexpected(manifest.error());
+            const TsslStore store(storeDirectory);
+            auto resolved = resolvePackageBytes(std::move(*manifest), store);
+            if (!resolved) return std::unexpected(resolved.error());
+            if (resolved->package.version != 4 || resolved->package.containerIndexSha256 != index->sha256 ||
+                resolved->package.containerLength != QFileInfo(archivePath).size()) {
+                return std::unexpected(QStringLiteral("M3U8SP container metadata does not match TSSL"));
+            }
+            resolved->containerIndex = std::move(*index);
+            return resolved;
+        }));
+        return;
+    }
     const auto canonicalPath = QDir::cleanPath(manifestInfo.canonicalFilePath());
     if (canonicalPath.isEmpty() || !manifestInfo.isFile() || !manifestInfo.isReadable() ||
         !canonicalPath.endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive)) {
@@ -381,6 +453,18 @@ void EncryptedHlsPlaybackProxy::resolveRootDigest(const ServerConfig& server,
                                                   const QUrl& rootManifestUrl,
                                                   std::function<void(EncryptedHlsDigestResult)> callback)
 {
+    if (rootManifestUrl.path(QUrl::FullyDecoded).endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive)) {
+        prepareStream(server, password, rootManifestUrl,
+                      [this, callback = std::move(callback)](EncryptedHlsPrepareResult prepared) mutable {
+            if (!prepared) { callback(std::unexpected(prepared.error())); return; }
+            const auto session = m_sessions.constFind(prepared->sessionId);
+            if (session == m_sessions.cend()) { callback(std::unexpected(QStringLiteral("M3U8SP session is unavailable"))); return; }
+            const auto digest = session->package.rootManifestDigest;
+            revoke(prepared->sessionId);
+            callback(digest);
+        });
+        return;
+    }
     resolvePackage(server,
                    password,
                    rootManifestUrl,
@@ -399,10 +483,28 @@ void EncryptedHlsPlaybackProxy::resolveIdentifierPreview(
     const QUrl& rootManifestUrl,
     std::function<void(EncryptedHlsIdentifierPreviewResult)> callback)
 {
+    if (rootManifestUrl.path(QUrl::FullyDecoded).endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive)) {
+        prepareStream(server, password, rootManifestUrl,
+                      [this, callback = std::move(callback)](EncryptedHlsPrepareResult prepared) mutable {
+            if (!prepared) { callback(std::unexpected(prepared.error())); return; }
+            const auto session = m_sessions.constFind(prepared->sessionId);
+            if (session == m_sessions.cend()) { callback(std::unexpected(QStringLiteral("M3U8SP session is unavailable"))); return; }
+            EncryptedHlsIdentifierPreview result {
+                .identifier = QStringLiteral("%1...%2")
+                    .arg(QString::fromLatin1(session->package.identifier.first(16)),
+                         QString::fromLatin1(session->package.identifier.last(12))),
+                .sourceFileName = prepared->displayName,
+            };
+            revoke(prepared->sessionId);
+            callback(std::move(result));
+        });
+        return;
+    }
     fetchRemoteBytes(server,
                      password,
                      rootManifestUrl,
                      maximumManifestBytes,
+                     {},
                      [this, callback = std::move(callback)](std::expected<QByteArray, QString> manifest) mutable {
         if (!manifest) {
             callback(std::unexpected(manifest.error()));
@@ -448,6 +550,7 @@ void EncryptedHlsPlaybackProxy::resolvePackage(
                      password,
                      rootManifestUrl,
                      maximumManifestBytes,
+                     {},
                      [this, callback = std::move(callback)](std::expected<QByteArray, QString> manifest) mutable {
         if (!manifest) {
             callback(std::unexpected(manifest.error()));
@@ -482,7 +585,7 @@ EncryptedHlsPlaybackProxy::resolvePackageBytes(QByteArray manifest, const TsslSt
     }
 
     QString sourceFileName;
-    if ((**package).version == 3) {
+    if ((**package).version == 3 || (**package).version == 4) {
         auto encryptedSourceFileName = HlsManifestValidator::extractEncryptedSourceFileName(manifest);
         if (!encryptedSourceFileName) {
             return std::unexpected(encryptedSourceFileName.error());
@@ -505,6 +608,7 @@ EncryptedHlsPlaybackProxy::resolvePackageBytes(QByteArray manifest, const TsslSt
         .rootManifest = std::move(manifest),
         .package = std::move(**package),
         .sourceFileName = std::move(sourceFileName),
+        .containerIndex = std::nullopt,
     };
 }
 
@@ -513,15 +617,18 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteBytes(
     const QString& password,
     const QUrl& url,
     qint64 maximumBytes,
+    const QByteArray& range,
     std::function<void(std::expected<QByteArray, QString>)> callback)
 {
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("vibePlayerQT/0.1"));
     request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("*/*"));
     request.setRawHeader(QByteArrayLiteral("Accept-Encoding"), QByteArrayLiteral("identity"));
+    if (!range.isEmpty()) request.setRawHeader(QByteArrayLiteral("Range"), range);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
 
     auto* reply = m_manager.get(request);
+    reply->setProperty("encryptedHlsRange", range);
     reply->setProperty("webdavUsername", server.username);
     reply->setProperty("webdavPassword", password);
     wireReply(reply, server);
@@ -556,8 +663,75 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteBytes(
             callback(std::unexpected(status >= 400
                                          ? QStringLiteral("WebDAV returned HTTP %1").arg(status)
                                          : reply->errorString()));
+        } else if (!reply->property("encryptedHlsRange").toByteArray().isEmpty() &&
+                   reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 206) {
+            callback(std::unexpected(QStringLiteral("Remote M3U8SP server does not support byte ranges")));
         } else {
             callback(std::move(*buffer));
+        }
+        reply->deleteLater();
+    });
+    return reply;
+}
+
+QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteRange(
+    const ServerConfig& server,
+    const QString& password,
+    const QUrl& url,
+    qint64 start,
+    qint64 end,
+    qint64 maximumBytes,
+    const QByteArray& expectedEtag,
+    std::function<void(std::expected<RemoteRangeResult, QString>)> callback)
+{
+    if (start < 0 || end < start || maximumBytes < end - start + 1) {
+        callback(std::unexpected(QStringLiteral("Invalid M3U8SP byte range")));
+        return nullptr;
+    }
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("vibePlayerQT/0.1"));
+    request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("*/*"));
+    request.setRawHeader(QByteArrayLiteral("Accept-Encoding"), QByteArrayLiteral("identity"));
+    request.setRawHeader(QByteArrayLiteral("Range"), QByteArrayLiteral("bytes=") + QByteArray::number(start) + '-' + QByteArray::number(end));
+    if (!expectedEtag.isEmpty()) request.setRawHeader(QByteArrayLiteral("If-Match"), expectedEtag);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
+    auto* reply = m_manager.get(request);
+    reply->setProperty("webdavUsername", server.username);
+    reply->setProperty("webdavPassword", password);
+    wireReply(reply, server);
+    auto buffer = std::make_shared<QByteArray>();
+    connect(reply, &QNetworkReply::readyRead, reply, [this, reply, buffer, maximumBytes, server]() {
+        const auto chunk = reply->readAll();
+        if (!chunk.isEmpty()) {
+            emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
+            buffer->append(chunk);
+        }
+        if (buffer->size() > maximumBytes && reply->isRunning()) reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, reply,
+            [reply, buffer, start, end, expectedEtag, callback = std::move(callback)]() mutable {
+        const auto chunk = reply->readAll();
+        if (!chunk.isEmpty()) buffer->append(chunk);
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() != QNetworkReply::NoError) {
+            callback(std::unexpected(status == 412 ? QStringLiteral("Remote M3U8SP object changed") : reply->errorString()));
+        } else if (status != 206) {
+            callback(std::unexpected(QStringLiteral("Remote M3U8SP server does not support byte ranges")));
+        } else {
+            const auto contentRange = reply->rawHeader(QByteArrayLiteral("Content-Range"));
+            static const QRegularExpression pattern(QStringLiteral("^bytes (\\d+)-(\\d+)/(\\d+)$"));
+            const auto match = pattern.match(QString::fromLatin1(contentRange));
+            bool ok = false;
+            const auto responseStart = match.captured(1).toLongLong(&ok);
+            const auto responseEnd = match.captured(2).toLongLong(&ok);
+            const auto total = match.captured(3).toLongLong(&ok);
+            const auto etag = reply->rawHeader(QByteArrayLiteral("ETag"));
+            if (!match.hasMatch() || responseStart != start || responseEnd < start || responseEnd > end || total <= responseEnd ||
+                buffer->size() != responseEnd - start + 1 || (!expectedEtag.isEmpty() && etag != expectedEtag)) {
+                callback(std::unexpected(QStringLiteral("Remote M3U8SP Content-Range or ETag is invalid")));
+            } else {
+                callback(RemoteRangeResult { std::move(*buffer), etag, total });
+            }
         }
         reply->deleteLater();
     });
@@ -586,9 +760,32 @@ void EncryptedHlsPlaybackProxy::fetchLocalBytes(
 QNetworkReply* EncryptedHlsPlaybackProxy::fetchSessionBytes(
     const Session& session,
     const QUrl& sourceUrl,
+    const QString& relativePath,
     qint64 maximumBytes,
     std::function<void(std::expected<QByteArray, QString>)> callback)
 {
+    if (session.containerSource) {
+        const auto* entry = session.containerIndex ? session.containerIndex->entry(relativePath) : nullptr;
+        if (!entry || entry->size > maximumBytes) {
+            callback(std::unexpected(QStringLiteral("M3U8SP entry is unavailable or too large")));
+            return nullptr;
+        }
+        if (session.localSource) {
+            auto result = EncryptedHlsTarContainer::readEntry(session.localContainerPath,
+                                                              *session.containerIndex,
+                                                              relativePath,
+                                                              maximumBytes);
+            callback(std::move(result));
+            return nullptr;
+        }
+        return fetchRemoteRange(session.server, session.password, session.remoteContainerUrl,
+                                entry->dataOffset, entry->dataOffset + entry->size - 1,
+                                maximumBytes, session.remoteContainerEtag,
+                                [callback = std::move(callback)](std::expected<RemoteRangeResult, QString> result) mutable {
+            if (!result) callback(std::unexpected(result.error()));
+            else callback(std::move(result->bytes));
+        });
+    }
     if (session.localSource) {
         fetchLocalBytes(sourceUrl.toLocalFile(), maximumBytes, std::move(callback));
         return nullptr;
@@ -597,6 +794,7 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchSessionBytes(
                             session.password,
                             sourceUrl,
                             maximumBytes,
+                            {},
                             std::move(callback));
 }
 
@@ -684,7 +882,9 @@ void EncryptedHlsPlaybackProxy::handleRequest(QTcpSocket* socket, const QByteArr
     relativeUrl.setPath(*relativePath);
     relativeUrl.setQuery(requestUrl.query(QUrl::FullyDecoded));
     QUrl sourceUrl;
-    if (session->localSource) {
+    if (session->containerSource) {
+        sourceUrl = session->remoteContainerUrl;
+    } else if (session->localSource) {
         auto localUrl = localResourceUrl(session->localDirectoryPath, *relativePath);
         if (!localUrl) {
             writeError(socket, 403);
@@ -749,7 +949,7 @@ void EncryptedHlsPlaybackProxy::serveManifest(QTcpSocket* socket,
     const QPointer<QTcpSocket> guardedSocket(socket);
     auto* reply = fetchSessionBytes(session,
                                    remoteUrl,
-                                   maximumManifestBytes,
+                                   relativePath, maximumManifestBytes,
                                    [this, guardedSocket, sessionId, relativePath, method, expectedDigest](
                                        std::expected<QByteArray, QString> manifest) {
         if (!guardedSocket || !m_sessions.contains(sessionId)) {
@@ -789,7 +989,7 @@ void EncryptedHlsPlaybackProxy::serveSegment(QTcpSocket* socket,
     const QPointer<QTcpSocket> guardedSocket(socket);
     auto* reply = fetchSessionBytes(session,
                                    remoteUrl,
-                                   maximumEncryptedSegmentBytes,
+                                   relativePath, maximumEncryptedSegmentBytes,
                                    [this, guardedSocket, sessionId, relativePath, method, requestHeaders, key](
                                        std::expected<QByteArray, QString> encrypted) {
         if (!guardedSocket || !m_sessions.contains(sessionId)) {
@@ -854,7 +1054,7 @@ void EncryptedHlsPlaybackProxy::serveResource(QTcpSocket* socket,
     const QPointer<QTcpSocket> guardedSocket(socket);
     auto* reply = fetchSessionBytes(session,
                                    remoteUrl,
-                                   maximumResourceBytes,
+                                   relativePath, maximumResourceBytes,
                                    [this, guardedSocket, sessionId, relativePath, method, requestHeaders, expectedDigest](
                                        std::expected<QByteArray, QString> resource) {
         if (!guardedSocket || !m_sessions.contains(sessionId)) {

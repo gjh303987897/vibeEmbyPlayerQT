@@ -269,6 +269,19 @@ void EncryptedHlsFormatTest::sourceFilenameMetadataIsAuthenticatedAndRoundTrips(
     QVERIFY(exportedSourceName.has_value());
     QCOMPARE(exportedSourceName->value_or(QString()), sourceFileName);
 
+    auto containerPackage = package;
+    containerPackage.version = 4;
+    containerPackage.containerFormat = QStringLiteral("m3u8sp-tar-index-v1");
+    containerPackage.containerIndexSha256 = QByteArray(32, '\x55');
+    containerPackage.containerLength = 5LL * 1024 * 1024 * 1024;
+    const auto parsedContainer = TsslPackage::parse(containerPackage.toJson());
+    if (!parsedContainer) QFAIL(qPrintable(parsedContainer.error()));
+    QCOMPARE(parsedContainer->version, 4);
+    QCOMPARE(parsedContainer->containerIndexSha256, containerPackage.containerIndexSha256);
+    QCOMPARE(parsedContainer->containerLength, containerPackage.containerLength);
+    containerPackage.containerIndexSha256.clear();
+    QVERIFY(!TsslPackage::parse(containerPackage.toJson()).has_value());
+
     package.encryptedSourceFileName.back() ^= 0x01;
     QVERIFY(!TsslPackage::parse(package.toJson()).has_value());
 

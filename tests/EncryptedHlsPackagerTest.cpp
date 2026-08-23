@@ -1,6 +1,7 @@
 #include "services/encryptedhls/EncryptedHlsBatchPackager.h"
 #include "services/encryptedhls/EncryptedHlsPackager.h"
 #include "services/encryptedhls/EncryptedHlsSourcePlanner.h"
+#include "services/encryptedhls/EncryptedHlsTarContainer.h"
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
 
@@ -50,6 +51,7 @@ private slots:
     void honorsCancellationBeforeEncryptingPlaintext();
     void buildsFfmpegArgumentsForSelectedEncodings();
     void packagesNormalVideoThroughFfmpeg();
+    void packagesLegacyDirectoryFormatThroughFfmpeg();
     void packagesBatchAndContinuesAfterFailure();
     void cancelsBatchBeforeStartingRemainingItems();
     void plansFilesAndNestedFoldersWithoutFlattening();
@@ -346,18 +348,22 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
     QVERIFY(!packager.isRunning());
     QCOMPARE(packager.progress(), 1.0);
     QVERIFY(QFileInfo::exists(completed->manifestPath));
-    QCOMPARE(QFileInfo(completed->manifestPath).fileName(), QStringLiteral("index.m3u8s"));
-    QVERIFY(!QFileInfo(completed->outputDirectory).fileName().contains(
+    QVERIFY(completed->manifestPath.endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive));
+    QCOMPARE(completed->outputDirectory, completed->manifestPath);
+    QVERIFY(!QFileInfo(completed->manifestPath).fileName().contains(
         QStringLiteral("tiny-video"), Qt::CaseInsensitive));
-    QCOMPARE(QDir(completed->outputDirectory).entryList(
+    QCOMPARE(QDir(QFileInfo(completed->manifestPath).absolutePath()).entryList(
                  QStringList { QStringLiteral("*.tssl") }, QDir::Files).size(),
              0);
     QVERIFY(completed->segmentCount > 0);
     QCOMPARE(completed->identifier.size(), TsslPackage::identifierLength);
 
-    QFile manifestFile(completed->manifestPath);
-    QVERIFY(manifestFile.open(QIODevice::ReadOnly));
-    const auto manifestIdentifier = HlsManifestValidator::extractM3u8sIdentifier(manifestFile.readAll());
+    const auto archiveIndex = EncryptedHlsTarContainer::readIndex(completed->manifestPath);
+    if (!archiveIndex) QFAIL(qPrintable(archiveIndex.error()));
+    const auto manifest = EncryptedHlsTarContainer::readEntry(
+        completed->manifestPath, *archiveIndex, archiveIndex->manifestPath, 4 * 1024 * 1024);
+    if (!manifest) QFAIL(qPrintable(manifest.error()));
+    const auto manifestIdentifier = HlsManifestValidator::extractM3u8sIdentifier(*manifest);
     QVERIFY(manifestIdentifier.has_value());
     QCOMPARE(*manifestIdentifier, completed->identifier);
 
@@ -365,13 +371,62 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
     QVERIFY(stored.has_value());
     QVERIFY(stored->has_value());
     QCOMPARE((**stored).identifier, completed->identifier);
-    QCOMPARE((**stored).version, 3);
+    QCOMPARE((**stored).version, 4);
+    QCOMPARE((**stored).containerIndexSha256, archiveIndex->sha256);
+    QCOMPARE((**stored).containerLength, QFileInfo(completed->manifestPath).size());
     const auto recoveredSourceName = (**stored).decryptedSourceFileName();
     QVERIFY(recoveredSourceName.has_value());
     QVERIFY(recoveredSourceName->has_value());
     QCOMPARE(**recoveredSourceName, QFileInfo(sourcePath).fileName());
     QCOMPARE((**stored).rootManifestDigest, completed->rootManifestDigest);
     QCOMPARE((**stored).segmentKeys.size(), completed->segmentCount);
+}
+
+void EncryptedHlsPackagerTest::packagesLegacyDirectoryFormatThroughFfmpeg()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto sourcePath = temporary.filePath(QStringLiteral("legacy-video.y4m"));
+    QVERIFY(writeBytes(sourcePath, tinyY4mVideo()));
+
+    TsslStore store(temporary.filePath(QStringLiteral("legacy-keys")));
+    EncryptedHlsPackager packager(store);
+    if (packager.ffmpegExecutable().isEmpty()) {
+        QSKIP("FFmpeg is not available in this test environment");
+    }
+
+    std::optional<EncryptedHlsPackageResult> completed;
+    QString failure;
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    connect(&packager, &EncryptedHlsPackager::completed, &loop,
+            [&](const EncryptedHlsPackageResult& result) { completed = result; loop.quit(); });
+    connect(&packager, &EncryptedHlsPackager::failed, &loop,
+            [&](const QString& error) { failure = error; loop.quit(); });
+
+    const auto started = packager.start(EncryptedHlsPackageRequest {
+        .sourcePath = sourcePath,
+        .outputDirectory = temporary.path(),
+        .segmentDurationSeconds = 2,
+        .containerFormat = EncryptedHlsContainerFormat::DirectoryM3u8s,
+    });
+    if (!started) QFAIL(qPrintable(started.error()));
+    timer.start(60'000);
+    loop.exec();
+
+    if (!failure.isEmpty()) QFAIL(qPrintable(failure));
+    QVERIFY2(completed.has_value(), "Timed out waiting for legacy M3U8S packaging");
+    QVERIFY(QFileInfo(completed->outputDirectory).isDir());
+    QCOMPARE(QFileInfo(completed->manifestPath).fileName(), QStringLiteral("index.m3u8s"));
+    QVERIFY(QFileInfo(completed->manifestPath).isFile());
+    QVERIFY(!QFileInfo::exists(completed->outputDirectory + QStringLiteral(".m3u8sp")));
+    const auto stored = store.packageForRootDigest(completed->rootManifestDigest);
+    QVERIFY(stored.has_value());
+    QVERIFY(stored->has_value());
+    QCOMPARE((**stored).version, 3);
+    QCOMPARE((**stored).containerLength, qint64(0));
 }
 
 void EncryptedHlsPackagerTest::packagesBatchAndContinuesAfterFailure()

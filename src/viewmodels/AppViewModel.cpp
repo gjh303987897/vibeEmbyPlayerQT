@@ -20,6 +20,7 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QGuiApplication>
+#include <QClipboard>
 #include <QHash>
 #include <QLocale>
 #include <QRegularExpression>
@@ -520,6 +521,30 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("dialog.errorTitle"), QStringLiteral("Error") },
         { QStringLiteral("dialog.errorSummary"), QStringLiteral("Something went wrong") },
         { QStringLiteral("dialog.errorHint"), QStringLiteral("Review the details below, then try again.") },
+        { QStringLiteral("error.genericSummary"), QStringLiteral("The operation could not be completed") },
+        { QStringLiteral("error.genericHint"), QStringLiteral("Check the information and try again. If it continues, copy the technical details when contacting support.") },
+        { QStringLiteral("error.genericTitle"), QStringLiteral("Operation failed") },
+        { QStringLiteral("error.validationTitle"), QStringLiteral("Check your information") },
+        { QStringLiteral("error.networkTitle"), QStringLiteral("Connection problem") },
+        { QStringLiteral("error.authenticationTitle"), QStringLiteral("Sign-in problem") },
+        { QStringLiteral("error.fileTitle"), QStringLiteral("File access problem") },
+        { QStringLiteral("error.playbackTitle"), QStringLiteral("Playback problem") },
+        { QStringLiteral("error.packagingTitle"), QStringLiteral("Packaging problem") },
+        { QStringLiteral("error.validationSummary"), QStringLiteral("Some information needs attention") },
+        { QStringLiteral("error.validationHint"), QStringLiteral("Review the selected values and required fields, then try again.") },
+        { QStringLiteral("error.networkSummary"), QStringLiteral("The network request did not complete") },
+        { QStringLiteral("error.networkHint"), QStringLiteral("Check the server address and network connection, then try again.") },
+        { QStringLiteral("error.authenticationSummary"), QStringLiteral("The server did not accept the credentials") },
+        { QStringLiteral("error.authenticationHint"), QStringLiteral("Check the username, password, and server permissions.") },
+        { QStringLiteral("error.fileSummary"), QStringLiteral("The file or folder could not be used") },
+        { QStringLiteral("error.fileHint"), QStringLiteral("Make sure the path exists and the application has permission to access it.") },
+        { QStringLiteral("error.playbackSummary"), QStringLiteral("This media could not be played") },
+        { QStringLiteral("error.playbackHint"), QStringLiteral("Try another source or check that the media is available and supported.") },
+        { QStringLiteral("error.packagingSummary"), QStringLiteral("The video could not be packaged") },
+        { QStringLiteral("error.packagingHint"), QStringLiteral("For MPEG-TS packaging, choose H.264 or H.265 encoding instead of copying an incompatible video stream.") },
+        { QStringLiteral("error.details"), QStringLiteral("Technical details") },
+        { QStringLiteral("error.copyDetails"), QStringLiteral("Copy details") },
+        { QStringLiteral("error.detailsCopied"), QStringLiteral("Copied") },
         { QStringLiteral("dialog.serviceTitle"), QStringLiteral("Service") },
         { QStringLiteral("dialog.deleteTitle"), QStringLiteral("Delete service") },
         { QStringLiteral("dialog.deletePrompt"), QStringLiteral("Remove this service card?") },
@@ -700,6 +725,9 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("One or more selected videos are unavailable or not local files") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("Output folder") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("Choose folder") },
+        { QStringLiteral("m3u8s.containerFormat"), QStringLiteral("Output format") },
+        { QStringLiteral("m3u8s.formatM3u8s"), QStringLiteral("M3U8S directory (legacy compatible)") },
+        { QStringLiteral("m3u8s.formatM3u8sp"), QStringLiteral("M3U8SP single file (recommended)") },
         { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("Video encoding") },
         { QStringLiteral("m3u8s.audioEncoding"), QStringLiteral("Audio encoding") },
         { QStringLiteral("m3u8s.videoQuality"), QStringLiteral("Video quality") },
@@ -716,6 +744,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("FFmpeg not found") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("Preparing and segmenting video") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("Encrypting and verifying TS segments") },
+        { QStringLiteral("m3u8s.phase.archiving"), QStringLiteral("Building the single-file M3U8SP container") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("Publishing media and saving TSSL keys locally") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("Canceling and cleaning temporary files") },
         { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("Packaging is in progress. The source video will not be modified.") },
@@ -1024,6 +1053,30 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("dialog.errorTitle"), QStringLiteral("错误") },
         { QStringLiteral("dialog.errorSummary"), QStringLiteral("操作未完成") },
         { QStringLiteral("dialog.errorHint"), QStringLiteral("请查看下面的详细信息，然后重试。") },
+        { QStringLiteral("error.genericSummary"), QStringLiteral("操作无法完成") },
+        { QStringLiteral("error.genericHint"), QStringLiteral("请检查相关信息后重试；如果问题持续存在，可复制技术详情用于反馈。") },
+        { QStringLiteral("error.genericTitle"), QStringLiteral("操作失败") },
+        { QStringLiteral("error.validationTitle"), QStringLiteral("请检查输入信息") },
+        { QStringLiteral("error.networkTitle"), QStringLiteral("连接出现问题") },
+        { QStringLiteral("error.authenticationTitle"), QStringLiteral("登录验证失败") },
+        { QStringLiteral("error.fileTitle"), QStringLiteral("文件访问失败") },
+        { QStringLiteral("error.playbackTitle"), QStringLiteral("播放出现问题") },
+        { QStringLiteral("error.packagingTitle"), QStringLiteral("视频打包失败") },
+        { QStringLiteral("error.validationSummary"), QStringLiteral("部分信息需要检查") },
+        { QStringLiteral("error.validationHint"), QStringLiteral("请检查已选内容和必填项，然后重试。") },
+        { QStringLiteral("error.networkSummary"), QStringLiteral("网络请求未能完成") },
+        { QStringLiteral("error.networkHint"), QStringLiteral("请检查服务器地址和网络连接，然后重试。") },
+        { QStringLiteral("error.authenticationSummary"), QStringLiteral("服务器未接受当前凭据") },
+        { QStringLiteral("error.authenticationHint"), QStringLiteral("请检查用户名、密码和服务器权限。") },
+        { QStringLiteral("error.fileSummary"), QStringLiteral("文件或文件夹无法使用") },
+        { QStringLiteral("error.fileHint"), QStringLiteral("请确认路径存在，并确保应用具有访问权限。") },
+        { QStringLiteral("error.playbackSummary"), QStringLiteral("此媒体无法播放") },
+        { QStringLiteral("error.playbackHint"), QStringLiteral("请尝试其他来源，或检查媒体是否可用且格式受支持。") },
+        { QStringLiteral("error.packagingSummary"), QStringLiteral("视频无法打包") },
+        { QStringLiteral("error.packagingHint"), QStringLiteral("MPEG-TS 打包需要使用 H.264 或 H.265 编码；请不要直接复制不兼容的视频流。") },
+        { QStringLiteral("error.details"), QStringLiteral("技术详情") },
+        { QStringLiteral("error.copyDetails"), QStringLiteral("复制详情") },
+        { QStringLiteral("error.detailsCopied"), QStringLiteral("已复制") },
         { QStringLiteral("dialog.overviewTitle"), QStringLiteral("简介") },
         { QStringLiteral("details.showOverview"), QStringLiteral("显示简介") },
         { QStringLiteral("app.title"), QStringLiteral("vibePlayerQT") },
@@ -1150,6 +1203,9 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("选择的视频不可用或不是本地文件") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("输出目录") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("选择目录") },
+        { QStringLiteral("m3u8s.containerFormat"), QStringLiteral("输出格式") },
+        { QStringLiteral("m3u8s.formatM3u8s"), QStringLiteral("M3U8S 目录格式（兼容旧版本）") },
+        { QStringLiteral("m3u8s.formatM3u8sp"), QStringLiteral("M3U8SP 单文件格式（推荐）") },
         { QStringLiteral("m3u8s.videoEncoding"), QStringLiteral("视频编码") },
         { QStringLiteral("m3u8s.audioEncoding"), QStringLiteral("音频编码") },
         { QStringLiteral("m3u8s.videoQuality"), QStringLiteral("视频质量") },
@@ -1166,6 +1222,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("未找到 FFmpeg") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("正在准备并切分视频") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("正在加密并验证 TS 分片") },
+        { QStringLiteral("m3u8s.phase.archiving"), QStringLiteral("正在创建 M3U8SP 单文件容器") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("正在发布媒体并在本机保存 TSSL 密钥") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("正在取消并清理临时文件") },
         { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("正在打包，原始视频不会被修改。") },
@@ -1784,6 +1841,20 @@ AppViewModel::AppViewModel(QObject* parent)
             });
 }
 
+QString normalizedM3u8sContainerFormat(const QString& value)
+{
+    return value.compare(QStringLiteral("m3u8s"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("m3u8s")
+        : QStringLiteral("m3u8sp");
+}
+
+EncryptedHlsContainerFormat m3u8sContainerFormatFor(const QString& value)
+{
+    return value.compare(QStringLiteral("m3u8s"), Qt::CaseInsensitive) == 0
+        ? EncryptedHlsContainerFormat::DirectoryM3u8s
+        : EncryptedHlsContainerFormat::TarM3u8sp;
+}
+
 QString AppViewModel::serverUrl() const
 {
     return m_serverUrl;
@@ -2305,6 +2376,22 @@ void AppViewModel::setWebDavDisplayMode(const QString& value)
 QString AppViewModel::defaultDownloadDirectory() const
 {
     return m_defaultDownloadDirectory;
+}
+
+QString AppViewModel::m3u8sContainerFormat() const
+{
+    return m_m3u8sContainerFormat;
+}
+
+void AppViewModel::setM3u8sContainerFormat(const QString& value)
+{
+    const auto normalized = normalizedM3u8sContainerFormat(value);
+    if (m_m3u8sContainerFormat == normalized) {
+        return;
+    }
+    m_m3u8sContainerFormat = normalized;
+    m_repository.setM3u8sContainerFormat(normalized);
+    emit m3u8sSettingsChanged();
 }
 
 bool AppViewModel::webDavShowM3u8sIdentifier() const
@@ -2865,6 +2952,44 @@ QString AppViewModel::errorMessage() const
     return m_errorMessage;
 }
 
+bool AppViewModel::hasError() const
+{
+    return !m_errorMessage.isEmpty();
+}
+
+QString AppViewModel::errorTitle() const
+{
+    return trText(m_errorPresentation.titleKey.isEmpty()
+        ? QStringLiteral("dialog.errorTitle")
+        : m_errorPresentation.titleKey);
+}
+
+QString AppViewModel::errorSummary() const
+{
+    if (m_errorMessage.isEmpty()) {
+        return {};
+    }
+    return trText(m_errorPresentation.summaryKey);
+}
+
+QString AppViewModel::errorHint() const
+{
+    if (m_errorMessage.isEmpty()) {
+        return {};
+    }
+    return trText(m_errorPresentation.hintKey);
+}
+
+QString AppViewModel::errorDetails() const
+{
+    return m_errorPresentation.details;
+}
+
+bool AppViewModel::errorDetailsAvailable() const
+{
+    return !m_errorPresentation.details.isEmpty();
+}
+
 QString AppViewModel::selectedItemId() const
 {
     return m_selectedItem ? m_selectedItem->id : QString {};
@@ -3368,6 +3493,7 @@ void AppViewModel::initialize()
     m_m3u8sVideoEncoding = normalizedM3u8sVideoEncoding(m_repository.m3u8sVideoEncoding());
     m_m3u8sAudioEncoding = normalizedM3u8sAudioEncoding(m_repository.m3u8sAudioEncoding());
     m_m3u8sVideoQuality = normalizedM3u8sVideoQuality(m_repository.m3u8sVideoQuality());
+    m_m3u8sContainerFormat = normalizedM3u8sContainerFormat(m_repository.m3u8sContainerFormat());
     m_tsslBackupTarget = m_repository.tsslBackupTarget();
     if (m_tsslBackupTarget != QStringLiteral("webdav") && m_tsslBackupTarget != QStringLiteral("s3")) {
         m_tsslBackupTarget = QStringLiteral("none");
@@ -5379,44 +5505,45 @@ void AppViewModel::deleteManagedTssl(int row)
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Deleted a managed TSSL package"));
 }
 
-void AppViewModel::addM3u8sVideoSources(const QVariantList& files)
+void AppViewModel::addM3u8sVideoSource(const QUrl& file)
 {
     clearError();
     if (m3u8sPackaging()) {
         return;
     }
-    bool changed = false;
-    for (const auto& value : files) {
-        const auto url = value.toUrl();
-        if (!url.isLocalFile()) {
-            setError(trText(QStringLiteral("m3u8s.invalidVideo")));
-            return;
-        }
-        const QFileInfo sourceInfo(url.toLocalFile());
-        if (!sourceInfo.exists() || !sourceInfo.isFile() || !sourceInfo.isReadable()) {
-            setError(trText(QStringLiteral("m3u8s.invalidVideo")));
-            return;
-        }
-        if (!EncryptedHlsSourcePlanner::isSupportedVideoFile(sourceInfo.fileName())) {
-            setError(trText(QStringLiteral("m3u8s.invalidVideo")));
-            return;
-        }
-        const auto sourcePath = QDir::cleanPath(sourceInfo.absoluteFilePath());
-        const auto duplicate = std::ranges::any_of(m_m3u8sSelectedSources, [&sourcePath](const QString& existing) {
-            return existing.compare(sourcePath,
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-                                    Qt::CaseInsensitive
-#else
-                                    Qt::CaseSensitive
-#endif
-                                    ) == 0;
-        });
-        if (!duplicate) {
-            m_m3u8sSelectedSources.append(sourcePath);
-            changed = true;
-        }
+    if (!file.isLocalFile()) {
+        AppLogger::warning(QStringLiteral("encrypted-hls"),
+                           QStringLiteral("Rejected a selected video because the file dialog did not return a local URL"));
+        setError(trText(QStringLiteral("m3u8s.invalidVideo")));
+        return;
     }
-    if (changed) {
+    const QFileInfo sourceInfo(file.toLocalFile());
+    if (!sourceInfo.exists() || !sourceInfo.isFile() || !sourceInfo.isReadable()) {
+        AppLogger::warning(QStringLiteral("encrypted-hls"),
+                           QStringLiteral("Rejected selected video '%1' because it is unavailable or unreadable")
+                               .arg(sourceInfo.fileName()));
+        setError(trText(QStringLiteral("m3u8s.invalidVideo")));
+        return;
+    }
+    if (!EncryptedHlsSourcePlanner::isSupportedVideoFile(sourceInfo.fileName())) {
+        AppLogger::warning(QStringLiteral("encrypted-hls"),
+                           QStringLiteral("Rejected selected video '%1' because its extension is unsupported")
+                               .arg(sourceInfo.fileName()));
+        setError(trText(QStringLiteral("m3u8s.invalidVideo")));
+        return;
+    }
+    const auto sourcePath = QDir::cleanPath(sourceInfo.absoluteFilePath());
+    const auto duplicate = std::ranges::any_of(m_m3u8sSelectedSources, [&sourcePath](const QString& existing) {
+        return existing.compare(sourcePath,
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+                                Qt::CaseInsensitive
+#else
+                                Qt::CaseSensitive
+#endif
+                                ) == 0;
+    });
+    if (!duplicate) {
+        m_m3u8sSelectedSources.append(sourcePath);
         emit m3u8sSourceSelectionChanged();
     }
 }
@@ -5485,6 +5612,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     const auto videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding);
     const auto audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding);
     const auto videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality);
+    const auto containerFormat = m3u8sContainerFormatFor(m_m3u8sContainerFormat);
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.discoveringStatus"));
     m_m3u8sLastOutputDirectory.clear();
@@ -5497,7 +5625,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     auto* watcher = new QFutureWatcher<PlanResult>(this);
     const auto cancelFlag = m_m3u8sSourceScanCanceled;
     connect(watcher, &QFutureWatcherBase::finished, this,
-            [this, watcher, cancelFlag, segmentDuration, videoEncoding, audioEncoding, videoQuality]() {
+            [this, watcher, cancelFlag, segmentDuration, videoEncoding, audioEncoding, videoQuality, containerFormat]() {
         auto plan = watcher->result();
         watcher->deleteLater();
         const auto canceled = cancelFlag->load(std::memory_order_relaxed);
@@ -5530,6 +5658,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
                 .videoEncoding = videoEncoding,
                 .audioEncoding = audioEncoding,
                 .videoQuality = videoQuality,
+                .containerFormat = containerFormat,
             });
         }
         const auto started = m_m3u8sPackager.start(std::move(batch));
@@ -5586,8 +5715,9 @@ void AppViewModel::cancelM3u8sPackaging()
 
 void AppViewModel::openM3u8sOutputDirectory()
 {
-    if (m_m3u8sLastOutputDirectory.isEmpty() ||
-        !QDesktopServices::openUrl(QUrl::fromLocalFile(m_m3u8sLastOutputDirectory))) {
+    const QFileInfo output(m_m3u8sLastOutputDirectory);
+    const auto directory = output.isFile() ? output.absolutePath() : m_m3u8sLastOutputDirectory;
+    if (directory.isEmpty() || !QDesktopServices::openUrl(QUrl::fromLocalFile(directory))) {
         setError(trText(QStringLiteral("m3u8s.openFolderFailed")));
     }
 }
@@ -7683,7 +7813,16 @@ void AppViewModel::clearError()
         return;
     }
     m_errorMessage.clear();
+    m_errorPresentation = {};
     emit errorMessageChanged();
+}
+
+void AppViewModel::copyCurrentErrorDetails()
+{
+    if (m_errorPresentation.details.isEmpty() || !QGuiApplication::clipboard()) {
+        return;
+    }
+    QGuiApplication::clipboard()->setText(m_errorPresentation.details);
 }
 
 void AppViewModel::openLocalPlaybackForVerification(const QUrl& url)
@@ -8812,10 +8951,13 @@ void AppViewModel::completeInitialServiceLoad()
 
 void AppViewModel::setError(QString message)
 {
-    if (m_errorMessage == message) {
+    const auto presentation = ErrorPresentation::fromMessage(message);
+    if (m_errorMessage == message && m_errorPresentation.details == presentation.details
+        && m_errorPresentation.summaryKey == presentation.summaryKey) {
         return;
     }
     m_errorMessage = std::move(message);
+    m_errorPresentation = presentation;
     emit errorMessageChanged();
 }
 

@@ -1,5 +1,7 @@
 # VIBEDOCS
 
+- `EncryptedHlsTarContainer.md` documents the indexed `.m3u8sp` TAR container and its local/WebDAV playback rules.
+
 - `ScheduledPlayback.md`: Emby 手动/重复保号策略、日期计算、自动队列、随机选片和前台播放抢占规则。
 
 本目录记录项目中可复用模块的设计、边界和实现依据。

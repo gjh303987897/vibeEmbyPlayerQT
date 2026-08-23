@@ -15,6 +15,9 @@ struct TsslPackage final {
     static constexpr qsizetype identifierLength = 4096;
 
     int version { 2 };
+    QString containerFormat;
+    QByteArray containerIndexSha256;
+    qint64 containerLength { 0 };
     QByteArray identifier;
     QByteArray rootManifestDigest;
     QByteArray encryptedSourceFileName;

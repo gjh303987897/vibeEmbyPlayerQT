@@ -135,8 +135,10 @@ The page offers these encoding modes:
 
 - Video stream copy preserves the original encoded video without decode or
   re-encode. Segment boundaries follow existing keyframes, so the requested
-  duration is approximate. FFmpeg reports an error instead of silently
-  transcoding when the source stream is incompatible with MPEG-TS HLS.
+  duration is approximate. After segmentation, the service decodes one frame
+  from the first generated TS on a worker thread. Packaging is rejected with
+  an instruction to select H.264 or H.265 when MPEG-TS exposes the copied
+  stream as data or otherwise contains no decodable video track.
 - H.264 uses `libx264`; high, balanced, and compact quality map to CRF 18, 20,
   and 24.
 - H.265 uses `libx265`; high, balanced, and compact quality map to CRF 20, 23,
@@ -293,6 +295,9 @@ media key and must be handled as secrets.
   failures all stop playback. There is no unauthenticated fallback.
 
 ## Verification
+
+M3U8S 视频管理支持用户选择两种输出格式：旧版目录格式 `.m3u8s` 和带开头 CBOR 索引的 POSIX/PAX TAR 单文件格式 `.m3u8sp`。默认使用 `.m3u8sp`；两种格式可以同时存在，旧格式继续使用 TSSL v3，新格式使用 TSSL v4。单文件容器详见
+`EncryptedHlsTarContainer.md`。旧目录式 `.m3u8s` 格式继续兼容。
 
 `EncryptedHlsFormatTest` covers TSSL v2 compatibility, TSSL v3 source-name
 authentication, restore/export, strict identifiers, AES-GCM vectors,

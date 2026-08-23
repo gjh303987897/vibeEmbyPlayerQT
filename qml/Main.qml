@@ -298,10 +298,18 @@ ApplicationWindow {
 
     ModernDialog {
         id: errorDialog
-        title: t("dialog.errorTitle")
+        property bool detailsExpanded: false
+        property bool detailsCopied: false
+        title: appViewModel.errorTitle
         standardButtons: Dialog.Ok
-        width: Math.min(root.width - 64, 520)
+        width: Math.min(root.width - 64, 600)
+        height: Math.min(root.height - 48, detailsExpanded ? 560 : 360)
         transformOrigin: Item.Center
+
+        onOpened: {
+            detailsExpanded = false
+            detailsCopied = false
+        }
 
         enter: Transition {
             ParallelAnimation {
@@ -317,7 +325,7 @@ ApplicationWindow {
             }
         }
 
-        ColumnLayout {
+    ColumnLayout {
             width: parent.width
             spacing: 16
 
@@ -347,15 +355,16 @@ ApplicationWindow {
 
                     Label {
                         Layout.fillWidth: true
-                        text: t("dialog.errorSummary")
+                        text: appViewModel.errorSummary
                         color: theme.text
                         font.pixelSize: 15
                         font.bold: true
+                        wrapMode: Text.WordWrap
                     }
 
                     MutedText {
                         Layout.fillWidth: true
-                        text: t("dialog.errorHint")
+                        text: appViewModel.errorHint
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -363,26 +372,77 @@ ApplicationWindow {
 
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: errorMessageText.implicitHeight + 24
+                Layout.fillHeight: errorDialog.detailsExpanded
+                implicitHeight: errorDialog.detailsExpanded ? 230 : 52
                 radius: 9
                 color: theme.errorBg
                 border.color: root.withAlpha(theme.danger, 0.42)
 
-                BodyText {
-                    id: errorMessageText
+                ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    text: appViewModel.errorMessage
-                    color: theme.errorText
-                    wrapMode: Text.WordWrap
-                    maximumLineCount: 8
-                    elide: Text.ElideRight
+                    anchors.margins: 10
+                    spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        implicitHeight: 32
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: t("error.details")
+                            color: theme.errorText
+                            font.bold: true
+                        }
+
+                        ModernButton {
+                            visible: appViewModel.errorDetailsAvailable
+                            text: errorDialog.detailsCopied ? t("error.detailsCopied") : t("error.copyDetails")
+                            implicitHeight: 30
+                            onClicked: {
+                                appViewModel.copyCurrentErrorDetails()
+                                errorDialog.detailsCopied = true
+                                copyFeedbackTimer.restart()
+                            }
+                        }
+
+                        IconButton {
+                            visible: appViewModel.errorDetailsAvailable
+                            text: errorDialog.detailsExpanded ? "-" : "+"
+                            onClicked: errorDialog.detailsExpanded = !errorDialog.detailsExpanded
+                        }
+                    }
+
+                    Flickable {
+                        visible: errorDialog.detailsExpanded && appViewModel.errorDetailsAvailable
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        contentWidth: width
+                        contentHeight: errorDetailsText.implicitHeight
+
+                        TextEdit {
+                            id: errorDetailsText
+                            width: parent.width
+                            readOnly: true
+                            selectByMouse: true
+                            text: appViewModel.errorDetails
+                            color: theme.errorText
+                            wrapMode: TextEdit.Wrap
+                            font.pixelSize: 12
+                        }
+                    }
                 }
             }
         }
 
         onAccepted: appViewModel.clearError()
         onRejected: appViewModel.clearError()
+
+        Timer {
+            id: copyFeedbackTimer
+            interval: 1600
+            onTriggered: errorDialog.detailsCopied = false
+        }
     }
 
     Popup {
@@ -2083,7 +2143,11 @@ ApplicationWindow {
             t("m3u8s.videoFiles"),
             t("player.allFiles") + " (*)"
         ]
-        onAccepted: appViewModel.addM3u8sVideoSources(selectedFiles)
+        onAccepted: {
+            for (let index = 0; index < selectedFiles.length; ++index) {
+                appViewModel.addM3u8sVideoSource(selectedFiles[index])
+            }
+        }
     }
 
     FolderDialog {
@@ -13878,7 +13942,7 @@ ApplicationWindow {
 
                     GridLayout {
                         Layout.fillWidth: true
-                        columns: width < 760 ? 1 : 3
+                        columns: width < 760 ? 1 : 4
                         columnSpacing: 12
                         rowSpacing: 10
 
@@ -13969,6 +14033,34 @@ ApplicationWindow {
                                 currentIndex: appViewModel.m3u8sVideoQuality === "high" ? 0
                                     : appViewModel.m3u8sVideoQuality === "compact" ? 2 : 1
                                 onActivated: appViewModel.m3u8sVideoQuality = model[index].value
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 1
+                            spacing: 6
+
+                            Label {
+                                text: t("m3u8s.containerFormat")
+                                color: theme.text
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+
+                            ModernComboBox {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                enabled: !appViewModel.m3u8sPackaging
+                                textRole: "label"
+                                valueRole: "value"
+                                model: [
+                                    { label: t("m3u8s.formatM3u8s"), value: "m3u8s" },
+                                    { label: t("m3u8s.formatM3u8sp"), value: "m3u8sp" }
+                                ]
+                                currentIndex: appViewModel.m3u8sContainerFormat === "m3u8s" ? 0 : 1
+                                onActivated: appViewModel.m3u8sContainerFormat = model[index].value
                             }
                         }
                     }

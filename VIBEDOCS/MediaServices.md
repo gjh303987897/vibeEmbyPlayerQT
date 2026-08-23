@@ -2,6 +2,8 @@
 
 ## Layering
 
+加密 HLS 还支持带 CBOR 开头索引的 `.m3u8sp` TAR 单文件容器；容器解析和 Range 读取位于 C++ service 层，QML 不接触 TAR 或密钥。
+
 The first implementation follows:
 
 QML -> `AppViewModel` -> service client -> `NetworkClient` -> Emby / Jellyfin server

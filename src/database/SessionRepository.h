@@ -144,6 +144,8 @@ public:
     void setM3u8sAudioEncoding(const QString& encoding);
     QString m3u8sVideoQuality() const;
     void setM3u8sVideoQuality(const QString& quality);
+    QString m3u8sContainerFormat() const;
+    void setM3u8sContainerFormat(const QString& format);
     QString updateChannel() const;
     void setUpdateChannel(const QString& channel);
     bool automaticUpdateCheck() const;
