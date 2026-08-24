@@ -47,7 +47,11 @@ constexpr int usageFlushIntervalMs = 15000;
 constexpr qint64 playbackTicksPerSecond = 10'000'000;
 constexpr int recentPlaybackProgressMergeMs = 30000;
 constexpr int continueRefreshAfterStopMs = 1500;
-constexpr int serviceActivationFeedbackMs = 60;
+// Give Qt Quick one frame to present the card's loading state before starting
+// the activation preparation.  The previous 60 ms delay made clicks feel
+// unresponsive, especially when the activation itself was fast (for example a
+// cached Emby session).
+constexpr int serviceActivationFeedbackMs = 16;
 constexpr int homeDataStartDelayMs = 80;
 constexpr int embyRecommendationFetchLimit = 32;
 constexpr qsizetype embyRecommendationVisibleLimit = 8;
@@ -3772,7 +3776,10 @@ void AppViewModel::selectServiceCard(int row)
 
             setSession(std::move(*result->session));
             loadServiceHome();
-            setLoading(false);
+            // Keep the selected card in its loading state until the initial
+            // home requests have produced valid data.  Clearing it here made
+            // the card stop animating while the page was still being prepared,
+            // which looked like a short freeze before the transition started.
         });
         watcher->setFuture(QtConcurrent::run([card]() {
             return prepareServiceActivation(card);
