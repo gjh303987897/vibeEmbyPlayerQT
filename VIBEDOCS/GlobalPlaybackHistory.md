@@ -71,6 +71,14 @@ Normal mode excludes private history. Privacy mode includes both normal and priv
 
 Deleting a service with local data also deletes its global history. Hiding a service without deleting local data preserves its history rows, but marks them unavailable until the service is enabled again.
 
+The retention period is configurable in Settings > Playback history. It defaults
+to 30 days and applies to both global playback rows and daily usage statistics.
+Changing the value prunes records older than the selected number of calendar
+days immediately; the current day counts as the first day. The same cleanup is
+also performed during database initialization and before daily usage statistics
+are loaded, so expired records do not remain visible after an application
+restart.
+
 Replay targets never enter the QML model. Display addresses remove query and fragment data, media-server tokens are not stored, WebDAV passwords remain in `CredentialStore`, and logs contain only generic lifecycle/error messages.
 
 When clearing `QUrl` components, use explicit `QString {}` arguments. Empty braced arguments are ambiguous between the `QString` and `QUrlQuery` overloads of `QUrl::setQuery` on GCC and break Linux x86_64 and ARM64 builds.

@@ -47,6 +47,7 @@ public:
                                                qint64 keepAliveNetworkBytesOut);
     std::expected<std::vector<DailyUsageStat>, QString> loadDailyUsageStats(bool includePrivacyMode);
     std::expected<void, QString> pruneOldDailyUsage();
+    std::expected<void, QString> pruneOldHistory();
     std::expected<void, QString> saveLinkPlaybackHistory(const LinkPlaybackHistoryItem& item);
     std::expected<std::vector<LinkPlaybackHistoryItem>, QString> loadLinkPlaybackHistory(bool includePrivacyMode = false);
     std::expected<void, QString> deleteLinkPlaybackHistory(const QString& recordId);
@@ -108,6 +109,8 @@ public:
     void setThemeMode(const QString& mode);
     QString languageMode() const;
     void setLanguageMode(const QString& mode);
+    int historyRetentionDays() const;
+    void setHistoryRetentionDays(int days);
     QString embyHomeLayout() const;
     void setEmbyHomeLayout(const QString& layout);
     QString jellyfinHomeLayout() const;

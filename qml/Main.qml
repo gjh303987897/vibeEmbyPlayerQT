@@ -13931,7 +13931,7 @@ ApplicationWindow {
                 SectionHeader {
                     Layout.fillWidth: true
                     title: t("history.title")
-                    subtitle: t("history.retention")
+                    subtitle: t("history.retention").arg(appViewModel.historyRetentionDays)
                 }
 
                 ModernButton {
@@ -13996,7 +13996,8 @@ ApplicationWindow {
             SectionHeader {
                 Layout.fillWidth: true
                 title: t("history.dailyRecords")
-                subtitle: appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle")
+                subtitle: (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
+                    .arg(appViewModel.historyRetentionDays)
             }
 
             ListView {
@@ -14065,7 +14066,7 @@ ApplicationWindow {
 
                     MutedText {
                         Layout.fillWidth: true
-                        text: t("history.retention")
+                        text: t("history.retention").arg(appViewModel.historyRetentionDays)
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                     }
@@ -15222,6 +15223,35 @@ ApplicationWindow {
                         checked: appViewModel.minimizeToTray
                         enabled: trayController.trayAvailable
                         onToggled: appViewModel.minimizeToTray = checked
+                    }
+                }
+            }
+
+            SettingsGroup {
+                title: t("settings.history")
+
+                SettingRow {
+                    label: t("settings.historyRetention")
+                    ModernComboBox {
+                        Layout.preferredWidth: 220
+                        textRole: "label"
+                        valueRole: "value"
+                        model: [
+                            { label: "7 " + t("history.days"), value: 7 },
+                            { label: "14 " + t("history.days"), value: 14 },
+                            { label: "30 " + t("history.days"), value: 30 },
+                            { label: "60 " + t("history.days"), value: 60 },
+                            { label: "90 " + t("history.days"), value: 90 },
+                            { label: "180 " + t("history.days"), value: 180 },
+                            { label: "365 " + t("history.days"), value: 365 }
+                        ]
+                        currentIndex: appViewModel.historyRetentionDays === 7 ? 0
+                            : appViewModel.historyRetentionDays === 14 ? 1
+                            : appViewModel.historyRetentionDays === 30 ? 2
+                            : appViewModel.historyRetentionDays === 60 ? 3
+                            : appViewModel.historyRetentionDays === 90 ? 4
+                            : appViewModel.historyRetentionDays === 180 ? 5 : 6
+                        onActivated: appViewModel.historyRetentionDays = model[index].value
                     }
                 }
             }

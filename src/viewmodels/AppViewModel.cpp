@@ -943,6 +943,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("recommendations.genreLoading"), QStringLiteral("Loading series genres...") },
         { QStringLiteral("recommendations.genreUnavailable"), QStringLiteral("Open an Emby service once to load available genres") },
         { QStringLiteral("settings.desktop"), QStringLiteral("Desktop") },
+        { QStringLiteral("settings.history"), QStringLiteral("Playback history") },
+        { QStringLiteral("settings.historyRetention"), QStringLiteral("Keep playback history for") },
         { QStringLiteral("settings.webdav"), QStringLiteral("WebDAV") },
         { QStringLiteral("settings.tsslBackup"), QStringLiteral("TSSL backup") },
         { QStringLiteral("tsslBackup.target"), QStringLiteral("Backup target") },
@@ -976,7 +978,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.privacyPin"), QStringLiteral("Privacy PIN") },
         { QStringLiteral("settings.minimizeToTray"), QStringLiteral("Minimize to tray") },
         { QStringLiteral("history.title"), QStringLiteral("History Stats") },
-        { QStringLiteral("history.subtitle"), QStringLiteral("Viewing time and network usage from the last 30 days") },
+        { QStringLiteral("history.subtitle"), QStringLiteral("Viewing time and network usage from the last %1 days") },
         { QStringLiteral("history.totalWatch"), QStringLiteral("Total watch time") },
         { QStringLiteral("history.totalTraffic"), QStringLiteral("Total traffic") },
         { QStringLiteral("history.dailyRecords"), QStringLiteral("Daily records") },
@@ -990,9 +992,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("history.upload"), QStringLiteral("Upload") },
         { QStringLiteral("history.totalDownload"), QStringLiteral("Total download") },
         { QStringLiteral("history.totalUpload"), QStringLiteral("Total upload") },
-        { QStringLiteral("history.retention"), QStringLiteral("Stats are kept for 30 days and old records are removed automatically.") },
+        { QStringLiteral("history.retention"), QStringLiteral("Records are kept for %1 days and old records are removed automatically.") },
+        { QStringLiteral("history.days"), QStringLiteral("days") },
         { QStringLiteral("history.privateBadge"), QStringLiteral("Private") },
-        { QStringLiteral("history.subtitlePrivacy"), QStringLiteral("Privacy mode includes private records from the last 30 days") },
+        { QStringLiteral("history.subtitlePrivacy"), QStringLiteral("Privacy mode includes private records from the last %1 days") },
         { QStringLiteral("privacy.editCards"), QStringLiteral("Privacy Cards") },
         { QStringLiteral("privacy.noCards"), QStringLiteral("No private service cards") },
         { QStringLiteral("privacy.pinTitle"), QStringLiteral("Enter privacy PIN") },
@@ -1411,6 +1414,8 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.recommendations"), QStringLiteral("Emby 推荐") },
         { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("推荐更新") },
         { QStringLiteral("settings.embyRecommendationFilter"), QStringLiteral("排除的剧集类型") },
+        { QStringLiteral("settings.history"), QStringLiteral("历史记录") },
+        { QStringLiteral("settings.historyRetention"), QStringLiteral("历史保留时间") },
         { QStringLiteral("settings.updates"), QStringLiteral("更新") },
         { QStringLiteral("settings.tsslBackup"), QStringLiteral("TSSL 备份") },
         { QStringLiteral("tsslBackup.target"), QStringLiteral("备份目标") },
@@ -1604,7 +1609,7 @@ const QHash<QString, QString>& historyChineseTexts()
     static const QHash<QString, QString> texts {
         { QStringLiteral("nav.history"), QStringLiteral("历史统计") },
         { QStringLiteral("history.title"), QStringLiteral("历史统计") },
-        { QStringLiteral("history.subtitle"), QStringLiteral("过去 30 天的观看时长与网络流量") },
+        { QStringLiteral("history.subtitle"), QStringLiteral("过去 %1 天的观看时长与网络流量") },
         { QStringLiteral("history.totalWatch"), QStringLiteral("总观看") },
         { QStringLiteral("history.totalTraffic"), QStringLiteral("总流量") },
         { QStringLiteral("history.dailyRecords"), QStringLiteral("每日记录") },
@@ -1618,7 +1623,8 @@ const QHash<QString, QString>& historyChineseTexts()
         { QStringLiteral("history.upload"), QStringLiteral("上行") },
         { QStringLiteral("history.totalDownload"), QStringLiteral("总下行") },
         { QStringLiteral("history.totalUpload"), QStringLiteral("总上行") },
-        { QStringLiteral("history.retention"), QStringLiteral("统计数据保留 30 天，过期记录会自动删除。") },
+        { QStringLiteral("history.retention"), QStringLiteral("记录保留 %1 天，过期记录会自动删除。") },
+        { QStringLiteral("history.days"), QStringLiteral("天") },
     };
     return texts;
 }
@@ -1630,7 +1636,7 @@ const QHash<QString, QString>& privacyChineseTexts()
         { QStringLiteral("settings.privacy"), QStringLiteral("隐私") },
         { QStringLiteral("settings.privacyPin"), QStringLiteral("隐私 PIN") },
         { QStringLiteral("history.privateBadge"), QStringLiteral("隐私模式") },
-        { QStringLiteral("history.subtitlePrivacy"), QStringLiteral("隐私模式下会包含过去 30 天的隐私记录") },
+        { QStringLiteral("history.subtitlePrivacy"), QStringLiteral("隐私模式下会包含过去 %1 天的隐私记录") },
         { QStringLiteral("privacy.editCards"), QStringLiteral("隐私卡片编辑") },
         { QStringLiteral("privacy.noCards"), QStringLiteral("暂无隐私服务卡片") },
         { QStringLiteral("privacy.pinTitle"), QStringLiteral("输入隐私 PIN") },
@@ -3327,6 +3333,27 @@ qint64 AppViewModel::historyKeepAliveNetworkBytesOut() const
     return m_historyKeepAliveNetworkBytesOut;
 }
 
+int AppViewModel::historyRetentionDays() const
+{
+    return m_historyRetentionDays;
+}
+
+void AppViewModel::setHistoryRetentionDays(int value)
+{
+    const auto normalized = qBound(1, value, 3650);
+    if (m_historyRetentionDays == normalized) {
+        return;
+    }
+    m_historyRetentionDays = normalized;
+    m_repository.setHistoryRetentionDays(m_historyRetentionDays);
+    if (auto result = m_repository.pruneOldHistory(); !result) {
+        setError(result.error());
+    }
+    emit historyRetentionChanged();
+    refreshUsageStats();
+    refreshGlobalHistory();
+}
+
 ScheduledPlaybackTaskListModel* AppViewModel::scheduledPlaybackTasks()
 {
     return &m_scheduledPlaybackTasks;
@@ -3562,6 +3589,7 @@ void AppViewModel::initialize()
 
     m_themeMode = normalizedTheme(m_repository.themeMode());
     m_languageMode = normalizedLanguage(m_repository.languageMode());
+    m_historyRetentionDays = m_repository.historyRetentionDays();
     m_defaultDownloadDirectory = m_repository.defaultDownloadDirectory();
     m_webDavShowM3u8sIdentifier = m_repository.webDavShowM3u8sIdentifier();
     m_webDavShowM3u8sSourceFileName = m_repository.webDavShowM3u8sSourceFileName();
@@ -3590,6 +3618,7 @@ void AppViewModel::initialize()
     emit themeModeChanged();
     emit effectiveThemeChanged();
     emit languageModeChanged();
+    emit historyRetentionChanged();
     emit defaultDownloadDirectoryChanged();
     emit webDavDisplaySettingsChanged();
     emit m3u8sSettingsChanged();

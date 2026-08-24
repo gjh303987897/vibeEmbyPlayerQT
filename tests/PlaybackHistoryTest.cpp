@@ -13,6 +13,7 @@ class PlaybackHistoryTest final : public QObject {
 private slots:
     void persistsFiltersUpdatesAndDeletesRecords();
     void supportsDateManagement();
+    void configuresHistoryRetentionAndPrunesExpiredRecords();
     void keepsSameTargetFromDifferentServices();
     void migratesExistingLinkHistory();
     void deduplicatesExistingGlobalHistory();
@@ -204,6 +205,50 @@ void PlaybackHistoryTest::supportsDateManagement()
     const auto afterAllDelete = repository.loadPlaybackHistoryForDate(true, firstDay.playedDate);
     QVERIFY(afterAllDelete.has_value());
     QVERIFY(afterAllDelete->empty());
+}
+
+void PlaybackHistoryTest::configuresHistoryRetentionAndPrunesExpiredRecords()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    SessionRepository repository(uniqueConnectionName(), directory.filePath(QStringLiteral("retention.sqlite3")));
+    QVERIFY(repository.initialize().has_value());
+
+    const auto previousRetention = repository.historyRetentionDays();
+    repository.setHistoryRetentionDays(2);
+    QCOMPARE(repository.historyRetentionDays(), 2);
+
+    const auto now = QDateTime::currentDateTimeUtc();
+    const auto expired = historyItem(QStringLiteral("expired"),
+                                     PlaybackHistorySource::Local,
+                                     QStringLiteral("C:/Media/expired.mkv"),
+                                     now.addDays(-3).toString(Qt::ISODate));
+    const auto retained = historyItem(QStringLiteral("retained"),
+                                      PlaybackHistorySource::Local,
+                                      QStringLiteral("C:/Media/retained.mkv"),
+                                      now.addDays(-1).toString(Qt::ISODate));
+    QVERIFY(repository.savePlaybackHistory(expired).has_value());
+    QVERIFY(repository.savePlaybackHistory(retained).has_value());
+
+    LinkPlaybackHistoryItem expiredLink {
+        .id = QStringLiteral("expired-link"),
+        .playbackUrl = QUrl(QStringLiteral("https://example.com/expired.m3u8")),
+        .playedDate = expired.playedDate,
+        .playedAt = expired.playedAt,
+        .privacyMode = false,
+    };
+    QVERIFY(repository.saveLinkPlaybackHistory(expiredLink).has_value());
+
+    QVERIFY(repository.pruneOldHistory().has_value());
+    const auto loaded = repository.loadPlaybackHistory(true, 0, 20);
+    QVERIFY(loaded.has_value());
+    QCOMPARE(loaded->size(), size_t { 1 });
+    QCOMPARE(loaded->front().id, retained.id);
+    const auto loadedLinks = repository.loadLinkPlaybackHistory(true);
+    QVERIFY(loadedLinks.has_value());
+    QVERIFY(loadedLinks->empty());
+
+    repository.setHistoryRetentionDays(previousRetention);
 }
 
 void PlaybackHistoryTest::usesManagedPathForIptvServiceCards()

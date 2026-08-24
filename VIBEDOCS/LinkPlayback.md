@@ -78,7 +78,9 @@ The complete URL is required for replay and can include signed query parameters.
 - Service type: `Link`
 - Traffic category: normal playback traffic
 
-The existing pending-usage buffer, periodic SQLite flush, privacy-mode partition, 30-day retention, daily history list, and total download summary are reused unchanged.
+The existing pending-usage buffer, periodic SQLite flush, privacy-mode partition,
+configurable history retention (30 days by default), daily history list, and
+total download summary are reused unchanged.
 
 ## Official References
 

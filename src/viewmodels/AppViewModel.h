@@ -232,6 +232,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(qint64 historyKeepAliveNetworkBytes READ historyKeepAliveNetworkBytes NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyKeepAliveNetworkBytesIn READ historyKeepAliveNetworkBytesIn NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyKeepAliveNetworkBytesOut READ historyKeepAliveNetworkBytesOut NOTIFY historyStatsChanged)
+    Q_PROPERTY(int historyRetentionDays READ historyRetentionDays WRITE setHistoryRetentionDays NOTIFY historyRetentionChanged)
     Q_PROPERTY(ScheduledPlaybackTaskListModel* scheduledPlaybackTasks READ scheduledPlaybackTasks CONSTANT)
     Q_PROPERTY(ServiceCardListModel* scheduledEmbySources READ scheduledEmbySources CONSTANT)
     Q_PROPERTY(QString scheduledPlaybackStatus READ scheduledPlaybackStatus NOTIFY scheduledPlaybackStatusChanged)
@@ -491,6 +492,8 @@ public:
     qint64 historyKeepAliveNetworkBytes() const;
     qint64 historyKeepAliveNetworkBytesIn() const;
     qint64 historyKeepAliveNetworkBytesOut() const;
+    int historyRetentionDays() const;
+    void setHistoryRetentionDays(int value);
     ScheduledPlaybackTaskListModel* scheduledPlaybackTasks();
     ServiceCardListModel* scheduledEmbySources();
     QString scheduledPlaybackStatus() const;
@@ -722,6 +725,7 @@ signals:
     void selectedSeasonChanged();
     void playbackChanged();
     void historyStatsChanged();
+    void historyRetentionChanged();
     void globalHistoryFilterChanged();
     void globalHistoryStateChanged();
     void globalHistoryManagementChanged();
@@ -1070,6 +1074,7 @@ private:
     qint64 m_historyTotalNetworkBytes { 0 };
     qint64 m_historyTotalNetworkBytesIn { 0 };
     qint64 m_historyTotalNetworkBytesOut { 0 };
+    int m_historyRetentionDays { 30 };
     qint64 m_historyNormalNetworkBytes { 0 };
     qint64 m_historyNormalNetworkBytesIn { 0 };
     qint64 m_historyNormalNetworkBytesOut { 0 };

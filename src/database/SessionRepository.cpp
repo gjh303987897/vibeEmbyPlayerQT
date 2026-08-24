@@ -596,7 +596,7 @@ std::expected<std::vector<DailyUsageStat>, QString> SessionRepository::loadDaily
         return std::unexpected(openResult.error());
     }
 
-    const auto cutoff = QDate::currentDate().addDays(-29).toString(Qt::ISODate);
+    const auto cutoff = QDate::currentDate().addDays(-(historyRetentionDays() - 1)).toString(Qt::ISODate);
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
         "SELECT stats.stat_date, stats.service_id, MAX(stats.service_name), MAX(stats.service_type), "
@@ -636,16 +636,47 @@ std::expected<std::vector<DailyUsageStat>, QString> SessionRepository::loadDaily
 
 std::expected<void, QString> SessionRepository::pruneOldDailyUsage()
 {
+    return pruneOldHistory();
+}
+
+std::expected<void, QString> SessionRepository::pruneOldHistory()
+{
     if (auto openResult = ensureOpen(); !openResult) {
         return openResult;
     }
 
-    const auto cutoff = QDate::currentDate().addDays(-29).toString(Qt::ISODate);
-    QSqlQuery query(m_database);
-    query.prepare(QStringLiteral("DELETE FROM daily_usage_stats WHERE stat_date < :cutoff"));
-    query.bindValue(QStringLiteral(":cutoff"), cutoff);
-    if (!query.exec()) {
-        return std::unexpected(sqlError(query));
+    const auto cutoff = QDate::currentDate().addDays(-(historyRetentionDays() - 1)).toString(Qt::ISODate);
+    QSqlQuery transaction(m_database);
+    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        return std::unexpected(sqlError(transaction));
+    }
+
+    QSqlQuery linkQuery(m_database);
+    linkQuery.prepare(QStringLiteral("DELETE FROM link_playback_history WHERE played_date < :cutoff"));
+    linkQuery.bindValue(QStringLiteral(":cutoff"), cutoff);
+    if (!linkQuery.exec()) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(linkQuery));
+    }
+
+    QSqlQuery historyQuery(m_database);
+    historyQuery.prepare(QStringLiteral("DELETE FROM playback_history WHERE played_date < :cutoff"));
+    historyQuery.bindValue(QStringLiteral(":cutoff"), cutoff);
+    if (!historyQuery.exec()) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(historyQuery));
+    }
+
+    QSqlQuery usageQuery(m_database);
+    usageQuery.prepare(QStringLiteral("DELETE FROM daily_usage_stats WHERE stat_date < :cutoff"));
+    usageQuery.bindValue(QStringLiteral(":cutoff"), cutoff);
+    if (!usageQuery.exec()) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(usageQuery));
+    }
+
+    if (!transaction.exec(QStringLiteral("COMMIT"))) {
+        return std::unexpected(sqlError(transaction));
     }
     return {};
 }
@@ -677,6 +708,9 @@ std::expected<void, QString> SessionRepository::saveLinkPlaybackHistory(const Li
 
 std::expected<std::vector<LinkPlaybackHistoryItem>, QString> SessionRepository::loadLinkPlaybackHistory(bool includePrivacyMode)
 {
+    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
+        return std::unexpected(pruneResult.error());
+    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -772,6 +806,9 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
     int limit,
     PlaybackHistorySource source)
 {
+    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
+        return std::unexpected(pruneResult.error());
+    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -829,6 +866,9 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
 
 std::expected<QStringList, QString> SessionRepository::loadPlaybackHistoryDates(bool includePrivacyMode)
 {
+    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
+        return std::unexpected(pruneResult.error());
+    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -862,6 +902,9 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
 {
     if (!date.isValid()) {
         return std::unexpected(QStringLiteral("Invalid playback history date"));
+    }
+    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
+        return std::unexpected(pruneResult.error());
     }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
@@ -1672,6 +1715,23 @@ QString SessionRepository::languageMode() const
 void SessionRepository::setLanguageMode(const QString& mode)
 {
     m_settings.setValue(QStringLiteral("appearance/languageMode"), mode);
+}
+
+int SessionRepository::historyRetentionDays() const
+{
+    constexpr int defaultRetentionDays = 30;
+    constexpr int minimumRetentionDays = 1;
+    constexpr int maximumRetentionDays = 3650;
+    const auto configured = m_settings.value(QStringLiteral("history/retentionDays"), defaultRetentionDays).toInt();
+    return std::clamp(configured, minimumRetentionDays, maximumRetentionDays);
+}
+
+void SessionRepository::setHistoryRetentionDays(int days)
+{
+    constexpr int minimumRetentionDays = 1;
+    constexpr int maximumRetentionDays = 3650;
+    m_settings.setValue(QStringLiteral("history/retentionDays"),
+                        std::clamp(days, minimumRetentionDays, maximumRetentionDays));
 }
 
 QString SessionRepository::embyHomeLayout() const
