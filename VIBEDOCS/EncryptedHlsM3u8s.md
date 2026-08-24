@@ -19,6 +19,16 @@ The format protects media stored on a remote or cloud service. TSSL files are
 local secret material. They are never uploaded automatically, and export is an
 explicit user operation.
 
+The local TSSL manager can filter packages by their last saved date. Opening
+batch management presents a dedicated two-pane dialog: the left pane lists
+available dates and the right pane lists only the keys saved on the selected
+date. The dialog supports selecting all keys for that date, exporting valid
+packages, or deleting selected local packages after confirmation. Filtering and
+row mapping are implemented by `TsslPackageListModel`; QML only presents the
+controls and selection state. The batch dialog uses a separate model from the
+manager page so changing dates does not rebuild the visible package cards. Its
+key list is virtualized and creates delegates only for the visible viewport.
+
 ## TSSL v3
 
 TSSL is UTF-8 JSON with this shape:

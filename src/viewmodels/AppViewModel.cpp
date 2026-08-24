@@ -780,6 +780,20 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.batchExportedStatus"), QStringLiteral("Exported %1 TSSL backups") },
         { QStringLiteral("m3u8s.batchExportFailedStatus"), QStringLiteral("Batch TSSL export failed") },
         { QStringLiteral("m3u8s.batchExportEmpty"), QStringLiteral("Select at least one valid TSSL package") },
+        { QStringLiteral("m3u8s.allDates"), QStringLiteral("All dates") },
+        { QStringLiteral("m3u8s.filterDate"), QStringLiteral("Saved date") },
+        { QStringLiteral("m3u8s.batchManage"), QStringLiteral("Batch manage") },
+        { QStringLiteral("m3u8s.batchDone"), QStringLiteral("Done") },
+        { QStringLiteral("m3u8s.batchSelectedCount"), QStringLiteral("%1 selected") },
+        { QStringLiteral("m3u8s.batchSelectVisible"), QStringLiteral("Select visible") },
+        { QStringLiteral("m3u8s.batchDelete"), QStringLiteral("Delete selected") },
+        { QStringLiteral("m3u8s.batchDeleteTitle"), QStringLiteral("Delete TSSL packages") },
+        { QStringLiteral("m3u8s.batchDeletePrompt"), QStringLiteral("Permanently delete the %1 selected local TSSL key packages? This cannot be undone.") },
+        { QStringLiteral("m3u8s.batchDeletingStatus"), QStringLiteral("Deleting %1 TSSL packages...") },
+        { QStringLiteral("m3u8s.batchDeletedStatus"), QStringLiteral("Deleted %1 TSSL packages") },
+        { QStringLiteral("m3u8s.batchDeleteFailedStatus"), QStringLiteral("Batch TSSL deletion failed") },
+        { QStringLiteral("m3u8s.batchDeleteEmpty"), QStringLiteral("Select at least one TSSL package") },
+        { QStringLiteral("m3u8s.noDateResults"), QStringLiteral("No TSSL packages were saved on this date") },
         { QStringLiteral("m3u8s.deleteTssl"), QStringLiteral("Delete TSSL") },
         { QStringLiteral("m3u8s.deleteTitle"), QStringLiteral("Delete local TSSL?") },
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("The encrypted video cannot be decrypted on this device without this key package.") },
@@ -1258,6 +1272,20 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.batchExportedStatus"), QStringLiteral("已导出 %1 个 TSSL 备份") },
         { QStringLiteral("m3u8s.batchExportFailedStatus"), QStringLiteral("批量导出 TSSL 失败") },
         { QStringLiteral("m3u8s.batchExportEmpty"), QStringLiteral("请至少选择一个有效的 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.allDates"), QStringLiteral("全部日期") },
+        { QStringLiteral("m3u8s.filterDate"), QStringLiteral("保存日期") },
+        { QStringLiteral("m3u8s.batchManage"), QStringLiteral("批量管理") },
+        { QStringLiteral("m3u8s.batchDone"), QStringLiteral("完成") },
+        { QStringLiteral("m3u8s.batchSelectedCount"), QStringLiteral("已选择 %1 项") },
+        { QStringLiteral("m3u8s.batchSelectVisible"), QStringLiteral("全选当前结果") },
+        { QStringLiteral("m3u8s.batchDelete"), QStringLiteral("删除所选") },
+        { QStringLiteral("m3u8s.batchDeleteTitle"), QStringLiteral("批量删除 TSSL") },
+        { QStringLiteral("m3u8s.batchDeletePrompt"), QStringLiteral("确定永久删除选中的 %1 个本地 TSSL 密钥包吗？此操作无法撤销。") },
+        { QStringLiteral("m3u8s.batchDeletingStatus"), QStringLiteral("正在删除 %1 个 TSSL 密钥包...") },
+        { QStringLiteral("m3u8s.batchDeletedStatus"), QStringLiteral("已删除 %1 个 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.batchDeleteFailedStatus"), QStringLiteral("批量删除 TSSL 失败") },
+        { QStringLiteral("m3u8s.batchDeleteEmpty"), QStringLiteral("请至少选择一个 TSSL 密钥包") },
+        { QStringLiteral("m3u8s.noDateResults"), QStringLiteral("所选日期没有保存的 TSSL 密钥包") },
         { QStringLiteral("m3u8s.deleteTssl"), QStringLiteral("删除 TSSL") },
         { QStringLiteral("m3u8s.deleteTitle"), QStringLiteral("删除本机 TSSL？") },
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("删除后，本机将无法解密与该密钥包对应的视频。") },
@@ -2180,6 +2208,11 @@ QString AppViewModel::tsslBackupStatus() const { return m_tsslBackupStatus; }
 TsslPackageListModel* AppViewModel::tsslPackages()
 {
     return &m_tsslPackages;
+}
+
+TsslPackageListModel* AppViewModel::tsslBatchPackages()
+{
+    return &m_tsslBatchPackages;
 }
 
 bool AppViewModel::m3u8sPackaging() const
@@ -5274,7 +5307,9 @@ void AppViewModel::refreshTsslPackages()
         setError(packages.error());
         return;
     }
-    m_tsslPackages.setPackages(std::move(*packages));
+    auto loadedPackages = std::move(*packages);
+    m_tsslPackages.setPackages(loadedPackages);
+    m_tsslBatchPackages.setPackages(std::move(loadedPackages));
 }
 
 void AppViewModel::restoreManagedTssl()
@@ -5440,12 +5475,15 @@ void AppViewModel::exportManagedTsslBatch(const QVariantList& rows)
     for (const auto& value : rows) {
         bool converted = false;
         const auto row = value.toInt(&converted);
-        const auto package = converted ? m_tsslPackages.packageAt(row) : std::nullopt;
-        if (!package || !package->valid) {
+        const auto package = converted ? m_tsslBatchPackages.packageAt(row) : std::nullopt;
+        if (!package) {
             setError(trText(QStringLiteral("m3u8s.invalidPackage")));
             return;
         }
-        digests.push_back(package->rootManifestDigest);
+        if (package->valid
+            && std::ranges::find(digests, package->rootManifestDigest) == digests.end()) {
+            digests.push_back(package->rootManifestDigest);
+        }
     }
     if (digests.empty()) {
         setError(trText(QStringLiteral("m3u8s.batchExportEmpty")));
@@ -5546,6 +5584,69 @@ void AppViewModel::addM3u8sVideoSource(const QUrl& file)
         m_m3u8sSelectedSources.append(sourcePath);
         emit m3u8sSourceSelectionChanged();
     }
+}
+
+void AppViewModel::deleteManagedTsslBatch(const QVariantList& rows)
+{
+    clearError();
+    if (m_m3u8sBatchExporting) {
+        return;
+    }
+
+    std::vector<QByteArray> digests;
+    digests.reserve(static_cast<size_t>(rows.size()));
+    for (const auto& value : rows) {
+        bool converted = false;
+        const auto row = value.toInt(&converted);
+        const auto package = converted ? m_tsslBatchPackages.packageAt(row) : std::nullopt;
+        if (!package) {
+            setError(trText(QStringLiteral("m3u8s.invalidPackage")));
+            return;
+        }
+        if (std::ranges::find(digests, package->rootManifestDigest) == digests.end()) {
+            digests.push_back(package->rootManifestDigest);
+        }
+    }
+    if (digests.empty()) {
+        setError(trText(QStringLiteral("m3u8s.batchDeleteEmpty")));
+        return;
+    }
+
+    m_m3u8sBatchExporting = true;
+    m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchDeletingStatus")).arg(digests.size());
+    emit m3u8sStatusChanged();
+
+    using DeleteResult = std::expected<int, QString>;
+    auto* watcher = new QFutureWatcher<DeleteResult>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+        m_m3u8sBatchExporting = false;
+        refreshTsslPackages();
+        if (!result) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchDeleteFailedStatus"));
+            emit m3u8sStatusChanged();
+            setError(result.error());
+            return;
+        }
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchDeletedStatus")).arg(*result);
+        emit m3u8sStatusChanged();
+        AppLogger::info(QStringLiteral("encrypted-hls"),
+                        QStringLiteral("Deleted %1 managed TSSL packages").arg(*result));
+    });
+    watcher->setFuture(QtConcurrent::run(
+        [store = m_tsslStore, digests = std::move(digests)]() -> DeleteResult {
+            int deletedCount = 0;
+            for (const auto& digest : digests) {
+                if (auto deleted = store.deleteByRootDigest(digest); !deleted) {
+                    return std::unexpected(QStringLiteral("Deleted %1 TSSL packages before an error occurred: %2")
+                                               .arg(deletedCount)
+                                               .arg(deleted.error()));
+                }
+                ++deletedCount;
+            }
+            return deletedCount;
+        }));
 }
 
 void AppViewModel::addM3u8sFolderSource(const QUrl& folder)

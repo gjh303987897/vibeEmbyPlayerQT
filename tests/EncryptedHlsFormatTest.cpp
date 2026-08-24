@@ -62,6 +62,7 @@ private slots:
     void tsslRejectsUnsafePathsAndInvalidKeys();
     void sourceFilenameMetadataIsAuthenticatedAndRoundTrips();
     void managerModelDoesNotExposeSourceFilename();
+    void managerModelFiltersPackagesBySavedDate();
     void m3u8sIdentifierIsStrictAndRoundTrips();
     void manifestValidatorAcceptsPackageRelativeUris();
     void manifestValidatorRejectsExternalUrisAndKeyTags();
@@ -309,6 +310,39 @@ void EncryptedHlsFormatTest::managerModelDoesNotExposeSourceFilename()
              QStringLiteral("IIIIIIIIIIIIIIII...IIIIIIIIIIII"));
     QCOMPARE(model.validCount(), 1);
     QCOMPARE(model.validRows(), QVariantList { 0 });
+}
+
+void EncryptedHlsFormatTest::managerModelFiltersPackagesBySavedDate()
+{
+    TsslPackageInfo first {
+        .identifier = identifierBytes('A'),
+        .rootManifestDigest = QByteArray(32, '\x11'),
+        .filePath = QStringLiteral("first.tssl"),
+        .modifiedAt = QDateTime(QDate(2026, 8, 23), QTime(12, 0)),
+    };
+    TsslPackageInfo second {
+        .identifier = identifierBytes('B'),
+        .rootManifestDigest = QByteArray(32, '\x22'),
+        .filePath = QStringLiteral("second.tssl"),
+        .modifiedAt = QDateTime(QDate(2026, 8, 24), QTime(12, 0)),
+    };
+    TsslPackageListModel model;
+    model.setPackages({ first, second });
+
+    QCOMPARE(model.totalCount(), 2);
+    QCOMPARE(model.count(), 2);
+    QCOMPARE(model.availableDates(), QStringList({ QStringLiteral("2026-08-24"), QStringLiteral("2026-08-23") }));
+    QCOMPARE(model.allRows(), QVariantList({ 0, 1 }));
+
+    model.setDateFilter(QStringLiteral("2026-08-24"));
+    QCOMPARE(model.dateFilter(), QStringLiteral("2026-08-24"));
+    QCOMPARE(model.count(), 1);
+    QCOMPARE(model.data(model.index(0, 0), TsslPackageListModel::RootDigestRole).toString(),
+             QString(64, QLatin1Char('2')));
+
+    model.setDateFilter(QStringLiteral("not-a-date"));
+    QVERIFY(model.dateFilter().isEmpty());
+    QCOMPARE(model.count(), 2);
 }
 
 void EncryptedHlsFormatTest::m3u8sIdentifierIsStrictAndRoundTrips()

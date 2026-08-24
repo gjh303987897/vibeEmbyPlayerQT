@@ -93,6 +93,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool tsslBackupRunning READ tsslBackupRunning NOTIFY tsslBackupChanged)
     Q_PROPERTY(QString tsslBackupStatus READ tsslBackupStatus NOTIFY tsslBackupChanged)
     Q_PROPERTY(TsslPackageListModel* tsslPackages READ tsslPackages CONSTANT)
+    Q_PROPERTY(TsslPackageListModel* tsslBatchPackages READ tsslBatchPackages CONSTANT)
     Q_PROPERTY(bool m3u8sPackaging READ m3u8sPackaging NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(double m3u8sPackagingProgress READ m3u8sPackagingProgress NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sPackagingPhase READ m3u8sPackagingPhase NOTIFY m3u8sPackagingChanged)
@@ -321,6 +322,7 @@ public:
     bool tsslBackupRunning() const;
     QString tsslBackupStatus() const;
     TsslPackageListModel* tsslPackages();
+    TsslPackageListModel* tsslBatchPackages();
     bool m3u8sPackaging() const;
     double m3u8sPackagingProgress() const;
     QString m3u8sPackagingPhase() const;
@@ -553,6 +555,7 @@ public:
     Q_INVOKABLE void exportManagedTssl(int row);
     Q_INVOKABLE void exportManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void deleteManagedTssl(int row);
+    Q_INVOKABLE void deleteManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void addM3u8sVideoSource(const QUrl& file);
     Q_INVOKABLE void addM3u8sFolderSource(const QUrl& folder);
     Q_INVOKABLE void removeM3u8sSource(int index);
@@ -1021,6 +1024,7 @@ private:
     DailyUsageStatsListModel m_usageStats;
     PlaybackHistoryListModel m_globalPlaybackHistory;
     TsslPackageListModel m_tsslPackages;
+    TsslPackageListModel m_tsslBatchPackages;
     QString m_m3u8sStatus;
     bool m_m3u8sBatchExporting { false };
     QString m_m3u8sLastOutputDirectory;

@@ -19,6 +19,8 @@ ApplicationWindow {
 
     property int pendingDeleteRow: -1
     property int pendingTsslDeleteRow: -1
+    property var selectedTsslRows: []
+    property string selectedTsslBatchDate: ""
     property int pendingScheduledDeleteRow: -1
     property int dragFromRow: -1
     property bool playerImmersive: false
@@ -133,6 +135,33 @@ ApplicationWindow {
 
     function withAlpha(value, alpha) {
         return Qt.rgba(value.r, value.g, value.b, alpha)
+    }
+
+    function copyTsslRows(rows) {
+        var copied = []
+        for (var index = 0; index < rows.length; ++index)
+            copied.push(Number(rows[index]))
+        return copied
+    }
+
+    function isTsslRowSelected(row) {
+        return selectedTsslRows.indexOf(row) >= 0
+    }
+
+    function setTsslRowSelected(row, selected) {
+        var updated = copyTsslRows(selectedTsslRows)
+        var position = updated.indexOf(row)
+        if (selected && position < 0) {
+            updated.push(row)
+            updated.sort(function(left, right) { return left - right })
+        } else if (!selected && position >= 0) {
+            updated.splice(position, 1)
+        }
+        selectedTsslRows = updated
+    }
+
+    function clearTsslBatchSelection() {
+        selectedTsslRows = []
     }
 
     function showErrorDialog() {
@@ -855,6 +884,288 @@ ApplicationWindow {
     }
 
     ModernDialog {
+        id: tsslBatchManageDialog
+        title: t("m3u8s.batchManage")
+        standardButtons: Dialog.Cancel
+        width: Math.min(root.width - 64, 900)
+        height: Math.min(root.height - 72, 620)
+
+        onOpened: {
+            root.clearTsslBatchSelection()
+            var dates = appViewModel.tsslBatchPackages.availableDates
+            root.selectedTsslBatchDate = dates.length > 0 ? String(dates[0]) : ""
+            appViewModel.tsslBatchPackages.dateFilter = root.selectedTsslBatchDate
+        }
+
+        onClosed: {
+            root.clearTsslBatchSelection()
+            root.selectedTsslBatchDate = ""
+        }
+
+        RowLayout {
+            width: parent.width
+            height: parent.height
+            spacing: 12
+
+            Rectangle {
+                Layout.preferredWidth: 188
+                Layout.fillHeight: true
+                radius: 9
+                color: theme.bg
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("m3u8s.filterDate")
+                        color: theme.text
+                        font.pixelSize: 14
+                        font.bold: true
+                    }
+
+                    ListView {
+                        id: tsslBatchDateList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 5
+                        model: appViewModel.tsslBatchPackages.availableDates
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollIndicator.vertical: ScrollIndicator {}
+
+                        delegate: Rectangle {
+                            required property string modelData
+                            width: tsslBatchDateList.width
+                            height: 38
+                            radius: 7
+                            color: String(modelData) === root.selectedTsslBatchDate
+                                ? root.withAlpha(m3u8sFlick.accentColor, darkTheme ? 0.22 : 0.12)
+                                : dateMouse.containsMouse ? theme.elevatedHover : "transparent"
+                            border.color: String(modelData) === root.selectedTsslBatchDate
+                                ? root.withAlpha(m3u8sFlick.accentColor, 0.58) : "transparent"
+
+                            Label {
+                                anchors.fill: parent
+                                anchors.leftMargin: 11
+                                anchors.rightMargin: 8
+                                text: modelData
+                                color: String(modelData) === root.selectedTsslBatchDate
+                                    ? m3u8sFlick.accentColor : theme.text
+                                font.pixelSize: 13
+                                font.bold: String(modelData) === root.selectedTsslBatchDate
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            MouseArea {
+                                id: dateMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: {
+                                    root.selectedTsslBatchDate = String(modelData)
+                                    root.clearTsslBatchSelection()
+                                    appViewModel.tsslBatchPackages.dateFilter = root.selectedTsslBatchDate
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.selectedTsslBatchDate.length > 0
+                            ? root.selectedTsslBatchDate : t("m3u8s.noDateResults")
+                        color: theme.text
+                        font.pixelSize: 14
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+
+                    MutedText {
+                        text: t("m3u8s.batchSelectedCount").arg(root.selectedTsslRows.length)
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 9
+                    color: theme.bg
+                    border.color: theme.border
+                    clip: true
+
+                    ListView {
+                        id: tsslBatchManageChoices
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        model: appViewModel.tsslBatchPackages
+                        spacing: 1
+                        cacheBuffer: 144
+                        boundsBehavior: Flickable.StopAtBounds
+                        clip: true
+                        ScrollIndicator.vertical: ScrollIndicator {}
+
+                        delegate: CheckBox {
+                                    id: tsslBatchManageChoice
+                                    required property int index
+                                    required property string rootDigest
+                                    required property string identifierPreview
+                                    required property real fileSize
+                                    required property int segmentCount
+                                    required property bool validPackage
+                                    required property string validationError
+
+                                    width: ListView.view.width
+                                    height: 72
+                                    leftPadding: 48
+                                    rightPadding: 14
+                                    topPadding: 9
+                                    bottomPadding: 9
+                                    checked: root.isTsslRowSelected(tsslBatchManageChoice.index)
+                                    opacity: tsslBatchManageChoice.validPackage ? 1 : 0.7
+                                    onClicked: root.setTsslRowSelected(tsslBatchManageChoice.index, checked)
+
+                                    indicator: Rectangle {
+                                        x: 15
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 20
+                                        height: 20
+                                        radius: 5
+                                        color: tsslBatchManageChoice.checked
+                                            ? m3u8sFlick.accentColor : theme.input
+                                        border.color: tsslBatchManageChoice.checked
+                                            ? m3u8sFlick.accentColor : theme.border
+
+                                        Label {
+                                            anchors.centerIn: parent
+                                            visible: tsslBatchManageChoice.checked
+                                            text: "\u2713"
+                                            color: "#ffffff"
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                        }
+                                    }
+
+                                    contentItem: ColumnLayout {
+                                        spacing: 3
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: tsslBatchManageChoice.validPackage
+                                                ? t("m3u8s.identifier") + "  " + tsslBatchManageChoice.identifierPreview
+                                                : t("m3u8s.invalidSavedPackage")
+                                            color: theme.text
+                                            font.pixelSize: 13
+                                            font.bold: true
+                                            font.family: tsslBatchManageChoice.validPackage ? "monospace" : ""
+                                            elide: Text.ElideMiddle
+                                        }
+
+                                        MutedText {
+                                            Layout.fillWidth: true
+                                            text: tsslBatchManageChoice.validPackage
+                                                ? "SHA-256  " + tsslBatchManageChoice.rootDigest
+                                                : tsslBatchManageChoice.validationError
+                                            color: tsslBatchManageChoice.validPackage ? theme.muted : theme.danger
+                                            font.pixelSize: 11
+                                            font.family: tsslBatchManageChoice.validPackage ? "monospace" : ""
+                                            elide: Text.ElideMiddle
+                                        }
+
+                                        MutedText {
+                                            visible: tsslBatchManageChoice.validPackage
+                                            text: t("m3u8s.segments").arg(tsslBatchManageChoice.segmentCount)
+                                                + "  ·  " + root.formatBytes(tsslBatchManageChoice.fileSize)
+                                            font.pixelSize: 11
+                                        }
+                                    }
+
+                                    background: Rectangle {
+                                        color: tsslBatchManageChoice.checked
+                                            ? root.withAlpha(m3u8sFlick.accentColor, darkTheme ? 0.16 : 0.08)
+                                            : tsslBatchManageChoice.hovered ? theme.elevatedHover : theme.surface
+                                        border.width: tsslBatchManageChoice.checked ? 1 : 0
+                                        border.color: root.withAlpha(m3u8sFlick.accentColor, 0.62)
+                                    }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    ModernButton {
+                        text: t("m3u8s.batchSelectVisible")
+                        enabled: appViewModel.tsslBatchPackages.count > 0
+                        onClicked: root.selectedTsslRows = root.copyTsslRows(
+                            appViewModel.tsslBatchPackages.allRows())
+                    }
+
+                    ModernButton {
+                        text: t("m3u8s.batchExportClear")
+                        enabled: root.selectedTsslRows.length > 0
+                        onClicked: root.clearTsslBatchSelection()
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    ModernButton {
+                        text: t("m3u8s.batchExportSelected")
+                        enabled: root.selectedTsslRows.length > 0
+                            && appViewModel.tsslBatchPackages.validCount > 0
+                            && !appViewModel.m3u8sBatchExporting
+                        onClicked: {
+                            appViewModel.exportManagedTsslBatch(
+                                root.copyTsslRows(root.selectedTsslRows))
+                            tsslBatchManageDialog.close()
+                        }
+                    }
+
+                    ModernButton {
+                        text: t("m3u8s.batchDelete")
+                        danger: true
+                        enabled: root.selectedTsslRows.length > 0
+                            && !appViewModel.m3u8sBatchExporting
+                        onClicked: tsslBatchDeleteDialog.open()
+                    }
+                }
+            }
+        }
+    }
+
+    ModernDialog {
+        id: tsslBatchDeleteDialog
+        title: t("m3u8s.batchDeleteTitle")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        width: Math.min(root.width - 64, 520)
+
+        BodyText {
+            width: parent.width
+            text: t("m3u8s.batchDeletePrompt").arg(root.selectedTsslRows.length)
+            wrapMode: Text.WordWrap
+        }
+
+        onAccepted: {
+            appViewModel.deleteManagedTsslBatch(root.copyTsslRows(root.selectedTsslRows))
+            root.clearTsslBatchSelection()
+            tsslBatchManageDialog.close()
+        }
+    }
+
+    ModernDialog {
         id: tsslBatchExportDialog
         property var selectedRows: []
 
@@ -894,7 +1205,10 @@ ApplicationWindow {
         title: t("m3u8s.batchExportTitle")
         standardButtons: Dialog.Cancel
         width: Math.min(root.width - 64, 720)
-        onOpened: selectedRows = []
+        onOpened: {
+            selectedRows = []
+            appViewModel.tsslBatchPackages.dateFilter = ""
+        }
         onClosed: selectedRows = []
 
         ColumnLayout {
@@ -921,9 +1235,9 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("m3u8s.batchExportSelectAll")
-                    enabled: appViewModel.tsslPackages.validCount > 0
+                    enabled: appViewModel.tsslBatchPackages.validCount > 0
                     onClicked: tsslBatchExportDialog.selectedRows =
-                        tsslBatchExportDialog.copyRows(appViewModel.tsslPackages.validRows())
+                        tsslBatchExportDialog.copyRows(appViewModel.tsslBatchPackages.validRows())
                 }
 
                 ModernButton {
@@ -957,7 +1271,7 @@ ApplicationWindow {
                         spacing: 1
 
                         Repeater {
-                            model: appViewModel.tsslPackages
+                            model: appViewModel.tsslBatchPackages
 
                             delegate: CheckBox {
                                 id: tsslBatchChoice
@@ -1060,8 +1374,8 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("m3u8s.batchExportAll")
-                    enabled: appViewModel.tsslPackages.validCount > 0
-                    onClicked: tsslBatchExportDialog.exportRows(appViewModel.tsslPackages.validRows())
+                    enabled: appViewModel.tsslBatchPackages.validCount > 0
+                    onClicked: tsslBatchExportDialog.exportRows(appViewModel.tsslBatchPackages.validRows())
                 }
 
                 ModernButton {
@@ -14184,7 +14498,10 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("action.refresh")
-                    onClicked: appViewModel.refreshTsslPackages()
+                    onClicked: {
+                        root.clearTsslBatchSelection()
+                        appViewModel.refreshTsslPackages()
+                    }
                 }
 
                 ModernButton {
@@ -14198,6 +14515,20 @@ ApplicationWindow {
                     onClicked: appViewModel.restoreManagedTssl()
                 }
 
+                ModernButton {
+                    text: t("m3u8s.batchExportTssl")
+                    enabled: appViewModel.tsslPackages.validCount > 0
+                        && !appViewModel.m3u8sBatchExporting
+                    onClicked: tsslBatchExportDialog.open()
+                }
+
+                ModernButton {
+                    text: t("m3u8s.batchManage")
+                    enabled: appViewModel.tsslPackages.count > 0
+                        && !appViewModel.m3u8sBatchExporting
+                    onClicked: tsslBatchManageDialog.open()
+                }
+
                 LoadingSpinner {
                     visible: appViewModel.m3u8sBatchExporting
                     running: visible
@@ -14205,12 +14536,6 @@ ApplicationWindow {
                     implicitHeight: 22
                 }
 
-                ModernButton {
-                    text: t("m3u8s.batchExportTssl")
-                    enabled: appViewModel.tsslPackages.validCount > 0
-                        && !appViewModel.m3u8sBatchExporting
-                    onClicked: tsslBatchExportDialog.open()
-                }
             }
 
             ColumnLayout {
@@ -14389,7 +14714,8 @@ ApplicationWindow {
 
                     Label {
                         Layout.fillWidth: true
-                        text: t("m3u8s.noPackages")
+                        text: appViewModel.tsslPackages.totalCount > 0
+                            ? t("m3u8s.noDateResults") : t("m3u8s.noPackages")
                         color: theme.text
                         font.pixelSize: 17
                         font.bold: true
@@ -14398,7 +14724,8 @@ ApplicationWindow {
 
                     MutedText {
                         Layout.fillWidth: true
-                        text: t("m3u8s.noPackagesHint")
+                        text: appViewModel.tsslPackages.totalCount > 0
+                            ? t("m3u8s.filterDate") : t("m3u8s.noPackagesHint")
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
                     }
