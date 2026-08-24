@@ -14516,10 +14516,11 @@ ApplicationWindow {
                 }
 
                 ModernButton {
-                    text: t("m3u8s.batchExportTssl")
+                    text: t("m3u8s.exportAllTssl")
                     enabled: appViewModel.tsslPackages.validCount > 0
                         && !appViewModel.m3u8sBatchExporting
-                    onClicked: tsslBatchExportDialog.open()
+                    onClicked: appViewModel.exportManagedTsslBatch(
+                        appViewModel.tsslPackages.validRows())
                 }
 
                 ModernButton {
