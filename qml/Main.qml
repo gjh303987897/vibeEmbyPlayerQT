@@ -1388,6 +1388,261 @@ ApplicationWindow {
     }
 
     ModernDialog {
+        id: globalHistoryManagementDialog
+        title: t("globalHistory.managementTitle")
+        standardButtons: Dialog.Cancel
+        width: Math.min(root.width - 64, 900)
+        height: Math.min(root.height - 72, 620)
+
+        onOpened: appViewModel.openGlobalHistoryManagement()
+
+        RowLayout {
+            width: parent.width
+            height: parent.height
+            spacing: 12
+
+            Rectangle {
+                Layout.preferredWidth: 188
+                Layout.fillHeight: true
+                radius: 9
+                color: theme.bg
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 8
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: t("globalHistory.managementDate")
+                        color: theme.text
+                        font.pixelSize: 14
+                        font.bold: true
+                    }
+
+                    ListView {
+                        id: globalHistoryManagementDates
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 5
+                        model: appViewModel.globalHistoryDates
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollIndicator.vertical: ScrollIndicator {}
+
+                        delegate: Rectangle {
+                            required property string modelData
+                            width: globalHistoryManagementDates.width
+                            height: 38
+                            radius: 7
+                            color: modelData === appViewModel.globalHistoryManagementDate
+                                ? root.withAlpha(root.serviceAccentColor("History"), darkTheme ? 0.22 : 0.12)
+                                : globalHistoryManagementDateMouse.containsMouse ? theme.elevatedHover : "transparent"
+                            border.color: modelData === appViewModel.globalHistoryManagementDate
+                                ? root.withAlpha(root.serviceAccentColor("History"), 0.58) : "transparent"
+
+                            Label {
+                                anchors.fill: parent
+                                anchors.leftMargin: 11
+                                anchors.rightMargin: 8
+                                text: modelData
+                                color: modelData === appViewModel.globalHistoryManagementDate
+                                    ? root.serviceAccentColor("History") : theme.text
+                                font.pixelSize: 13
+                                font.bold: modelData === appViewModel.globalHistoryManagementDate
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            MouseArea {
+                                id: globalHistoryManagementDateMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: appViewModel.selectGlobalHistoryManagementDate(String(modelData))
+                            }
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: appViewModel.globalHistoryManagementDate.length > 0
+                            ? appViewModel.globalHistoryManagementDate
+                            : t("globalHistory.managementEmpty")
+                        color: theme.text
+                        font.pixelSize: 14
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+
+                    LoadingSpinner {
+                        visible: appViewModel.globalHistoryManagementLoading
+                        running: visible
+                        implicitWidth: 22
+                        implicitHeight: 22
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 9
+                    color: theme.bg
+                    border.color: theme.border
+                    clip: true
+
+                    ListView {
+                        id: globalHistoryManagementList
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        model: appViewModel.globalHistoryDayItems
+                        spacing: 1
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollIndicator.vertical: ScrollIndicator {}
+
+                        delegate: Rectangle {
+                            id: globalHistoryManagementRow
+                            required property string sourceType
+                            required property string serviceName
+                            required property string title
+                            required property string subtitle
+                            required property string playedTime
+                            required property bool completed
+                            required property bool privacyMode
+                            readonly property color accentColor: root.serviceAccentColor(sourceType)
+
+                            width: globalHistoryManagementList.width
+                            height: 76
+                            color: theme.surface
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 13
+                                anchors.rightMargin: 13
+                                spacing: 11
+
+                                ServiceTypeIcon {
+                                    Layout.preferredWidth: 38
+                                    Layout.preferredHeight: 38
+                                    serviceType: globalHistoryManagementRow.sourceType
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: globalHistoryManagementRow.title
+                                        color: theme.text
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+
+                                    MutedText {
+                                        Layout.fillWidth: true
+                                        text: globalHistoryManagementRow.subtitle.length > 0
+                                            && globalHistoryManagementRow.serviceName.length > 0
+                                            ? globalHistoryManagementRow.subtitle + " · "
+                                                + globalHistoryManagementRow.serviceName
+                                            : globalHistoryManagementRow.subtitle.length > 0
+                                                ? globalHistoryManagementRow.subtitle
+                                                : globalHistoryManagementRow.serviceName
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                Label {
+                                    visible: globalHistoryManagementRow.privacyMode
+                                    text: t("globalHistory.privateBadge")
+                                    color: theme.primary
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                }
+
+                                Label {
+                                    text: globalHistoryManagementRow.completed
+                                        ? t("globalHistory.completed")
+                                        : t("globalHistory.started")
+                                    color: globalHistoryManagementRow.completed ? theme.success : theme.muted
+                                    font.pixelSize: 11
+                                }
+
+                                MutedText {
+                                    Layout.preferredWidth: 44
+                                    text: globalHistoryManagementRow.playedTime
+                                    font.pixelSize: 11
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 8
+                        visible: appViewModel.globalHistoryDayItems.count === 0
+
+                        ServiceTypeIcon {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: 42
+                            Layout.preferredHeight: 42
+                            serviceType: "History"
+                        }
+
+                        MutedText {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: t("globalHistory.managementEmpty")
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Item { Layout.fillWidth: true }
+
+                    ModernButton {
+                        text: t("globalHistory.managementDelete")
+                        danger: true
+                        enabled: appViewModel.globalHistoryManagementDate.length > 0
+                            && appViewModel.globalHistoryDayItems.count > 0
+                            && !appViewModel.globalHistoryManagementLoading
+                        onClicked: globalHistoryManagementDeleteDialog.open()
+                    }
+                }
+            }
+        }
+    }
+
+    ModernDialog {
+        id: globalHistoryManagementDeleteDialog
+        title: t("globalHistory.managementDeleteTitle")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        width: Math.min(root.width - 64, 540)
+
+        BodyText {
+            width: parent.width
+            text: t("globalHistory.managementDeletePrompt")
+                .arg(appViewModel.globalHistoryManagementDate)
+            wrapMode: Text.WordWrap
+        }
+
+        onAccepted: appViewModel.deleteGlobalHistoryManagementDate()
+    }
+
+    ModernDialog {
         id: scheduledTaskEditorDialog
         property bool editing: false
         title: editing ? t("schedule.edit") : t("schedule.add")
@@ -12368,6 +12623,12 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     title: t("globalHistory.recentTitle")
                     subtitle: t("globalHistory.recentSubtitle")
+                }
+
+                ModernButton {
+                    text: t("globalHistory.manageByDay")
+                    enabled: !appViewModel.globalHistoryLoading
+                    onClicked: globalHistoryManagementDialog.open()
                 }
 
                 IconButton {

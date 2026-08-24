@@ -218,6 +218,10 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString globalHistoryFilter READ globalHistoryFilter WRITE setGlobalHistoryFilter NOTIFY globalHistoryFilterChanged)
     Q_PROPERTY(bool globalHistoryHasMore READ globalHistoryHasMore NOTIFY globalHistoryStateChanged)
     Q_PROPERTY(bool globalHistoryLoading READ globalHistoryLoading NOTIFY globalHistoryStateChanged)
+    Q_PROPERTY(QStringList globalHistoryDates READ globalHistoryDates NOTIFY globalHistoryManagementChanged)
+    Q_PROPERTY(QString globalHistoryManagementDate READ globalHistoryManagementDate NOTIFY globalHistoryManagementChanged)
+    Q_PROPERTY(PlaybackHistoryListModel* globalHistoryDayItems READ globalHistoryDayItems CONSTANT)
+    Q_PROPERTY(bool globalHistoryManagementLoading READ globalHistoryManagementLoading NOTIFY globalHistoryManagementChanged)
     Q_PROPERTY(qint64 historyTotalWatchSeconds READ historyTotalWatchSeconds NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyTotalNetworkBytes READ historyTotalNetworkBytes NOTIFY historyStatsChanged)
     Q_PROPERTY(qint64 historyTotalNetworkBytesIn READ historyTotalNetworkBytesIn NOTIFY historyStatsChanged)
@@ -473,6 +477,10 @@ public:
     void setGlobalHistoryFilter(const QString& value);
     bool globalHistoryHasMore() const;
     bool globalHistoryLoading() const;
+    QStringList globalHistoryDates() const;
+    QString globalHistoryManagementDate() const;
+    PlaybackHistoryListModel* globalHistoryDayItems();
+    bool globalHistoryManagementLoading() const;
     qint64 historyTotalWatchSeconds() const;
     qint64 historyTotalNetworkBytes() const;
     qint64 historyTotalNetworkBytesIn() const;
@@ -605,6 +613,9 @@ public:
     Q_INVOKABLE void loadMoreGlobalHistory();
     Q_INVOKABLE bool playGlobalHistory(const QString& recordId);
     Q_INVOKABLE void deleteGlobalHistory(const QString& recordId);
+    Q_INVOKABLE void openGlobalHistoryManagement();
+    Q_INVOKABLE void selectGlobalHistoryManagementDate(const QString& date);
+    Q_INVOKABLE void deleteGlobalHistoryManagementDate();
     Q_INVOKABLE void cancelPendingHistoryReplay();
     Q_INVOKABLE void openScheduledPlaybackTasks();
     Q_INVOKABLE void beginAddScheduledPlaybackTask();
@@ -713,6 +724,7 @@ signals:
     void historyStatsChanged();
     void globalHistoryFilterChanged();
     void globalHistoryStateChanged();
+    void globalHistoryManagementChanged();
     void scheduledPlaybackTasksChanged();
     void scheduledPlaybackStatusChanged();
     void missedScheduledPlaybackTasksChanged();
@@ -812,6 +824,8 @@ private:
     bool startLinkPlayback(const QUrl& playbackUrl, double startPositionSeconds = 0.0);
     void startIptvChannelPlayback(const IptvChannel& channel);
     void loadGlobalHistoryPage(bool resetItems);
+    void loadGlobalHistoryManagementDates();
+    void loadGlobalHistoryManagementDate(const QString& date);
     std::vector<PlaybackHistoryItem> prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items);
     PlaybackHistorySource selectedGlobalHistorySource() const;
     void recordGlobalPlaybackStarted();
@@ -977,6 +991,9 @@ private:
     int m_globalHistoryPageSize { 60 };
     bool m_globalHistoryHasMore { false };
     bool m_globalHistoryLoading { false };
+    QStringList m_globalHistoryDates;
+    QString m_globalHistoryManagementDate;
+    bool m_globalHistoryManagementLoading { false };
     std::optional<PlaybackHistoryItem> m_pendingHistoryReplay;
     QString m_scheduledTaskEditingId;
     int m_scheduledTaskSourceIndex { -1 };
@@ -1023,6 +1040,7 @@ private:
     LinkPlaybackHistoryListModel m_linkPlaybackHistory;
     DailyUsageStatsListModel m_usageStats;
     PlaybackHistoryListModel m_globalPlaybackHistory;
+    PlaybackHistoryListModel m_globalHistoryDayItems;
     TsslPackageListModel m_tsslPackages;
     TsslPackageListModel m_tsslBatchPackages;
     QString m_m3u8sStatus;

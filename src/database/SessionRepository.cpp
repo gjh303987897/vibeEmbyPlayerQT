@@ -827,6 +827,93 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
     return items;
 }
 
+std::expected<QStringList, QString> SessionRepository::loadPlaybackHistoryDates(bool includePrivacyMode)
+{
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "SELECT DISTINCT history.played_date "
+        "FROM playback_history history "
+        "LEFT JOIN servers ON servers.id = history.service_id "
+        "WHERE history.played_date <> '' "
+        "AND (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0) "
+        "ORDER BY history.played_date DESC"));
+    query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+
+    QStringList dates;
+    while (query.next()) {
+        const auto date = QDate::fromString(query.value(0).toString(), Qt::ISODate);
+        if (date.isValid()) {
+            dates.push_back(date.toString(Qt::ISODate));
+        }
+    }
+    return dates;
+}
+
+std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::loadPlaybackHistoryForDate(
+    bool includePrivacyMode,
+    const QDate& date)
+{
+    if (!date.isValid()) {
+        return std::unexpected(QStringLiteral("Invalid playback history date"));
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return std::unexpected(openResult.error());
+    }
+
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "SELECT history.id, history.source_type, history.service_id, history.service_name, history.replay_target, "
+        "history.title, history.subtitle, history.played_date, history.played_at, history.updated_at, "
+        "history.position_seconds, history.duration_seconds, history.completed, "
+        "COALESCE(servers.private_mode, history.privacy_mode) "
+        "FROM playback_history history "
+        "LEFT JOIN servers ON servers.id = history.service_id "
+        "WHERE history.played_date = :played_date "
+        "AND (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0) "
+        "ORDER BY history.played_at DESC, history.id DESC"));
+    query.bindValue(QStringLiteral(":played_date"), date.toString(Qt::ISODate));
+    query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
+    if (!query.exec()) {
+        return std::unexpected(sqlError(query));
+    }
+
+    const auto parseDateTime = [](const QString& value) {
+        auto dateTime = QDateTime::fromString(value, Qt::ISODateWithMs);
+        if (!dateTime.isValid()) {
+            dateTime = QDateTime::fromString(value, Qt::ISODate);
+        }
+        return dateTime;
+    };
+
+    std::vector<PlaybackHistoryItem> items;
+    while (query.next()) {
+        items.push_back(PlaybackHistoryItem {
+            .id = query.value(0).toString(),
+            .source = playbackHistorySourceFromString(query.value(1).toString()),
+            .serviceId = query.value(2).toString(),
+            .serviceName = query.value(3).toString(),
+            .replayTarget = query.value(4).toString(),
+            .title = query.value(5).toString(),
+            .subtitle = query.value(6).toString(),
+            .playedDate = QDate::fromString(query.value(7).toString(), Qt::ISODate),
+            .playedAt = parseDateTime(query.value(8).toString()),
+            .updatedAt = parseDateTime(query.value(9).toString()),
+            .positionSeconds = query.value(10).toLongLong(),
+            .durationSeconds = query.value(11).toLongLong(),
+            .completed = query.value(12).toInt() == 1,
+            .privacyMode = query.value(13).toInt() == 1,
+        });
+    }
+    return items;
+}
+
 std::expected<void, QString> SessionRepository::updatePlaybackHistoryProgress(const QString& recordId,
                                                                                qint64 positionSeconds,
                                                                                qint64 durationSeconds,
@@ -1278,6 +1365,53 @@ std::expected<void, QString> SessionRepository::saveEmbyRecommendationCache(cons
     query.bindValue(QStringLiteral(":refreshed_at"), refreshedAt.toUTC().toString(Qt::ISODateWithMs));
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+std::expected<void, QString> SessionRepository::deletePlaybackHistoryForDate(bool includePrivacyMode,
+                                                                               const QDate& date)
+{
+    if (!date.isValid()) {
+        return std::unexpected(QStringLiteral("Invalid playback history date"));
+    }
+    if (auto openResult = ensureOpen(); !openResult) {
+        return openResult;
+    }
+
+    QSqlQuery transaction(m_database);
+    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        return std::unexpected(sqlError(transaction));
+    }
+
+    const auto visibleRecordPredicate = QStringLiteral(
+        "SELECT history.id FROM playback_history history "
+        "LEFT JOIN servers ON servers.id = history.service_id "
+        "WHERE history.played_date = :played_date "
+        "AND (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0)");
+    QSqlQuery linkQuery(m_database);
+    linkQuery.prepare(QStringLiteral("DELETE FROM link_playback_history WHERE id IN (")
+                      + visibleRecordPredicate + QStringLiteral(")"));
+    linkQuery.bindValue(QStringLiteral(":played_date"), date.toString(Qt::ISODate));
+    linkQuery.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
+    if (!linkQuery.exec()) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(linkQuery));
+    }
+
+    QSqlQuery historyQuery(m_database);
+    historyQuery.prepare(QStringLiteral("DELETE FROM playback_history WHERE id IN (")
+                         + visibleRecordPredicate + QStringLiteral(")"));
+    historyQuery.bindValue(QStringLiteral(":played_date"), date.toString(Qt::ISODate));
+    historyQuery.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
+    if (!historyQuery.exec()) {
+        transaction.exec(QStringLiteral("ROLLBACK"));
+        return std::unexpected(sqlError(historyQuery));
+    }
+
+    QSqlQuery commit(m_database);
+    if (!commit.exec(QStringLiteral("COMMIT"))) {
+        return std::unexpected(sqlError(commit));
     }
     return {};
 }

@@ -818,6 +818,16 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("globalHistory.recordCount"), QStringLiteral("%1 loaded") },
         { QStringLiteral("globalHistory.recentTitle"), QStringLiteral("Recent playback") },
         { QStringLiteral("globalHistory.recentSubtitle"), QStringLiteral("Newest activity first, with progress kept locally") },
+        { QStringLiteral("globalHistory.manageByDay"), QStringLiteral("Manage by day") },
+        { QStringLiteral("globalHistory.managementTitle"), QStringLiteral("Manage playback history by day") },
+        { QStringLiteral("globalHistory.managementDate"), QStringLiteral("Playback date") },
+        { QStringLiteral("globalHistory.managementEmpty"), QStringLiteral("No playback history on this date") },
+        { QStringLiteral("globalHistory.managementDelete"), QStringLiteral("Delete this day's history") },
+        { QStringLiteral("globalHistory.managementDeleteTitle"), QStringLiteral("Delete this day's history?") },
+        { QStringLiteral("globalHistory.managementDeletePrompt"), QStringLiteral("All playback records for %1 will be permanently deleted.") },
+        { QStringLiteral("globalHistory.managementLoadFailed"), QStringLiteral("Playback history for this date could not be loaded") },
+        { QStringLiteral("globalHistory.managementDeleteFailed"), QStringLiteral("Playback history for this date could not be deleted") },
+        { QStringLiteral("globalHistory.managementInvalidDate"), QStringLiteral("The selected playback date is invalid") },
         { QStringLiteral("globalHistory.filterAll"), QStringLiteral("All") },
         { QStringLiteral("globalHistory.sourceEmby"), QStringLiteral("Emby") },
         { QStringLiteral("globalHistory.sourceJellyfin"), QStringLiteral("Jellyfin") },
@@ -1311,6 +1321,16 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("globalHistory.recordCount"), QStringLiteral("已加载 %1 条") },
         { QStringLiteral("globalHistory.recentTitle"), QStringLiteral("最近播放") },
         { QStringLiteral("globalHistory.recentSubtitle"), QStringLiteral("按时间倒序展示，本地保存播放进度") },
+        { QStringLiteral("globalHistory.manageByDay"), QStringLiteral("按天管理") },
+        { QStringLiteral("globalHistory.managementTitle"), QStringLiteral("按天管理播放历史") },
+        { QStringLiteral("globalHistory.managementDate"), QStringLiteral("播放日期") },
+        { QStringLiteral("globalHistory.managementEmpty"), QStringLiteral("这一天没有播放历史") },
+        { QStringLiteral("globalHistory.managementDelete"), QStringLiteral("删除当天历史") },
+        { QStringLiteral("globalHistory.managementDeleteTitle"), QStringLiteral("删除当天历史？") },
+        { QStringLiteral("globalHistory.managementDeletePrompt"), QStringLiteral("将永久删除 %1 的全部播放记录。") },
+        { QStringLiteral("globalHistory.managementLoadFailed"), QStringLiteral("无法加载这一天的播放历史") },
+        { QStringLiteral("globalHistory.managementDeleteFailed"), QStringLiteral("无法删除这一天的播放历史") },
+        { QStringLiteral("globalHistory.managementInvalidDate"), QStringLiteral("选择的播放日期无效") },
         { QStringLiteral("globalHistory.filterAll"), QStringLiteral("全部") },
         { QStringLiteral("globalHistory.sourceEmby"), QStringLiteral("Emby") },
         { QStringLiteral("globalHistory.sourceJellyfin"), QStringLiteral("Jellyfin") },
@@ -3237,6 +3257,26 @@ bool AppViewModel::globalHistoryLoading() const
     return m_globalHistoryLoading;
 }
 
+QStringList AppViewModel::globalHistoryDates() const
+{
+    return m_globalHistoryDates;
+}
+
+QString AppViewModel::globalHistoryManagementDate() const
+{
+    return m_globalHistoryManagementDate;
+}
+
+PlaybackHistoryListModel* AppViewModel::globalHistoryDayItems()
+{
+    return &m_globalHistoryDayItems;
+}
+
+bool AppViewModel::globalHistoryManagementLoading() const
+{
+    return m_globalHistoryManagementLoading;
+}
+
 qint64 AppViewModel::historyTotalWatchSeconds() const
 {
     return m_historyTotalWatchSeconds;
@@ -4572,6 +4612,110 @@ void AppViewModel::deleteGlobalHistory(const QString& recordId)
         refreshLinkPlaybackHistory();
     }
     refreshGlobalHistory();
+}
+
+void AppViewModel::openGlobalHistoryManagement()
+{
+    clearError();
+    loadGlobalHistoryManagementDates();
+}
+
+void AppViewModel::selectGlobalHistoryManagementDate(const QString& date)
+{
+    const auto normalized = date.trimmed();
+    if (normalized.isEmpty() || !m_globalHistoryDates.contains(normalized)) {
+        return;
+    }
+    loadGlobalHistoryManagementDate(normalized);
+}
+
+void AppViewModel::deleteGlobalHistoryManagementDate()
+{
+    if (m_globalHistoryManagementLoading || m_globalHistoryManagementDate.isEmpty()) {
+        return;
+    }
+
+    clearError();
+    const auto date = QDate::fromString(m_globalHistoryManagementDate, Qt::ISODate);
+    if (!date.isValid()) {
+        setError(trText(QStringLiteral("globalHistory.managementInvalidDate")));
+        return;
+    }
+
+    if (auto result = m_repository.deletePlaybackHistoryForDate(m_privacyMode, date); !result) {
+        AppLogger::warning(QStringLiteral("global-history"),
+                           QStringLiteral("Delete playback history for %1 failed: %2")
+                               .arg(m_globalHistoryManagementDate, result.error()));
+        setError(trText(QStringLiteral("globalHistory.managementDeleteFailed")));
+        return;
+    }
+
+    loadGlobalHistoryManagementDates();
+    refreshGlobalHistory();
+}
+
+void AppViewModel::loadGlobalHistoryManagementDates()
+{
+    m_globalHistoryManagementLoading = true;
+    emit globalHistoryManagementChanged();
+
+    const auto result = m_repository.loadPlaybackHistoryDates(m_privacyMode);
+    if (!result) {
+        m_globalHistoryDates.clear();
+        m_globalHistoryManagementDate.clear();
+        m_globalHistoryDayItems.clear();
+        m_globalHistoryManagementLoading = false;
+        emit globalHistoryManagementChanged();
+        AppLogger::warning(QStringLiteral("global-history"),
+                           QStringLiteral("Load playback history dates failed: %1").arg(result.error()));
+        setError(trText(QStringLiteral("globalHistory.managementLoadFailed")));
+        return;
+    }
+
+    m_globalHistoryDates = *result;
+    if (!m_globalHistoryDates.contains(m_globalHistoryManagementDate)) {
+        m_globalHistoryManagementDate = m_globalHistoryDates.isEmpty()
+            ? QString {}
+            : m_globalHistoryDates.front();
+    }
+    emit globalHistoryManagementChanged();
+
+    if (m_globalHistoryManagementDate.isEmpty()) {
+        m_globalHistoryDayItems.clear();
+        m_globalHistoryManagementLoading = false;
+        emit globalHistoryManagementChanged();
+        return;
+    }
+    loadGlobalHistoryManagementDate(m_globalHistoryManagementDate);
+}
+
+void AppViewModel::loadGlobalHistoryManagementDate(const QString& date)
+{
+    const auto normalized = date.trimmed();
+    if (normalized.isEmpty() || !m_globalHistoryDates.contains(normalized)) {
+        return;
+    }
+
+    m_globalHistoryManagementLoading = true;
+    m_globalHistoryManagementDate = normalized;
+    emit globalHistoryManagementChanged();
+
+    const auto parsedDate = QDate::fromString(normalized, Qt::ISODate);
+    const auto result = m_repository.loadPlaybackHistoryForDate(m_privacyMode, parsedDate);
+    if (!result) {
+        m_globalHistoryDayItems.clear();
+        m_globalHistoryManagementLoading = false;
+        emit globalHistoryManagementChanged();
+        AppLogger::warning(QStringLiteral("global-history"),
+                           QStringLiteral("Load playback history for %1 failed: %2")
+                               .arg(normalized, result.error()));
+        setError(trText(QStringLiteral("globalHistory.managementLoadFailed")));
+        return;
+    }
+
+    m_globalHistoryDayItems.setItems(prepareGlobalHistoryItems(std::move(*result)));
+    m_globalHistoryManagementLoading = false;
+    emit globalHistoryManagementChanged();
 }
 
 void AppViewModel::cancelPendingHistoryReplay()

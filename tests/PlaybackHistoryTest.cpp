@@ -12,6 +12,7 @@ class PlaybackHistoryTest final : public QObject {
 
 private slots:
     void persistsFiltersUpdatesAndDeletesRecords();
+    void supportsDateManagement();
     void keepsSameTargetFromDifferentServices();
     void migratesExistingLinkHistory();
     void deduplicatesExistingGlobalHistory();
@@ -156,6 +157,53 @@ void PlaybackHistoryTest::keepsSameTargetFromDifferentServices()
     QCOMPARE(loaded->size(), size_t { 2 });
     QCOMPARE(loaded->at(0).id, QStringLiteral("second-service"));
     QCOMPARE(loaded->at(1).id, QStringLiteral("first-service"));
+}
+
+void PlaybackHistoryTest::supportsDateManagement()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    SessionRepository repository(uniqueConnectionName(), directory.filePath(QStringLiteral("date-management.sqlite3")));
+    QVERIFY(repository.initialize().has_value());
+
+    const auto firstDay = historyItem(QStringLiteral("first-day"),
+                                      PlaybackHistorySource::Local,
+                                      QStringLiteral("C:/Media/first-day.mkv"),
+                                      QStringLiteral("2026-07-29T08:00:00Z"));
+    const auto firstDayPrivate = historyItem(QStringLiteral("first-day-private"),
+                                             PlaybackHistorySource::Link,
+                                             QStringLiteral("https://example.com/private.m3u8"),
+                                             QStringLiteral("2026-07-29T09:00:00Z"),
+                                             true);
+    const auto secondDay = historyItem(QStringLiteral("second-day"),
+                                       PlaybackHistorySource::Local,
+                                       QStringLiteral("C:/Media/second-day.mkv"),
+                                       QStringLiteral("2026-07-30T08:00:00Z"));
+    QVERIFY(repository.savePlaybackHistory(firstDay).has_value());
+    QVERIFY(repository.savePlaybackHistory(firstDayPrivate).has_value());
+    QVERIFY(repository.savePlaybackHistory(secondDay).has_value());
+
+    const auto dates = repository.loadPlaybackHistoryDates(false);
+    QVERIFY(dates.has_value());
+    QCOMPARE(dates->size(), 2);
+    QVERIFY(dates->contains(firstDay.playedDate.toString(Qt::ISODate)));
+    QVERIFY(dates->contains(secondDay.playedDate.toString(Qt::ISODate)));
+
+    const auto normalDay = repository.loadPlaybackHistoryForDate(false, firstDay.playedDate);
+    QVERIFY(normalDay.has_value());
+    QCOMPARE(normalDay->size(), size_t { 1 });
+    QCOMPARE(normalDay->front().id, firstDay.id);
+
+    QVERIFY(repository.deletePlaybackHistoryForDate(false, firstDay.playedDate).has_value());
+    const auto afterNormalDelete = repository.loadPlaybackHistoryForDate(true, firstDay.playedDate);
+    QVERIFY(afterNormalDelete.has_value());
+    QCOMPARE(afterNormalDelete->size(), size_t { 1 });
+    QCOMPARE(afterNormalDelete->front().id, firstDayPrivate.id);
+
+    QVERIFY(repository.deletePlaybackHistoryForDate(true, firstDay.playedDate).has_value());
+    const auto afterAllDelete = repository.loadPlaybackHistoryForDate(true, firstDay.playedDate);
+    QVERIFY(afterAllDelete.has_value());
+    QVERIFY(afterAllDelete->empty());
 }
 
 void PlaybackHistoryTest::usesManagedPathForIptvServiceCards()

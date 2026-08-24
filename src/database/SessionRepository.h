@@ -55,12 +55,18 @@ public:
                                                                                  int startIndex,
                                                                                  int limit,
                                                                                  PlaybackHistorySource source = PlaybackHistorySource::Unknown);
+    std::expected<QStringList, QString> loadPlaybackHistoryDates(bool includePrivacyMode);
+    std::expected<std::vector<PlaybackHistoryItem>, QString> loadPlaybackHistoryForDate(
+        bool includePrivacyMode,
+        const QDate& date);
     std::expected<void, QString> updatePlaybackHistoryProgress(const QString& recordId,
                                                                qint64 positionSeconds,
                                                                qint64 durationSeconds,
                                                                bool completed,
                                                                const QDateTime& updatedAt);
     std::expected<void, QString> deletePlaybackHistory(const QString& recordId);
+    std::expected<void, QString> deletePlaybackHistoryForDate(bool includePrivacyMode,
+                                                              const QDate& date);
     std::expected<std::vector<ServiceCard>, QString> loadServiceCards(bool privacyMode);
     std::expected<std::vector<ServiceCard>, QString> loadAllServiceCards();
     std::expected<std::optional<IptvPlaylist>, QString> loadIptvPlaylist(const QString& serviceId);
