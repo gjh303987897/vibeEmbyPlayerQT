@@ -4808,7 +4808,8 @@ void AppViewModel::startWebDavHistoryPlayback(const ServiceCard& card,
         return;
     }
 
-    if (remoteUrl.path().endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive)) {
+    if (remoteUrl.path().endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive) ||
+        remoteUrl.path().endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive)) {
         const auto generation = ++m_encryptedHlsPrepareGeneration;
         m_encryptedHlsPreparing = true;
         setLoading(true);
