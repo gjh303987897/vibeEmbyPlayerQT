@@ -65,7 +65,7 @@ QByteArray octal(qint64 value, qsizetype size)
     if (text.size() + 1 > size) {
         return {};
     }
-    QByteArray result(size, '\0');
+    QByteArray result(size, '0');
     const auto start = size - text.size() - 1;
     result.replace(start, text.size(), text);
     result[size - 1] = '\0';
