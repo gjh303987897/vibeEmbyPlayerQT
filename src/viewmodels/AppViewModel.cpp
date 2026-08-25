@@ -394,10 +394,30 @@ QString normalizedPlayerLayout(const QString& layout)
 QString normalizedM3u8sVideoEncoding(const QString& value)
 {
     if (value == QStringLiteral("copy") || value == QStringLiteral("h264") ||
-        value == QStringLiteral("h265")) {
+        value == QStringLiteral("h265") || value == QStringLiteral("auto")) {
         return value;
     }
     return QStringLiteral("h264");
+}
+
+QStringList normalizedM3u8sAutoVideoCodecs(const QStringList& values)
+{
+    QStringList normalized;
+    for (const auto& value : values) {
+        const auto codec = value.trimmed().toLower();
+        if ((codec == QStringLiteral("h264") || codec == QStringLiteral("h265"))
+            && !normalized.contains(codec)) {
+            normalized.append(codec);
+        }
+    }
+    return normalized.isEmpty()
+        ? QStringList { QStringLiteral("h264"), QStringLiteral("h265") }
+        : normalized;
+}
+
+QString normalizedM3u8sAutoVideoTarget(const QString& value)
+{
+    return value == QStringLiteral("h265") ? QStringLiteral("h265") : QStringLiteral("h264");
 }
 
 QString normalizedM3u8sAudioEncoding(const QString& value)
@@ -473,6 +493,9 @@ EncryptedHlsVideoEncoding m3u8sVideoEncodingFor(const QString& value)
 {
     if (value == QStringLiteral("copy")) {
         return EncryptedHlsVideoEncoding::Copy;
+    }
+    if (value == QStringLiteral("auto")) {
+        return EncryptedHlsVideoEncoding::Auto;
     }
     return value == QStringLiteral("h265")
         ? EncryptedHlsVideoEncoding::H265
@@ -792,6 +815,11 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.encodingCopy"), QStringLiteral("Keep original (stream copy)") },
         { QStringLiteral("m3u8s.encodingH264"), QStringLiteral("H.264 (AVC)") },
         { QStringLiteral("m3u8s.encodingH265"), QStringLiteral("H.265 (HEVC)") },
+        { QStringLiteral("m3u8s.encodingAuto"), QStringLiteral("Automatic (copy selected codecs)") },
+        { QStringLiteral("m3u8s.autoCopyCodecs"), QStringLiteral("Keep these input codecs without re-encoding") },
+        { QStringLiteral("m3u8s.autoTarget"), QStringLiteral("Encode other videos as") },
+        { QStringLiteral("m3u8s.autoCodecH264"), QStringLiteral("H.264") },
+        { QStringLiteral("m3u8s.autoCodecH265"), QStringLiteral("H.265") },
         { QStringLiteral("m3u8s.audioAac"), QStringLiteral("AAC") },
         { QStringLiteral("m3u8s.qualityHigh"), QStringLiteral("High quality") },
         { QStringLiteral("m3u8s.qualityBalanced"), QStringLiteral("Balanced") },
@@ -1317,6 +1345,11 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.encodingCopy"), QStringLiteral("保留原格式（直接复制）") },
         { QStringLiteral("m3u8s.encodingH264"), QStringLiteral("H.264（AVC）") },
         { QStringLiteral("m3u8s.encodingH265"), QStringLiteral("H.265（HEVC）") },
+        { QStringLiteral("m3u8s.encodingAuto"), QStringLiteral("自动（指定编码直接复制）") },
+        { QStringLiteral("m3u8s.autoCopyCodecs"), QStringLiteral("以下输入编码无需重新编码") },
+        { QStringLiteral("m3u8s.autoTarget"), QStringLiteral("其他视频编码为") },
+        { QStringLiteral("m3u8s.autoCodecH264"), QStringLiteral("H.264") },
+        { QStringLiteral("m3u8s.autoCodecH265"), QStringLiteral("H.265") },
         { QStringLiteral("m3u8s.audioAac"), QStringLiteral("AAC") },
         { QStringLiteral("m3u8s.qualityHigh"), QStringLiteral("高质量") },
         { QStringLiteral("m3u8s.qualityBalanced"), QStringLiteral("均衡") },
@@ -2562,6 +2595,38 @@ void AppViewModel::setM3u8sVideoEncoding(const QString& value)
     }
     m_m3u8sVideoEncoding = normalized;
     m_repository.setM3u8sVideoEncoding(normalized);
+    emit m3u8sSettingsChanged();
+}
+
+QStringList AppViewModel::m3u8sAutoVideoCodecs() const
+{
+    return m_m3u8sAutoVideoCodecs;
+}
+
+void AppViewModel::setM3u8sAutoVideoCodecs(const QStringList& codecs)
+{
+    const auto normalized = normalizedM3u8sAutoVideoCodecs(codecs);
+    if (m_m3u8sAutoVideoCodecs == normalized) {
+        return;
+    }
+    m_m3u8sAutoVideoCodecs = normalized;
+    m_repository.setM3u8sAutoVideoCodecs(normalized);
+    emit m3u8sSettingsChanged();
+}
+
+QString AppViewModel::m3u8sAutoVideoTarget() const
+{
+    return m_m3u8sAutoVideoTarget;
+}
+
+void AppViewModel::setM3u8sAutoVideoTarget(const QString& value)
+{
+    const auto normalized = normalizedM3u8sAutoVideoTarget(value);
+    if (m_m3u8sAutoVideoTarget == normalized) {
+        return;
+    }
+    m_m3u8sAutoVideoTarget = normalized;
+    m_repository.setM3u8sAutoVideoTarget(normalized);
     emit m3u8sSettingsChanged();
 }
 
@@ -3843,6 +3908,8 @@ void AppViewModel::initialize()
         : QFileInfo(savedFallbackDirectory).absoluteFilePath();
     m_m3u8sKeepSuccessfulLocal = m_repository.m3u8sKeepSuccessfulLocal();
     m_m3u8sVideoEncoding = normalizedM3u8sVideoEncoding(m_repository.m3u8sVideoEncoding());
+    m_m3u8sAutoVideoCodecs = normalizedM3u8sAutoVideoCodecs(m_repository.m3u8sAutoVideoCodecs());
+    m_m3u8sAutoVideoTarget = normalizedM3u8sAutoVideoTarget(m_repository.m3u8sAutoVideoTarget());
     m_m3u8sAudioEncoding = normalizedM3u8sAudioEncoding(m_repository.m3u8sAudioEncoding());
     m_m3u8sVideoQuality = normalizedM3u8sVideoQuality(m_repository.m3u8sVideoQuality());
     m_m3u8sContainerFormat = normalizedM3u8sContainerFormat(m_repository.m3u8sContainerFormat());
@@ -6155,6 +6222,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     const auto outputRoot = outputDirectory.absoluteFilePath();
     const auto segmentDuration = m_m3u8sSegmentDuration;
     const auto videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding);
+    const auto autoVideoTarget = m3u8sVideoEncodingFor(m_m3u8sAutoVideoTarget);
     const auto audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding);
     const auto videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality);
     const auto containerFormat = m3u8sContainerFormatFor(m_m3u8sContainerFormat);
@@ -6180,7 +6248,8 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     auto* watcher = new QFutureWatcher<PlanResult>(this);
     const auto cancelFlag = m_m3u8sSourceScanCanceled;
     connect(watcher, &QFutureWatcherBase::finished, this,
-            [this, watcher, cancelFlag, segmentDuration, videoEncoding, audioEncoding, videoQuality, containerFormat]() {
+            [this, watcher, cancelFlag, segmentDuration, videoEncoding, autoVideoTarget,
+             autoVideoCodecs = m_m3u8sAutoVideoCodecs, audioEncoding, videoQuality, containerFormat]() {
         auto plan = watcher->result();
         watcher->deleteLater();
         const auto canceled = cancelFlag->load(std::memory_order_relaxed);
@@ -6212,6 +6281,8 @@ bool AppViewModel::createM3u8sFromSelectedSources()
                 .outputDirectory = source.outputDirectory,
                 .segmentDurationSeconds = segmentDuration,
                 .videoEncoding = videoEncoding,
+                .autoCopyVideoCodecs = autoVideoCodecs,
+                .autoFallbackVideoEncoding = autoVideoTarget,
                 .audioEncoding = audioEncoding,
                 .videoQuality = videoQuality,
                 .containerFormat = containerFormat,
@@ -6296,6 +6367,10 @@ void AppViewModel::selectM3u8sWebDavService(const QString& serviceId)
     }
     m_m3u8sWebDavCard = selected;
     m_m3u8sWebDavPassword = loadWebDavPassword(selected->server).value_or(QString {});
+    if (m_m3u8sWebDavPassword.isEmpty() && m_currentWebDavCard &&
+        m_currentWebDavCard->server.id == selected->server.id) {
+        m_m3u8sWebDavPassword = m_webDavPassword;
+    }
     setM3u8sWebDavServiceId(serviceId);
     m_m3u8sWebDavPickerHistory.clear();
     loadM3u8sWebDavDirectory(ensureDirectoryUrl(QUrl(selected->server.baseUrl)));
@@ -8615,6 +8690,10 @@ void AppViewModel::refreshServiceCards()
             if (card && card->server.id == m_m3u8sWebDavServiceId && card->server.serviceType == ServiceType::WebDAV) {
                 m_m3u8sWebDavCard = *card;
                 m_m3u8sWebDavPassword = loadWebDavPassword(card->server).value_or(QString {});
+                if (m_m3u8sWebDavPassword.isEmpty() && m_currentWebDavCard &&
+                    m_currentWebDavCard->server.id == card->server.id) {
+                    m_m3u8sWebDavPassword = m_webDavPassword;
+                }
                 break;
             }
         }
@@ -8991,6 +9070,9 @@ void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& pas
     clearIptvState();
     m_currentWebDavCard = card;
     m_webDavPassword = password;
+    if (m_m3u8sWebDavCard && m_m3u8sWebDavCard->server.id == card.server.id) {
+        m_m3u8sWebDavPassword = password;
+    }
     m_webDavHistory.clear();
     m_currentLibrary.reset();
     clearMediaDirectoryState();

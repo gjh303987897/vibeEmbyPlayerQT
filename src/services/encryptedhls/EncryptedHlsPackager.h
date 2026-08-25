@@ -20,6 +20,7 @@ enum class EncryptedHlsVideoEncoding {
     Copy,
     H264,
     H265,
+    Auto,
 };
 
 enum class EncryptedHlsAudioEncoding {
@@ -43,6 +44,8 @@ struct EncryptedHlsPackageRequest final {
     QString outputDirectory;
     int segmentDurationSeconds { 6 };
     EncryptedHlsVideoEncoding videoEncoding { EncryptedHlsVideoEncoding::H264 };
+    QStringList autoCopyVideoCodecs { QStringLiteral("h264"), QStringLiteral("h265") };
+    EncryptedHlsVideoEncoding autoFallbackVideoEncoding { EncryptedHlsVideoEncoding::H264 };
     EncryptedHlsAudioEncoding audioEncoding { EncryptedHlsAudioEncoding::Aac };
     EncryptedHlsVideoQuality videoQuality { EncryptedHlsVideoQuality::Balanced };
     EncryptedHlsContainerFormat containerFormat { EncryptedHlsContainerFormat::TarM3u8sp };
@@ -68,6 +71,9 @@ std::expected<QStringList, QString> buildFfmpegArguments(
     const EncryptedHlsPackageRequest& request,
     const QString& segmentPattern,
     const QString& manifestPath);
+
+std::expected<QString, QString> probeVideoCodec(const QString& sourcePath,
+                                                const QString& ffmpegExecutable);
 
 std::expected<void, QString> validateGeneratedVideoTrack(
     const QString& directoryPath,

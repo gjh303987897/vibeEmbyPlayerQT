@@ -912,6 +912,11 @@ void TransferManager::startTask(QueuedTask task)
 
     QNetworkRequest request(active->queued.remoteUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("vibePlayerQT/0.1"));
+    if (!active->queued.server.username.isEmpty() && !active->queued.password.isEmpty()) {
+        const auto credentials = active->queued.server.username.toUtf8() + QByteArrayLiteral(":") +
+            active->queued.password.toUtf8();
+        request.setRawHeader("Authorization", QByteArrayLiteral("Basic ") + credentials.toBase64());
+    }
 
     QNetworkReply* reply = nullptr;
     if (active->queued.direction == Direction::CreateDirectory) {
@@ -988,7 +993,10 @@ void TransferManager::startTask(QueuedTask task)
         } else if (timedOut) {
             finishActive(taskId, false, QStringLiteral("Transfer timed out"));
         } else if (reply->error() != QNetworkReply::NoError && !existingDirectory) {
-            finishActive(taskId, false, canceled ? QStringLiteral("Canceled") : reply->errorString());
+            const auto error = statusCode >= 400
+                ? QStringLiteral("HTTP %1").arg(statusCode)
+                : reply->errorString();
+            finishActive(taskId, false, canceled ? QStringLiteral("Canceled") : error);
         } else {
             finishActive(taskId, true, QStringLiteral("Completed"));
         }

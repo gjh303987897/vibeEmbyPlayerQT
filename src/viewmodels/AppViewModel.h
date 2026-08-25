@@ -118,6 +118,8 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool m3u8sUploading READ m3u8sUploading NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(double m3u8sUploadProgress READ m3u8sUploadProgress NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sVideoEncoding READ m3u8sVideoEncoding WRITE setM3u8sVideoEncoding NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QStringList m3u8sAutoVideoCodecs READ m3u8sAutoVideoCodecs WRITE setM3u8sAutoVideoCodecs NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sAutoVideoTarget READ m3u8sAutoVideoTarget WRITE setM3u8sAutoVideoTarget NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sAudioEncoding READ m3u8sAudioEncoding WRITE setM3u8sAudioEncoding NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sVideoQuality READ m3u8sVideoQuality WRITE setM3u8sVideoQuality NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sContainerFormat READ m3u8sContainerFormat WRITE setM3u8sContainerFormat NOTIFY m3u8sSettingsChanged)
@@ -368,6 +370,10 @@ public:
     double m3u8sUploadProgress() const;
     QString m3u8sVideoEncoding() const;
     void setM3u8sVideoEncoding(const QString& value);
+    QStringList m3u8sAutoVideoCodecs() const;
+    void setM3u8sAutoVideoCodecs(const QStringList& codecs);
+    QString m3u8sAutoVideoTarget() const;
+    void setM3u8sAutoVideoTarget(const QString& value);
     QString m3u8sAudioEncoding() const;
     void setM3u8sAudioEncoding(const QString& value);
     QString m3u8sVideoQuality() const;
@@ -1116,6 +1122,8 @@ private:
     int m_m3u8sPendingUploads { 0 };
     int m_m3u8sUploadFailures { 0 };
     QString m_m3u8sVideoEncoding { QStringLiteral("h264") };
+    QStringList m_m3u8sAutoVideoCodecs { QStringLiteral("h264"), QStringLiteral("h265") };
+    QString m_m3u8sAutoVideoTarget { QStringLiteral("h264") };
     QString m_m3u8sAudioEncoding { QStringLiteral("aac") };
     QString m_m3u8sVideoQuality { QStringLiteral("balanced") };
     QString m_m3u8sContainerFormat { QStringLiteral("m3u8sp") };

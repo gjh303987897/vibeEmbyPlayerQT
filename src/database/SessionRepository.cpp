@@ -1974,6 +1974,28 @@ void SessionRepository::setM3u8sVideoEncoding(const QString& encoding)
     m_settings.setValue(QStringLiteral("m3u8s/videoEncoding"), encoding);
 }
 
+QStringList SessionRepository::m3u8sAutoVideoCodecs() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/autoVideoCodecs"),
+                            QStringList { QStringLiteral("h264"), QStringLiteral("h265") })
+        .toStringList();
+}
+
+void SessionRepository::setM3u8sAutoVideoCodecs(const QStringList& codecs)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/autoVideoCodecs"), codecs);
+}
+
+QString SessionRepository::m3u8sAutoVideoTarget() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/autoVideoTarget"), QStringLiteral("h264")).toString();
+}
+
+void SessionRepository::setM3u8sAutoVideoTarget(const QString& encoding)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/autoVideoTarget"), encoding);
+}
+
 QString SessionRepository::m3u8sAudioEncoding() const
 {
     return m_settings.value(QStringLiteral("m3u8s/audioEncoding"), QStringLiteral("aac")).toString();

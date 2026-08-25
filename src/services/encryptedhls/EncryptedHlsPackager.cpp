@@ -85,6 +85,42 @@ int crfFor(EncryptedHlsVideoEncoding encoding, EncryptedHlsVideoQuality quality)
 
 namespace EncryptedHlsPackaging {
 
+std::expected<QString, QString> probeVideoCodec(const QString& sourcePath,
+                                                const QString& ffmpegExecutable)
+{
+    QProcess probe;
+    probe.setProcessChannelMode(QProcess::SeparateChannels);
+    probe.start(ffmpegExecutable,
+                { QStringLiteral("-hide_banner"), QStringLiteral("-nostdin"),
+                  QStringLiteral("-i"), sourcePath,
+                  QStringLiteral("-map"), QStringLiteral("0:v:0"),
+                  QStringLiteral("-c:v"), QStringLiteral("copy"),
+                  QStringLiteral("-an"), QStringLiteral("-f"), QStringLiteral("null"),
+                  QStringLiteral("-") },
+                QIODevice::ReadOnly);
+    if (!probe.waitForStarted(5'000)) {
+        return std::unexpected(QStringLiteral("Unable to inspect the source video codec: %1")
+                                   .arg(probe.errorString()));
+    }
+    if (!probe.waitForFinished(60'000)) {
+        probe.kill();
+        probe.waitForFinished(2'000);
+        return std::unexpected(QStringLiteral("Timed out while inspecting the source video codec"));
+    }
+    const auto diagnostics = QString::fromUtf8(probe.readAllStandardError());
+    static const QRegularExpression codecPattern(
+        QStringLiteral("Stream #[^\\n]*Video:\\s*([A-Za-z0-9_.-]+)"));
+    const auto match = codecPattern.match(diagnostics);
+    if (!match.hasMatch()) {
+        return std::unexpected(QStringLiteral("Unable to determine the source video codec"));
+    }
+    auto codec = match.captured(1).toLower();
+    if (codec == QStringLiteral("hevc")) {
+        codec = QStringLiteral("h265");
+    }
+    return codec;
+}
+
 std::expected<QStringList, QString> buildFfmpegArguments(
     const EncryptedHlsPackageRequest& request,
     const QString& segmentPattern,
@@ -140,6 +176,8 @@ std::expected<QStringList, QString> buildFfmpegArguments(
             QStringLiteral("expr:gte(t,n_forced*") + duration + QLatin1Char(')'),
         });
         break;
+    case EncryptedHlsVideoEncoding::Auto:
+        return std::unexpected(QStringLiteral("Automatic M3U8S video encoding must be resolved before FFmpeg starts"));
     default:
         return std::unexpected(QStringLiteral("Unsupported M3U8S video encoding mode"));
     }
@@ -482,15 +520,32 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
 
     const auto segmentPattern = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("segment_%06d.ts"));
     const auto manifestPath = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("index.m3u8"));
+    auto effectiveRequest = request;
+    effectiveRequest.sourcePath = source.absoluteFilePath();
+    effectiveRequest.outputDirectory = m_outputDirectory;
+    if (effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::Auto) {
+        const auto codec = EncryptedHlsPackaging::probeVideoCodec(source.absoluteFilePath(), ffmpeg);
+        if (!codec) {
+            resetRunState();
+            return std::unexpected(codec.error());
+        }
+        const auto accepted = std::ranges::any_of(effectiveRequest.autoCopyVideoCodecs,
+                                                   [&codec](const QString& candidate) {
+                                                       return candidate == *codec;
+                                                   });
+        effectiveRequest.videoEncoding = accepted
+            ? EncryptedHlsVideoEncoding::Copy
+            : effectiveRequest.autoFallbackVideoEncoding;
+        AppLogger::info(QStringLiteral("encrypted-hls"),
+                        QStringLiteral("Automatic video encoding selected %1 for source codec %2")
+                            .arg(effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::Copy
+                                     ? QStringLiteral("copy")
+                                     : effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::H265
+                                         ? QStringLiteral("h265") : QStringLiteral("h264"),
+                                 *codec));
+    }
     auto arguments = EncryptedHlsPackaging::buildFfmpegArguments(
-        EncryptedHlsPackageRequest {
-            .sourcePath = source.absoluteFilePath(),
-            .outputDirectory = m_outputDirectory,
-            .segmentDurationSeconds = request.segmentDurationSeconds,
-            .videoEncoding = request.videoEncoding,
-            .audioEncoding = request.audioEncoding,
-            .videoQuality = request.videoQuality,
-        },
+        effectiveRequest,
         segmentPattern,
         manifestPath);
     if (!arguments) {

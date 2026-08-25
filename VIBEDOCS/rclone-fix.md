@@ -309,6 +309,15 @@ rclone size onedrive:test-dev --json
 - 区分挂载服务和 WebDAV 服务的缓存目录，避免两个 rclone 实例共享同一个 VFS 缓存；
 - 不要在日志、文档或提交内容中记录真实的远程地址、用户名、密码、Basic Auth 密码、OAuth token、Drive ID 或配置文件原文。
 
+## 2026-08-26 后续排查：不再是 413
+
+如果 nginx 日志中已经没有 `413 Request Entity Too Large`，但 WebDAV 上传仍然失败，需要先区分 HTTP 状态码：
+
+- `401` 表示 WebDAV Basic Auth 未通过。当前实测表明，使用服务器端正确凭据进行 16 MiB 和 256 MiB PUT 均返回 `201`；因此若应用日志持续出现 `401`，应在客户端删除并重新保存 WebDAV 服务密码，确保服务地址、用户名和密码与服务器端配置一致，然后重新选择 M3U8S 的 WebDAV 输出服务。
+- `502` 出现在 nginx 向本机 rclone 写入请求体时，常见原因是后端在收到未认证请求后关闭连接；不能仅凭 `502` 判定为 OneDrive 分片大小问题。
+
+只有在确认客户端认证正确后仍出现 `502`，才进一步将 WebDAV rclone 实例的 `--transfers` 降为 `1`，保留 `--onedrive-chunk-size 10M`，重启服务并重新执行中等大小 PUT 回归测试。
+
 ## 参考
 
 - [rclone OneDrive backend](https://rclone.org/onedrive/)

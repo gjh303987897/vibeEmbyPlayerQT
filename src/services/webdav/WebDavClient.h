@@ -47,7 +47,9 @@ signals:
                               qint64 bytesSent);
 
 private:
-    void configureRequest(QNetworkRequest& request, const ServerConfig& server) const;
+    void configureRequest(QNetworkRequest& request,
+                          const ServerConfig& server,
+                          const QString& password) const;
     void wireReply(QNetworkReply* reply, const ServerConfig& server);
     static NetworkError replyError(QNetworkReply* reply);
 

@@ -153,6 +153,10 @@ The page offers these encoding modes:
   and 24.
 - H.265 uses `libx265`; high, balanced, and compact quality map to CRF 20, 23,
   and 28.
+- Automatic video encoding probes the first video stream for each input. The
+  selected H.264 and/or H.265 codecs are stream-copied; every other codec is
+  transcoded to the configured H.264 or H.265 fallback target. This decision
+  is made independently for each item in a batch.
 - Audio stream copy preserves the original encoded audio with the same
   compatibility limitation. AAC transcodes the optional first audio stream at
   192 kbit/s.

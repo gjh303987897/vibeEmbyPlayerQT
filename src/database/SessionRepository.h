@@ -159,6 +159,10 @@ public:
     void setM3u8sKeepSuccessfulLocal(bool keep);
     QString m3u8sVideoEncoding() const;
     void setM3u8sVideoEncoding(const QString& encoding);
+    QStringList m3u8sAutoVideoCodecs() const;
+    void setM3u8sAutoVideoCodecs(const QStringList& codecs);
+    QString m3u8sAutoVideoTarget() const;
+    void setM3u8sAutoVideoTarget(const QString& encoding);
     QString m3u8sAudioEncoding() const;
     void setM3u8sAudioEncoding(const QString& encoding);
     QString m3u8sVideoQuality() const;

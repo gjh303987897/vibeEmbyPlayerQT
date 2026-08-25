@@ -14816,11 +14816,74 @@ ApplicationWindow {
                                 model: [
                                     { label: t("m3u8s.encodingCopy"), value: "copy" },
                                     { label: t("m3u8s.encodingH264"), value: "h264" },
-                                    { label: t("m3u8s.encodingH265"), value: "h265" }
+                                    { label: t("m3u8s.encodingH265"), value: "h265" },
+                                    { label: t("m3u8s.encodingAuto"), value: "auto" }
                                 ]
                                 currentIndex: appViewModel.m3u8sVideoEncoding === "copy" ? 0
-                                    : appViewModel.m3u8sVideoEncoding === "h265" ? 2 : 1
+                                    : appViewModel.m3u8sVideoEncoding === "h265" ? 2
+                                    : appViewModel.m3u8sVideoEncoding === "auto" ? 3 : 1
                                 onActivated: appViewModel.m3u8sVideoEncoding = model[index].value
+                            }
+
+                            Label {
+                                visible: appViewModel.m3u8sVideoEncoding === "auto"
+                                text: t("m3u8s.autoCopyCodecs")
+                                color: theme.muted
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                            }
+
+                            RowLayout {
+                                visible: appViewModel.m3u8sVideoEncoding === "auto"
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                ModernCheckBox {
+                                    text: t("m3u8s.autoCodecH264")
+                                    enabled: appViewModel.m3u8sAutoVideoCodecs.length > 1
+                                    checked: appViewModel.m3u8sAutoVideoCodecs.indexOf("h264") >= 0
+                                    onToggled: {
+                                        var codecs = appViewModel.m3u8sAutoVideoCodecs.slice()
+                                        var position = codecs.indexOf("h264")
+                                        if (checked && position < 0) codecs.push("h264")
+                                        else if (!checked && position >= 0) codecs.splice(position, 1)
+                                        appViewModel.m3u8sAutoVideoCodecs = codecs
+                                    }
+                                }
+
+                                ModernCheckBox {
+                                    text: t("m3u8s.autoCodecH265")
+                                    enabled: appViewModel.m3u8sAutoVideoCodecs.length > 1
+                                    checked: appViewModel.m3u8sAutoVideoCodecs.indexOf("h265") >= 0
+                                    onToggled: {
+                                        var codecs = appViewModel.m3u8sAutoVideoCodecs.slice()
+                                        var position = codecs.indexOf("h265")
+                                        if (checked && position < 0) codecs.push("h265")
+                                        else if (!checked && position >= 0) codecs.splice(position, 1)
+                                        appViewModel.m3u8sAutoVideoCodecs = codecs
+                                    }
+                                }
+                            }
+
+                            Label {
+                                visible: appViewModel.m3u8sVideoEncoding === "auto"
+                                text: t("m3u8s.autoTarget")
+                                color: theme.muted
+                                font.pixelSize: 11
+                            }
+
+                            ModernComboBox {
+                                visible: appViewModel.m3u8sVideoEncoding === "auto"
+                                Layout.fillWidth: true
+                                enabled: !appViewModel.m3u8sPackaging
+                                textRole: "label"
+                                valueRole: "value"
+                                model: [
+                                    { label: t("m3u8s.encodingH264"), value: "h264" },
+                                    { label: t("m3u8s.encodingH265"), value: "h265" }
+                                ]
+                                currentIndex: appViewModel.m3u8sAutoVideoTarget === "h265" ? 1 : 0
+                                onActivated: appViewModel.m3u8sAutoVideoTarget = model[index].value
                             }
                         }
 

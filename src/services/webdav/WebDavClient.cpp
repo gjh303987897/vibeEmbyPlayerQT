@@ -222,7 +222,7 @@ void WebDavClient::listDirectory(const ServerConfig& server,
                                  std::function<void(WebDavListResult)> callback)
 {
     QNetworkRequest request(directoryUrl);
-    configureRequest(request, server);
+    configureRequest(request, server, password);
     request.setRawHeader("Depth", "1");
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/xml; charset=utf-8"));
 
@@ -260,7 +260,7 @@ void WebDavClient::statItem(const ServerConfig& server,
                             std::function<void(WebDavItemResult)> callback)
 {
     QNetworkRequest request(itemUrl);
-    configureRequest(request, server);
+    configureRequest(request, server, password);
     request.setRawHeader("Depth", "0");
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/xml; charset=utf-8"));
 
@@ -306,7 +306,7 @@ void WebDavClient::createDirectory(const ServerConfig& server,
                                    std::function<void(WebDavVoidResult)> callback)
 {
     QNetworkRequest request(directoryUrl);
-    configureRequest(request, server);
+    configureRequest(request, server, password);
     auto* reply = m_manager.sendCustomRequest(request, QByteArrayLiteral("MKCOL"));
     reply->setProperty("webdavUsername", server.username);
     reply->setProperty("webdavPassword", password);
@@ -326,10 +326,15 @@ void WebDavClient::createDirectory(const ServerConfig& server,
     });
 }
 
-void WebDavClient::configureRequest(QNetworkRequest& request, const ServerConfig& server) const
+void WebDavClient::configureRequest(QNetworkRequest& request,
+                                    const ServerConfig& server,
+                                    const QString& password) const
 {
-    Q_UNUSED(server)
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("vibePlayerQT/0.1"));
+    if (!server.username.isEmpty() && !password.isEmpty()) {
+        const auto credentials = server.username.toUtf8() + QByteArrayLiteral(":") + password.toUtf8();
+        request.setRawHeader("Authorization", QByteArrayLiteral("Basic ") + credentials.toBase64());
+    }
 }
 
 void WebDavClient::wireReply(QNetworkReply* reply, const ServerConfig& server)

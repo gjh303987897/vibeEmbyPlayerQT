@@ -50,6 +50,7 @@ private slots:
     void encryptsEverySegmentAndCreatesMatchingMetadata();
     void honorsCancellationBeforeEncryptingPlaintext();
     void buildsFfmpegArgumentsForSelectedEncodings();
+    void probesSourceCodecForAutomaticEncoding();
     void packagesNormalVideoThroughFfmpeg();
     void packagesLegacyDirectoryFormatThroughFfmpeg();
     void packagesBatchAndContinuesAfterFailure();
@@ -301,6 +302,24 @@ void EncryptedHlsPackagerTest::buildsFfmpegArgumentsForSelectedEncodings()
     QVERIFY(!invalidQuality.has_value());
 }
 
+void EncryptedHlsPackagerTest::probesSourceCodecForAutomaticEncoding()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto sourcePath = temporary.filePath(QStringLiteral("probe-video.y4m"));
+    QVERIFY(writeBytes(sourcePath, tinyY4mVideo()));
+
+    TsslStore store(temporary.filePath(QStringLiteral("keys")));
+    EncryptedHlsPackager packager(store);
+    if (packager.ffmpegExecutable().isEmpty()) {
+        QSKIP("FFmpeg is not available in this test environment");
+    }
+    const auto codec = EncryptedHlsPackaging::probeVideoCodec(sourcePath,
+                                                               packager.ffmpegExecutable());
+    QVERIFY(codec.has_value());
+    QCOMPARE(*codec, QStringLiteral("rawvideo"));
+}
+
 void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
 {
     QTemporaryDir temporary;
@@ -334,6 +353,9 @@ void EncryptedHlsPackagerTest::packagesNormalVideoThroughFfmpeg()
         .sourcePath = sourcePath,
         .outputDirectory = temporary.path(),
         .segmentDurationSeconds = 2,
+        .videoEncoding = EncryptedHlsVideoEncoding::Auto,
+        .autoCopyVideoCodecs = { QStringLiteral("h264"), QStringLiteral("h265") },
+        .autoFallbackVideoEncoding = EncryptedHlsVideoEncoding::H264,
     });
     if (!started) {
         QFAIL(qPrintable(started.error()));
