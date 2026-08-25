@@ -2596,7 +2596,6 @@ ApplicationWindow {
     ModernDialog {
         id: m3u8sSourceDialog
         title: t("m3u8s.sourceDialogTitle")
-        standardButtons: Dialog.Cancel
         parent: Overlay.overlay
         x: Math.max(0, Math.round((parent.width - width) / 2))
         y: Math.max(0, Math.round((parent.height - height) / 2))
@@ -2695,8 +2694,14 @@ ApplicationWindow {
 
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 10
 
                 Item { Layout.fillWidth: true }
+
+                ModernButton {
+                    text: t("action.cancel")
+                    onClicked: m3u8sSourceDialog.reject()
+                }
 
                 ModernButton {
                     text: t("m3u8s.startCreating")
