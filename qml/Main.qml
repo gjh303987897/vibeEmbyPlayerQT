@@ -18,7 +18,7 @@ ApplicationWindow {
     flags: Qt.Window | (Qt.platform.os === "windows" ? Qt.FramelessWindowHint : 0)
 
     property int pendingDeleteRow: -1
-    property int pendingTsslDeleteRow: -1
+    property string pendingTsslDeleteDigest: ""
     property var selectedTsslRows: []
     property string selectedTsslBatchDate: ""
     property int pendingScheduledDeleteRow: -1
@@ -877,10 +877,10 @@ ApplicationWindow {
         }
 
         onAccepted: {
-            appViewModel.deleteManagedTssl(root.pendingTsslDeleteRow)
-            root.pendingTsslDeleteRow = -1
+            appViewModel.deleteManagedTssl(root.pendingTsslDeleteDigest)
+            root.pendingTsslDeleteDigest = ""
         }
-        onRejected: root.pendingTsslDeleteRow = -1
+        onRejected: root.pendingTsslDeleteDigest = ""
     }
 
     ModernDialog {
@@ -4640,8 +4640,6 @@ ApplicationWindow {
             alignment: Qt.AlignRight
             spacing: 10
             padding: 14
-            onAccepted: modernDialog.accept()
-            onRejected: modernDialog.reject()
             background: Rectangle {
                 color: theme.surface
                 radius: 10
@@ -15258,7 +15256,7 @@ ApplicationWindow {
                                     danger: true
                                     enabled: !appViewModel.m3u8sBatchExporting
                                     onClicked: {
-                                        root.pendingTsslDeleteRow = tsslRow.index
+                                        root.pendingTsslDeleteDigest = tsslRow.rootDigest
                                         tsslDeleteDialog.open()
                                     }
                                 }

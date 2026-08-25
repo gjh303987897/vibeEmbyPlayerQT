@@ -5953,15 +5953,15 @@ void AppViewModel::exportManagedTsslBatch(const QVariantList& rows)
         }));
 }
 
-void AppViewModel::deleteManagedTssl(int row)
+void AppViewModel::deleteManagedTssl(const QString& rootDigest)
 {
     clearError();
-    const auto package = m_tsslPackages.packageAt(row);
-    if (!package) {
+    const auto digest = QByteArray::fromHex(rootDigest.trimmed().toLatin1());
+    if (digest.size() != 32) {
         setError(trText(QStringLiteral("m3u8s.invalidPackage")));
         return;
     }
-    if (auto deleted = m_tsslStore.deleteByRootDigest(package->rootManifestDigest); !deleted) {
+    if (auto deleted = m_tsslStore.deleteByRootDigest(digest); !deleted) {
         setError(deleted.error());
         return;
     }
