@@ -15006,12 +15006,6 @@ ApplicationWindow {
                         Item { Layout.fillWidth: true }
 
                         ModernButton {
-                            visible: appViewModel.m3u8sLastOutputDirectory.length > 0
-                            text: t("m3u8s.openLastOutput")
-                            onClicked: appViewModel.openM3u8sOutputDirectory()
-                        }
-
-                        ModernButton {
                             visible: appViewModel.m3u8sPackaging
                             text: t("action.cancel")
                             danger: true

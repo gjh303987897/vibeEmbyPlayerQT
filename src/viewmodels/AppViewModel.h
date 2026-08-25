@@ -101,7 +101,6 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString m3u8sPackagingPhase READ m3u8sPackagingPhase NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sStatus READ m3u8sStatus NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(bool m3u8sBatchExporting READ m3u8sBatchExporting NOTIFY m3u8sStatusChanged)
-    Q_PROPERTY(QString m3u8sLastOutputDirectory READ m3u8sLastOutputDirectory NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(QStringList m3u8sSelectedSources READ m3u8sSelectedSources NOTIFY m3u8sSourceSelectionChanged)
     Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
     Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
@@ -348,7 +347,6 @@ public:
     QString m3u8sPackagingPhase() const;
     QString m3u8sStatus() const;
     bool m3u8sBatchExporting() const;
-    QString m3u8sLastOutputDirectory() const;
     QStringList m3u8sSelectedSources() const;
     bool m3u8sFfmpegAvailable() const;
     int m3u8sSegmentDuration() const;
@@ -617,7 +615,6 @@ public:
     Q_INVOKABLE void setTsslBackupS3Secret(const QString& secret);
     Q_INVOKABLE void backupTsslToConfiguredTarget();
     Q_INVOKABLE void cancelTsslBackup();
-    Q_INVOKABLE void openM3u8sOutputDirectory();
     Q_INVOKABLE void openTsslStorageDirectory();
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
     Q_INVOKABLE void openTransfers();
@@ -855,6 +852,7 @@ private:
     void loadM3u8sWebDavDirectory(const QUrl& url);
     void enqueueM3u8sPackageUpload(const EncryptedHlsPackageResult& result);
     void finishM3u8sExportIfReady();
+    void cleanupM3u8sStagingDirectory();
     QString uniqueLocalPath(const QString& directory, const QString& name) const;
     void enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl);
     void wireUsageSignals();
@@ -1092,7 +1090,6 @@ private:
     TsslPackageListModel m_tsslBatchPackages;
     QString m_m3u8sStatus;
     bool m_m3u8sBatchExporting { false };
-    QString m_m3u8sLastOutputDirectory;
     QStringList m_m3u8sSelectedSources;
     std::shared_ptr<std::atomic_bool> m_m3u8sSourceScanCanceled;
     bool m_m3u8sPreparing { false };

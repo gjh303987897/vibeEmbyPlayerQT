@@ -887,7 +887,6 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("The encrypted video cannot be decrypted on this device without this key package.") },
         { QStringLiteral("m3u8s.openStorage"), QStringLiteral("Open key storage") },
         { QStringLiteral("m3u8s.openOutput"), QStringLiteral("Open output folder") },
-        { QStringLiteral("m3u8s.openLastOutput"), QStringLiteral("Open latest package") },
         { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL imported into local key storage") },
         { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL backup exported") },
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("Local TSSL package deleted") },
@@ -1417,7 +1416,6 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.deletePrompt"), QStringLiteral("删除后，本机将无法解密与该密钥包对应的视频。") },
         { QStringLiteral("m3u8s.openStorage"), QStringLiteral("打开密钥目录") },
         { QStringLiteral("m3u8s.openOutput"), QStringLiteral("打开输出目录") },
-        { QStringLiteral("m3u8s.openLastOutput"), QStringLiteral("打开最近生成目录") },
         { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL 已导入本机密钥存储") },
         { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL 备份已导出") },
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("本机 TSSL 密钥包已删除") },
@@ -1920,7 +1918,6 @@ AppViewModel::AppViewModel(QObject* parent)
             &EncryptedHlsBatchPackager::itemCompleted,
             this,
             [this](const EncryptedHlsPackageResult& result) {
-                m_m3u8sLastOutputDirectory = result.outputDirectory;
                 if (m_m3u8sOutputMode == QStringLiteral("webdav")) {
                     enqueueM3u8sPackageUpload(result);
                 }
@@ -2443,11 +2440,6 @@ QString AppViewModel::m3u8sStatus() const
 bool AppViewModel::m3u8sBatchExporting() const
 {
     return m_m3u8sBatchExporting;
-}
-
-QString AppViewModel::m3u8sLastOutputDirectory() const
-{
-    return m_m3u8sLastOutputDirectory;
 }
 
 QStringList AppViewModel::m3u8sSelectedSources() const
@@ -6228,7 +6220,6 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     const auto containerFormat = m3u8sContainerFormatFor(m_m3u8sContainerFormat);
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.discoveringStatus"));
-    m_m3u8sLastOutputDirectory.clear();
     m_m3u8sBatchCompleted = false;
     m_m3u8sCancelRequested = false;
     m_m3u8sUploading = false;
@@ -6257,6 +6248,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
             m_m3u8sSourceScanCanceled.reset();
         }
         if (canceled) {
+            cleanupM3u8sStagingDirectory();
             m_m3u8sCancelRequested = true;
             m_m3u8sPreparing = false;
             m_m3u8sStatus = trText(QStringLiteral("m3u8s.canceledStatus"));
@@ -6265,6 +6257,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
             return;
         }
         if (!plan) {
+            cleanupM3u8sStagingDirectory();
             m_m3u8sPreparing = false;
             m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
             emit m3u8sPackagingChanged();
@@ -6292,6 +6285,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
         m_m3u8sPreparing = false;
         emit m3u8sPackagingChanged();
         if (!started) {
+            cleanupM3u8sStagingDirectory();
             m_m3u8sStatus = trText(QStringLiteral("m3u8s.failedStatus"));
             emit m3u8sStatusChanged();
             setError(started.error());
@@ -6460,15 +6454,6 @@ void AppViewModel::cancelM3u8sPackaging()
     m_m3u8sPackager.cancel();
     for (auto it = m_m3u8sUploadTaskPaths.cbegin(); it != m_m3u8sUploadTaskPaths.cend(); ++it) {
         m_transferManager.cancelTask(it.key());
-    }
-}
-
-void AppViewModel::openM3u8sOutputDirectory()
-{
-    const QFileInfo output(m_m3u8sLastOutputDirectory);
-    const auto directory = output.isFile() ? output.absolutePath() : m_m3u8sLastOutputDirectory;
-    if (directory.isEmpty() || !QDesktopServices::openUrl(QUrl::fromLocalFile(directory))) {
-        setError(trText(QStringLiteral("m3u8s.openFolderFailed")));
     }
 }
 
@@ -9325,7 +9310,7 @@ void AppViewModel::finishM3u8sExportIfReady()
         return;
     }
     m_m3u8sUploading = false;
-    m_m3u8sStagingDirectory.reset();
+    cleanupM3u8sStagingDirectory();
     m_m3u8sStatus = m_m3u8sCancelRequested
         ? trText(QStringLiteral("m3u8s.canceledStatus"))
         : (m_m3u8sUploadFailures > 0
@@ -9333,6 +9318,22 @@ void AppViewModel::finishM3u8sExportIfReady()
             : trText(QStringLiteral("m3u8s.uploadCompletedStatus")));
     emit m3u8sStatusChanged();
     emit m3u8sPackagingChanged();
+}
+
+void AppViewModel::cleanupM3u8sStagingDirectory()
+{
+    if (!m_m3u8sStagingDirectory) {
+        return;
+    }
+    const auto path = m_m3u8sStagingDirectory->path();
+    if (!path.isEmpty() && QDir(path).exists()) {
+        QDir staging(path);
+        if (!staging.removeRecursively()) {
+            AppLogger::warning(QStringLiteral("encrypted-hls"),
+                               QStringLiteral("Unable to remove M3U8S staging directory: %1").arg(path));
+        }
+    }
+    m_m3u8sStagingDirectory.reset();
 }
 
 void AppViewModel::wireUsageSignals()
