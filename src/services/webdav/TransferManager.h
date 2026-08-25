@@ -81,6 +81,7 @@ signals:
     void tasksChanged();
     void selectionChanged();
     void taskFinished(const QString& taskId, bool ok, const QString& message);
+    void taskProgress(const QString& taskId, qint64 bytesDone, qint64 bytesTotal);
     void networkTrafficSample(const QString& serviceId,
                               const QString& serviceName,
                               const QString& serviceType,

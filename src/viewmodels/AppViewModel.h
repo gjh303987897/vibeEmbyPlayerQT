@@ -40,6 +40,7 @@
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QUrl>
 #include <QVariantList>
 
@@ -48,6 +49,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+
 
 class AppViewModel final : public QObject {
     Q_OBJECT
@@ -104,6 +106,17 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
     Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
     Q_PROPERTY(QString m3u8sOutputDirectory READ m3u8sOutputDirectory NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sOutputMode READ m3u8sOutputMode WRITE setM3u8sOutputMode NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sWebDavServiceId READ m3u8sWebDavServiceId WRITE setM3u8sWebDavServiceId NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sWebDavPath READ m3u8sWebDavPath NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sFallbackDirectory READ m3u8sFallbackDirectory NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(bool m3u8sKeepSuccessfulLocal READ m3u8sKeepSuccessfulLocal WRITE setM3u8sKeepSuccessfulLocal NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QVariantList m3u8sWebDavServices READ m3u8sWebDavServices NOTIFY m3u8sWebDavPickerChanged)
+    Q_PROPERTY(WebDavItemListModel* m3u8sWebDavDirectories READ m3u8sWebDavDirectories CONSTANT)
+    Q_PROPERTY(QString m3u8sWebDavPickerPath READ m3u8sWebDavPickerPath NOTIFY m3u8sWebDavPickerChanged)
+    Q_PROPERTY(bool m3u8sWebDavPickerLoading READ m3u8sWebDavPickerLoading NOTIFY m3u8sWebDavPickerChanged)
+    Q_PROPERTY(bool m3u8sUploading READ m3u8sUploading NOTIFY m3u8sPackagingChanged)
+    Q_PROPERTY(double m3u8sUploadProgress READ m3u8sUploadProgress NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sVideoEncoding READ m3u8sVideoEncoding WRITE setM3u8sVideoEncoding NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sAudioEncoding READ m3u8sAudioEncoding WRITE setM3u8sAudioEncoding NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sVideoQuality READ m3u8sVideoQuality WRITE setM3u8sVideoQuality NOTIFY m3u8sSettingsChanged)
@@ -339,6 +352,20 @@ public:
     int m3u8sSegmentDuration() const;
     void setM3u8sSegmentDuration(int value);
     QString m3u8sOutputDirectory() const;
+    QString m3u8sOutputMode() const;
+    void setM3u8sOutputMode(const QString& value);
+    QString m3u8sWebDavServiceId() const;
+    void setM3u8sWebDavServiceId(const QString& value);
+    QString m3u8sWebDavPath() const;
+    QString m3u8sFallbackDirectory() const;
+    bool m3u8sKeepSuccessfulLocal() const;
+    void setM3u8sKeepSuccessfulLocal(bool value);
+    QVariantList m3u8sWebDavServices() const;
+    WebDavItemListModel* m3u8sWebDavDirectories();
+    QString m3u8sWebDavPickerPath() const;
+    bool m3u8sWebDavPickerLoading() const;
+    bool m3u8sUploading() const;
+    double m3u8sUploadProgress() const;
     QString m3u8sVideoEncoding() const;
     void setM3u8sVideoEncoding(const QString& value);
     QString m3u8sAudioEncoding() const;
@@ -573,6 +600,12 @@ public:
     Q_INVOKABLE void clearM3u8sSources();
     Q_INVOKABLE bool createM3u8sFromSelectedSources();
     Q_INVOKABLE void chooseM3u8sOutputDirectory();
+    Q_INVOKABLE void chooseM3u8sFallbackDirectory();
+    Q_INVOKABLE void chooseM3u8sWebDavDirectory();
+    Q_INVOKABLE void selectM3u8sWebDavService(const QString& serviceId);
+    Q_INVOKABLE void openM3u8sWebDavDirectory(int row);
+    Q_INVOKABLE void m3u8sWebDavBack();
+    Q_INVOKABLE void useCurrentM3u8sWebDavDirectory();
     Q_INVOKABLE void openM3u8sConfiguredOutputDirectory();
     Q_INVOKABLE void cancelM3u8sPackaging();
     Q_INVOKABLE void setTsslBackupS3Secret(const QString& secret);
@@ -689,6 +722,7 @@ signals:
     void m3u8sSourceSelectionChanged();
     void m3u8sSegmentDurationChanged();
     void m3u8sSettingsChanged();
+    void m3u8sWebDavPickerChanged();
     void webDavAudioPlaybackChanged();
     void webDavAudioRepeatModeChanged();
     void defaultDownloadDirectoryChanged();
@@ -812,6 +846,9 @@ private:
     void saveWebDavCredentials(const ServerConfig& server, const QString& password);
     std::optional<QString> loadWebDavPassword(const ServerConfig& server);
     QUrl childWebDavUrl(const QString& name, bool directory) const;
+    void loadM3u8sWebDavDirectory(const QUrl& url);
+    void enqueueM3u8sPackageUpload(const EncryptedHlsPackageResult& result);
+    void finishM3u8sExportIfReady();
     QString uniqueLocalPath(const QString& directory, const QString& name) const;
     void enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl);
     void wireUsageSignals();
@@ -1055,6 +1092,29 @@ private:
     bool m_m3u8sPreparing { false };
     int m_m3u8sSegmentDuration { 6 };
     QString m_m3u8sOutputDirectory;
+    QString m_m3u8sOutputMode { QStringLiteral("local") };
+    QString m_m3u8sWebDavServiceId;
+    QString m_m3u8sWebDavPath;
+    QString m_m3u8sFallbackDirectory;
+    bool m_m3u8sKeepSuccessfulLocal { false };
+    WebDavItemListModel m_m3u8sWebDavDirectories;
+    std::optional<ServiceCard> m_m3u8sWebDavCard;
+    QString m_m3u8sWebDavPassword;
+    QUrl m_m3u8sWebDavPickerUrl;
+    QList<QUrl> m_m3u8sWebDavPickerHistory;
+    quint64 m_m3u8sWebDavPickerGeneration { 0 };
+    bool m_m3u8sWebDavPickerLoading { false };
+    std::unique_ptr<QTemporaryDir> m_m3u8sStagingDirectory;
+    bool m_m3u8sUploading { false };
+    bool m_m3u8sBatchCompleted { false };
+    bool m_m3u8sCancelRequested { false };
+    QHash<QString, QString> m_m3u8sUploadTaskPaths;
+    QHash<QString, qint64> m_m3u8sUploadTaskDone;
+    QHash<QString, qint64> m_m3u8sUploadTaskTotals;
+    qint64 m_m3u8sUploadDoneBytes { 0 };
+    qint64 m_m3u8sUploadTotalBytes { 0 };
+    int m_m3u8sPendingUploads { 0 };
+    int m_m3u8sUploadFailures { 0 };
     QString m_m3u8sVideoEncoding { QStringLiteral("h264") };
     QString m_m3u8sAudioEncoding { QStringLiteral("aac") };
     QString m_m3u8sVideoQuality { QStringLiteral("balanced") };

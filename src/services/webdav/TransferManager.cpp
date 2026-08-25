@@ -1157,6 +1157,8 @@ void TransferManager::updateProgress(const QString& taskId, qint64 done, qint64 
         return;
     }
 
+    emit taskProgress(taskId, done, total);
+
     if (active->queued.direction == Direction::Upload) {
         const auto delta = done - active->queued.countedBytesSent;
         if (delta > 0) {

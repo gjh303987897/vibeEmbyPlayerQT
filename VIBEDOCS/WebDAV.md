@@ -167,3 +167,18 @@ WebDAV 视频和音频播放都通过本地 `WebDavPlaybackProxy` 把远程内�
 - `file (2).ext`
 
 文件夹同理。
+
+## M3U8S remote export
+
+The M3U8S manager can package into a temporary local staging directory and
+upload the completed package to a selected directory from a saved WebDAV
+service. Directory browsing is performed by `WebDavClient` using `PROPFIND`
+with directory depth 1; QML only consumes the exposed directory model.
+
+The export flow exposes packaging and upload progress separately. Uploads use
+the existing `TransferManager` `PUT` queue and its `taskProgress` signal. A
+local fallback directory is required for WebDAV exports: failed uploads are
+copied there, and successful uploads may also be retained there by the user.
+For directory-format packages, `MKCOL` tasks are queued for the package tree
+before its files are uploaded. WebDAV credentials continue to come from
+`CredentialStore` and are never exposed to QML or written to logs.

@@ -2428,13 +2428,22 @@ ApplicationWindow {
 
                         Popup {
                             id: serviceMorePopup
-                            x: serviceMoreButton.width - width + 4
-                            y: serviceMoreButton.height + 10
+                            parent: Overlay.overlay
+                            property point anchorPosition: Qt.point(0, 0)
+                            x: Math.round(anchorPosition.x - width + 4)
+                            y: Math.round(anchorPosition.y + 10)
                             width: 226
                             padding: 6
                             focus: true
                             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                             transformOrigin: Item.TopLeft
+
+                            onAboutToShow: {
+                                anchorPosition = serviceMoreButton.parent.mapToItem(
+                                    Overlay.overlay,
+                                    serviceMoreButton.x + serviceMoreButton.width,
+                                    serviceMoreButton.y + serviceMoreButton.height)
+                            }
 
                             enter: Transition {
                                 ParallelAnimation {
@@ -2702,6 +2711,115 @@ ApplicationWindow {
         }
 
         onRejected: appViewModel.clearM3u8sSources()
+    }
+
+    ModernDialog {
+        id: m3u8sWebDavDialog
+        title: t("m3u8s.remoteFolderTitle")
+        standardButtons: Dialog.Cancel
+        parent: Overlay.overlay
+        x: Math.max(0, Math.round((parent.width - width) / 2))
+        y: Math.max(0, Math.round((parent.height - height) / 2))
+        width: Math.min(root.width - 64, 640)
+        height: Math.min(root.height - 48, 470)
+        onOpened: {
+            var services = appViewModel.m3u8sWebDavServices
+            if (services.length > 0) {
+                var selected = appViewModel.m3u8sWebDavServiceId
+                if (selected.length === 0 || !services.some(function(item) { return item.id === selected }))
+                    selected = services[0].id
+                appViewModel.selectM3u8sWebDavService(selected)
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                text: t("m3u8s.webDavService")
+                color: theme.text
+                font.pixelSize: 12
+                font.bold: true
+            }
+
+            ModernComboBox {
+                Layout.fillWidth: true
+                textRole: "name"
+                valueRole: "id"
+                model: appViewModel.m3u8sWebDavServices
+                currentIndex: {
+                    var services = appViewModel.m3u8sWebDavServices
+                    for (var i = 0; i < services.length; ++i)
+                        if (services[i].id === appViewModel.m3u8sWebDavServiceId) return i
+                    return services.length > 0 ? 0 : -1
+                }
+                onActivated: appViewModel.selectM3u8sWebDavService(model[index].id)
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: appViewModel.m3u8sWebDavPickerPath
+                    color: theme.muted
+                    elide: Text.ElideMiddle
+                }
+                ModernButton {
+                    text: t("m3u8s.remoteBack")
+                    enabled: !appViewModel.m3u8sWebDavPickerLoading
+                        && appViewModel.m3u8sWebDavPickerPath.length > 0
+                    onClicked: appViewModel.m3u8sWebDavBack()
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: theme.input
+                border.color: theme.border
+                radius: 8
+
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    running: appViewModel.m3u8sWebDavPickerLoading
+                    visible: running
+                }
+
+                ListView {
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    visible: !appViewModel.m3u8sWebDavPickerLoading
+                    clip: true
+                    model: appViewModel.m3u8sWebDavDirectories
+                    spacing: 4
+                    delegate: ModernButton {
+                        required property int index
+                        required property string name
+                        width: ListView.view.width
+                        text: name
+                        onClicked: appViewModel.openM3u8sWebDavDirectory(index)
+                    }
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                ModernButton {
+                    text: t("m3u8s.useRemoteFolder")
+                    enabled: appViewModel.m3u8sWebDavServiceId.length > 0
+                        && appViewModel.m3u8sWebDavPickerPath.length > 0
+                        && !appViewModel.m3u8sWebDavPickerLoading
+                    onClicked: {
+                        appViewModel.useCurrentM3u8sWebDavDirectory()
+                        m3u8sWebDavDialog.close()
+                    }
+                }
+            }
+        }
     }
 
     FileDialog {
@@ -14548,6 +14666,34 @@ ApplicationWindow {
 
                         Label {
                             Layout.preferredWidth: 112
+                            text: t("m3u8s.outputTarget")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        ModernComboBox {
+                            Layout.preferredWidth: 190
+                            enabled: !appViewModel.m3u8sPackaging
+                            textRole: "label"
+                            valueRole: "value"
+                            model: [
+                                { label: t("m3u8s.outputLocal"), value: "local" },
+                                { label: t("m3u8s.outputWebDav"), value: "webdav" }
+                            ]
+                            currentIndex: appViewModel.m3u8sOutputMode === "webdav" ? 1 : 0
+                            onActivated: appViewModel.m3u8sOutputMode = model[index].value
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
+                            Layout.preferredWidth: 112
                             text: t("m3u8s.outputDirectory")
                             color: theme.text
                             font.pixelSize: 13
@@ -14566,7 +14712,9 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.leftMargin: 12
                                 anchors.rightMargin: 12
-                                text: appViewModel.m3u8sOutputDirectory
+                                text: appViewModel.m3u8sOutputMode === "webdav"
+                                    ? appViewModel.m3u8sWebDavPath
+                                    : appViewModel.m3u8sOutputDirectory
                                 color: theme.text
                                 font.pixelSize: 13
                                 verticalAlignment: Text.AlignVCenter
@@ -14576,15 +14724,65 @@ ApplicationWindow {
 
                         ModernButton {
                             enabled: !appViewModel.m3u8sPackaging
-                            text: t("m3u8s.chooseFolder")
-                            onClicked: appViewModel.chooseM3u8sOutputDirectory()
+                            text: appViewModel.m3u8sOutputMode === "webdav"
+                                ? t("m3u8s.chooseRemoteFolder") : t("m3u8s.chooseFolder")
+                            onClicked: appViewModel.m3u8sOutputMode === "webdav"
+                                ? m3u8sWebDavDialog.open() : appViewModel.chooseM3u8sOutputDirectory()
                         }
 
                         ModernButton {
-                            enabled: appViewModel.m3u8sOutputDirectory.length > 0
+                            enabled: appViewModel.m3u8sOutputMode === "local"
+                                && appViewModel.m3u8sOutputDirectory.length > 0
                             text: t("m3u8s.openOutput")
                             onClicked: appViewModel.openM3u8sConfiguredOutputDirectory()
                         }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+                        visible: appViewModel.m3u8sOutputMode === "webdav"
+
+                        Label {
+                            Layout.preferredWidth: 112
+                            text: t("m3u8s.fallbackDirectory")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredHeight: 38
+                            radius: 8
+                            color: theme.input
+                            border.color: theme.border
+                            Label {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                text: appViewModel.m3u8sFallbackDirectory
+                                color: theme.text
+                                font.pixelSize: 13
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        ModernButton {
+                            enabled: !appViewModel.m3u8sPackaging
+                            text: t("m3u8s.chooseFallback")
+                            onClicked: appViewModel.chooseM3u8sFallbackDirectory()
+                        }
+                    }
+
+                    ModernCheckBox {
+                        visible: appViewModel.m3u8sOutputMode === "webdav"
+                        enabled: !appViewModel.m3u8sPackaging
+                        text: t("m3u8s.keepSuccessfulLocal")
+                        checked: appViewModel.m3u8sKeepSuccessfulLocal
+                        onToggled: appViewModel.m3u8sKeepSuccessfulLocal = checked
                     }
 
                     GridLayout {
@@ -14757,7 +14955,10 @@ ApplicationWindow {
                         ModernButton {
                             visible: !appViewModel.m3u8sPackaging
                             enabled: appViewModel.m3u8sFfmpegAvailable
-                                && appViewModel.m3u8sOutputDirectory.length > 0
+                                && (appViewModel.m3u8sOutputMode === "local"
+                                    ? appViewModel.m3u8sOutputDirectory.length > 0
+                                    : appViewModel.m3u8sWebDavPath.length > 0
+                                        && appViewModel.m3u8sFallbackDirectory.length > 0)
                             text: t("m3u8s.createAction")
                             onClicked: {
                                 appViewModel.clearM3u8sSources()
@@ -14804,6 +15005,42 @@ ApplicationWindow {
                                 radius: parent.radius
                                 color: m3u8sFlick.accentColor
 
+                                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: appViewModel.m3u8sOutputMode === "webdav"
+                                && (appViewModel.m3u8sUploading || appViewModel.m3u8sUploadProgress > 0)
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("m3u8s.uploadProgress")
+                                color: theme.text
+                                font.pixelSize: 12
+                            }
+                            Label {
+                                text: Math.round(appViewModel.m3u8sUploadProgress * 100) + "%"
+                                color: theme.text
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 7
+                            visible: appViewModel.m3u8sOutputMode === "webdav"
+                                && (appViewModel.m3u8sUploading || appViewModel.m3u8sUploadProgress > 0)
+                            radius: 3
+                            color: theme.input
+                            clip: true
+                            Rectangle {
+                                width: parent.width * Math.max(0, Math.min(1, appViewModel.m3u8sUploadProgress))
+                                height: parent.height
+                                radius: parent.radius
+                                color: theme.success
                                 Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             }
                         }

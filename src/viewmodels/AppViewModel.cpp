@@ -26,6 +26,7 @@
 #include <QRegularExpression>
 #include <QStorageInfo>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QtMath>
 #include <QStringList>
 #include <QStyleHints>
@@ -426,6 +427,48 @@ QString defaultM3u8sOutputDirectory()
     return usable == locations.end() ? QString() : QFileInfo(*usable).absoluteFilePath();
 }
 
+bool copyM3u8sPath(const QString& sourcePath, const QString& targetRoot)
+{
+    const QFileInfo source(sourcePath);
+    if (!source.exists()) {
+        return false;
+    }
+    if (source.isFile()) {
+        if (!QDir().mkpath(targetRoot)) {
+            return false;
+        }
+        const auto target = QDir(targetRoot).filePath(source.fileName());
+        QFile::remove(target);
+        return QFile::copy(source.absoluteFilePath(), target);
+    }
+
+    const auto targetDirectory = QDir(targetRoot).filePath(source.fileName());
+    if (!QDir().mkpath(targetDirectory)) {
+        return false;
+    }
+    QDirIterator iterator(source.absoluteFilePath(), QDir::Files | QDir::Dirs |
+        QDir::NoDotAndDotDot | QDir::NoSymLinks, QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        iterator.next();
+        const auto relative = QDir(source.absoluteFilePath()).relativeFilePath(iterator.filePath());
+        const auto target = QDir(targetDirectory).filePath(relative);
+        if (iterator.fileInfo().isDir()) {
+            if (!QDir().mkpath(target)) {
+                return false;
+            }
+        } else {
+            if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
+                return false;
+            }
+            QFile::remove(target);
+            if (!QFile::copy(iterator.filePath(), target)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 EncryptedHlsVideoEncoding m3u8sVideoEncodingFor(const QString& value)
 {
     if (value == QStringLiteral("copy")) {
@@ -728,6 +771,17 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.videoFiles"), QStringLiteral("Video files (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts)") },
         { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("One or more selected videos are unavailable or not local files") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("Output folder") },
+        { QStringLiteral("m3u8s.outputTarget"), QStringLiteral("Output target") },
+        { QStringLiteral("m3u8s.outputLocal"), QStringLiteral("Local folder") },
+        { QStringLiteral("m3u8s.outputWebDav"), QStringLiteral("WebDAV folder") },
+        { QStringLiteral("m3u8s.chooseRemoteFolder"), QStringLiteral("Choose remote folder") },
+        { QStringLiteral("m3u8s.fallbackDirectory"), QStringLiteral("Local fallback") },
+        { QStringLiteral("m3u8s.keepSuccessfulLocal"), QStringLiteral("Keep successfully uploaded packages locally") },
+        { QStringLiteral("m3u8s.uploadProgress"), QStringLiteral("WebDAV upload") },
+        { QStringLiteral("m3u8s.remoteFolderTitle"), QStringLiteral("Choose a WebDAV folder") },
+        { QStringLiteral("m3u8s.webDavService"), QStringLiteral("WebDAV service") },
+        { QStringLiteral("m3u8s.remoteBack"), QStringLiteral("Back") },
+        { QStringLiteral("m3u8s.useRemoteFolder"), QStringLiteral("Use this folder") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("Choose folder") },
         { QStringLiteral("m3u8s.containerFormat"), QStringLiteral("Output format") },
         { QStringLiteral("m3u8s.formatM3u8s"), QStringLiteral("M3U8S directory (legacy compatible)") },
@@ -750,6 +804,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("Encrypting and verifying TS segments") },
         { QStringLiteral("m3u8s.phase.archiving"), QStringLiteral("Building the single-file M3U8SP container") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("Publishing media and saving TSSL keys locally") },
+        { QStringLiteral("m3u8s.phase.uploading"), QStringLiteral("Uploading packages to WebDAV") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("Canceling and cleaning temporary files") },
         { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("Packaging is in progress. The source video will not be modified.") },
         { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("Package completed with %1 encrypted TS segments") },
@@ -812,6 +867,13 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("Legacy or invalid TSSL package") },
         { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("Choose videos to package") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("Choose an output folder") },
+        { QStringLiteral("m3u8s.chooseFallback"), QStringLiteral("Choose a local fallback folder") },
+        { QStringLiteral("m3u8s.invalidWebDavOutput"), QStringLiteral("Choose a saved WebDAV service and remote folder") },
+        { QStringLiteral("m3u8s.invalidFallback"), QStringLiteral("Choose an available writable local fallback folder") },
+        { QStringLiteral("m3u8s.uploadingStatus"), QStringLiteral("Uploading completed packages to WebDAV...") },
+        { QStringLiteral("m3u8s.uploadFailedStatus"), QStringLiteral("WebDAV upload failed: %1") },
+        { QStringLiteral("m3u8s.uploadPartialStatus"), QStringLiteral("Packaging finished; %1 WebDAV uploads failed and were kept locally") },
+        { QStringLiteral("m3u8s.uploadCompletedStatus"), QStringLiteral("Packaging and WebDAV upload completed") },
         { QStringLiteral("m3u8s.invalidOutput"), QStringLiteral("Choose an available writable output folder") },
         { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("The folder could not be opened") },
         { QStringLiteral("globalHistory.localIndex"), QStringLiteral("Local index") },
@@ -1234,6 +1296,17 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.videoFiles"), QStringLiteral("视频文件 (*.mp4 *.mkv *.mov *.avi *.webm *.m4v *.ts *.mts *.m2ts)") },
         { QStringLiteral("m3u8s.invalidVideo"), QStringLiteral("选择的视频不可用或不是本地文件") },
         { QStringLiteral("m3u8s.outputDirectory"), QStringLiteral("输出目录") },
+        { QStringLiteral("m3u8s.outputTarget"), QStringLiteral("输出目标") },
+        { QStringLiteral("m3u8s.outputLocal"), QStringLiteral("本地目录") },
+        { QStringLiteral("m3u8s.outputWebDav"), QStringLiteral("WebDAV 目录") },
+        { QStringLiteral("m3u8s.chooseRemoteFolder"), QStringLiteral("选择远程目录") },
+        { QStringLiteral("m3u8s.fallbackDirectory"), QStringLiteral("本地失败保留目录") },
+        { QStringLiteral("m3u8s.keepSuccessfulLocal"), QStringLiteral("上传成功后仍在本地保留视频包") },
+        { QStringLiteral("m3u8s.uploadProgress"), QStringLiteral("WebDAV 上传") },
+        { QStringLiteral("m3u8s.remoteFolderTitle"), QStringLiteral("选择 WebDAV 目录") },
+        { QStringLiteral("m3u8s.webDavService"), QStringLiteral("WebDAV 服务") },
+        { QStringLiteral("m3u8s.remoteBack"), QStringLiteral("返回上级") },
+        { QStringLiteral("m3u8s.useRemoteFolder"), QStringLiteral("使用此目录") },
         { QStringLiteral("m3u8s.chooseFolder"), QStringLiteral("选择目录") },
         { QStringLiteral("m3u8s.containerFormat"), QStringLiteral("输出格式") },
         { QStringLiteral("m3u8s.formatM3u8s"), QStringLiteral("M3U8S 目录格式（兼容旧版本）") },
@@ -1256,6 +1329,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("正在加密并验证 TS 分片") },
         { QStringLiteral("m3u8s.phase.archiving"), QStringLiteral("正在创建 M3U8SP 单文件容器") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("正在发布媒体并在本机保存 TSSL 密钥") },
+        { QStringLiteral("m3u8s.phase.uploading"), QStringLiteral("正在上传视频包到 WebDAV") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("正在取消并清理临时文件") },
         { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("正在打包，原始视频不会被修改。") },
         { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("打包完成，共生成 %1 个加密 TS 分片") },
@@ -1318,6 +1392,13 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("旧版或无效的 TSSL 密钥包") },
         { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("选择要打包的视频（可多选）") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("选择输出目录") },
+        { QStringLiteral("m3u8s.chooseFallback"), QStringLiteral("选择上传失败时的本地目录") },
+        { QStringLiteral("m3u8s.invalidWebDavOutput"), QStringLiteral("请选择已保存的 WebDAV 服务和远程目录") },
+        { QStringLiteral("m3u8s.invalidFallback"), QStringLiteral("请选择可用且可写的本地保留目录") },
+        { QStringLiteral("m3u8s.uploadingStatus"), QStringLiteral("正在将已完成的视频包上传到 WebDAV……") },
+        { QStringLiteral("m3u8s.uploadFailedStatus"), QStringLiteral("WebDAV 上传失败：%1") },
+        { QStringLiteral("m3u8s.uploadPartialStatus"), QStringLiteral("打包完成；%1 个 WebDAV 上传失败，文件已保存在本地") },
+        { QStringLiteral("m3u8s.uploadCompletedStatus"), QStringLiteral("打包和 WebDAV 上传已完成") },
         { QStringLiteral("m3u8s.invalidOutput"), QStringLiteral("请选择可用且可写的输出目录") },
         { QStringLiteral("m3u8s.openFolderFailed"), QStringLiteral("无法打开该目录") },
         { QStringLiteral("globalHistory.localIndex"), QStringLiteral("本地索引") },
@@ -1807,6 +1888,9 @@ AppViewModel::AppViewModel(QObject* parent)
             this,
             [this](const EncryptedHlsPackageResult& result) {
                 m_m3u8sLastOutputDirectory = result.outputDirectory;
+                if (m_m3u8sOutputMode == QStringLiteral("webdav")) {
+                    enqueueM3u8sPackageUpload(result);
+                }
                 emit m3u8sStatusChanged();
             });
     connect(&m_m3u8sPackager,
@@ -1835,6 +1919,11 @@ AppViewModel::AppViewModel(QObject* parent)
                                    .arg(result.segmentCount);
         }
         emit m3u8sStatusChanged();
+
+        if (m_m3u8sOutputMode == QStringLiteral("webdav")) {
+            m_m3u8sBatchCompleted = true;
+            finishM3u8sExportIfReady();
+        }
 
         if (!result.failures.isEmpty()) {
             constexpr qsizetype maximumVisibleFailures = 3;
@@ -1865,9 +1954,51 @@ AppViewModel::AppViewModel(QObject* parent)
             : trText(QStringLiteral("m3u8s.batchCanceledStatus"))
                   .arg(processed)
                   .arg(result.requestedCount);
+        if (m_m3u8sOutputMode == QStringLiteral("webdav")) {
+            m_m3u8sBatchCompleted = true;
+            finishM3u8sExportIfReady();
+        }
         emit m3u8sStatusChanged();
     });
-    connect(&m_transferManager, &TransferManager::taskFinished, this, [this](const QString&, bool, const QString&) {
+    connect(&m_transferManager, &TransferManager::taskProgress, this,
+            [this](const QString& taskId, qint64 done, qint64 total) {
+        if (!m_m3u8sUploadTaskPaths.contains(taskId)) {
+            return;
+        }
+        const auto previous = m_m3u8sUploadTaskDone.value(taskId, 0);
+        m_m3u8sUploadDoneBytes += std::max<qint64>(0, done - previous);
+        m_m3u8sUploadTaskDone.insert(taskId, std::max<qint64>(0, done));
+        if (total > 0) {
+            m_m3u8sUploadTaskTotals.insert(taskId, total);
+        }
+        emit m3u8sPackagingChanged();
+    });
+    connect(&m_transferManager, &TransferManager::taskFinished, this,
+            [this](const QString& taskId, bool ok, const QString& message) {
+        if (m_m3u8sUploadTaskPaths.contains(taskId)) {
+            const auto path = m_m3u8sUploadTaskPaths.take(taskId);
+            const auto total = m_m3u8sUploadTaskTotals.take(taskId);
+            const auto done = m_m3u8sUploadTaskDone.take(taskId);
+            if (ok && total > done) {
+                m_m3u8sUploadDoneBytes += total - done;
+            }
+            if (!ok) {
+                ++m_m3u8sUploadFailures;
+                if (!path.isEmpty() && !copyM3u8sPath(path, m_m3u8sFallbackDirectory)) {
+                    AppLogger::warning(QStringLiteral("encrypted-hls"),
+                                       QStringLiteral("Unable to preserve failed upload locally: %1").arg(path));
+                }
+                m_m3u8sStatus = trText(QStringLiteral("m3u8s.uploadFailedStatus")).arg(message);
+                emit m3u8sStatusChanged();
+            } else if (!path.isEmpty() && m_m3u8sKeepSuccessfulLocal) {
+                copyM3u8sPath(path, m_m3u8sFallbackDirectory);
+            }
+            m_m3u8sPendingUploads = std::max(0, m_m3u8sPendingUploads - 1);
+            if (m_m3u8sPendingUploads == 0 && m_m3u8sBatchCompleted) {
+                finishM3u8sExportIfReady();
+            }
+            emit m3u8sPackagingChanged();
+        }
         if (m_currentWebDavCard && m_currentView == QStringLiteral("webdav")) {
             refreshWebDavDirectory();
         }
@@ -2249,7 +2380,7 @@ TsslPackageListModel* AppViewModel::tsslBatchPackages()
 
 bool AppViewModel::m3u8sPackaging() const
 {
-    return m_m3u8sPreparing || m_m3u8sPackager.isRunning();
+    return m_m3u8sPreparing || m_m3u8sPackager.isRunning() || m_m3u8sUploading;
 }
 
 double AppViewModel::m3u8sPackagingProgress() const
@@ -2259,6 +2390,9 @@ double AppViewModel::m3u8sPackagingProgress() const
 
 QString AppViewModel::m3u8sPackagingPhase() const
 {
+    if (m_m3u8sUploading) {
+        return QStringLiteral("uploading");
+    }
     if (!m_m3u8sPreparing) {
         return m_m3u8sPackager.phase();
     }
@@ -2311,6 +2445,108 @@ void AppViewModel::setM3u8sSegmentDuration(int value)
 QString AppViewModel::m3u8sOutputDirectory() const
 {
     return m_m3u8sOutputDirectory;
+}
+
+QString AppViewModel::m3u8sOutputMode() const
+{
+    return m_m3u8sOutputMode;
+}
+
+void AppViewModel::setM3u8sOutputMode(const QString& value)
+{
+    const auto normalized = value == QStringLiteral("webdav") ? QStringLiteral("webdav") : QStringLiteral("local");
+    if (m_m3u8sOutputMode == normalized) {
+        return;
+    }
+    m_m3u8sOutputMode = normalized;
+    m_repository.setM3u8sOutputMode(normalized);
+    emit m3u8sSettingsChanged();
+}
+
+QString AppViewModel::m3u8sWebDavServiceId() const
+{
+    return m_m3u8sWebDavServiceId;
+}
+
+void AppViewModel::setM3u8sWebDavServiceId(const QString& value)
+{
+    if (m_m3u8sWebDavServiceId == value) {
+        return;
+    }
+    m_m3u8sWebDavServiceId = value;
+    m_repository.setM3u8sWebDavServiceId(value);
+    emit m3u8sSettingsChanged();
+}
+
+QString AppViewModel::m3u8sWebDavPath() const
+{
+    return m_m3u8sWebDavPath;
+}
+
+QString AppViewModel::m3u8sFallbackDirectory() const
+{
+    return m_m3u8sFallbackDirectory;
+}
+
+bool AppViewModel::m3u8sKeepSuccessfulLocal() const
+{
+    return m_m3u8sKeepSuccessfulLocal;
+}
+
+void AppViewModel::setM3u8sKeepSuccessfulLocal(bool value)
+{
+    if (m_m3u8sKeepSuccessfulLocal == value) {
+        return;
+    }
+    m_m3u8sKeepSuccessfulLocal = value;
+    m_repository.setM3u8sKeepSuccessfulLocal(value);
+    emit m3u8sSettingsChanged();
+}
+
+QVariantList AppViewModel::m3u8sWebDavServices() const
+{
+    QVariantList services;
+    for (int row = 0; row < m_services.count(); ++row) {
+        const auto card = m_services.cardAt(row);
+        if (!card || card->server.serviceType != ServiceType::WebDAV) {
+            continue;
+        }
+        services.push_back(QVariantMap {
+            { QStringLiteral("id"), card->server.id },
+            { QStringLiteral("name"), card->server.name },
+            { QStringLiteral("baseUrl"), card->server.baseUrl },
+        });
+    }
+    return services;
+}
+
+WebDavItemListModel* AppViewModel::m3u8sWebDavDirectories()
+{
+    return &m_m3u8sWebDavDirectories;
+}
+
+QString AppViewModel::m3u8sWebDavPickerPath() const
+{
+    return m_m3u8sWebDavPickerUrl.path(QUrl::FullyDecoded);
+}
+
+bool AppViewModel::m3u8sWebDavPickerLoading() const
+{
+    return m_m3u8sWebDavPickerLoading;
+}
+
+bool AppViewModel::m3u8sUploading() const
+{
+    return m_m3u8sUploading;
+}
+
+double AppViewModel::m3u8sUploadProgress() const
+{
+    if (m_m3u8sUploadTotalBytes <= 0) {
+        return m_m3u8sPendingUploads == 0 && m_m3u8sBatchCompleted ? 1.0 : 0.0;
+    }
+    return std::clamp(static_cast<double>(m_m3u8sUploadDoneBytes) /
+                          static_cast<double>(m_m3u8sUploadTotalBytes), 0.0, 1.0);
 }
 
 QString AppViewModel::m3u8sVideoEncoding() const
@@ -3597,6 +3833,15 @@ void AppViewModel::initialize()
     m_m3u8sOutputDirectory = savedM3u8sOutputDirectory.isEmpty()
         ? defaultM3u8sOutputDirectory()
         : QFileInfo(savedM3u8sOutputDirectory).absoluteFilePath();
+    m_m3u8sOutputMode = m_repository.m3u8sOutputMode() == QStringLiteral("webdav")
+        ? QStringLiteral("webdav") : QStringLiteral("local");
+    m_m3u8sWebDavServiceId = m_repository.m3u8sWebDavServiceId();
+    m_m3u8sWebDavPath = m_repository.m3u8sWebDavPath();
+    const auto savedFallbackDirectory = m_repository.m3u8sFallbackDirectory();
+    m_m3u8sFallbackDirectory = savedFallbackDirectory.isEmpty()
+        ? defaultM3u8sOutputDirectory()
+        : QFileInfo(savedFallbackDirectory).absoluteFilePath();
+    m_m3u8sKeepSuccessfulLocal = m_repository.m3u8sKeepSuccessfulLocal();
     m_m3u8sVideoEncoding = normalizedM3u8sVideoEncoding(m_repository.m3u8sVideoEncoding());
     m_m3u8sAudioEncoding = normalizedM3u8sAudioEncoding(m_repository.m3u8sAudioEncoding());
     m_m3u8sVideoQuality = normalizedM3u8sVideoQuality(m_repository.m3u8sVideoQuality());
@@ -5883,8 +6128,24 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     if (m3u8sPackaging() || m_m3u8sSelectedSources.isEmpty()) {
         return false;
     }
-    const QFileInfo outputDirectory(m_m3u8sOutputDirectory);
-    if (!outputDirectory.exists() || !outputDirectory.isDir() || !outputDirectory.isWritable()) {
+    QFileInfo outputDirectory(m_m3u8sOutputDirectory);
+    if (m_m3u8sOutputMode == QStringLiteral("webdav")) {
+        if (!m_m3u8sWebDavCard || m_m3u8sWebDavServiceId.isEmpty() || m_m3u8sWebDavPath.isEmpty()) {
+            setError(trText(QStringLiteral("m3u8s.invalidWebDavOutput")));
+            return false;
+        }
+        const QFileInfo fallback(m_m3u8sFallbackDirectory);
+        if (!fallback.exists() || !fallback.isDir() || !fallback.isWritable()) {
+            setError(trText(QStringLiteral("m3u8s.invalidFallback")));
+            return false;
+        }
+        m_m3u8sStagingDirectory = std::make_unique<QTemporaryDir>();
+        if (!m_m3u8sStagingDirectory->isValid()) {
+            setError(trText(QStringLiteral("m3u8s.invalidOutput")));
+            return false;
+        }
+        outputDirectory = QFileInfo(m_m3u8sStagingDirectory->path());
+    } else if (!outputDirectory.exists() || !outputDirectory.isDir() || !outputDirectory.isWritable()) {
         setError(trText(QStringLiteral("m3u8s.invalidOutput")));
         return false;
     }
@@ -5900,6 +6161,16 @@ bool AppViewModel::createM3u8sFromSelectedSources()
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.discoveringStatus"));
     m_m3u8sLastOutputDirectory.clear();
+    m_m3u8sBatchCompleted = false;
+    m_m3u8sCancelRequested = false;
+    m_m3u8sUploading = false;
+    m_m3u8sUploadTaskPaths.clear();
+    m_m3u8sUploadTaskDone.clear();
+    m_m3u8sUploadTaskTotals.clear();
+    m_m3u8sUploadDoneBytes = 0;
+    m_m3u8sUploadTotalBytes = 0;
+    m_m3u8sPendingUploads = 0;
+    m_m3u8sUploadFailures = 0;
     m_m3u8sPreparing = true;
     m_m3u8sSourceScanCanceled = std::make_shared<std::atomic_bool>(false);
     emit m3u8sStatusChanged();
@@ -5917,6 +6188,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
             m_m3u8sSourceScanCanceled.reset();
         }
         if (canceled) {
+            m_m3u8sCancelRequested = true;
             m_m3u8sPreparing = false;
             m_m3u8sStatus = trText(QStringLiteral("m3u8s.canceledStatus"));
             emit m3u8sPackagingChanged();
@@ -5978,6 +6250,121 @@ void AppViewModel::chooseM3u8sOutputDirectory()
     emit m3u8sSettingsChanged();
 }
 
+void AppViewModel::chooseM3u8sFallbackDirectory()
+{
+    if (m3u8sPackaging()) {
+        return;
+    }
+    const auto directory = QFileDialog::getExistingDirectory(
+        nullptr,
+        trText(QStringLiteral("m3u8s.chooseFallback")),
+        m_m3u8sFallbackDirectory.isEmpty() ? defaultM3u8sOutputDirectory() : m_m3u8sFallbackDirectory);
+    if (directory.isEmpty()) {
+        return;
+    }
+    m_m3u8sFallbackDirectory = QFileInfo(directory).absoluteFilePath();
+    m_repository.setM3u8sFallbackDirectory(m_m3u8sFallbackDirectory);
+    emit m3u8sSettingsChanged();
+}
+
+void AppViewModel::chooseM3u8sWebDavDirectory()
+{
+    if (m3u8sPackaging()) {
+        return;
+    }
+    m_m3u8sWebDavPickerHistory.clear();
+    m_m3u8sWebDavDirectories.clear();
+    m_m3u8sWebDavPickerUrl = QUrl();
+    emit m3u8sWebDavPickerChanged();
+}
+
+void AppViewModel::selectM3u8sWebDavService(const QString& serviceId)
+{
+    if (m3u8sPackaging()) {
+        return;
+    }
+    std::optional<ServiceCard> selected;
+    for (int row = 0; row < m_services.count(); ++row) {
+        const auto card = m_services.cardAt(row);
+        if (card && card->server.id == serviceId && card->server.serviceType == ServiceType::WebDAV) {
+            selected = *card;
+            break;
+        }
+    }
+    if (!selected) {
+        return;
+    }
+    m_m3u8sWebDavCard = selected;
+    m_m3u8sWebDavPassword = loadWebDavPassword(selected->server).value_or(QString {});
+    setM3u8sWebDavServiceId(serviceId);
+    m_m3u8sWebDavPickerHistory.clear();
+    loadM3u8sWebDavDirectory(ensureDirectoryUrl(QUrl(selected->server.baseUrl)));
+}
+
+void AppViewModel::openM3u8sWebDavDirectory(int row)
+{
+    const auto item = m_m3u8sWebDavDirectories.itemAt(row);
+    if (!item || !item->directory || !m_m3u8sWebDavCard) {
+        return;
+    }
+    m_m3u8sWebDavPickerHistory.push_back(m_m3u8sWebDavPickerUrl);
+    loadM3u8sWebDavDirectory(ensureDirectoryUrl(item->url));
+}
+
+void AppViewModel::m3u8sWebDavBack()
+{
+    if (m_m3u8sWebDavPickerHistory.isEmpty()) {
+        return;
+    }
+    const auto url = m_m3u8sWebDavPickerHistory.takeLast();
+    loadM3u8sWebDavDirectory(url);
+}
+
+void AppViewModel::useCurrentM3u8sWebDavDirectory()
+{
+    if (!m_m3u8sWebDavCard || m_m3u8sWebDavPickerUrl.isEmpty()) {
+        return;
+    }
+    m_m3u8sWebDavPath = m_m3u8sWebDavPickerUrl.toString(QUrl::FullyEncoded);
+    m_repository.setM3u8sWebDavPath(m_m3u8sWebDavPath);
+    emit m3u8sSettingsChanged();
+}
+
+void AppViewModel::loadM3u8sWebDavDirectory(const QUrl& url)
+{
+    if (!m_m3u8sWebDavCard) {
+        return;
+    }
+    const auto generation = ++m_m3u8sWebDavPickerGeneration;
+    const auto card = *m_m3u8sWebDavCard;
+    const auto password = m_m3u8sWebDavPassword;
+    const auto directoryUrl = ensureDirectoryUrl(url);
+    m_m3u8sWebDavPickerLoading = true;
+    m_m3u8sWebDavPickerUrl = directoryUrl;
+    emit m3u8sWebDavPickerChanged();
+    m_webDavClient.listDirectory(card.server, password, directoryUrl,
+        [this, generation, directoryUrl](WebDavListResult result) {
+            if (generation != m_m3u8sWebDavPickerGeneration) {
+                return;
+            }
+            m_m3u8sWebDavPickerLoading = false;
+            if (!result) {
+                m_m3u8sWebDavDirectories.clear();
+                setError(result.error().message);
+            } else {
+                std::vector<WebDavItem> directories;
+                for (auto& item : *result) {
+                    if (item.directory) {
+                        directories.push_back(std::move(item));
+                    }
+                }
+                m_m3u8sWebDavDirectories.setItems(std::move(directories));
+            }
+            m_m3u8sWebDavPickerUrl = directoryUrl;
+            emit m3u8sWebDavPickerChanged();
+        });
+}
+
 void AppViewModel::openM3u8sConfiguredOutputDirectory()
 {
     const QFileInfo outputDirectory(m_m3u8sOutputDirectory);
@@ -5989,12 +6376,16 @@ void AppViewModel::openM3u8sConfiguredOutputDirectory()
 
 void AppViewModel::cancelM3u8sPackaging()
 {
+    m_m3u8sCancelRequested = true;
     if (m_m3u8sSourceScanCanceled) {
         m_m3u8sSourceScanCanceled->store(true, std::memory_order_relaxed);
         emit m3u8sPackagingChanged();
         return;
     }
     m_m3u8sPackager.cancel();
+    for (auto it = m_m3u8sUploadTaskPaths.cbegin(); it != m_m3u8sUploadTaskPaths.cend(); ++it) {
+        m_transferManager.cancelTask(it.key());
+    }
 }
 
 void AppViewModel::openM3u8sOutputDirectory()
@@ -8217,6 +8608,18 @@ void AppViewModel::refreshServiceCards()
         return;
     }
     m_services.setCards(*cardsResult);
+    m_m3u8sWebDavCard.reset();
+    if (!m_m3u8sWebDavServiceId.isEmpty()) {
+        for (int row = 0; row < m_services.count(); ++row) {
+            const auto card = m_services.cardAt(row);
+            if (card && card->server.id == m_m3u8sWebDavServiceId && card->server.serviceType == ServiceType::WebDAV) {
+                m_m3u8sWebDavCard = *card;
+                m_m3u8sWebDavPassword = loadWebDavPassword(card->server).value_or(QString {});
+                break;
+            }
+        }
+    }
+    emit m3u8sWebDavPickerChanged();
     emit tsslBackupChanged();
     refreshScheduledEmbySources();
 }
@@ -8768,6 +9171,86 @@ void AppViewModel::enqueueWebDavUploadFile(const QString& localPath, const QUrl&
                                     info.absoluteFilePath(),
                                     remoteUrl,
                                     info.size());
+}
+
+void AppViewModel::enqueueM3u8sPackageUpload(const EncryptedHlsPackageResult& result)
+{
+    if (!m_m3u8sWebDavCard) {
+        return;
+    }
+    const QFileInfo packageInfo(result.outputDirectory);
+    if (!packageInfo.exists()) {
+        return;
+    }
+    const auto remoteDirectory = ensureDirectoryUrl(QUrl(m_m3u8sWebDavPath));
+    const auto addUpload = [this](const QString& localPath, const QUrl& remoteUrl) {
+        const auto id = m_transferManager.enqueueUpload(m_m3u8sWebDavCard->server,
+                                                        m_m3u8sWebDavPassword,
+                                                        localPath,
+                                                        remoteUrl,
+                                                        QFileInfo(localPath).size());
+        m_m3u8sUploadTaskPaths.insert(id, localPath);
+        m_m3u8sUploadTaskDone.insert(id, 0);
+        m_m3u8sUploadTaskTotals.insert(id, QFileInfo(localPath).size());
+        m_m3u8sUploadTotalBytes += QFileInfo(localPath).size();
+        ++m_m3u8sPendingUploads;
+    };
+    const auto addDirectory = [this](const QUrl& url) {
+        const auto id = m_transferManager.enqueueCreateDirectory(m_m3u8sWebDavCard->server,
+                                                                  m_m3u8sWebDavPassword,
+                                                                  url);
+        m_m3u8sUploadTaskPaths.insert(id, QString {});
+        m_m3u8sUploadTaskDone.insert(id, 0);
+        m_m3u8sUploadTaskTotals.insert(id, 0);
+        ++m_m3u8sPendingUploads;
+    };
+
+    if (packageInfo.isFile()) {
+        addUpload(packageInfo.absoluteFilePath(),
+                  remoteDirectory.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(packageInfo.fileName())))));
+    } else {
+        const auto remoteRoot = remoteDirectory.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(packageInfo.fileName())) + QLatin1Char('/')));
+        addDirectory(remoteRoot);
+        QDirIterator iterator(packageInfo.absoluteFilePath(), QDir::Files | QDir::Dirs |
+            QDir::NoDotAndDotDot | QDir::NoSymLinks, QDirIterator::Subdirectories);
+        while (iterator.hasNext()) {
+            iterator.next();
+            const auto relative = QDir(packageInfo.absoluteFilePath()).relativeFilePath(iterator.filePath());
+            const auto encodedRelative = QUrl::toPercentEncoding(relative, "/");
+            auto remoteRelative = QString::fromUtf8(encodedRelative);
+            if (iterator.fileInfo().isDir()) {
+                remoteRelative.append(QLatin1Char('/'));
+            }
+            const auto remoteUrl = remoteRoot.resolved(QUrl(remoteRelative));
+            if (iterator.fileInfo().isDir()) {
+                addDirectory(remoteUrl);
+            } else {
+                addUpload(iterator.filePath(), remoteUrl);
+            }
+        }
+    }
+    m_m3u8sUploading = m_m3u8sPendingUploads > 0;
+    if (m_m3u8sUploading) {
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.uploadingStatus"));
+        emit m3u8sStatusChanged();
+    }
+    emit m3u8sPackagingChanged();
+}
+
+void AppViewModel::finishM3u8sExportIfReady()
+{
+    if (!m_m3u8sBatchCompleted || m_m3u8sPendingUploads > 0) {
+        return;
+    }
+    m_m3u8sUploading = false;
+    m_m3u8sStagingDirectory.reset();
+    m_m3u8sStatus = m_m3u8sCancelRequested
+        ? trText(QStringLiteral("m3u8s.canceledStatus"))
+        : (m_m3u8sUploadFailures > 0
+            ? trText(QStringLiteral("m3u8s.uploadPartialStatus")).arg(m_m3u8sUploadFailures)
+            : trText(QStringLiteral("m3u8s.uploadCompletedStatus")));
+    emit m3u8sStatusChanged();
+    emit m3u8sPackagingChanged();
 }
 
 void AppViewModel::wireUsageSignals()

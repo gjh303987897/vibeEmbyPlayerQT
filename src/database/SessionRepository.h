@@ -147,6 +147,16 @@ public:
     void setTsslBackupS3AccessKey(const QString& accessKey);
     QString m3u8sOutputDirectory() const;
     void setM3u8sOutputDirectory(const QString& directory);
+    QString m3u8sOutputMode() const;
+    void setM3u8sOutputMode(const QString& mode);
+    QString m3u8sWebDavServiceId() const;
+    void setM3u8sWebDavServiceId(const QString& serviceId);
+    QString m3u8sWebDavPath() const;
+    void setM3u8sWebDavPath(const QString& path);
+    QString m3u8sFallbackDirectory() const;
+    void setM3u8sFallbackDirectory(const QString& directory);
+    bool m3u8sKeepSuccessfulLocal() const;
+    void setM3u8sKeepSuccessfulLocal(bool keep);
     QString m3u8sVideoEncoding() const;
     void setM3u8sVideoEncoding(const QString& encoding);
     QString m3u8sAudioEncoding() const;

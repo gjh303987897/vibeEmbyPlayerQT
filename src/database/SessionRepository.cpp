@@ -1914,6 +1914,56 @@ void SessionRepository::setM3u8sOutputDirectory(const QString& directory)
     m_settings.setValue(QStringLiteral("m3u8s/outputDirectory"), directory);
 }
 
+QString SessionRepository::m3u8sOutputMode() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/outputMode"), QStringLiteral("local")).toString();
+}
+
+void SessionRepository::setM3u8sOutputMode(const QString& mode)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/outputMode"), mode);
+}
+
+QString SessionRepository::m3u8sWebDavServiceId() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/webDavServiceId")).toString();
+}
+
+void SessionRepository::setM3u8sWebDavServiceId(const QString& serviceId)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/webDavServiceId"), serviceId);
+}
+
+QString SessionRepository::m3u8sWebDavPath() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/webDavPath")).toString();
+}
+
+void SessionRepository::setM3u8sWebDavPath(const QString& path)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/webDavPath"), path);
+}
+
+QString SessionRepository::m3u8sFallbackDirectory() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/fallbackDirectory")).toString();
+}
+
+void SessionRepository::setM3u8sFallbackDirectory(const QString& directory)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/fallbackDirectory"), directory);
+}
+
+bool SessionRepository::m3u8sKeepSuccessfulLocal() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/keepSuccessfulLocal"), false).toBool();
+}
+
+void SessionRepository::setM3u8sKeepSuccessfulLocal(bool keep)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/keepSuccessfulLocal"), keep);
+}
+
 QString SessionRepository::m3u8sVideoEncoding() const
 {
     return m_settings.value(QStringLiteral("m3u8s/videoEncoding"), QStringLiteral("h264")).toString();
