@@ -14780,6 +14780,45 @@ ApplicationWindow {
                         }
                     }
 
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+                        visible: appViewModel.m3u8sOutputMode === "webdav"
+
+                        Label {
+                            Layout.preferredWidth: 112
+                            text: t("m3u8s.temporaryDirectory")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredHeight: 38
+                            radius: 8
+                            color: theme.input
+                            border.color: theme.border
+                            Label {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                text: appViewModel.m3u8sTemporaryDirectory
+                                color: theme.text
+                                font.pixelSize: 13
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        ModernButton {
+                            enabled: !appViewModel.m3u8sPackaging
+                            text: t("m3u8s.chooseTemporary")
+                            onClicked: appViewModel.chooseM3u8sTemporaryDirectory()
+                        }
+                    }
+
                     ModernCheckBox {
                         visible: appViewModel.m3u8sOutputMode === "webdav"
                         enabled: !appViewModel.m3u8sPackaging
@@ -15018,7 +15057,8 @@ ApplicationWindow {
                                 && (appViewModel.m3u8sOutputMode === "local"
                                     ? appViewModel.m3u8sOutputDirectory.length > 0
                                     : appViewModel.m3u8sWebDavPath.length > 0
-                                        && appViewModel.m3u8sFallbackDirectory.length > 0)
+                                        && appViewModel.m3u8sFallbackDirectory.length > 0
+                                        && appViewModel.m3u8sTemporaryDirectory.length > 0)
                             text: t("m3u8s.createAction")
                             onClicked: {
                                 appViewModel.clearM3u8sSources()

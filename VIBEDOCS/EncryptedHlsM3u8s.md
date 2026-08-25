@@ -186,6 +186,13 @@ the `.m3u8s` and encrypted `.ts` files. A TSSL recovery copy is created only
 through the manager's explicit export action, so uploading the media directory
 cannot accidentally disclose its keys.
 
+For WebDAV exports, the staging root defaults to the system temporary directory
+and can be changed in the M3U8S manager. The selected directory is only the
+parent; each export creates a random child directory and removes it after
+completion, failure, or cancellation. The local fallback directory remains the
+destination for packages whose upload fails (and for successful packages when
+that option is enabled).
+
 Neither the completed directory name nor the root playlist name contains the
 source basename. Ciphertext is deliberately kept inside the manifest rather
 than used as a filename, avoiding cross-platform filename length and character

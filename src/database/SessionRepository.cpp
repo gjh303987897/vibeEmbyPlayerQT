@@ -1954,6 +1954,16 @@ void SessionRepository::setM3u8sFallbackDirectory(const QString& directory)
     m_settings.setValue(QStringLiteral("m3u8s/fallbackDirectory"), directory);
 }
 
+QString SessionRepository::m3u8sTemporaryDirectory() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/temporaryDirectory")).toString();
+}
+
+void SessionRepository::setM3u8sTemporaryDirectory(const QString& directory)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/temporaryDirectory"), directory);
+}
+
 bool SessionRepository::m3u8sKeepSuccessfulLocal() const
 {
     return m_settings.value(QStringLiteral("m3u8s/keepSuccessfulLocal"), false).toBool();

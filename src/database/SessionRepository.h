@@ -155,6 +155,8 @@ public:
     void setM3u8sWebDavPath(const QString& path);
     QString m3u8sFallbackDirectory() const;
     void setM3u8sFallbackDirectory(const QString& directory);
+    QString m3u8sTemporaryDirectory() const;
+    void setM3u8sTemporaryDirectory(const QString& directory);
     bool m3u8sKeepSuccessfulLocal() const;
     void setM3u8sKeepSuccessfulLocal(bool keep);
     QString m3u8sVideoEncoding() const;

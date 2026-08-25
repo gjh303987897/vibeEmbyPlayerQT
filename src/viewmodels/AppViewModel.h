@@ -109,6 +109,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString m3u8sWebDavServiceId READ m3u8sWebDavServiceId WRITE setM3u8sWebDavServiceId NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sWebDavPath READ m3u8sWebDavPath NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sFallbackDirectory READ m3u8sFallbackDirectory NOTIFY m3u8sSettingsChanged)
+    Q_PROPERTY(QString m3u8sTemporaryDirectory READ m3u8sTemporaryDirectory NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(bool m3u8sKeepSuccessfulLocal READ m3u8sKeepSuccessfulLocal WRITE setM3u8sKeepSuccessfulLocal NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QVariantList m3u8sWebDavServices READ m3u8sWebDavServices NOTIFY m3u8sWebDavPickerChanged)
     Q_PROPERTY(WebDavItemListModel* m3u8sWebDavDirectories READ m3u8sWebDavDirectories CONSTANT)
@@ -358,6 +359,7 @@ public:
     void setM3u8sWebDavServiceId(const QString& value);
     QString m3u8sWebDavPath() const;
     QString m3u8sFallbackDirectory() const;
+    QString m3u8sTemporaryDirectory() const;
     bool m3u8sKeepSuccessfulLocal() const;
     void setM3u8sKeepSuccessfulLocal(bool value);
     QVariantList m3u8sWebDavServices() const;
@@ -605,6 +607,7 @@ public:
     Q_INVOKABLE bool createM3u8sFromSelectedSources();
     Q_INVOKABLE void chooseM3u8sOutputDirectory();
     Q_INVOKABLE void chooseM3u8sFallbackDirectory();
+    Q_INVOKABLE void chooseM3u8sTemporaryDirectory();
     Q_INVOKABLE void chooseM3u8sWebDavDirectory();
     Q_INVOKABLE void selectM3u8sWebDavService(const QString& serviceId);
     Q_INVOKABLE void openM3u8sWebDavDirectory(int row);
@@ -1099,6 +1102,7 @@ private:
     QString m_m3u8sWebDavServiceId;
     QString m_m3u8sWebDavPath;
     QString m_m3u8sFallbackDirectory;
+    QString m_m3u8sTemporaryDirectory;
     bool m_m3u8sKeepSuccessfulLocal { false };
     WebDavItemListModel m_m3u8sWebDavDirectories;
     std::optional<ServiceCard> m_m3u8sWebDavCard;

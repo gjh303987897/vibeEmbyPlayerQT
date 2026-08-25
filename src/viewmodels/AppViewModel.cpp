@@ -447,6 +447,15 @@ QString defaultM3u8sOutputDirectory()
     return usable == locations.end() ? QString() : QFileInfo(*usable).absoluteFilePath();
 }
 
+QString defaultM3u8sTemporaryDirectory()
+{
+    const auto standard = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    const auto candidate = standard.isEmpty() ? QDir::tempPath() : standard;
+    const QFileInfo info(candidate);
+    return info.exists() && info.isDir() && info.isWritable()
+        ? info.absoluteFilePath() : QString();
+}
+
 bool copyM3u8sPath(const QString& sourcePath, const QString& targetRoot)
 {
     const QFileInfo source(sourcePath);
@@ -799,6 +808,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.outputWebDav"), QStringLiteral("WebDAV folder") },
         { QStringLiteral("m3u8s.chooseRemoteFolder"), QStringLiteral("Choose remote folder") },
         { QStringLiteral("m3u8s.fallbackDirectory"), QStringLiteral("Local fallback") },
+        { QStringLiteral("m3u8s.temporaryDirectory"), QStringLiteral("Temporary folder") },
         { QStringLiteral("m3u8s.keepSuccessfulLocal"), QStringLiteral("Keep successfully uploaded packages locally") },
         { QStringLiteral("m3u8s.uploadProgress"), QStringLiteral("WebDAV upload") },
         { QStringLiteral("m3u8s.remoteFolderTitle"), QStringLiteral("Choose a WebDAV folder") },
@@ -895,8 +905,10 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("Choose videos to package") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("Choose an output folder") },
         { QStringLiteral("m3u8s.chooseFallback"), QStringLiteral("Choose a local fallback folder") },
+        { QStringLiteral("m3u8s.chooseTemporary"), QStringLiteral("Choose temporary folder") },
         { QStringLiteral("m3u8s.invalidWebDavOutput"), QStringLiteral("Choose a saved WebDAV service and remote folder") },
         { QStringLiteral("m3u8s.invalidFallback"), QStringLiteral("Choose an available writable local fallback folder") },
+        { QStringLiteral("m3u8s.invalidTemporary"), QStringLiteral("Choose an available writable temporary folder") },
         { QStringLiteral("m3u8s.uploadingStatus"), QStringLiteral("Uploading completed packages to WebDAV...") },
         { QStringLiteral("m3u8s.uploadFailedStatus"), QStringLiteral("WebDAV upload failed: %1") },
         { QStringLiteral("m3u8s.uploadPartialStatus"), QStringLiteral("Packaging finished; %1 WebDAV uploads failed and were kept locally") },
@@ -1328,6 +1340,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.outputWebDav"), QStringLiteral("WebDAV 目录") },
         { QStringLiteral("m3u8s.chooseRemoteFolder"), QStringLiteral("选择远程目录") },
         { QStringLiteral("m3u8s.fallbackDirectory"), QStringLiteral("本地失败保留目录") },
+        { QStringLiteral("m3u8s.temporaryDirectory"), QStringLiteral("临时目录") },
         { QStringLiteral("m3u8s.keepSuccessfulLocal"), QStringLiteral("上传成功后仍在本地保留视频包") },
         { QStringLiteral("m3u8s.uploadProgress"), QStringLiteral("WebDAV 上传") },
         { QStringLiteral("m3u8s.remoteFolderTitle"), QStringLiteral("选择 WebDAV 目录") },
@@ -1424,8 +1437,10 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.chooseVideo"), QStringLiteral("选择要打包的视频（可多选）") },
         { QStringLiteral("m3u8s.chooseOutput"), QStringLiteral("选择输出目录") },
         { QStringLiteral("m3u8s.chooseFallback"), QStringLiteral("选择上传失败时的本地目录") },
+        { QStringLiteral("m3u8s.chooseTemporary"), QStringLiteral("选择临时目录") },
         { QStringLiteral("m3u8s.invalidWebDavOutput"), QStringLiteral("请选择已保存的 WebDAV 服务和远程目录") },
         { QStringLiteral("m3u8s.invalidFallback"), QStringLiteral("请选择可用且可写的本地保留目录") },
+        { QStringLiteral("m3u8s.invalidTemporary"), QStringLiteral("请选择可用且可写的临时目录") },
         { QStringLiteral("m3u8s.uploadingStatus"), QStringLiteral("正在将已完成的视频包上传到 WebDAV……") },
         { QStringLiteral("m3u8s.uploadFailedStatus"), QStringLiteral("WebDAV 上传失败：%1") },
         { QStringLiteral("m3u8s.uploadPartialStatus"), QStringLiteral("打包完成；%1 个 WebDAV 上传失败，文件已保存在本地") },
@@ -2511,6 +2526,11 @@ QString AppViewModel::m3u8sWebDavPath() const
 QString AppViewModel::m3u8sFallbackDirectory() const
 {
     return m_m3u8sFallbackDirectory;
+}
+
+QString AppViewModel::m3u8sTemporaryDirectory() const
+{
+    return m_m3u8sTemporaryDirectory;
 }
 
 bool AppViewModel::m3u8sKeepSuccessfulLocal() const
@@ -3898,6 +3918,10 @@ void AppViewModel::initialize()
     m_m3u8sFallbackDirectory = savedFallbackDirectory.isEmpty()
         ? defaultM3u8sOutputDirectory()
         : QFileInfo(savedFallbackDirectory).absoluteFilePath();
+    const auto savedM3u8sTemporaryDirectory = m_repository.m3u8sTemporaryDirectory();
+    m_m3u8sTemporaryDirectory = savedM3u8sTemporaryDirectory.isEmpty()
+        ? defaultM3u8sTemporaryDirectory()
+        : QFileInfo(savedM3u8sTemporaryDirectory).absoluteFilePath();
     m_m3u8sKeepSuccessfulLocal = m_repository.m3u8sKeepSuccessfulLocal();
     m_m3u8sVideoEncoding = normalizedM3u8sVideoEncoding(m_repository.m3u8sVideoEncoding());
     m_m3u8sAutoVideoCodecs = normalizedM3u8sAutoVideoCodecs(m_repository.m3u8sAutoVideoCodecs());
@@ -6198,7 +6222,13 @@ bool AppViewModel::createM3u8sFromSelectedSources()
             setError(trText(QStringLiteral("m3u8s.invalidFallback")));
             return false;
         }
-        m_m3u8sStagingDirectory = std::make_unique<QTemporaryDir>();
+        const QFileInfo temporaryDirectory(m_m3u8sTemporaryDirectory);
+        if (!temporaryDirectory.exists() || !temporaryDirectory.isDir() || !temporaryDirectory.isWritable()) {
+            setError(trText(QStringLiteral("m3u8s.invalidTemporary")));
+            return false;
+        }
+        m_m3u8sStagingDirectory = std::make_unique<QTemporaryDir>(
+            QDir(temporaryDirectory.absoluteFilePath()).filePath(QStringLiteral("vibe-m3u8s-XXXXXX")));
         if (!m_m3u8sStagingDirectory->isValid()) {
             setError(trText(QStringLiteral("m3u8s.invalidOutput")));
             return false;
@@ -6329,6 +6359,23 @@ void AppViewModel::chooseM3u8sFallbackDirectory()
     }
     m_m3u8sFallbackDirectory = QFileInfo(directory).absoluteFilePath();
     m_repository.setM3u8sFallbackDirectory(m_m3u8sFallbackDirectory);
+    emit m3u8sSettingsChanged();
+}
+
+void AppViewModel::chooseM3u8sTemporaryDirectory()
+{
+    if (m3u8sPackaging()) {
+        return;
+    }
+    const auto directory = QFileDialog::getExistingDirectory(
+        nullptr,
+        trText(QStringLiteral("m3u8s.chooseTemporary")),
+        m_m3u8sTemporaryDirectory.isEmpty() ? defaultM3u8sTemporaryDirectory() : m_m3u8sTemporaryDirectory);
+    if (directory.isEmpty()) {
+        return;
+    }
+    m_m3u8sTemporaryDirectory = QFileInfo(directory).absoluteFilePath();
+    m_repository.setM3u8sTemporaryDirectory(m_m3u8sTemporaryDirectory);
     emit m3u8sSettingsChanged();
 }
 
