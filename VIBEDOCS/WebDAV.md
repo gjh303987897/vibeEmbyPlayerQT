@@ -1,5 +1,15 @@
 # WebDAV 模块说明
 
+## Audio player window controls
+
+The WebDAV audio player has a dedicated top bar when the application uses a
+custom title bar. Dragging the empty area of this bar calls the platform
+window move API, so the frameless application window can be repositioned.
+The top-left arrow is a back action: it returns to the WebDAV browser while
+keeping audio playback active and showing the mini-player. It does not stop
+playback. The red exit action in the queue panel remains the explicit command
+for stopping audio playback.
+
 ## M3U8S metadata visibility
 
 WebDAV also recognizes the single-file `.m3u8sp` TAR container. It remains one playable item; TAR members are never exposed as separate WebDAV entries. Playback requires byte-range responses (`206 Partial Content`) and a stable `ETag`; servers that return the whole object (`200`) are rejected for this format.

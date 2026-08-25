@@ -9670,9 +9670,80 @@ ApplicationWindow {
             color: theme.bg
             z: 2
 
+            Item {
+                id: webDavAudioTopBar
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 64
+                z: 3
+
+                DragHandler {
+                    id: webDavAudioWindowDrag
+                    target: null
+                    acceptedButtons: Qt.LeftButton
+                    enabled: root.usesCustomTitleBar
+                    onActiveChanged: {
+                        if (active && root.visibility !== Window.FullScreen) {
+                            windowAppearanceController.startSystemMove()
+                        }
+                    }
+                }
+
+                IconButton {
+                    id: webDavAudioBackButton
+                    anchors.left: parent.left
+                    anchors.leftMargin: 22
+                    anchors.verticalCenter: parent.verticalCenter
+                    readonly property color accentColor: theme.primary
+                    readonly property color surfaceColor: theme.elevated
+                    text: "\u2190"
+                    implicitWidth: 42
+                    implicitHeight: 40
+                    font.pixelSize: 20
+                    scale: down ? 0.95 : 1
+                    Accessible.name: t("action.back")
+                    ToolTip.visible: hovered
+                    ToolTip.text: t("action.back")
+
+                    contentItem: Label {
+                        text: webDavAudioBackButton.text
+                        color: !webDavAudioBackButton.enabled ? theme.subtle
+                            : darkTheme && !webDavAudioBackButton.hovered && !webDavAudioBackButton.activeFocus
+                                ? theme.text : theme.primary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font: webDavAudioBackButton.font
+                    }
+
+                    Behavior on scale {
+                        NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                    }
+
+                    background: Rectangle {
+                        radius: 10
+                        color: darkTheme
+                            ? (webDavAudioBackButton.down ? root.withAlpha(webDavAudioBackButton.accentColor, 0.28)
+                                : webDavAudioBackButton.hovered ? root.withAlpha(webDavAudioBackButton.accentColor, 0.14)
+                                : root.withAlpha(webDavAudioBackButton.surfaceColor, 0.74))
+                            : webDavAudioBackButton.down ? "#e8f2ff"
+                            : webDavAudioBackButton.hovered ? theme.elevatedHover
+                            : theme.elevated
+                        border.width: webDavAudioBackButton.activeFocus ? 2 : 1
+                        border.color: webDavAudioBackButton.activeFocus || webDavAudioBackButton.hovered
+                            ? root.withAlpha(webDavAudioBackButton.accentColor, 0.78) : theme.border
+                    }
+
+                    onClicked: appViewModel.minimizeWebDavAudioPlayer()
+                }
+            }
+
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: Math.max(22, Math.min(42, audioPlayerSurface.width * 0.04))
+                anchors.leftMargin: Math.max(22, Math.min(42, audioPlayerSurface.width * 0.04))
+                anchors.rightMargin: Math.max(22, Math.min(42, audioPlayerSurface.width * 0.04))
+                anchors.topMargin: 78
+                anchors.bottomMargin: Math.max(22, Math.min(42, audioPlayerSurface.width * 0.04))
                 spacing: 30
 
                 ColumnLayout {
