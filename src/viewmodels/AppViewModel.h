@@ -563,6 +563,16 @@ public:
     Q_INVOKABLE void login();
     Q_INVOKABLE void saveServiceCard();
     Q_INVOKABLE void selectServiceCard(int row);
+    // Called by the service-card transition after its geometry animation has
+    // reached the full-page bounds.  Activation results are held until this
+    // point so model/page construction cannot compete with the animation.
+    Q_INVOKABLE void serviceCardTransitionExpanded();
+    // Discards an activation that is being closed before it reaches the
+    // expanded state.  This is intentionally separate from
+    // serviceCardTransitionCanceled(), which releases a pending activation
+    // when page transitions are disabled.
+    Q_INVOKABLE void serviceCardTransitionAborted();
+    Q_INVOKABLE void serviceCardTransitionCanceled();
     Q_INVOKABLE void editServiceCard(int row);
     Q_INVOKABLE void loginSelectedService(const QString& password);
     Q_INVOKABLE void chooseIptvPlaylistFile();
@@ -823,6 +833,7 @@ private:
                                   double startPositionSeconds,
                                   const QString& encryptedSessionId = {});
     void startLogin(const ServerConfig& server, const QString& password);
+    void invalidateServiceActivation();
     void loadServiceHome();
     void loadIptvService(const ServiceCard& card);
     void applyIptvService(const ServiceCard& card,
@@ -875,6 +886,8 @@ private:
     void loadGlobalHistoryManagementDates();
     void loadGlobalHistoryManagementDate(const QString& date);
     std::vector<PlaybackHistoryItem> prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items);
+    std::vector<PlaybackHistoryItem> prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items,
+                                                               const std::vector<ServiceCard>& serviceCards);
     PlaybackHistorySource selectedGlobalHistorySource() const;
     void recordGlobalPlaybackStarted();
     void updateGlobalPlaybackProgress(double positionSeconds, double durationSeconds, bool forceUpdate = false, bool completed = false);
@@ -985,6 +998,11 @@ private:
     AppErrorPresentation m_errorPresentation;
     std::optional<UserSession> m_session;
     std::optional<ServiceCard> m_pendingServiceCard;
+    quint64 m_serviceActivationGeneration { 0 };
+    bool m_serviceActivationInFlight { false };
+    bool m_serviceCardTransitionActive { false };
+    bool m_serviceCardTransitionExpanded { true };
+    std::function<void()> m_pendingServiceActivationCommit;
     std::optional<ServiceCard> m_currentIptvCard;
     std::optional<IptvPlaylist> m_currentIptvPlaylist;
     QString m_currentIptvChannelId;
@@ -992,6 +1010,7 @@ private:
     QString m_localMediaCurrentPath;
     bool m_localMediaLoading { false };
     quint64 m_localMediaRequestGeneration { 0 };
+    quint64 m_localMediaRootsRequestGeneration { 0 };
     std::optional<ServiceCard> m_currentWebDavCard;
     QUrl m_webDavCurrentUrl;
     std::vector<QUrl> m_webDavHistory;
@@ -1039,6 +1058,7 @@ private:
     int m_globalHistoryPageSize { 60 };
     bool m_globalHistoryHasMore { false };
     bool m_globalHistoryLoading { false };
+    quint64 m_globalHistoryRequestGeneration { 0 };
     QStringList m_globalHistoryDates;
     QString m_globalHistoryManagementDate;
     bool m_globalHistoryManagementLoading { false };
@@ -1086,11 +1106,13 @@ private:
     LocalMediaItemListModel m_localMediaItems;
     WebDavItemListModel m_webDavItems;
     LinkPlaybackHistoryListModel m_linkPlaybackHistory;
+    quint64 m_linkPlaybackHistoryRequestGeneration { 0 };
     DailyUsageStatsListModel m_usageStats;
     PlaybackHistoryListModel m_globalPlaybackHistory;
     PlaybackHistoryListModel m_globalHistoryDayItems;
     TsslPackageListModel m_tsslPackages;
     TsslPackageListModel m_tsslBatchPackages;
+    quint64 m_tsslRefreshGeneration { 0 };
     QString m_m3u8sStatus;
     bool m_m3u8sBatchExporting { false };
     QStringList m_m3u8sSelectedSources;

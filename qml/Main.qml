@@ -207,12 +207,22 @@ ApplicationWindow {
 
     function openServiceFromCard(sourceCard, openAction) {
         serviceTransitionOverlay.openFromCard(sourceCard)
+        // Built-in pages retain the original timing: navigation starts on the
+        // click while the card geometry expands over the new page.  Their
+        // potentially expensive indexes are already deferred/asynchronous in
+        // the ViewModel.
         openAction()
     }
 
     function prepareExternalServiceFromCard(sourceCard, openAction) {
-        serviceTransitionOverlay.prepareFromCard(sourceCard)
+        if (appViewModel.loading) {
+            return
+        }
+        var animated = serviceTransitionOverlay.prepareFromCard(sourceCard)
         openAction()
+        if (!animated) {
+            appViewModel.serviceCardTransitionCanceled()
+        }
     }
 
     function formatHistoryDate(value) {
@@ -281,6 +291,7 @@ ApplicationWindow {
             if (appViewModel.currentView === "services") {
                 serviceTransitionOverlay.closeToCard()
             } else {
+                serviceTransitionOverlay.releasePrepared()
                 serviceTransitionOverlay.maybeOpenPrepared()
             }
         }
@@ -290,6 +301,7 @@ ApplicationWindow {
         }
 
         function onPasswordRequired(serviceName, username) {
+            serviceTransitionOverlay.closeToCard()
             passwordDialog.serviceName = serviceName
             passwordDialog.username = username
             passwordDialog.password = ""
@@ -308,6 +320,7 @@ ApplicationWindow {
             if (!appViewModel.pageTransitionsEnabled) {
                 pageStack.resetTransition()
                 serviceTransitionOverlay.cancelTransition()
+                appViewModel.serviceCardTransitionCanceled()
             }
         }
 
@@ -328,6 +341,11 @@ ApplicationWindow {
         }
 
         function onErrorMessageChanged() {
+            if (appViewModel.currentView === "services"
+                    && appViewModel.errorMessage.length > 0
+                    && (serviceTransitionOverlay.visible || serviceTransitionOverlay.holdOpen)) {
+                serviceTransitionOverlay.closeToCard()
+            }
             if (appViewModel.errorMessage.length > 0) {
                 root.showErrorDialog()
             } else if (errorDialog.visible) {
@@ -2390,6 +2408,7 @@ ApplicationWindow {
                 height: 36
                 text: "⚙"
                 visible: root.useTraditionalMediaHome
+                enabled: !appViewModel.loading
                 ToolTip.visible: hovered
                 ToolTip.text: t("nav.settings")
                 onClicked: appViewModel.openSettings()
@@ -2413,6 +2432,7 @@ ApplicationWindow {
             Rectangle {
                 id: serviceActionGroup
                 visible: appViewModel.currentView === "services"
+                enabled: !appViewModel.loading
                 Layout.preferredWidth: serviceActionRow.implicitWidth + 2
                 Layout.minimumWidth: Layout.preferredWidth
                 Layout.maximumWidth: Layout.preferredWidth
@@ -3130,6 +3150,17 @@ ApplicationWindow {
 
         property bool hasSource: false
         property bool openPending: false
+        // External services may need a short asynchronous activation step.
+        // Keep the expanded card visible during that step so the click has an
+        // immediate visual response instead of leaving the services page idle.
+        property bool holdOpen: false
+        property bool openFinished: false
+        property bool releaseRequested: false
+        // External activation owns the card-to-page transition until the
+        // opaque surface is dismissed.  Keeping this separate from
+        // `holdOpen` avoids a signal-order race: release clears holdOpen
+        // before StackLayout receives currentIndexChanged.
+        property bool suppressPageTransition: false
         property real sourceX: 0
         property real sourceY: 0
         property real sourceWidth: 0
@@ -3161,25 +3192,40 @@ ApplicationWindow {
 
         function prepareFromCard(sourceCard) {
             if (!captureSource(sourceCard)) {
-                return
+                return false
             }
-            openPending = true
+            openPending = false
+            holdOpen = true
+            openFinished = false
+            releaseRequested = false
+            suppressPageTransition = true
+            openPrepared()
+            return true
         }
 
         function openFromCard(sourceCard) {
             if (!captureSource(sourceCard)) {
-                return
+                return false
             }
             openPending = false
+            holdOpen = false
+            openFinished = false
+            releaseRequested = false
+            suppressPageTransition = false
             openPrepared()
+            return true
         }
 
         function maybeOpenPrepared() {
-            if (!openPending || !hasSource || appViewModel.loading
+            if (holdOpen || !openPending || !hasSource
                 || appViewModel.currentView === "services") {
                 return
             }
             openPending = false
+            holdOpen = false
+            openFinished = false
+            releaseRequested = false
+            suppressPageTransition = false
             openPrepared()
         }
 
@@ -3187,6 +3233,8 @@ ApplicationWindow {
 
             openAnimation.stop()
             closeAnimation.stop()
+            releaseAnimation.stop()
+            openFinished = false
             expansionSurface.x = sourceX
             expansionSurface.y = sourceY
             expansionSurface.width = sourceWidth
@@ -3197,9 +3245,50 @@ ApplicationWindow {
             openAnimation.start()
         }
 
+        function maybeRelease() {
+            if (!hasSource || !openFinished) {
+                return
+            }
+            if (holdOpen && !releaseRequested) {
+                return
+            }
+            // Home pages are incubated asynchronously.  Keep the opaque
+            // surface in place until the selected loader has produced its
+            // first usable item; otherwise a fast cached session can reveal
+            // a blank page during the 150 ms fade.
+            if (appViewModel.currentView === "home") {
+                var homeLoader = root.useTraditionalMediaHome
+                    ? traditionalHomeLoader : trendyHomeLoader
+                if (homeLoader.status !== Loader.Ready
+                        && homeLoader.status !== Loader.Error) {
+                    return
+                }
+            }
+            holdOpen = false
+            releaseRequested = false
+            releaseAnimation.stop()
+            releaseAnimation.start()
+        }
+
+        function releasePrepared() {
+            if (!hasSource) {
+                return
+            }
+            // If the destination becomes ready while the card is still
+            // expanding, wait for the geometry animation to finish.  Stopping
+            // it here leaves a half-expanded rectangle and causes a visible
+            // jump on fast/cached services.
+            releaseRequested = true
+            maybeRelease()
+        }
+
         function closeToCard() {
             if (openPending) {
+                appViewModel.serviceCardTransitionAborted()
                 openPending = false
+                holdOpen = false
+                openFinished = false
+                releaseRequested = false
                 hasSource = false
                 return
             }
@@ -3207,14 +3296,23 @@ ApplicationWindow {
                 return
             }
 
+            // If an external activation is still waiting for the expansion
+            // barrier, closing the overlay must invalidate its pending
+            // worker result as well.  Otherwise the defensive C++ fallback
+            // could commit after this reverse animation has started.
+            if (holdOpen) {
+                appViewModel.serviceCardTransitionAborted()
+            }
+
             openAnimation.stop()
             closeAnimation.stop()
-            expansionSurface.x = 0
-            expansionSurface.y = 0
-            expansionSurface.width = width
-            expansionSurface.height = height
-            expansionSurface.cornerRadius = 0
-            expansionSurface.opacity = 1
+            releaseAnimation.stop()
+            holdOpen = false
+            releaseRequested = false
+            openFinished = false
+            if (!visible || expansionSurface.opacity <= 0) {
+                expansionSurface.opacity = 1
+            }
             visible = true
             closeAnimation.start()
         }
@@ -3222,13 +3320,19 @@ ApplicationWindow {
         function finishTransition() {
             visible = false
             expansionSurface.opacity = 0
+            suppressPageTransition = false
         }
 
         function cancelTransition() {
             openAnimation.stop()
             closeAnimation.stop()
+            releaseAnimation.stop()
             finishTransition()
             openPending = false
+            holdOpen = false
+            openFinished = false
+            releaseRequested = false
+            suppressPageTransition = false
             hasSource = false
         }
 
@@ -3301,6 +3405,18 @@ ApplicationWindow {
                 NumberAnimation { target: expansionSurface; property: "cornerRadius"; to: 0; duration: 390; easing.type: Easing.OutCubic }
             }
 
+            ScriptAction {
+                script: {
+                    serviceTransitionOverlay.openFinished = true
+                    appViewModel.serviceCardTransitionExpanded()
+                    serviceTransitionOverlay.maybeRelease()
+                }
+            }
+        }
+
+        SequentialAnimation {
+            id: releaseAnimation
+
             NumberAnimation {
                 target: expansionSurface
                 property: "opacity"
@@ -3309,7 +3425,11 @@ ApplicationWindow {
                 easing.type: Easing.InCubic
             }
 
-            ScriptAction { script: serviceTransitionOverlay.finishTransition() }
+            ScriptAction {
+                script: {
+                    serviceTransitionOverlay.finishTransition()
+                }
+            }
         }
 
         SequentialAnimation {
@@ -3402,6 +3522,17 @@ ApplicationWindow {
                     pageStack.previousIndex = nextIndex
 
                     if (!pageStack.transitionReady) {
+                        return
+                    }
+
+                    // An external service already has the card-to-page
+                    // geometry transition covering the page.  Starting a
+                    // second StackLayout animation only after the async
+                    // activation completes makes the page move underneath
+                    // the 150 ms fade, so leave that destination stable.
+                    if (serviceTransitionOverlay.suppressPageTransition
+                            && serviceTransitionOverlay.hasSource) {
+                        pageStack.resetTransition()
                         return
                     }
 
@@ -3801,6 +3932,7 @@ ApplicationWindow {
                         active: homePage.visible && homePage.trendyLayout
                         asynchronous: true
                         visible: status === Loader.Ready
+                        onStatusChanged: serviceTransitionOverlay.maybeRelease()
                         opacity: homePage.showInitialLoading ? 0.24 : 1
 
                         Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
@@ -4351,6 +4483,7 @@ ApplicationWindow {
                         anchors.fill: parent
                         active: homePage.visible && !homePage.trendyLayout
                         asynchronous: true
+                        onStatusChanged: serviceTransitionOverlay.maybeRelease()
                         sourceComponent: TraditionalMediaHome {}
                     }
 
@@ -6542,7 +6675,10 @@ ApplicationWindow {
         MouseArea {
             id: cardMouse
             anchors.fill: parent
-            enabled: !card.loading
+            // A service activation uses the same GUI thread as page/model
+            // updates.  Prevent a second card click from queueing competing
+            // work while the first transition is in flight.
+            enabled: !card.loading && !appViewModel.loading
             hoverEnabled: true
             drag.target: editing ? card : null
             drag.axis: Drag.XAndYAxis

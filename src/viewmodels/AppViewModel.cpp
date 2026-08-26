@@ -53,7 +53,21 @@ constexpr int continueRefreshAfterStopMs = 1500;
 // unresponsive, especially when the activation itself was fast (for example a
 // cached Emby session).
 constexpr int serviceActivationFeedbackMs = 16;
+// Leave one render interval between the final geometry frame and model/page
+// construction.  This keeps the full-page card visible before the GUI does
+// the intentionally heavier activation commit.
+constexpr int serviceActivationCommitDelayMs = 16;
 constexpr int homeDataStartDelayMs = 80;
+// M3U8S and global-history pages contain comparatively large delegate trees.
+// Let the card-to-page geometry and opacity transition finish before applying
+// their first model refresh, otherwise a fast local read can rebuild dozens of
+// delegates in the middle of the opening animation.
+constexpr int builtInServiceRefreshDelayMs = 560;
+// The QML card transition expands for 390 ms.  The fallback only covers
+// cases where the QML completion callback cannot be delivered (for example
+// when transitions are disabled while a click is in flight); normal clicks
+// release the gate from QML at the exact end of the geometry animation.
+constexpr int serviceTransitionFallbackMs = 1200;
 constexpr int embyRecommendationFetchLimit = 32;
 constexpr qsizetype embyRecommendationVisibleLimit = 8;
 
@@ -66,6 +80,13 @@ struct ServiceActivationData final {
 };
 
 using ServiceActivationResult = std::expected<ServiceActivationData, QString>;
+
+struct GlobalHistoryPageData final {
+    std::vector<PlaybackHistoryItem> items;
+    std::vector<ServiceCard> serviceCards;
+};
+
+using GlobalHistoryPageResult = std::expected<GlobalHistoryPageData, QString>;
 
 QString serviceActivationConnectionName()
 {
@@ -4087,6 +4108,19 @@ void AppViewModel::saveServiceCard()
     setCurrentView(QStringLiteral("services"));
 }
 
+void AppViewModel::invalidateServiceActivation()
+{
+    ++m_serviceActivationGeneration;
+    m_serviceActivationInFlight = false;
+    m_serviceCardTransitionActive = false;
+    m_serviceCardTransitionExpanded = true;
+    m_pendingServiceActivationCommit = {};
+    m_pendingServiceCard.reset();
+    if (m_currentView == QStringLiteral("services")) {
+        setLoading(false);
+    }
+}
+
 void AppViewModel::selectServiceCard(int row)
 {
     if (m_loading) {
@@ -4100,80 +4134,190 @@ void AppViewModel::selectServiceCard(int row)
         return;
     }
 
+    const auto activationGeneration = ++m_serviceActivationGeneration;
+    m_serviceActivationInFlight = true;
+    m_pendingServiceActivationCommit = {};
+    m_serviceCardTransitionActive = pageTransitionsEnabled();
+    m_serviceCardTransitionExpanded = !m_serviceCardTransitionActive;
+    if (m_serviceCardTransitionActive) {
+        // A defensive timeout prevents a hidden/early-destroyed QML card from
+        // leaving the activation result behind the transition gate forever.
+        QTimer::singleShot(serviceTransitionFallbackMs, this,
+                           [this, activationGeneration]() {
+            if (activationGeneration == m_serviceActivationGeneration
+                && m_serviceCardTransitionActive
+                && !m_serviceCardTransitionExpanded) {
+                serviceCardTransitionExpanded();
+            }
+        });
+    }
+
     m_pendingServiceCard = *card;
     const auto selectedServerId = card->server.id;
     setLoading(true);
-    QTimer::singleShot(serviceActivationFeedbackMs, this, [this, card = *card, selectedServerId]() {
-        if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
+    QTimer::singleShot(serviceActivationFeedbackMs, this,
+                       [this, card = *card, selectedServerId, activationGeneration]() {
+        if (activationGeneration != m_serviceActivationGeneration
+            || m_currentView != QStringLiteral("services") || !m_pendingServiceCard
             || m_pendingServiceCard->server.id != selectedServerId) {
+            if (activationGeneration == m_serviceActivationGeneration
+                && m_serviceActivationInFlight) {
+                invalidateServiceActivation();
+            }
             return;
         }
 
         auto* watcher = new QFutureWatcher<ServiceActivationResult>(this);
-        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, card, selectedServerId]() mutable {
-            auto result = watcher->result();
+        connect(watcher, &QFutureWatcherBase::finished,
+                this,
+                [this, watcher, card, selectedServerId, activationGeneration]() mutable {
+            auto result = watcher->future().takeResult();
             watcher->deleteLater();
-            if (m_currentView != QStringLiteral("services") || !m_pendingServiceCard
+            if (activationGeneration != m_serviceActivationGeneration
+                || m_currentView != QStringLiteral("services") || !m_pendingServiceCard
                 || m_pendingServiceCard->server.id != selectedServerId) {
-                return;
-            }
-            if (!result) {
-                setLoading(false);
-                setError(result.error());
+                if (activationGeneration == m_serviceActivationGeneration
+                    && m_serviceActivationInFlight) {
+                    invalidateServiceActivation();
+                }
                 return;
             }
 
-            setServerUrl(card.server.baseUrl);
-            setServerName(card.server.name);
-            setUsername(card.server.username);
-            setServiceType(serviceTypeToString(card.server.serviceType));
-            setTrustSelfSignedCertificate(card.server.trustSelfSignedCertificate);
-            setAutoLogin(card.server.autoLogin);
-            setIptvFilePath(card.server.serviceType == ServiceType::IPTV
-                                ? card.server.baseUrl
-                                : QString {});
+            // Keep the move-only activation payload alive while it waits for
+            // the QML geometry transition.  No model, session, or page state
+            // is touched until the gate opens.
+            auto sharedResult = std::make_shared<ServiceActivationResult>(std::move(result));
+            auto commit = [this,
+                           card,
+                           selectedServerId,
+                           activationGeneration,
+                           sharedResult]() mutable {
+                if (activationGeneration != m_serviceActivationGeneration
+                    || m_currentView != QStringLiteral("services") || !m_pendingServiceCard
+                    || m_pendingServiceCard->server.id != selectedServerId) {
+                    if (activationGeneration == m_serviceActivationGeneration
+                        && m_serviceActivationInFlight) {
+                        invalidateServiceActivation();
+                    }
+                    return;
+                }
 
-            if (card.server.serviceType == ServiceType::IPTV) {
-                if (!result->iptvPlaylist) {
+                m_serviceActivationInFlight = false;
+                m_serviceCardTransitionActive = false;
+                m_serviceCardTransitionExpanded = true;
+                auto& result = *sharedResult;
+                if (!result) {
                     setLoading(false);
-                    setError(QStringLiteral("IPTV playlist data was not found"));
+                    setError(result.error());
                     return;
                 }
-                applyIptvService(card,
-                                 std::move(*result->iptvPlaylist),
-                                 std::move(result->iptvChannels));
-                setLoading(false);
-                return;
-            }
-            if (card.server.serviceType == ServiceType::WebDAV) {
-                if (!result->warning.isEmpty()) {
-                    setError(result->warning);
-                }
-                if (card.server.autoLogin && result->webDavPassword) {
-                    loadWebDavService(card, *result->webDavPassword);
-                    return;
-                }
-                setLoading(false);
-                emit passwordRequired(card.server.name, card.server.username);
-                return;
-            }
-            if (!card.server.autoLogin || !result->session) {
-                setLoading(false);
-                emit passwordRequired(card.server.name, card.server.username);
-                return;
-            }
 
-            setSession(std::move(*result->session));
-            loadServiceHome();
-            // Keep the selected card in its loading state until the initial
-            // home requests have produced valid data.  Clearing it here made
-            // the card stop animating while the page was still being prepared,
-            // which looked like a short freeze before the transition started.
+                setServerUrl(card.server.baseUrl);
+                setServerName(card.server.name);
+                setUsername(card.server.username);
+                setServiceType(serviceTypeToString(card.server.serviceType));
+                setTrustSelfSignedCertificate(card.server.trustSelfSignedCertificate);
+                setAutoLogin(card.server.autoLogin);
+                setIptvFilePath(card.server.serviceType == ServiceType::IPTV
+                                    ? card.server.baseUrl
+                                    : QString {});
+
+                if (card.server.serviceType == ServiceType::IPTV) {
+                    if (!result->iptvPlaylist) {
+                        setLoading(false);
+                        setError(QStringLiteral("IPTV playlist data was not found"));
+                        return;
+                    }
+                    applyIptvService(card,
+                                     std::move(*result->iptvPlaylist),
+                                     std::move(result->iptvChannels));
+                    setLoading(false);
+                    return;
+                }
+                if (card.server.serviceType == ServiceType::WebDAV) {
+                    if (!result->warning.isEmpty()) {
+                        setError(result->warning);
+                    }
+                    if (card.server.autoLogin && result->webDavPassword) {
+                        loadWebDavService(card, *result->webDavPassword);
+                        return;
+                    }
+                    setLoading(false);
+                    emit passwordRequired(card.server.name, card.server.username);
+                    return;
+                }
+                if (!card.server.autoLogin || !result->session) {
+                    setLoading(false);
+                    emit passwordRequired(card.server.name, card.server.username);
+                    return;
+                }
+
+                setSession(std::move(*result->session));
+                loadServiceHome();
+                // Keep the selected card in its loading state until the
+                // initial home requests have produced valid data.  Clearing it
+                // here made the card stop animating while the page was still
+                // being prepared.
+            };
+
+            if (m_serviceCardTransitionActive && !m_serviceCardTransitionExpanded
+                && pageTransitionsEnabled()) {
+                m_pendingServiceActivationCommit = std::move(commit);
+            } else {
+                // Queue even the already-expanded path so the final frame of
+                // the geometry animation can be presented before heavy model
+                // work starts.
+                QTimer::singleShot(serviceActivationCommitDelayMs, this, std::move(commit));
+            }
         });
         watcher->setFuture(QtConcurrent::run([card]() {
             return prepareServiceActivation(card);
         }));
     });
+}
+
+void AppViewModel::serviceCardTransitionExpanded()
+{
+    if (!m_serviceCardTransitionActive) {
+        return;
+    }
+
+    m_serviceCardTransitionExpanded = true;
+    if (!m_pendingServiceActivationCommit) {
+        return;
+    }
+
+    auto commit = std::move(m_pendingServiceActivationCommit);
+    m_pendingServiceActivationCommit = {};
+    QTimer::singleShot(serviceActivationCommitDelayMs, this, std::move(commit));
+}
+
+void AppViewModel::serviceCardTransitionAborted()
+{
+    // A close/error can interrupt the opening geometry before the QML
+    // expansion callback is delivered.  Drop the worker result in that case
+    // instead of allowing the fallback timer to commit it behind a card that
+    // is already shrinking.
+    if (m_serviceActivationInFlight || m_serviceCardTransitionActive
+        || m_pendingServiceActivationCommit) {
+        invalidateServiceActivation();
+    }
+}
+
+void AppViewModel::serviceCardTransitionCanceled()
+{
+    if (!m_serviceCardTransitionActive) {
+        return;
+    }
+
+    m_serviceCardTransitionExpanded = true;
+    if (!m_pendingServiceActivationCommit) {
+        return;
+    }
+
+    auto commit = std::move(m_pendingServiceActivationCommit);
+    m_pendingServiceActivationCommit = {};
+    QTimer::singleShot(serviceActivationCommitDelayMs, this, std::move(commit));
 }
 
 void AppViewModel::editServiceCard(int row)
@@ -4258,10 +4402,17 @@ void AppViewModel::openLocalMedia()
     clearSeriesDetails();
     syncSelectedPeople();
     clearLocalMediaDirectory();
-    refreshLocalMediaRoots();
     emit selectedItemChanged();
     emit playbackChanged();
     setCurrentView(QStringLiteral("local"));
+    // Let the page transition render before loading the local roots from
+    // SQLite.  The read itself is performed on a worker in
+    // refreshLocalMediaRoots().
+    QTimer::singleShot(0, this, [this]() {
+        if (m_currentView == QStringLiteral("local")) {
+            refreshLocalMediaRoots();
+        }
+    });
 }
 
 void AppViewModel::addLocalMediaRoot(const QUrl& folderUrl)
@@ -4550,13 +4701,17 @@ void AppViewModel::openLinkPlayback()
 {
     clearError();
     clearCurrentPlayback();
-    refreshLinkPlaybackHistory();
     m_selectedItem.reset();
     clearSeriesDetails();
     syncSelectedPeople();
     emit selectedItemChanged();
     emit playbackChanged();
     setCurrentView(QStringLiteral("link"));
+    QTimer::singleShot(0, this, [this]() {
+        if (m_currentView == QStringLiteral("link")) {
+            refreshLinkPlaybackHistory();
+        }
+    });
 }
 
 bool AppViewModel::playLink()
@@ -4659,29 +4814,43 @@ void AppViewModel::recordLinkPlaybackHistory(const QString& recordId,
 
 void AppViewModel::refreshLinkPlaybackHistory()
 {
-    const auto result = m_repository.loadLinkPlaybackHistory(m_privacyMode);
-    if (!result) {
-        AppLogger::warning(QStringLiteral("link-playback"),
-                           QStringLiteral("Load playback history failed: %1").arg(result.error()));
-        setError(trText(QStringLiteral("link.historyLoadFailed")));
-        return;
-    }
-
-    std::vector<LinkPlaybackHistoryItem> visibleItems;
-    visibleItems.reserve(result->size());
-    for (auto item : *result) {
-        const auto playbackUrl = LinkPlaybackService::resolvePlaybackUrl(
-            item.playbackUrl.toString(QUrl::FullyEncoded));
-        if (!playbackUrl || !item.playedDate.isValid() || !item.playedAt.isValid()) {
-            AppLogger::warning(QStringLiteral("link-playback"), QStringLiteral("Ignored an invalid playback history record"));
-            continue;
+    const auto generation = ++m_linkPlaybackHistoryRequestGeneration;
+    const auto privacyMode = m_privacyMode;
+    auto* watcher = new QFutureWatcher<std::expected<std::vector<LinkPlaybackHistoryItem>, QString>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, privacyMode]() mutable {
+        auto result = watcher->future().takeResult();
+        watcher->deleteLater();
+        if (generation != m_linkPlaybackHistoryRequestGeneration
+            || privacyMode != m_privacyMode) {
+            return;
         }
-        item.playbackUrl = *playbackUrl;
-        item.displayName = LinkPlaybackService::displayName(*playbackUrl);
-        item.displayAddress = LinkPlaybackService::displayAddress(*playbackUrl);
-        visibleItems.push_back(std::move(item));
-    }
-    m_linkPlaybackHistory.setItems(std::move(visibleItems));
+        if (!result) {
+            AppLogger::warning(QStringLiteral("link-playback"),
+                               QStringLiteral("Load playback history failed: %1").arg(result.error()));
+            setError(trText(QStringLiteral("link.historyLoadFailed")));
+            return;
+        }
+
+        std::vector<LinkPlaybackHistoryItem> visibleItems;
+        visibleItems.reserve(result->size());
+        for (auto item : *result) {
+            const auto playbackUrl = LinkPlaybackService::resolvePlaybackUrl(
+                item.playbackUrl.toString(QUrl::FullyEncoded));
+            if (!playbackUrl || !item.playedDate.isValid() || !item.playedAt.isValid()) {
+                AppLogger::warning(QStringLiteral("link-playback"), QStringLiteral("Ignored an invalid playback history record"));
+                continue;
+            }
+            item.playbackUrl = *playbackUrl;
+            item.displayName = LinkPlaybackService::displayName(*playbackUrl);
+            item.displayAddress = LinkPlaybackService::displayAddress(*playbackUrl);
+            visibleItems.push_back(std::move(item));
+        }
+        m_linkPlaybackHistory.setItems(std::move(visibleItems));
+    });
+    watcher->setFuture(QtConcurrent::run([privacyMode]() {
+        SessionRepository repository(serviceActivationConnectionName());
+        return repository.loadLinkPlaybackHistory(privacyMode);
+    }));
 }
 
 PlaybackHistorySource AppViewModel::selectedGlobalHistorySource() const
@@ -4696,13 +4865,33 @@ void AppViewModel::openGlobalHistory()
     clearError();
     clearSeriesDetails();
     clearCurrentPlayback();
-    refreshGlobalHistory();
     emit playbackChanged();
+    // Invalidate a refresh that may still belong to the previous visit before
+    // scheduling the new one.  Keeping the old model visible under the opaque
+    // card surface is cheaper than clearing and rebuilding it during the
+    // opening animation.
+    const auto refreshGeneration = ++m_globalHistoryRequestGeneration;
+    if (m_globalHistoryLoading) {
+        m_globalHistoryLoading = false;
+        emit globalHistoryStateChanged();
+    }
     setCurrentView(QStringLiteral("globalHistory"));
+    const auto refreshDelay = pageTransitionsEnabled() ? builtInServiceRefreshDelayMs : 0;
+    QTimer::singleShot(refreshDelay, this, [this, refreshGeneration]() {
+        if (m_currentView == QStringLiteral("globalHistory")
+            && refreshGeneration == m_globalHistoryRequestGeneration) {
+            refreshGlobalHistory();
+        }
+    });
 }
 
 void AppViewModel::refreshGlobalHistory()
 {
+    if (m_globalHistoryLoading) {
+        ++m_globalHistoryRequestGeneration;
+        m_globalHistoryLoading = false;
+        emit globalHistoryStateChanged();
+    }
     loadGlobalHistoryPage(true);
 }
 
@@ -4725,40 +4914,77 @@ void AppViewModel::loadGlobalHistoryPage(bool resetItems)
         m_globalPlaybackHistory.clear();
     }
 
-    const auto result = m_repository.loadPlaybackHistory(m_privacyMode,
-                                                         m_globalHistoryNextStartIndex,
-                                                         m_globalHistoryPageSize,
-                                                         selectedGlobalHistorySource());
-    if (!result) {
-        m_globalHistoryLoading = false;
-        m_globalHistoryHasMore = false;
-        emit globalHistoryStateChanged();
-        AppLogger::warning(QStringLiteral("global-history"),
-                           QStringLiteral("Load playback history failed: %1").arg(result.error()));
-        setError(trText(QStringLiteral("globalHistory.loadFailed")));
-        return;
-    }
+    const auto generation = ++m_globalHistoryRequestGeneration;
+    const auto privacyMode = m_privacyMode;
+    const auto startIndex = m_globalHistoryNextStartIndex;
+    const auto pageSize = m_globalHistoryPageSize;
+    const auto source = selectedGlobalHistorySource();
+    auto* watcher = new QFutureWatcher<GlobalHistoryPageResult>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, generation, resetItems, privacyMode]() mutable {
+                auto result = watcher->future().takeResult();
+                watcher->deleteLater();
+                if (generation != m_globalHistoryRequestGeneration) {
+                    return;
+                }
+                if (privacyMode != m_privacyMode) {
+                    m_globalHistoryLoading = false;
+                    emit globalHistoryStateChanged();
+                    return;
+                }
+                if (!result) {
+                    m_globalHistoryLoading = false;
+                    m_globalHistoryHasMore = false;
+                    emit globalHistoryStateChanged();
+                    AppLogger::warning(QStringLiteral("global-history"),
+                                       QStringLiteral("Load playback history failed: %1").arg(result.error()));
+                    setError(trText(QStringLiteral("globalHistory.loadFailed")));
+                    return;
+                }
 
-    const auto loadedCount = static_cast<int>(result->size());
-    auto items = prepareGlobalHistoryItems(std::move(*result));
-    if (resetItems) {
-        m_globalPlaybackHistory.setItems(std::move(items));
-    } else {
-        m_globalPlaybackHistory.appendItems(std::move(items));
-    }
-    m_globalHistoryNextStartIndex += loadedCount;
-    m_globalHistoryHasMore = loadedCount == m_globalHistoryPageSize;
-    m_globalHistoryLoading = false;
-    emit globalHistoryStateChanged();
+                const auto loadedCount = static_cast<int>(result->items.size());
+                auto items = prepareGlobalHistoryItems(std::move(result->items), result->serviceCards);
+                if (resetItems) {
+                    m_globalPlaybackHistory.setItems(std::move(items));
+                } else {
+                    m_globalPlaybackHistory.appendItems(std::move(items));
+                }
+                m_globalHistoryNextStartIndex += loadedCount;
+                m_globalHistoryHasMore = loadedCount == m_globalHistoryPageSize;
+                m_globalHistoryLoading = false;
+                emit globalHistoryStateChanged();
+            });
+    watcher->setFuture(QtConcurrent::run([privacyMode, startIndex, pageSize, source]() -> GlobalHistoryPageResult {
+        SessionRepository repository(serviceActivationConnectionName());
+        auto history = repository.loadPlaybackHistory(privacyMode, startIndex, pageSize, source);
+        if (!history) {
+            return std::unexpected(history.error());
+        }
+        GlobalHistoryPageData pageData;
+        pageData.items = std::move(*history);
+        if (const auto cards = repository.loadAllServiceCards(); cards) {
+            pageData.serviceCards = std::move(*cards);
+        }
+        return pageData;
+    }));
 }
 
 std::vector<PlaybackHistoryItem> AppViewModel::prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items)
 {
-    QHash<QString, ServiceCard> serviceCards;
     if (const auto cards = m_repository.loadAllServiceCards(); cards) {
-        for (const auto& card : *cards) {
-            serviceCards.insert(card.server.id, card);
-        }
+        return prepareGlobalHistoryItems(std::move(items), *cards);
+    }
+
+    return prepareGlobalHistoryItems(std::move(items), std::vector<ServiceCard> {});
+}
+
+std::vector<PlaybackHistoryItem> AppViewModel::prepareGlobalHistoryItems(
+    std::vector<PlaybackHistoryItem> items,
+    const std::vector<ServiceCard>& cards)
+{
+    QHash<QString, ServiceCard> serviceCards;
+    for (const auto& card : cards) {
+        serviceCards.insert(card.server.id, card);
     }
 
     std::vector<PlaybackHistoryItem> visibleItems;
@@ -5799,20 +6025,42 @@ void AppViewModel::exportWebDavTssl(int row)
 void AppViewModel::openM3u8sManager()
 {
     clearError();
-    refreshTsslPackages();
+    // A package refresh can synchronously create a large Repeater model on the
+    // GUI thread when its worker result is applied.  Invalidate older visits
+    // and apply this visit after the card transition has settled.
+    const auto refreshGeneration = ++m_tsslRefreshGeneration;
     setCurrentView(QStringLiteral("m3u8sManager"));
+    const auto refreshDelay = pageTransitionsEnabled() ? builtInServiceRefreshDelayMs : 0;
+    QTimer::singleShot(refreshDelay, this, [this, refreshGeneration]() {
+        if (m_currentView == QStringLiteral("m3u8sManager")
+            && refreshGeneration == m_tsslRefreshGeneration) {
+            refreshTsslPackages();
+        }
+    });
 }
 
 void AppViewModel::refreshTsslPackages()
 {
-    auto packages = m_tsslStore.listPackages();
-    if (!packages) {
-        setError(packages.error());
-        return;
-    }
-    auto loadedPackages = std::move(*packages);
-    m_tsslPackages.setPackages(loadedPackages);
-    m_tsslBatchPackages.setPackages(std::move(loadedPackages));
+    const auto generation = ++m_tsslRefreshGeneration;
+    const auto store = m_tsslStore;
+    auto* watcher = new QFutureWatcher<std::expected<std::vector<TsslPackageInfo>, QString>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation]() mutable {
+        auto packages = watcher->future().takeResult();
+        watcher->deleteLater();
+        if (generation != m_tsslRefreshGeneration) {
+            return;
+        }
+        if (!packages) {
+            setError(packages.error());
+            return;
+        }
+        auto loadedPackages = std::move(*packages);
+        m_tsslPackages.setPackages(loadedPackages);
+        m_tsslBatchPackages.setPackages(std::move(loadedPackages));
+    });
+    watcher->setFuture(QtConcurrent::run([store]() mutable {
+        return store.listPackages();
+    }));
 }
 
 void AppViewModel::restoreManagedTssl()
@@ -6836,6 +7084,7 @@ void AppViewModel::deleteServiceCard(int row, bool deleteLocalData)
 void AppViewModel::logout()
 {
     AppLogger::info(QStringLiteral("auth"), QStringLiteral("Logout requested"));
+    invalidateServiceActivation();
     setLoading(false);
     m_session.reset();
     m_pendingServiceCard.reset();
@@ -6864,6 +7113,7 @@ void AppViewModel::logout()
 
 void AppViewModel::backToServices()
 {
+    invalidateServiceActivation();
     setLoading(false);
     m_initialServiceLoadActive = false;
     m_initialServiceHasValidData = false;
@@ -8730,17 +8980,28 @@ void AppViewModel::refreshServiceCards()
 
 void AppViewModel::refreshLocalMediaRoots()
 {
-    const auto result = m_repository.loadLocalMediaRoots();
-    if (!result) {
-        setError(result.error());
-        return;
-    }
-
-    auto roots = *result;
-    for (auto& root : roots) {
-        root.available = true;
-    }
-    m_localMediaRoots.setRoots(std::move(roots));
+    const auto generation = ++m_localMediaRootsRequestGeneration;
+    auto* watcher = new QFutureWatcher<std::expected<std::vector<LocalMediaRoot>, QString>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation]() mutable {
+        auto result = watcher->future().takeResult();
+        watcher->deleteLater();
+        if (generation != m_localMediaRootsRequestGeneration) {
+            return;
+        }
+        if (!result) {
+            setError(result.error());
+            return;
+        }
+        auto roots = std::move(*result);
+        for (auto& root : roots) {
+            root.available = true;
+        }
+        m_localMediaRoots.setRoots(std::move(roots));
+    });
+    watcher->setFuture(QtConcurrent::run([]() {
+        SessionRepository repository(serviceActivationConnectionName());
+        return repository.loadLocalMediaRoots();
+    }));
 }
 
 void AppViewModel::loadLocalMediaDirectory(const QString& path)
@@ -9791,11 +10052,42 @@ void AppViewModel::setCurrentView(QString view)
     if (m_currentView == view) {
         return;
     }
+    // A service-card activation is allowed to spend the opening transition
+    // preparing data, but a toolbar navigation can leave the services page
+    // before that work commits.  Invalidate the generation before publishing
+    // the new view so a late watcher/queued commit cannot resurrect the card
+    // or leave the global loading state stuck.
+    if (m_currentView == QStringLiteral("services") && view != QStringLiteral("services")
+        && (m_serviceActivationInFlight || m_serviceCardTransitionActive
+            || m_pendingServiceActivationCommit || m_initialServiceLoadActive)) {
+        invalidateServiceActivation();
+    }
     if (view != QStringLiteral("home")) {
         m_initialServiceLoadActive = false;
     }
+    // The built-in service pages now load their local indexes asynchronously.
+    // Bump each page generation when it is left so a late worker result cannot
+    // rebuild a model during another page's transition.  Keep the models alive
+    // while entering the player; returning from playback should remain instant.
+    if (m_currentView == QStringLiteral("local") && view != QStringLiteral("local")
+        && view != QStringLiteral("player")) {
+        ++m_localMediaRootsRequestGeneration;
+    }
+    if (m_currentView == QStringLiteral("link") && view != QStringLiteral("link")
+        && view != QStringLiteral("player")) {
+        ++m_linkPlaybackHistoryRequestGeneration;
+    }
+    if (m_currentView == QStringLiteral("m3u8sManager")
+        && view != QStringLiteral("m3u8sManager")) {
+        ++m_tsslRefreshGeneration;
+    }
     if (m_currentView == QStringLiteral("globalHistory") &&
         view != QStringLiteral("globalHistory") && view != QStringLiteral("player")) {
+        ++m_globalHistoryRequestGeneration;
+        if (m_globalHistoryLoading) {
+            m_globalHistoryLoading = false;
+            emit globalHistoryStateChanged();
+        }
         ++m_globalHistoryReplayGeneration;
         m_pendingHistoryReplay.reset();
         setLoading(false);
@@ -9891,6 +10183,13 @@ void AppViewModel::completeInitialServiceLoad()
     const auto partialError = m_initialServiceError;
     m_initialServiceLoadActive = false;
     m_initialServiceError.clear();
+    // Service-card activation is released only after the QML expansion
+    // barrier.  Once the initial requests are complete, navigate immediately;
+    // adding another fixed delay here leaves the full-page overlay frozen and
+    // makes fast/cached services feel unresponsive.
+    if (!m_session || m_currentView != QStringLiteral("services")) {
+        return;
+    }
     setLoading(false);
     setCurrentView(QStringLiteral("home"));
     if (!partialError.isEmpty()) {

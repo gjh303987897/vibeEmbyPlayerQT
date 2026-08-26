@@ -66,11 +66,11 @@ QML does not make network requests and does not parse JSON.
 - The reusable QML service icon and status-chip components keep the card hierarchy consistent across light and dark themes: service identity and account details stay in the primary row, while login and session state remain in a fixed footer row.
 - Built-in entry cards and saved service cards share the same responsive size contract. The service page selects two or three columns from the available width, calculates one common card width and keeps every card at a fixed 156-pixel height; both the `GridLayout` and `GridView` consume those values so separate sections remain aligned while the window resizes.
 - Hover, drag and edit states reuse the same service accent without changing the card's information layout or invoking service-layer logic.
-- Opening any built-in service starts from the activated card's mapped window
-  rectangle. Saved external services first keep the activated card's loading
-  overlay visible while the asynchronous connection and initial page load
-  complete; only then does the theme-aware surface expand to the content bounds
-  before revealing the destination page. Returning to the service list runs the
+- Opening any built-in or saved service starts from the activated card's mapped
+  window rectangle, so the first click immediately has visible feedback. Saved
+  external services keep the expanded, theme-aware surface opaque while the
+  asynchronous connection and initial page load complete; the destination is
+  revealed only after that commit. Returning to the service list runs the
   geometry in reverse toward the stored card rectangle. The overlay stays below
   the title bar, blocks repeated input only while visible, and follows the
   global page-transition preference.
@@ -84,9 +84,9 @@ QML does not make network requests and does not parse JSON.
   and destroys its own thread-local connection, matching Qt's SQL threading
   contract. The resulting value data is applied to QML models on the GUI
   thread, while responses from a previously selected server are ignored.
-- The initial media-home request fan-out remains deferred until after the home
-  page is visible, so home model resets and network startup do not compete with
-  the service-card feedback frame.
+- The initial media-home request fan-out remains deferred until after the
+  expansion barrier and one render interval, so home model resets and network
+  startup do not compete with the service-card feedback frames.
 - While a saved service is opening, only the activated card is dimmed and
   covered by a service-colored spinner and loading label. The card ignores
   repeated clicks until the current operation finishes. The loading state is
@@ -187,6 +187,15 @@ results are applied to QML-facing models. No network or response parsing work
 is performed by QML.
 
 SQLite access is small and synchronous in this phase. Larger cache/index operations should move to a worker in later phases.
+
+Service-card activation keeps the transition responsive: built-in cards and
+saved external cards start the geometry expansion immediately. Authentication,
+session preparation, and initial home requests continue asynchronously; the
+expanded surface remains opaque until the activation commit is ready. Built-in
+Local, Link, History, and M3U8S cards defer their database or package-index
+refresh until the card-to-page transition settles, and those reads use Qt
+Concurrent and generation checks so stale results cannot update a page that the
+user has already left.
 
 ## Encrypted HLS
 
