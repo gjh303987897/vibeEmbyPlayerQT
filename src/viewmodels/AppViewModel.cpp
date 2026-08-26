@@ -447,15 +447,6 @@ QString defaultM3u8sOutputDirectory()
     return usable == locations.end() ? QString() : QFileInfo(*usable).absoluteFilePath();
 }
 
-QString defaultM3u8sTemporaryDirectory()
-{
-    const auto standard = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    const auto candidate = standard.isEmpty() ? QDir::tempPath() : standard;
-    const QFileInfo info(candidate);
-    return info.exists() && info.isDir() && info.isWritable()
-        ? info.absoluteFilePath() : QString();
-}
-
 bool copyM3u8sPath(const QString& sourcePath, const QString& targetRoot)
 {
     const QFileInfo source(sourcePath);
@@ -809,6 +800,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.chooseRemoteFolder"), QStringLiteral("Choose remote folder") },
         { QStringLiteral("m3u8s.fallbackDirectory"), QStringLiteral("Local fallback") },
         { QStringLiteral("m3u8s.temporaryDirectory"), QStringLiteral("Temporary folder") },
+        { QStringLiteral("m3u8s.temporaryDirectoryUnset"), QStringLiteral("Choose a custom temporary folder") },
         { QStringLiteral("m3u8s.keepSuccessfulLocal"), QStringLiteral("Keep successfully uploaded packages locally") },
         { QStringLiteral("m3u8s.uploadProgress"), QStringLiteral("WebDAV upload") },
         { QStringLiteral("m3u8s.remoteFolderTitle"), QStringLiteral("Choose a WebDAV folder") },
@@ -1341,6 +1333,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.chooseRemoteFolder"), QStringLiteral("选择远程目录") },
         { QStringLiteral("m3u8s.fallbackDirectory"), QStringLiteral("本地失败保留目录") },
         { QStringLiteral("m3u8s.temporaryDirectory"), QStringLiteral("临时目录") },
+        { QStringLiteral("m3u8s.temporaryDirectoryUnset"), QStringLiteral("请选择自定义临时目录") },
         { QStringLiteral("m3u8s.keepSuccessfulLocal"), QStringLiteral("上传成功后仍在本地保留视频包") },
         { QStringLiteral("m3u8s.uploadProgress"), QStringLiteral("WebDAV 上传") },
         { QStringLiteral("m3u8s.remoteFolderTitle"), QStringLiteral("选择 WebDAV 目录") },
@@ -3920,8 +3913,7 @@ void AppViewModel::initialize()
         : QFileInfo(savedFallbackDirectory).absoluteFilePath();
     const auto savedM3u8sTemporaryDirectory = m_repository.m3u8sTemporaryDirectory();
     m_m3u8sTemporaryDirectory = savedM3u8sTemporaryDirectory.isEmpty()
-        ? defaultM3u8sTemporaryDirectory()
-        : QFileInfo(savedM3u8sTemporaryDirectory).absoluteFilePath();
+        ? QString() : QFileInfo(savedM3u8sTemporaryDirectory).absoluteFilePath();
     m_m3u8sKeepSuccessfulLocal = m_repository.m3u8sKeepSuccessfulLocal();
     m_m3u8sVideoEncoding = normalizedM3u8sVideoEncoding(m_repository.m3u8sVideoEncoding());
     m_m3u8sAutoVideoCodecs = normalizedM3u8sAutoVideoCodecs(m_repository.m3u8sAutoVideoCodecs());
@@ -6212,6 +6204,11 @@ bool AppViewModel::createM3u8sFromSelectedSources()
         return false;
     }
     QFileInfo outputDirectory(m_m3u8sOutputDirectory);
+    const QFileInfo temporaryDirectory(m_m3u8sTemporaryDirectory);
+    if (!temporaryDirectory.exists() || !temporaryDirectory.isDir() || !temporaryDirectory.isWritable()) {
+        setError(trText(QStringLiteral("m3u8s.invalidTemporary")));
+        return false;
+    }
     if (m_m3u8sOutputMode == QStringLiteral("webdav")) {
         if (!m_m3u8sWebDavCard || m_m3u8sWebDavServiceId.isEmpty() || m_m3u8sWebDavPath.isEmpty()) {
             setError(trText(QStringLiteral("m3u8s.invalidWebDavOutput")));
@@ -6220,11 +6217,6 @@ bool AppViewModel::createM3u8sFromSelectedSources()
         const QFileInfo fallback(m_m3u8sFallbackDirectory);
         if (!fallback.exists() || !fallback.isDir() || !fallback.isWritable()) {
             setError(trText(QStringLiteral("m3u8s.invalidFallback")));
-            return false;
-        }
-        const QFileInfo temporaryDirectory(m_m3u8sTemporaryDirectory);
-        if (!temporaryDirectory.exists() || !temporaryDirectory.isDir() || !temporaryDirectory.isWritable()) {
-            setError(trText(QStringLiteral("m3u8s.invalidTemporary")));
             return false;
         }
         m_m3u8sStagingDirectory = std::make_unique<QTemporaryDir>(
@@ -6302,6 +6294,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
             batch.packages.append(EncryptedHlsPackageRequest {
                 .sourcePath = source.sourcePath,
                 .outputDirectory = source.outputDirectory,
+                .temporaryDirectory = m_m3u8sTemporaryDirectory,
                 .segmentDurationSeconds = segmentDuration,
                 .videoEncoding = videoEncoding,
                 .autoCopyVideoCodecs = autoVideoCodecs,
@@ -6370,7 +6363,7 @@ void AppViewModel::chooseM3u8sTemporaryDirectory()
     const auto directory = QFileDialog::getExistingDirectory(
         nullptr,
         trText(QStringLiteral("m3u8s.chooseTemporary")),
-        m_m3u8sTemporaryDirectory.isEmpty() ? defaultM3u8sTemporaryDirectory() : m_m3u8sTemporaryDirectory);
+        m_m3u8sTemporaryDirectory);
     if (directory.isEmpty()) {
         return;
     }

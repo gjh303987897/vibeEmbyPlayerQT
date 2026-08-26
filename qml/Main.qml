@@ -14744,7 +14744,6 @@ ApplicationWindow {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 12
-                        visible: appViewModel.m3u8sOutputMode === "webdav"
 
                         Label {
                             Layout.preferredWidth: 112
@@ -14804,8 +14803,11 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.leftMargin: 12
                                 anchors.rightMargin: 12
-                                text: appViewModel.m3u8sTemporaryDirectory
-                                color: theme.text
+                                text: appViewModel.m3u8sTemporaryDirectory.length > 0
+                                    ? appViewModel.m3u8sTemporaryDirectory
+                                    : t("m3u8s.temporaryDirectoryUnset")
+                                color: appViewModel.m3u8sTemporaryDirectory.length > 0
+                                    ? theme.text : theme.muted
                                 font.pixelSize: 13
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideMiddle
@@ -15054,11 +15056,11 @@ ApplicationWindow {
                         ModernButton {
                             visible: !appViewModel.m3u8sPackaging
                             enabled: appViewModel.m3u8sFfmpegAvailable
+                                && appViewModel.m3u8sTemporaryDirectory.length > 0
                                 && (appViewModel.m3u8sOutputMode === "local"
                                     ? appViewModel.m3u8sOutputDirectory.length > 0
                                     : appViewModel.m3u8sWebDavPath.length > 0
-                                        && appViewModel.m3u8sFallbackDirectory.length > 0
-                                        && appViewModel.m3u8sTemporaryDirectory.length > 0)
+                                        && appViewModel.m3u8sFallbackDirectory.length > 0)
                             text: t("m3u8s.createAction")
                             onClicked: {
                                 appViewModel.clearM3u8sSources()

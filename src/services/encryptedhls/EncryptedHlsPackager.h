@@ -42,6 +42,7 @@ enum class EncryptedHlsContainerFormat {
 struct EncryptedHlsPackageRequest final {
     QString sourcePath;
     QString outputDirectory;
+    QString temporaryDirectory;
     int segmentDurationSeconds { 6 };
     EncryptedHlsVideoEncoding videoEncoding { EncryptedHlsVideoEncoding::H264 };
     QStringList autoCopyVideoCodecs { QStringLiteral("h264"), QStringLiteral("h265") };

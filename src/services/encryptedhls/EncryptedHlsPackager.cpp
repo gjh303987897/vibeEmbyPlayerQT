@@ -8,6 +8,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QPointer>
@@ -268,6 +269,35 @@ std::expected<void, QString> validateGeneratedVideoTrack(
     return {};
 }
 
+std::expected<void, QString> copyDirectoryContents(const QString& sourcePath,
+                                                   const QString& targetPath)
+{
+    QDir source(sourcePath);
+    if (!source.exists() || !QDir().mkpath(targetPath)) {
+        return std::unexpected(QStringLiteral("Unable to prepare the completed M3U8S directory"));
+    }
+    QDirIterator iterator(sourcePath,
+                          QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        iterator.next();
+        const auto relative = source.relativeFilePath(iterator.filePath());
+        const auto target = QDir(targetPath).filePath(relative);
+        if (iterator.fileInfo().isDir()) {
+            if (!QDir().mkpath(target)) {
+                return std::unexpected(QStringLiteral("Unable to create M3U8S output directory: %1")
+                                           .arg(relative));
+            }
+        } else {
+            if (!QDir().mkpath(QFileInfo(target).absolutePath()) || !QFile::copy(iterator.filePath(), target)) {
+                return std::unexpected(QStringLiteral("Unable to copy completed M3U8S file: %1")
+                                           .arg(relative));
+            }
+        }
+    }
+    return {};
+}
+
 std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
     const QString& directoryPath,
     const QString& sourceFileName,
@@ -498,6 +528,11 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
     if (!output.exists() || !output.isDir() || !output.isWritable()) {
         return std::unexpected(QStringLiteral("Choose a writable output directory"));
     }
+    const QFileInfo temporary(request.temporaryDirectory.isEmpty()
+                                  ? request.outputDirectory : request.temporaryDirectory);
+    if (!temporary.exists() || !temporary.isDir() || !temporary.isWritable()) {
+        return std::unexpected(QStringLiteral("Choose a writable temporary directory"));
+    }
     if (request.segmentDurationSeconds < 2 || request.segmentDurationSeconds > 30) {
         return std::unexpected(QStringLiteral("HLS segment duration must be between 2 and 30 seconds"));
     }
@@ -512,7 +547,7 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
     m_containerFormat = request.containerFormat;
     m_finalOutputPath.clear();
     m_stagingDirectory = std::make_unique<QTemporaryDir>(
-        QDir(m_outputDirectory).filePath(QStringLiteral(".m3u8s-staging-XXXXXX")));
+        QDir(temporary.absoluteFilePath()).filePath(QStringLiteral("vibe-m3u8s-staging-XXXXXX")));
     if (!m_stagingDirectory->isValid()) {
         resetRunState();
         return std::unexpected(QStringLiteral("Unable to create a temporary packaging directory"));
@@ -709,9 +744,25 @@ void EncryptedHlsPackager::handleEncryptionFinished()
             return;
         }
         if (!QDir().rename(m_stagingDirectory->path(), m_finalOutputPath)) {
-            m_store.deleteByRootDigest(m_pendingPreparedPackage.tsslPackage.rootManifestDigest);
-            finishFailure(QStringLiteral("Unable to move the completed M3U8S package into the output directory"));
-            return;
+            auto publishDirectory = std::make_unique<QTemporaryDir>(
+                QDir(m_outputDirectory).filePath(QStringLiteral(".m3u8s-publish-XXXXXX")));
+            if (!publishDirectory->isValid()) {
+                m_store.deleteByRootDigest(m_pendingPreparedPackage.tsslPackage.rootManifestDigest);
+                finishFailure(QStringLiteral("Unable to prepare the completed M3U8S output directory"));
+                return;
+            }
+            if (auto copied = EncryptedHlsPackaging::copyDirectoryContents(
+                    m_stagingDirectory->path(), publishDirectory->path()); !copied) {
+                m_store.deleteByRootDigest(m_pendingPreparedPackage.tsslPackage.rootManifestDigest);
+                finishFailure(copied.error());
+                return;
+            }
+            if (!QDir().rename(publishDirectory->path(), m_finalOutputPath)) {
+                m_store.deleteByRootDigest(m_pendingPreparedPackage.tsslPackage.rootManifestDigest);
+                finishFailure(QStringLiteral("Unable to publish the completed M3U8S output directory"));
+                return;
+            }
+            publishDirectory->setAutoRemove(false);
         }
         const EncryptedHlsPackageResult result {
             .outputDirectory = m_finalOutputPath,
