@@ -217,6 +217,10 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
   staging root (for example, `SelectedFolder/Subfolder/<package>`). Missing
   remote collections are created parent-first with WebDAV `MKCOL` before their
   files are uploaded.
+- The M3U8S batch-management dialog keeps selection lookups in an indexed QML
+  set, uses an animated accent selection state, and defers selection cleanup
+  until the next opening so canceling a large partial selection does not block
+  the dialog close animation.
 
 ## Security
 

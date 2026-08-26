@@ -20,6 +20,7 @@ ApplicationWindow {
     property int pendingDeleteRow: -1
     property string pendingTsslDeleteDigest: ""
     property var selectedTsslRows: []
+    property var selectedTsslRowSet: ({})
     property string selectedTsslBatchDate: ""
     property int pendingScheduledDeleteRow: -1
     property int dragFromRow: -1
@@ -145,7 +146,16 @@ ApplicationWindow {
     }
 
     function isTsslRowSelected(row) {
-        return selectedTsslRows.indexOf(row) >= 0
+        return selectedTsslRowSet[row] === true
+    }
+
+    function setTsslRows(rows) {
+        var copied = copyTsslRows(rows)
+        var lookup = ({})
+        for (var index = 0; index < copied.length; ++index)
+            lookup[copied[index]] = true
+        selectedTsslRowSet = lookup
+        selectedTsslRows = copied
     }
 
     function setTsslRowSelected(row, selected) {
@@ -157,10 +167,11 @@ ApplicationWindow {
         } else if (!selected && position >= 0) {
             updated.splice(position, 1)
         }
-        selectedTsslRows = updated
+        setTsslRows(updated)
     }
 
     function clearTsslBatchSelection() {
+        selectedTsslRowSet = ({})
         selectedTsslRows = []
     }
 
@@ -897,11 +908,6 @@ ApplicationWindow {
             appViewModel.tsslBatchPackages.dateFilter = root.selectedTsslBatchDate
         }
 
-        onClosed: {
-            root.clearTsslBatchSelection()
-            root.selectedTsslBatchDate = ""
-        }
-
         RowLayout {
             width: parent.width
             height: parent.height
@@ -993,8 +999,25 @@ ApplicationWindow {
                         elide: Text.ElideRight
                     }
 
-                    MutedText {
-                        text: t("m3u8s.batchSelectedCount").arg(root.selectedTsslRows.length)
+                    Rectangle {
+                        implicitWidth: tsslBatchSelectedCount.implicitWidth + 20
+                        Layout.preferredHeight: 28
+                        radius: 14
+                        color: root.selectedTsslRows.length > 0
+                            ? root.withAlpha(m3u8sFlick.accentColor, darkTheme ? 0.20 : 0.11)
+                            : theme.input
+                        border.color: root.selectedTsslRows.length > 0
+                            ? root.withAlpha(m3u8sFlick.accentColor, 0.58) : theme.border
+
+                        Label {
+                            id: tsslBatchSelectedCount
+                            anchors.centerIn: parent
+                            text: t("m3u8s.batchSelectedCount").arg(root.selectedTsslRows.length)
+                            color: root.selectedTsslRows.length > 0
+                                ? m3u8sFlick.accentColor : theme.muted
+                            font.pixelSize: 12
+                            font.bold: root.selectedTsslRows.length > 0
+                        }
                     }
                 }
 
@@ -1093,11 +1116,27 @@ ApplicationWindow {
                                     }
 
                                     background: Rectangle {
+                                        radius: 7
                                         color: tsslBatchManageChoice.checked
                                             ? root.withAlpha(m3u8sFlick.accentColor, darkTheme ? 0.16 : 0.08)
                                             : tsslBatchManageChoice.hovered ? theme.elevatedHover : theme.surface
                                         border.width: tsslBatchManageChoice.checked ? 1 : 0
                                         border.color: root.withAlpha(m3u8sFlick.accentColor, 0.62)
+
+                                        Behavior on color {
+                                            ColorAnimation { duration: 120; easing.type: Easing.OutCubic }
+                                        }
+
+                                        Rectangle {
+                                            anchors.left: parent.left
+                                            anchors.top: parent.top
+                                            anchors.bottom: parent.bottom
+                                            width: 3
+                                            radius: 2
+                                            visible: tsslBatchManageChoice.checked
+                                            color: m3u8sFlick.accentColor
+                                            opacity: 0.92
+                                        }
                                     }
                         }
                     }
@@ -1110,7 +1149,7 @@ ApplicationWindow {
                     ModernButton {
                         text: t("m3u8s.batchSelectVisible")
                         enabled: appViewModel.tsslBatchPackages.count > 0
-                        onClicked: root.selectedTsslRows = root.copyTsslRows(
+                        onClicked: root.setTsslRows(
                             appViewModel.tsslBatchPackages.allRows())
                     }
 
