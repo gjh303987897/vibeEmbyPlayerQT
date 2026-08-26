@@ -213,6 +213,10 @@ SQLite access is small and synchronous in this phase. Larger cache/index operati
 - TSSL v2/v3 and the root `.m3u8s` carry the same strict 4096-character identifier.
   Playback additionally checks the root-manifest digest before accepting the
   pair.
+- WebDAV exports preserve the source folder hierarchy relative to the temporary
+  staging root (for example, `SelectedFolder/Subfolder/<package>`). Missing
+  remote collections are created parent-first with WebDAV `MKCOL` before their
+  files are uploaded.
 
 ## Security
 

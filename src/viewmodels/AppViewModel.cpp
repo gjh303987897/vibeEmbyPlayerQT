@@ -9290,6 +9290,53 @@ void AppViewModel::enqueueM3u8sPackageUpload(const EncryptedHlsPackageResult& re
         return;
     }
     const auto remoteDirectory = ensureDirectoryUrl(QUrl(m_m3u8sWebDavPath));
+
+    // The source planner keeps the selected folder hierarchy below the
+    // WebDAV staging root (for example, staging/GBS_250622/lisa/<package>).
+    // Only using packageInfo.fileName() here flattened that hierarchy when
+    // uploading to WebDAV.  Keep the path relative to the batch staging root
+    // so the remote export mirrors the local output tree.
+    QString relativePackagePath;
+    if (m_m3u8sStagingDirectory) {
+        const auto stagingRoot = QFileInfo(m_m3u8sStagingDirectory->path()).absoluteFilePath();
+        const auto packagePath = packageInfo.absoluteFilePath();
+        const auto relative = QDir(stagingRoot).relativeFilePath(packagePath);
+        const auto normalized = QDir::fromNativeSeparators(QDir::cleanPath(relative));
+        if (normalized != QStringLiteral(".") &&
+            !normalized.isEmpty() &&
+            !QDir::isAbsolutePath(normalized) &&
+            normalized != QStringLiteral("..") &&
+            !normalized.startsWith(QStringLiteral("../"))) {
+            relativePackagePath = normalized;
+        }
+    }
+    if (relativePackagePath.isEmpty()) {
+        // This should only be reachable for an unexpected package path. Keep
+        // the upload safe and fail closed instead of escaping the staging
+        // hierarchy through a relative path.
+        AppLogger::warning(QStringLiteral("encrypted-hls"),
+                           QStringLiteral("Unable to determine the WebDAV-relative package path: %1")
+                               .arg(packageInfo.absoluteFilePath()));
+        ++m_m3u8sUploadFailures;
+        if (!copyM3u8sPath(packageInfo.absoluteFilePath(), m_m3u8sFallbackDirectory)) {
+            AppLogger::warning(QStringLiteral("encrypted-hls"),
+                               QStringLiteral("Unable to preserve package with invalid WebDAV path locally: %1")
+                                   .arg(packageInfo.absoluteFilePath()));
+        }
+        return;
+    }
+
+    const auto encodedRemotePath = [](const QString& relativePath, bool directory) {
+        auto encoded = QString::fromUtf8(QUrl::toPercentEncoding(relativePath, "/"));
+        if (directory && !encoded.endsWith(QLatin1Char('/'))) {
+            encoded.append(QLatin1Char('/'));
+        }
+        return encoded;
+    };
+    const auto remotePath = [remoteDirectory, &encodedRemotePath](const QString& relativePath,
+                                                                   bool directory) {
+        return remoteDirectory.resolved(QUrl(encodedRemotePath(relativePath, directory)));
+    };
     const auto addUpload = [this](const QString& localPath, const QUrl& remoteUrl) {
         const auto id = m_transferManager.enqueueUpload(m_m3u8sWebDavCard->server,
                                                         m_m3u8sWebDavPassword,
@@ -9312,27 +9359,39 @@ void AppViewModel::enqueueM3u8sPackageUpload(const EncryptedHlsPackageResult& re
         ++m_m3u8sPendingUploads;
     };
 
+    // MKCOL does not create missing ancestors (RFC 4918, section 9.3), so
+    // enqueue every directory between the selected remote folder and the
+    // package itself in parent-before-child order.
+    const auto packageDirectoryRelative = packageInfo.isDir()
+        ? relativePackagePath
+        : QDir::fromNativeSeparators(QFileInfo(relativePackagePath).path());
+    if (packageDirectoryRelative != QStringLiteral(".") &&
+        !packageDirectoryRelative.isEmpty()) {
+        QString accumulated;
+        const auto components = packageDirectoryRelative.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        for (const auto& component : components) {
+            if (!accumulated.isEmpty()) {
+                accumulated.append(QLatin1Char('/'));
+            }
+            accumulated.append(component);
+            addDirectory(remotePath(accumulated, true));
+        }
+    }
+
     if (packageInfo.isFile()) {
-        addUpload(packageInfo.absoluteFilePath(),
-                  remoteDirectory.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(packageInfo.fileName())))));
+        addUpload(packageInfo.absoluteFilePath(), remotePath(relativePackagePath, false));
     } else {
-        const auto remoteRoot = remoteDirectory.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(packageInfo.fileName())) + QLatin1Char('/')));
-        addDirectory(remoteRoot);
+        const auto remoteRoot = remotePath(relativePackagePath, true);
         QDirIterator iterator(packageInfo.absoluteFilePath(), QDir::Files | QDir::Dirs |
             QDir::NoDotAndDotDot | QDir::NoSymLinks, QDirIterator::Subdirectories);
         while (iterator.hasNext()) {
             iterator.next();
             const auto relative = QDir(packageInfo.absoluteFilePath()).relativeFilePath(iterator.filePath());
-            const auto encodedRelative = QUrl::toPercentEncoding(relative, "/");
-            auto remoteRelative = QString::fromUtf8(encodedRelative);
+            auto remoteRelative = QDir::fromNativeSeparators(QDir::cleanPath(relative));
             if (iterator.fileInfo().isDir()) {
-                remoteRelative.append(QLatin1Char('/'));
-            }
-            const auto remoteUrl = remoteRoot.resolved(QUrl(remoteRelative));
-            if (iterator.fileInfo().isDir()) {
-                addDirectory(remoteUrl);
+                addDirectory(remoteRoot.resolved(QUrl(encodedRemotePath(remoteRelative, true))));
             } else {
-                addUpload(iterator.filePath(), remoteUrl);
+                addUpload(iterator.filePath(), remoteRoot.resolved(QUrl(encodedRemotePath(remoteRelative, false))));
             }
         }
     }
