@@ -56,6 +56,7 @@ private slots:
     void packagesBatchAndContinuesAfterFailure();
     void cancelsBatchBeforeStartingRemainingItems();
     void plansFilesAndNestedFoldersWithoutFlattening();
+    void scansHiddenNestedFoldersAndPreservesRelativeStructure();
     void deduplicatesSourcesCoveredByASelectedFolder();
     void rejectsUnsupportedFilesAndHonorsDiscoveryCancellation();
 };
@@ -100,6 +101,31 @@ void EncryptedHlsPackagerTest::plansFilesAndNestedFoldersWithoutFlattening()
              QDir(outputRoot).filePath(QStringLiteral("FolderB/season-01/extras")));
     QVERIFY(QDir(outputFor(episode)).exists());
     QVERIFY(QDir(outputFor(extra)).exists());
+}
+
+void EncryptedHlsPackagerTest::scansHiddenNestedFoldersAndPreservesRelativeStructure()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    QDir root(temporary.path());
+    QVERIFY(root.mkpath(QStringLiteral("source/season-01/.extras/deep")));
+    QVERIFY(root.mkpath(QStringLiteral("output")));
+
+    const auto source = root.filePath(QStringLiteral("source"));
+    const auto nestedVideo = root.filePath(QStringLiteral("source/season-01/.extras/deep/clip.mp4"));
+    QVERIFY(writeBytes(nestedVideo, QByteArrayLiteral("nested-video")));
+
+    std::atomic_bool canceled { false };
+    const auto planned = EncryptedHlsSourcePlanner::plan(
+        { source }, root.filePath(QStringLiteral("output")), canceled);
+    if (!planned) {
+        QFAIL(qPrintable(planned.error()));
+    }
+    QCOMPARE(planned->sources.size(), 1);
+    QCOMPARE(QDir::cleanPath(planned->sources.constFirst().sourcePath),
+             QDir::cleanPath(QFileInfo(nestedVideo).canonicalFilePath()));
+    QCOMPARE(QDir::cleanPath(planned->sources.constFirst().outputDirectory),
+             QDir::cleanPath(root.filePath(QStringLiteral("output/source/season-01/.extras/deep"))));
 }
 
 void EncryptedHlsPackagerTest::deduplicatesSourcesCoveredByASelectedFolder()

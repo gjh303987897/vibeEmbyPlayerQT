@@ -160,7 +160,7 @@ plan(const QStringList &selectedPaths, const QString &outputRoot,
               : QDir(directoryOutputRoot).filePath(relativeDirectory);
       const QDir directory(currentDirectory);
       const auto files =
-          directory.entryInfoList(QDir::Files | QDir::Readable |
+          directory.entryInfoList(QDir::Files | QDir::Readable | QDir::Hidden | QDir::System |
                                       QDir::NoSymLinks | QDir::NoDotAndDotDot,
                                   QDir::Name | QDir::IgnoreCase);
       for (const auto &fileInfo : files) {
@@ -171,7 +171,8 @@ plan(const QStringList &selectedPaths, const QString &outputRoot,
         }
       }
       const auto children = directory.entryInfoList(
-          QDir::Dirs | QDir::Readable | QDir::NoSymLinks | QDir::NoDotAndDotDot,
+          QDir::Dirs | QDir::Readable | QDir::Hidden | QDir::System |
+              QDir::NoSymLinks | QDir::NoDotAndDotDot,
           QDir::Name | QDir::IgnoreCase | QDir::Reversed);
       for (const auto &child : children) {
         const auto childPath = canonicalPath(child);
