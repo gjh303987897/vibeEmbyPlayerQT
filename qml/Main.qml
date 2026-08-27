@@ -3140,11 +3140,12 @@ ApplicationWindow {
 
     Item {
         id: serviceTransitionOverlay
-        anchors.top: windowHeader.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        z: 500
+        // The destination page can hide the custom title bar (the Emby
+        // cinematic home does this).  Animate against the complete window so
+        // the card never jumps when that top area changes height, and keep the
+        // transition above the toolbar to consume input for its whole life.
+        anchors.fill: parent
+        z: 10000
         visible: false
         clip: true
 

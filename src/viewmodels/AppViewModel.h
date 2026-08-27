@@ -933,6 +933,7 @@ private:
     void setEpisodeSwitching(bool value);
     void beginHomeLoading();
     void endHomeLoading();
+    void invalidateHomeLoading();
     void setLibraryItemsLoading(bool value);
     bool failInitialServiceLoad(const QString& message);
     void completeInitialServiceLoad();
@@ -976,6 +977,7 @@ private:
     bool m_loading { false };
     bool m_episodeSwitching { false };
     int m_homeLoadingRequests { 0 };
+    quint64 m_homeRequestGeneration { 0 };
     bool m_initialServiceLoadActive { false };
     bool m_initialServiceHasValidData { false };
     QString m_initialServiceError;

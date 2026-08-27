@@ -71,9 +71,11 @@ QML does not make network requests and does not parse JSON.
   external services keep the expanded, theme-aware surface opaque while the
   asynchronous connection and initial page load complete; the destination is
   revealed only after that commit. Returning to the service list runs the
-  geometry in reverse toward the stored card rectangle. The overlay stays below
-  the title bar, blocks repeated input only while visible, and follows the
-  global page-transition preference.
+  geometry in reverse toward the stored card rectangle. The overlay covers the
+  complete client window, including the title-bar area while it is visible, so
+  hiding the toolbar on the Emby cinematic home cannot change the animation's
+  target geometry. It blocks repeated input for the whole transition and
+  follows the global page-transition preference.
 - Adding a card stores service name, base URL, username, service type, certificate policy and auto-login preference.
 - If a password is provided while saving, the card is logged in immediately and the token is persisted through `SessionRepository`.
 - If auto-login is enabled, clicking a card attempts to restore the saved session and opens the service home.
@@ -94,13 +96,20 @@ QML does not make network requests and does not parse JSON.
   cold credential provider, SQLite connection, or first page initialization
   cannot delay the feedback's first frame.
 - The first home data load for a saved Emby or Jellyfin service completes while
-  the card remains in its loading state. Navigation enters the home page only
-  after at least one valid media-data collection is received. If all initial
-  collections are empty/invalid, the session is cleared and navigation returns
-  to the service-card page with the most relevant error preserved (for example,
-  HTTP 522). Partial initial failures do not block entry when another
-  collection contains valid data; later refresh failures after a service has
-  opened remain on the current page and only update its error state.
+  the card remains in its loading state. Navigation enters the home page as
+  soon as at least one valid media-data collection (libraries, resume items, or
+  a usable recommendation cache/result) is received; slower recommendation
+  and genre requests continue in the background. If all initial collections
+  are empty/invalid, the session is cleared and navigation returns to the
+  service-card page with the most relevant error preserved (for example, HTTP
+  522). Partial initial failures do not block entry when another collection
+  contains valid data; later refresh failures after a service has opened remain
+  on the current page and only update its error state.
+- Every media-home visit owns a request generation and a fresh loading counter.
+  Leaving the home page or starting another service invalidates the previous
+  generation, so late Emby library, continue-watching, recommendation, or genre
+  callbacks cannot consume the new visit's counter or keep its card transition
+  waiting indefinitely.
 - The trendy and traditional media-home trees are both loaded on demand with
   asynchronous QML loaders. An inactive layout does not instantiate hidden
   list delegates or react to home-model resets.
