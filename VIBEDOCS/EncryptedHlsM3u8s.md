@@ -284,11 +284,13 @@ verification, but the manager discards the recovered value immediately.
 
 Restore validates the entire TSSL document before atomically writing it to the
 application-local `tssl` directory. The filename is derived from the root
-manifest digest, not from untrusted input. Stored and exported files are set to
-owner read/write permissions where supported. Invalid legacy or damaged files
-remain visible for diagnosis and deletion but cannot be exported as valid
+manifest digest, not from untrusted input. An import whose root-manifest digest
+is already present locally is rejected without replacing the existing package,
+and the UI reports that the TSSL already exists. Stored and exported files are
+set to owner read/write permissions where supported. Invalid legacy or damaged
+files remain visible for diagnosis and deletion but cannot be exported as valid
 packages. Import and export preserve v2/v3 and the complete authenticated
-source-name metadata.
+source-name metadata; completion is shown in the relevant service status area.
 
 Batch export presents the valid packages in a selection dialog and supports
 exporting either the current selection or every valid package. Invalid or

@@ -439,6 +439,11 @@ TsslStore::TsslStore(QString storageDirectory)
     }
 }
 
+QString TsslStore::packageAlreadyExistsError()
+{
+    return QStringLiteral("TSSL package already exists");
+}
+
 std::expected<std::optional<TsslPackage>, QString> TsslStore::packageForRootDigest(QByteArrayView digest) const
 {
     if (digest.size() != 32) {
@@ -543,6 +548,9 @@ std::expected<QByteArray, QString> TsslStore::restoreFromFile(const QString& sou
     auto package = TsslPackage::parse(source.readAll());
     if (!package) {
         return std::unexpected(package.error());
+    }
+    if (QFileInfo::exists(packagePath(package->rootManifestDigest))) {
+        return std::unexpected(packageAlreadyExistsError());
     }
     if (auto saved = savePackage(*package); !saved) {
         return std::unexpected(saved.error());

@@ -49,6 +49,7 @@ class TsslStore final {
 public:
     explicit TsslStore(QString storageDirectory = {});
 
+    static QString packageAlreadyExistsError();
     std::expected<void, QString> savePackage(const TsslPackage& package) const;
     std::expected<std::optional<TsslPackage>, QString> packageForRootDigest(QByteArrayView digest) const;
     std::expected<std::vector<TsslPackageInfo>, QString> listPackages() const;

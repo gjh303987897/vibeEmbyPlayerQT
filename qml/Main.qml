@@ -181,6 +181,18 @@ ApplicationWindow {
         }
     }
 
+    function showTsslOperationNotice(message, warning) {
+        if (!message || message.length === 0) {
+            return
+        }
+        tsslOperationNotice.message = message
+        tsslOperationNotice.warning = warning
+        if (!tsslOperationNotice.visible) {
+            tsslOperationNotice.open()
+        }
+        tsslOperationNoticeTimer.restart()
+    }
+
     function serviceAccentColor(serviceType) {
         switch (String(serviceType).toLowerCase()) {
         case "emby":
@@ -328,6 +340,10 @@ ApplicationWindow {
             root.downloadWarningTitle = title
             root.downloadWarningMessage = message
             downloadWarningDialog.open()
+        }
+
+        function onTsslOperationNoticeRequested(message, warning) {
+            root.showTsslOperationNotice(message, warning)
         }
 
         function onMissedScheduledPlaybackTasksChanged() {
@@ -500,6 +516,95 @@ ApplicationWindow {
             id: copyFeedbackTimer
             interval: 1600
             onTriggered: errorDialog.detailsCopied = false
+        }
+    }
+
+    Popup {
+        id: tsslOperationNotice
+        property string message: ""
+        property bool warning: false
+        readonly property real safeMargin: 24
+        readonly property real naturalHeight: tsslOperationNoticeContent.implicitHeight
+            + topPadding + bottomPadding
+
+        parent: Overlay.overlay
+        width: Math.min(420, parent.width - safeMargin * 2)
+        height: naturalHeight
+        x: Math.round(Math.max(safeMargin, parent.width - width - safeMargin))
+        y: Math.round(Math.max(safeMargin, parent.height - height - safeMargin))
+        padding: 14
+        modal: false
+        focus: false
+        closePolicy: Popup.NoAutoClose
+        transformOrigin: Item.BottomRight
+        z: 1100
+
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 150; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 190; easing.type: Easing.OutBack }
+            }
+        }
+
+        exit: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120; easing.type: Easing.InCubic }
+                NumberAnimation { property: "scale"; from: 1; to: 0.98; duration: 120; easing.type: Easing.InCubic }
+            }
+        }
+
+        background: Rectangle {
+            radius: 13
+            color: theme.surface
+            border.width: 1
+            border.color: root.withAlpha(tsslOperationNotice.warning
+                ? theme.warning : theme.success, 0.72)
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 4
+                radius: 2
+                color: tsslOperationNotice.warning ? theme.warning : theme.success
+            }
+        }
+
+        contentItem: RowLayout {
+            id: tsslOperationNoticeContent
+            spacing: 12
+
+            Rectangle {
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
+                radius: 16
+                color: root.withAlpha(tsslOperationNotice.warning
+                    ? theme.warning : theme.success, 0.16)
+
+                Label {
+                    anchors.centerIn: parent
+                    text: tsslOperationNotice.warning ? "!" : "✓"
+                    color: tsslOperationNotice.warning ? theme.warning : theme.success
+                    font.pixelSize: 17
+                    font.bold: true
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: tsslOperationNotice.message
+                color: theme.text
+                font.pixelSize: 14
+                font.bold: true
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        Timer {
+            id: tsslOperationNoticeTimer
+            interval: 3000
+            repeat: false
+            onTriggered: tsslOperationNotice.close()
         }
     }
 

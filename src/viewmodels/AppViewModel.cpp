@@ -695,6 +695,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("webdav.tsslExport"), QStringLiteral("Export TSSL") },
         { QStringLiteral("webdav.tsslRestored"), QStringLiteral("TSSL restored to local secure storage") },
         { QStringLiteral("webdav.tsslExported"), QStringLiteral("TSSL export completed") },
+        { QStringLiteral("webdav.tsslAlreadyExists"), QStringLiteral("This TSSL already exists") },
         { QStringLiteral("transfers.title"), QStringLiteral("Transfers") },
         { QStringLiteral("transfers.subtitle"), QStringLiteral("Download queue and recent activity") },
         { QStringLiteral("transfers.detailsSubtitle"), QStringLiteral("File progress for this download") },
@@ -914,6 +915,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.openOutput"), QStringLiteral("Open output folder") },
         { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL imported into local key storage") },
         { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL backup exported") },
+        { QStringLiteral("m3u8s.tsslAlreadyExists"), QStringLiteral("This TSSL already exists") },
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("Local TSSL package deleted") },
         { QStringLiteral("m3u8s.invalidPackage"), QStringLiteral("The selected TSSL package is no longer available") },
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("Legacy or invalid TSSL package") },
@@ -1447,6 +1449,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.openOutput"), QStringLiteral("打开输出目录") },
         { QStringLiteral("m3u8s.restoredStatus"), QStringLiteral("TSSL 已导入本机密钥存储") },
         { QStringLiteral("m3u8s.exportedStatus"), QStringLiteral("TSSL 备份已导出") },
+        { QStringLiteral("m3u8s.tsslAlreadyExists"), QStringLiteral("该TSSL已存在") },
         { QStringLiteral("m3u8s.deletedStatus"), QStringLiteral("本机 TSSL 密钥包已删除") },
         { QStringLiteral("m3u8s.invalidPackage"), QStringLiteral("所选 TSSL 密钥包已不可用") },
         { QStringLiteral("m3u8s.invalidSavedPackage"), QStringLiteral("旧版或无效的 TSSL 密钥包") },
@@ -1693,6 +1696,7 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("webdav.tsslExport"), QStringLiteral("导出 TSSL") },
         { QStringLiteral("webdav.tsslRestored"), QStringLiteral("TSSL 已恢复到本机存储") },
         { QStringLiteral("webdav.tsslExported"), QStringLiteral("TSSL 导出完成") },
+        { QStringLiteral("webdav.tsslAlreadyExists"), QStringLiteral("该TSSL已存在") },
     };
     return texts;
 }
@@ -5988,13 +5992,21 @@ void AppViewModel::restoreTssl()
     }
     const auto restored = m_tsslStore.restoreFromFile(selected);
     if (!restored) {
+        if (restored.error() == TsslStore::packageAlreadyExistsError()) {
+            const auto message = trText(QStringLiteral("webdav.tsslAlreadyExists"));
+            setWebDavTsslStatus(message);
+            emit tsslOperationNoticeRequested(message, true);
+            return;
+        }
         setError(restored.error());
         return;
     }
     AppLogger::info(QStringLiteral("encrypted-hls"),
                     QStringLiteral("Restored a local TSSL key package"));
     refreshTsslPackages();
-    setWebDavTsslStatus(trText(QStringLiteral("webdav.tsslRestored")));
+    const auto message = trText(QStringLiteral("webdav.tsslRestored"));
+    setWebDavTsslStatus(message);
+    emit tsslOperationNoticeRequested(message, false);
 }
 
 void AppViewModel::exportWebDavTssl(int row)
@@ -6040,7 +6052,9 @@ void AppViewModel::exportWebDavTssl(int row)
             }
             AppLogger::info(QStringLiteral("encrypted-hls"),
                             QStringLiteral("Exported a local TSSL key package"));
-            setWebDavTsslStatus(trText(QStringLiteral("webdav.tsslExported")));
+            const auto message = trText(QStringLiteral("webdav.tsslExported"));
+            setWebDavTsslStatus(message);
+            emit tsslOperationNoticeRequested(message, false);
         });
 }
 
@@ -6098,12 +6112,20 @@ void AppViewModel::restoreManagedTssl()
     }
     const auto restored = m_tsslStore.restoreFromFile(selected);
     if (!restored) {
+        if (restored.error() == TsslStore::packageAlreadyExistsError()) {
+            const auto message = trText(QStringLiteral("m3u8s.tsslAlreadyExists"));
+            m_m3u8sStatus = message;
+            emit m3u8sStatusChanged();
+            emit tsslOperationNoticeRequested(message, true);
+            return;
+        }
         setError(restored.error());
         return;
     }
     refreshTsslPackages();
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.restoredStatus"));
     emit m3u8sStatusChanged();
+    emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Imported a managed TSSL package"));
 }
 
@@ -6134,6 +6156,7 @@ void AppViewModel::exportManagedTssl(int row)
     }
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.exportedStatus"));
     emit m3u8sStatusChanged();
+    emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Exported a managed TSSL package"));
 }
 
@@ -6289,6 +6312,7 @@ void AppViewModel::exportManagedTsslBatch(const QVariantList& rows)
         }
         m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportedStatus")).arg(*result);
         emit m3u8sStatusChanged();
+        emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
         AppLogger::info(QStringLiteral("encrypted-hls"),
                         QStringLiteral("Exported %1 managed TSSL packages").arg(*result));
     });

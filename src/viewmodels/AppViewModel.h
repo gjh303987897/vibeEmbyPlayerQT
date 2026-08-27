@@ -785,6 +785,7 @@ signals:
     void scheduledTaskEditorChanged();
     void passwordRequired(const QString& serviceName, const QString& username);
     void downloadSpaceWarningRequested(const QString& title, const QString& message);
+    void tsslOperationNoticeRequested(const QString& message, bool warning);
 
 private:
     enum class PlaybackOrigin {
