@@ -15469,14 +15469,6 @@ ApplicationWindow {
                 }
 
                 ModernButton {
-                    text: t("m3u8s.exportAllTssl")
-                    enabled: appViewModel.tsslPackages.validCount > 0
-                        && !appViewModel.m3u8sBatchExporting
-                    onClicked: appViewModel.exportManagedTsslBatch(
-                        appViewModel.tsslPackages.validRows())
-                }
-
-                ModernButton {
                     text: t("m3u8s.batchManage")
                     enabled: appViewModel.tsslPackages.count > 0
                         && !appViewModel.m3u8sBatchExporting
