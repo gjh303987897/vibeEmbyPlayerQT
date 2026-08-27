@@ -57,7 +57,9 @@ constexpr int serviceActivationFeedbackMs = 16;
 // construction.  This keeps the full-page card visible before the GUI does
 // the intentionally heavier activation commit.
 constexpr int serviceActivationCommitDelayMs = 16;
-constexpr int homeDataStartDelayMs = 80;
+// The destination loader gets one frame before the home requests start.  A
+// longer fixed pause directly increases every Emby/Jellyfin opening time.
+constexpr int homeDataStartDelayMs = 16;
 // M3U8S and global-history pages contain comparatively large delegate trees.
 // Let the card-to-page geometry and opacity transition finish before applying
 // their first model refresh, otherwise a fast local read can rebuild dozens of
@@ -4132,6 +4134,26 @@ void AppViewModel::selectServiceCard(int row)
     const auto card = m_services.cardAt(row);
     if (!card) {
         return;
+    }
+
+    // Warm the same Qt network manager that will serve the first request while
+    // the card is expanding.  This overlaps DNS/TCP/TLS setup with the visual
+    // transition without doing any model work on the GUI thread.  Explicit
+    // self-signed TLS stays on the normal request path so its per-reply
+    // certificate policy remains authoritative.
+    const QUrl serviceUrl(card->server.baseUrl);
+    switch (card->server.serviceType) {
+    case ServiceType::Emby:
+        m_embyNetworkClient.preconnect(serviceUrl, card->server.trustSelfSignedCertificate);
+        break;
+    case ServiceType::Jellyfin:
+        m_jellyfinNetworkClient.preconnect(serviceUrl, card->server.trustSelfSignedCertificate);
+        break;
+    case ServiceType::WebDAV:
+        m_webDavClient.preconnect(serviceUrl, card->server.trustSelfSignedCertificate);
+        break;
+    default:
+        break;
     }
 
     const auto activationGeneration = ++m_serviceActivationGeneration;
@@ -9224,10 +9246,19 @@ void AppViewModel::loadServiceHome()
     emit selectedItemChanged();
     const auto serverId = m_session->server.id;
     const auto requestGeneration = m_homeRequestGeneration;
+
+    // Switch to the home page before the network fan-out.  The page already
+    // has an initial loading state, so keeping the card overlay opaque until
+    // libraries, resume items, and recommendations all arrive only hides
+    // useful feedback and makes a slow Emby server look frozen.
+    // Reserve one loading request before publishing the home view so its
+    // empty state cannot flash during the single-frame startup delay.
+    beginHomeLoading();
+    setLoading(true);
+    setCurrentView(QStringLiteral("home"));
     m_initialServiceLoadActive = true;
     m_initialServiceHasValidData = false;
     m_initialServiceError.clear();
-    setLoading(true);
     QTimer::singleShot(homeDataStartDelayMs, this, [this, serverId, requestGeneration]() {
         if (!m_session || m_session->server.id != serverId
             || !m_initialServiceLoadActive
@@ -9235,6 +9266,7 @@ void AppViewModel::loadServiceHome()
             return;
         }
         refreshHome();
+        endHomeLoading();
     });
 }
 
@@ -9415,6 +9447,10 @@ void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& pas
     emit currentLibraryChanged();
     emit selectedItemChanged();
     emit playbackChanged();
+    // The WebDAV directory request is independent of page construction.  Show
+    // the page and its loading state immediately instead of keeping the
+    // service-card transition blocked until the first PROPFIND completes.
+    setCurrentView(QStringLiteral("webdav"));
     loadWebDavDirectory(ensureDirectoryUrl(QUrl(card.server.baseUrl)));
 }
 
@@ -10265,7 +10301,8 @@ void AppViewModel::completeInitialServiceLoad()
     // while the remaining requests continue in the background; adding another
     // fixed delay here leaves the full-page overlay frozen and makes
     // fast/cached services feel unresponsive.
-    if (!m_session || m_currentView != QStringLiteral("services")) {
+    if (!m_session || (m_currentView != QStringLiteral("services")
+                      && m_currentView != QStringLiteral("home"))) {
         return;
     }
     // Hide the initial loading panel immediately.  Late recommendation or
@@ -10276,7 +10313,9 @@ void AppViewModel::completeInitialServiceLoad()
         emit homeLoadingChanged();
     }
     setLoading(false);
-    setCurrentView(QStringLiteral("home"));
+    if (m_currentView == QStringLiteral("services")) {
+        setCurrentView(QStringLiteral("home"));
+    }
     if (!partialError.isEmpty()) {
         setError(partialError);
     }

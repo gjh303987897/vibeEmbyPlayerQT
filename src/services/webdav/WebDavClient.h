@@ -24,6 +24,7 @@ class WebDavClient final : public QObject {
 public:
     explicit WebDavClient(QObject* parent = nullptr);
 
+    void preconnect(const QUrl& url, bool allowSelfSigned);
     void listDirectory(const ServerConfig& server,
                        const QString& password,
                        const QUrl& directoryUrl,

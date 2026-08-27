@@ -27,6 +27,7 @@ class NetworkClient final : public QObject {
 public:
     explicit NetworkClient(QObject* parent = nullptr);
 
+    void preconnect(const QUrl& url, bool allowSelfSigned);
     void get(const QUrl& url, const QHash<QByteArray, QByteArray>& headers, bool allowSelfSigned, NetworkCallback callback);
     void postJson(const QUrl& url, const QHash<QByteArray, QByteArray>& headers, const QJsonObject& body, bool allowSelfSigned, NetworkCallback callback);
 

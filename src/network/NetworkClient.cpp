@@ -36,6 +36,24 @@ NetworkClient::NetworkClient(QObject* parent)
 {
 }
 
+void NetworkClient::preconnect(const QUrl& url, bool allowSelfSigned)
+{
+    if (!url.isValid() || url.host().isEmpty()) {
+        return;
+    }
+
+    const auto scheme = url.scheme().toLower();
+    if (scheme == QStringLiteral("https")) {
+        // Keep the explicit self-signed policy on the actual request.  A
+        // speculative TLS connection cannot use the per-reply exception.
+        if (!allowSelfSigned) {
+            m_manager.connectToHostEncrypted(url.host(), static_cast<quint16>(url.port(443)));
+        }
+    } else if (scheme == QStringLiteral("http")) {
+        m_manager.connectToHost(url.host(), static_cast<quint16>(url.port(80)));
+    }
+}
+
 void NetworkClient::get(const QUrl& url,
                         const QHash<QByteArray, QByteArray>& headers,
                         bool allowSelfSigned,

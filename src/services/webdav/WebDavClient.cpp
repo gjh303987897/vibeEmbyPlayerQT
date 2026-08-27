@@ -5,11 +5,13 @@
 #include <QBuffer>
 #include <QAuthenticator>
 #include <QDomDocument>
+#include <QFutureWatcher>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
 #include <QUrlQuery>
 #include <QSet>
+#include <QtConcurrentRun>
 
 namespace {
 constexpr auto requestTimeoutMs = 30000;
@@ -216,6 +218,22 @@ WebDavClient::WebDavClient(QObject* parent)
     });
 }
 
+void WebDavClient::preconnect(const QUrl& url, bool allowSelfSigned)
+{
+    if (!url.isValid() || url.host().isEmpty()) {
+        return;
+    }
+
+    const auto scheme = url.scheme().toLower();
+    if (scheme == QStringLiteral("https")) {
+        if (!allowSelfSigned) {
+            m_manager.connectToHostEncrypted(url.host(), static_cast<quint16>(url.port(443)));
+        }
+    } else if (scheme == QStringLiteral("http")) {
+        m_manager.connectToHost(url.host(), static_cast<quint16>(url.port(80)));
+    }
+}
+
 void WebDavClient::listDirectory(const ServerConfig& server,
                                  const QString& password,
                                  const QUrl& directoryUrl,
@@ -236,21 +254,36 @@ void WebDavClient::listDirectory(const ServerConfig& server,
     wireReply(reply, server);
 
     connect(reply, &QNetworkReply::finished, reply, [this, reply, server, directoryUrl, callback = std::move(callback)]() mutable {
-        const auto body = reply->readAll();
+        auto body = reply->readAll();
         emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), body.size(), propfindBody().size());
         if (reply->error() != QNetworkReply::NoError) {
             callback(std::unexpected(WebDavClient::replyError(reply)));
             reply->deleteLater();
             return;
         }
-        auto items = parseList(body, directoryUrl);
-        if (items.empty()) {
-            AppLogger::warning(QStringLiteral("webdav"),
-                               QStringLiteral("PROPFIND returned no visible items for %1, bodyBytes=%2")
-                                   .arg(directoryUrl.toString(), QString::number(body.size())));
-        }
-        callback(std::move(items));
+
+        const auto bodySize = body.size();
         reply->deleteLater();
+
+        // Large WebDAV directories can contain thousands of XML response
+        // nodes.  DOM construction, item mapping, and locale-aware sorting
+        // must not block the Qt Quick render thread while the page opens.
+        auto* watcher = new QFutureWatcher<std::vector<WebDavItem>>(this);
+        connect(watcher, &QFutureWatcherBase::finished, watcher,
+                [watcher, directoryUrl, bodySize, callback = std::move(callback)]() mutable {
+            auto items = watcher->future().takeResult();
+            if (items.empty()) {
+                AppLogger::warning(QStringLiteral("webdav"),
+                                   QStringLiteral("PROPFIND returned no visible items for %1, bodyBytes=%2")
+                                       .arg(directoryUrl.toString(), QString::number(bodySize)));
+            }
+            callback(std::move(items));
+            watcher->deleteLater();
+        });
+        watcher->setFuture(QtConcurrent::run(
+            [body = std::move(body), directoryUrl]() {
+                return parseList(body, directoryUrl);
+            }));
     });
 }
 

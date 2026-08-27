@@ -86,21 +86,22 @@ QML does not make network requests and does not parse JSON.
   and destroys its own thread-local connection, matching Qt's SQL threading
   contract. The resulting value data is applied to QML models on the GUI
   thread, while responses from a previously selected server are ignored.
-- The initial media-home request fan-out remains deferred until after the
-  expansion barrier and one render interval, so home model resets and network
-  startup do not compete with the service-card feedback frames.
+- The initial media-home request fan-out starts after the expansion barrier and
+  one render interval, so home model resets and network startup do not compete
+  with the service-card feedback frames. No additional fixed pause is added to
+  Emby or Jellyfin opening time.
 - While a saved service is opening, only the activated card is dimmed and
   covered by a service-colored spinner and loading label. The card ignores
   repeated clicks until the current operation finishes. The loading state is
   established before editor-bound service properties are synchronized, so a
   cold credential provider, SQLite connection, or first page initialization
   cannot delay the feedback's first frame.
-- The first home data load for a saved Emby or Jellyfin service completes while
-  the card remains in its loading state. Navigation enters the home page as
-  soon as at least one valid media-data collection (libraries, resume items, or
-  a usable recommendation cache/result) is received; slower recommendation
-  and genre requests continue in the background. If all initial collections
-  are empty/invalid, the session is cleared and navigation returns to the
+- The first home data load for a saved Emby or Jellyfin service enters the home
+  page immediately with its loading state visible; libraries, resume items,
+  recommendations, and genres populate their independent models as responses
+  arrive. A valid collection hides the initial loading state while slower
+  requests continue in the background. If all initial collections are
+  empty/invalid, the session is cleared and navigation returns to the
   service-card page with the most relevant error preserved (for example, HTTP
   522). Partial initial failures do not block entry when another collection
   contains valid data; later refresh failures after a service has opened remain
@@ -110,6 +111,10 @@ QML does not make network requests and does not parse JSON.
   generation, so late Emby library, continue-watching, recommendation, or genre
   callbacks cannot consume the new visit's counter or keep its card transition
   waiting indefinitely.
+- WebDAV enters its destination page before issuing the initial `PROPFIND`.
+  Network I/O remains asynchronous, and parsing/sorting a large multistatus XML
+  response runs on a worker before the resulting item vector is applied to the
+  QML model on the GUI thread.
 - The trendy and traditional media-home trees are both loaded on demand with
   asynchronous QML loaders. An inactive layout does not instantiate hidden
   list delegates or react to home-model resets.
