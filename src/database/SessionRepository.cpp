@@ -1834,6 +1834,16 @@ void SessionRepository::setTsslBackupTarget(const QString& target)
     m_settings.setValue(QStringLiteral("tsslBackup/target"), target);
 }
 
+QString SessionRepository::tsslBackupLocalPath() const
+{
+    return m_settings.value(QStringLiteral("tsslBackup/localPath")).toString();
+}
+
+void SessionRepository::setTsslBackupLocalPath(const QString& path)
+{
+    m_settings.setValue(QStringLiteral("tsslBackup/localPath"), path);
+}
+
 QString SessionRepository::tsslBackupWebDavServiceId() const
 {
     return m_settings.value(QStringLiteral("tsslBackup/webDavServiceId")).toString();

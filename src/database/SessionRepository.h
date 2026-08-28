@@ -131,6 +131,8 @@ public:
     void setWebDavShowM3u8sSourceFileName(bool enabled);
     QString tsslBackupTarget() const;
     void setTsslBackupTarget(const QString& target);
+    QString tsslBackupLocalPath() const;
+    void setTsslBackupLocalPath(const QString& path);
     QString tsslBackupWebDavServiceId() const;
     void setTsslBackupWebDavServiceId(const QString& serviceId);
     QString tsslBackupWebDavPath() const;

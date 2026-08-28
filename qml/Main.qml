@@ -16407,11 +16407,33 @@ ApplicationWindow {
                         valueRole: "value"
                         model: [
                             { label: t("tsslBackup.none"), value: "none" },
+                            { label: t("tsslBackup.local"), value: "local" },
                             { label: t("tsslBackup.webdav"), value: "webdav" },
                             { label: t("tsslBackup.s3"), value: "s3" }
                         ]
-                        currentIndex: appViewModel.tsslBackupTarget === "webdav" ? 1 : appViewModel.tsslBackupTarget === "s3" ? 2 : 0
+                        currentIndex: appViewModel.tsslBackupTarget === "local" ? 1
+                            : appViewModel.tsslBackupTarget === "webdav" ? 2
+                            : appViewModel.tsslBackupTarget === "s3" ? 3 : 0
                         onActivated: appViewModel.tsslBackupTarget = model[index].value
+                    }
+                }
+
+                SettingRow {
+                    visible: appViewModel.tsslBackupTarget === "local"
+                    label: t("tsslBackup.localPath")
+                    RowLayout {
+                        Layout.preferredWidth: 420
+                        spacing: 8
+                        ModernTextField {
+                            Layout.fillWidth: true
+                            readOnly: true
+                            text: appViewModel.tsslBackupLocalPath
+                            placeholderText: t("tsslBackup.choosePath")
+                        }
+                        ModernButton {
+                            text: t("tsslBackup.choosePath")
+                            onClicked: appViewModel.chooseTsslBackupLocalPath()
+                        }
                     }
                 }
 
@@ -16528,8 +16550,21 @@ ApplicationWindow {
                             wrapMode: Text.WordWrap
                         }
                         ModernButton {
-                            text: appViewModel.tsslBackupRunning ? t("tsslBackup.cancel") : t("tsslBackup.backup")
-                            enabled: appViewModel.tsslBackupRunning || appViewModel.tsslBackupTarget !== "none"
+                            visible: appViewModel.tsslBackupTarget !== "none"
+                            text: t("tsslBackup.restore")
+                            enabled: !appViewModel.tsslBackupRunning
+                                && (appViewModel.tsslBackupTarget !== "local"
+                                    || appViewModel.tsslBackupLocalPath.length > 0)
+                            onClicked: appViewModel.restoreTsslBackup()
+                        }
+                        ModernButton {
+                            text: appViewModel.tsslBackupRunning
+                                ? (appViewModel.tsslBackupCancelable
+                                    ? t("tsslBackup.cancel") : t("tsslBackup.inProgress"))
+                                : t("tsslBackup.backup")
+                            enabled: appViewModel.tsslBackupRunning
+                                ? appViewModel.tsslBackupCancelable
+                                : appViewModel.tsslBackupTarget !== "none"
                             onClicked: appViewModel.tsslBackupRunning
                                 ? appViewModel.cancelTsslBackup() : appViewModel.backupTsslToConfiguredTarget()
                         }

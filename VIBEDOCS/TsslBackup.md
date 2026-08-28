@@ -1,14 +1,35 @@
 # TSSL Backup
 
 The M3U8S manager keeps TSSL key packages in the local encrypted-HLS storage. The
-Settings page can copy valid `.tssl` packages to one configured remote target:
+Settings page can copy valid `.tssl` packages to one configured backup target:
 
+- a local folder selected in Settings;
 - an existing WebDAV service card; or
 - an S3-compatible object-storage endpoint.
 
-Backups are manual and upload one package at a time. The UI reports preparation,
-per-file progress, completion, cancellation, and failures. The local packages
-are never removed after a successful backup.
+Backups are manual. Local-folder backups and restores run off the UI thread so
+large packages do not block the settings page. The local packages are never
+removed after a successful backup.
+
+## Local-folder target
+
+Choose an existing writable folder in Settings and select **Local folder** as
+the target. Each valid package is written as a flat `<root-manifest-sha256>.tssl`
+file in that folder. Existing files are replaced atomically, and the source
+packages in the application TSSL store are not removed.
+
+The **Restore backup** action scans the configured folder for `.tssl` files and
+validates each package with the same TSSL parser used by individual imports.
+Packages whose root digest already exists locally are skipped and reported as
+already existing; malformed or unreadable files are skipped and reported as
+failures. A restore never overwrites an existing local package.
+
+## Remote restore
+
+When WebDAV or S3 is selected, **Restore backup** lists the `.tssl` files below
+the configured remote folder or object prefix, downloads them one at a time,
+and then applies the same local restore validation. Remote packages are never
+deleted, and existing local packages are never overwritten.
 
 ## Credentials
 

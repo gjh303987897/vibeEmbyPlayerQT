@@ -4,6 +4,7 @@
 
 #include <QNetworkAccessManager>
 #include <QObject>
+#include <QTemporaryDir>
 #include <QUrl>
 #include <QStringList>
 
@@ -27,6 +28,7 @@ struct TsslBackupTarget final {
 };
 
 using TsslBackupResult = std::expected<int, QString>;
+using TsslBackupRestoreResult = std::expected<QStringList, QString>;
 
 class TsslBackupService final : public QObject {
     Q_OBJECT
@@ -38,6 +40,9 @@ public:
     void backup(const TsslBackupTarget& target,
                 QStringList localFiles,
                 std::function<void(TsslBackupResult)> callback);
+    void restore(const TsslBackupTarget& target,
+                 std::function<void(TsslBackupRestoreResult)> callback);
+    void cleanupRestoreFiles();
     void cancel();
 
 signals:
@@ -48,14 +53,31 @@ private:
     void finish(TsslBackupResult result);
     void uploadWebDav(const QString& localPath, const QByteArray& payload);
     void uploadS3(const QString& localPath, const QByteArray& payload);
+    void listRemoteFiles();
+    void listWebDavFiles();
+    void listS3Files();
+    void listS3Page(const QString& continuationToken = {});
+    void restoreNext();
+    void downloadWebDav(const QUrl& url);
+    void downloadS3(const QString& key);
     void wireReply(QNetworkReply* reply);
+    void finishRestore(TsslBackupRestoreResult result);
 
     QNetworkAccessManager m_manager;
     TsslBackupTarget m_target;
     QStringList m_localFiles;
     std::function<void(TsslBackupResult)> m_callback;
+    std::function<void(TsslBackupRestoreResult)> m_restoreCallback;
+    QStringList m_remoteFiles;
+    QStringList m_downloadedFiles;
+    QTemporaryDir m_restoreDirectory;
+    QString m_restorePath;
+    QString m_restoreCleanupPath;
     int m_nextIndex { 0 };
     int m_completed { 0 };
+    int m_restoreNextIndex { 0 };
+    int m_restoreCompleted { 0 };
     bool m_running { false };
     bool m_cancelRequested { false };
+    bool m_restoreMode { false };
 };

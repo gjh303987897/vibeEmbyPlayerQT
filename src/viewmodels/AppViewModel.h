@@ -83,6 +83,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool webDavShowM3u8sSourceFileName READ webDavShowM3u8sSourceFileName WRITE setWebDavShowM3u8sSourceFileName NOTIFY webDavDisplaySettingsChanged)
     Q_PROPERTY(QString webDavTsslStatus READ webDavTsslStatus NOTIFY webDavTsslStatusChanged)
     Q_PROPERTY(QString tsslBackupTarget READ tsslBackupTarget WRITE setTsslBackupTarget NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupLocalPath READ tsslBackupLocalPath WRITE setTsslBackupLocalPath NOTIFY tsslBackupChanged)
     Q_PROPERTY(QString tsslBackupWebDavServiceId READ tsslBackupWebDavServiceId WRITE setTsslBackupWebDavServiceId NOTIFY tsslBackupChanged)
     Q_PROPERTY(QString tsslBackupWebDavPath READ tsslBackupWebDavPath WRITE setTsslBackupWebDavPath NOTIFY tsslBackupChanged)
     Q_PROPERTY(QVariantList tsslBackupWebDavServices READ tsslBackupWebDavServices NOTIFY tsslBackupChanged)
@@ -93,6 +94,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString tsslBackupS3AccessKey READ tsslBackupS3AccessKey WRITE setTsslBackupS3AccessKey NOTIFY tsslBackupChanged)
     Q_PROPERTY(bool tsslBackupS3SecretConfigured READ tsslBackupS3SecretConfigured NOTIFY tsslBackupChanged)
     Q_PROPERTY(bool tsslBackupRunning READ tsslBackupRunning NOTIFY tsslBackupChanged)
+    Q_PROPERTY(bool tsslBackupCancelable READ tsslBackupCancelable NOTIFY tsslBackupChanged)
     Q_PROPERTY(QString tsslBackupStatus READ tsslBackupStatus NOTIFY tsslBackupChanged)
     Q_PROPERTY(TsslPackageListModel* tsslPackages READ tsslPackages CONSTANT)
     Q_PROPERTY(TsslPackageListModel* tsslBatchPackages READ tsslBatchPackages CONSTANT)
@@ -323,6 +325,8 @@ public:
     QString webDavTsslStatus() const;
     QString tsslBackupTarget() const;
     void setTsslBackupTarget(const QString& value);
+    QString tsslBackupLocalPath() const;
+    void setTsslBackupLocalPath(const QString& value);
     QString tsslBackupWebDavServiceId() const;
     void setTsslBackupWebDavServiceId(const QString& value);
     QString tsslBackupWebDavPath() const;
@@ -340,6 +344,7 @@ public:
     void setTsslBackupS3AccessKey(const QString& value);
     bool tsslBackupS3SecretConfigured() const;
     bool tsslBackupRunning() const;
+    bool tsslBackupCancelable() const;
     QString tsslBackupStatus() const;
     TsslPackageListModel* tsslPackages();
     TsslPackageListModel* tsslBatchPackages();
@@ -626,7 +631,9 @@ public:
     Q_INVOKABLE void openM3u8sConfiguredOutputDirectory();
     Q_INVOKABLE void cancelM3u8sPackaging();
     Q_INVOKABLE void setTsslBackupS3Secret(const QString& secret);
+    Q_INVOKABLE void chooseTsslBackupLocalPath();
     Q_INVOKABLE void backupTsslToConfiguredTarget();
+    Q_INVOKABLE void restoreTsslBackup();
     Q_INVOKABLE void cancelTsslBackup();
     Q_INVOKABLE void openTsslStorageDirectory();
     Q_INVOKABLE void chooseDefaultDownloadDirectory();
@@ -939,6 +946,7 @@ private:
     bool failInitialServiceLoad(const QString& message);
     void completeInitialServiceLoad();
     void setError(QString message);
+    void restoreTsslBackupFiles(QStringList sourcePaths);
     void setWebDavTsslStatus(QString message);
     void setSession(UserSession session);
     void saveSession();
@@ -1154,6 +1162,7 @@ private:
     QString m_m3u8sVideoQuality { QStringLiteral("balanced") };
     QString m_m3u8sContainerFormat { QStringLiteral("m3u8sp") };
     QString m_tsslBackupTarget { QStringLiteral("none") };
+    QString m_tsslBackupLocalPath;
     QString m_tsslBackupWebDavServiceId;
     QString m_tsslBackupWebDavPath { QStringLiteral("vibePlayerQT/tssl") };
     QString m_tsslBackupS3Endpoint;
@@ -1163,6 +1172,7 @@ private:
     QString m_tsslBackupS3AccessKey;
     bool m_tsslBackupS3SecretConfigured { false };
     bool m_tsslBackupRunning { false };
+    bool m_tsslBackupCancelable { false };
     QString m_tsslBackupStatus;
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
