@@ -53,15 +53,39 @@ QML does not make network requests and does not parse JSON.
 ## Service Card Flow
 
 - App launch opens the service-card page.
-- Service-card actions are grouped in the upper-right toolbar immediately before
-  the window controls as compact monochrome icon buttons. Their 16-pixel optical
-  size and muted icon color match the adjacent window controls. Hover feedback
-  fades a fixed-color button surface through opacity, avoiding transparent-black
-  color interpolation and abrupt foreground changes at pointer entry or exit.
-  Keep-alive tasks and history statistics share a stable overflow
-  popover so the action order does not shift with window width; every icon-only
-  action keeps an accessible name without displaying a hover tooltip. Mouse
-  clicks do not retain a focus outline; keyboard tab focus remains available.
+- Service-card actions live in a borderless row at the top-right, immediately before the caption
+  buttons: no container fill, no outline, no clipping, and an even 4px gap between buttons. Both the
+  row (`serviceActionGroup`) and `windowControlsPanel` paint nothing in normal mode; the caption panel
+  keeps its translucent capsule only for the immersive Emby reveal, where it must stay legible over
+  artwork.
+- `ToolbarGlyphButton` and `WindowControlButton` share one hover language: a 38px hit cell with an
+  inset 30px squircle plate (`platePadding: 4`, `plateRadius: 10`) filled by a low-alpha `theme.text`
+  tint (dark 0.10 / light 0.06, 0.18 / 0.12 while pressed) that fades in on hover, press or focus, plus
+  a 0.96 press scale. Alpha tints replace the old opaque `theme.elevatedHover` plate because
+  transparent-black interpolation made pointer entry look like a hard flash, and the 0-radius square
+  read as an OS caption cell rather than as a tool.
+- The toolbar glyphs are the project's own generated set in `icon/glyphs/`, drawn to Apple's icon
+  idiom rather than lucide's: one 1.7-unit hairline (0.071 of the grid, close to SF "regular") with
+  round caps and joins, a ~14.4-unit optical box instead of lucide's 18-20, corner radii at ~0.26 of a
+  shape's side, and filled dots at r = 0.8 x stroke. Never use lucide's zero-length `h.01` dot trick -
+  Qt's SVG renderer drops those sub-pixel segments, so an ellipsis loses its dots.
+- `scripts/gen_icons.py` is the single source of truth for that set: geometry is computed from named
+  parameters (grid, stroke, optical box, radius ratio) - arcs, arrowheads and the 45-degree pencil are
+  trigonometry, not hand-typed path data. Edit the generator and re-run `python scripts/gen_icons.py`;
+  the SVGs are committed, so the build never invokes Python. Settings uses three tracks with handles
+  (SF `slider.horizontal.3`) instead of a gear, the scheduled-tasks row uses `clock`, and the privacy
+  card editor uses `shield-dots`. lucide and its ISC `icon/lucide/LICENSE` are no longer shipped.
+- Every glyph must be registered in the `app_icons` `qt_add_resources` list; a missing entry fails
+  silently at runtime (no console error, just an empty button), which is exactly how a previously
+  referenced `x.svg` rendered nothing in the M3U8s source rows.
+- Nominal sizes come from rasterizing the set and measuring the ink box, not from eyeballing: the
+  toolbar uses 18px (closed shapes land on a 12px ink box, `ellipsis` at 12x2, `pencil` at 11x11 - a
+  10-13px band with a ~1.3-2px hairline), the popover rows use 18px, and only the caption close button
+  goes to 20px because `x` carries less ink than `square`/`copy` at equal size.
+- Glyph color is applied through `MonochromeIcon` (`MultiEffect` with `colorization: 1`, 2x source
+  sampling), so a glyph is always a single flat color: `theme.muted` at rest, `theme.text` on hover or
+  keyboard focus with a 110ms color animation, and `theme.primary` while the tool is engaged (privacy
+  mode, edit mode, open overflow popover) - an engaged state tints instead of inverting into a block.
 - Service cards derive their visual identity from the existing `serviceType` role. Emby, Jellyfin, WebDAV and IPTV each use a local vector-style mark and a stable accent color, so card rendering never depends on remote image assets.
 - The service tile is a wallet-card slab. Measured from the reference art, every number is a ratio of
   the tile itself so the layout survives any column count: radius = 12.5% of the width, brand emblem

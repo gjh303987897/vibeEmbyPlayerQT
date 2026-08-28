@@ -2497,25 +2497,21 @@ ApplicationWindow {
                 implicitHeight: 28
             }
 
-            IconButton {
-                width: 38
-                height: 36
-                text: "↻"
+            ToolbarGlyphButton {
                 visible: root.useTraditionalMediaHome
                 enabled: !appViewModel.loading
-                ToolTip.visible: hovered
-                ToolTip.text: t("action.refresh")
+                tooltipVisible: true
+                glyphSource: "qrc:/app/icons/glyphs/refresh.svg"
+                description: t("action.refresh")
                 onClicked: appViewModel.refreshHome()
             }
 
-            IconButton {
-                width: 38
-                height: 36
-                text: "⚙"
+            ToolbarGlyphButton {
                 visible: root.useTraditionalMediaHome
                 enabled: !appViewModel.loading
-                ToolTip.visible: hovered
-                ToolTip.text: t("nav.settings")
+                tooltipVisible: true
+                glyphSource: "qrc:/app/icons/glyphs/sliders.svg"
+                description: t("nav.settings")
                 onClicked: appViewModel.openSettings()
             }
 
@@ -2538,26 +2534,27 @@ ApplicationWindow {
                 id: serviceActionGroup
                 visible: appViewModel.currentView === "services"
                 enabled: !appViewModel.loading
-                Layout.preferredWidth: serviceActionRow.implicitWidth + 2
+                Layout.preferredWidth: serviceActionRow.implicitWidth
                 Layout.minimumWidth: Layout.preferredWidth
                 Layout.maximumWidth: Layout.preferredWidth
-                Layout.preferredHeight: 40
+                Layout.preferredHeight: 38
                 Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                radius: 8
-                color: theme.elevated
-                border.width: 1
-                border.color: theme.border
-                clip: true
+                // No container chrome: the actions float on the page and the shared inset hover plate
+                // (see ToolbarGlyphButton) is the only affordance, so an outline around the row would
+                // fight the borderless caption buttons right next to it.
+                radius: 10
+                color: "transparent"
+                border.width: 0
 
                 RowLayout {
                     id: serviceActionRow
                     anchors.centerIn: parent
-                    spacing: 0
+                    spacing: 4
 
                     ToolbarGlyphButton {
                         glyphSource: appViewModel.privacyMode
-                            ? "qrc:/app/icons/lucide/lock-open.svg"
-                            : "qrc:/app/icons/lucide/lock.svg"
+                            ? "qrc:/app/icons/glyphs/lock-open.svg"
+                            : "qrc:/app/icons/glyphs/lock.svg"
                         description: t("nav.privacy")
                         selected: appViewModel.privacyMode
                         onClicked: {
@@ -2574,7 +2571,7 @@ ApplicationWindow {
 
                     ToolbarGlyphButton {
                         visible: appViewModel.privacyMode
-                        glyphSource: "qrc:/app/icons/lucide/shield-ellipsis.svg"
+                        glyphSource: "qrc:/app/icons/glyphs/shield-dots.svg"
                         description: t("privacy.editCards")
                         onClicked: {
                             appViewModel.refreshPrivacyCards()
@@ -2584,7 +2581,7 @@ ApplicationWindow {
 
                     ToolbarGlyphButton {
                         id: serviceMoreButton
-                        glyphSource: "qrc:/app/icons/lucide/ellipsis.svg"
+                        glyphSource: "qrc:/app/icons/glyphs/ellipsis.svg"
                         description: t("action.more")
                         selected: serviceMorePopup.visible
                         onClicked: serviceMorePopup.visible
@@ -2659,7 +2656,7 @@ ApplicationWindow {
 
                                 ServiceToolMenuItem {
                                     Layout.fillWidth: true
-                                    glyphSource: "qrc:/app/icons/lucide/calendar-clock.svg"
+                                    glyphSource: "qrc:/app/icons/glyphs/clock.svg"
                                     text: t("nav.scheduledTasks")
                                     onClicked: {
                                         serviceMorePopup.close()
@@ -2677,7 +2674,7 @@ ApplicationWindow {
 
                                 ServiceToolMenuItem {
                                     Layout.fillWidth: true
-                                    glyphSource: "qrc:/app/icons/lucide/chart-no-axes-column-increasing.svg"
+                                    glyphSource: "qrc:/app/icons/glyphs/chart.svg"
                                     text: t("nav.history")
                                     onClicked: {
                                         serviceMorePopup.close()
@@ -2689,7 +2686,7 @@ ApplicationWindow {
                     }
 
                     ToolbarGlyphButton {
-                        glyphSource: "qrc:/app/icons/lucide/plus.svg"
+                        glyphSource: "qrc:/app/icons/glyphs/plus.svg"
                         description: t("action.add")
                         onClicked: {
                             appViewModel.editingServices = false
@@ -2700,15 +2697,15 @@ ApplicationWindow {
 
                     ToolbarGlyphButton {
                         glyphSource: appViewModel.editingServices
-                            ? "qrc:/app/icons/lucide/check.svg"
-                            : "qrc:/app/icons/lucide/pencil.svg"
+                            ? "qrc:/app/icons/glyphs/check.svg"
+                            : "qrc:/app/icons/glyphs/pencil.svg"
                         description: appViewModel.editingServices ? t("action.done") : t("action.edit")
                         selected: appViewModel.editingServices
                         onClicked: appViewModel.editingServices = !appViewModel.editingServices
                     }
 
                     ToolbarGlyphButton {
-                        glyphSource: "qrc:/app/icons/lucide/settings.svg"
+                        glyphSource: "qrc:/app/icons/glyphs/sliders.svg"
                         description: t("nav.settings")
                         onClicked: appViewModel.openSettings()
                     }
@@ -2848,7 +2845,7 @@ ApplicationWindow {
                             anchors.right: parent.right
                             anchors.rightMargin: 4
                             anchors.verticalCenter: parent.verticalCenter
-                            glyphSource: "qrc:/app/icons/lucide/x.svg"
+                            glyphSource: "qrc:/app/icons/glyphs/x.svg"
                             description: t("action.remove")
                             onClicked: appViewModel.removeM3u8sSource(parent.index)
                         }
@@ -3091,12 +3088,15 @@ ApplicationWindow {
             ? (root.windowControlsShouldShow ? 1 : 0) : 1
         enabled: root.embyWindowControlsHoverMode
             ? root.windowControlsShouldShow : true
+        // Normal mode: no capsule. The caption buttons float on the header surface with the same inset
+        // hover plate as the page actions, so the whole top-right cluster is one family. The immersive
+        // Emby reveal keeps its translucent capsule because it has to stay legible over video artwork.
         color: root.embyWindowControlsHoverMode
             ? (root.darkTheme
                 ? Qt.rgba(0.059, 0.071, 0.090, 0.78)
                 : Qt.rgba(1.0, 1.0, 1.0, 0.90))
-            : theme.elevated
-        border.width: root.embyWindowControlsHoverMode ? 0 : 1
+            : "transparent"
+        border.width: 0
         border.color: theme.border
         clip: true
         z: root.embyWindowControlsHoverMode ? 9003 : 9001
@@ -5118,34 +5118,53 @@ ApplicationWindow {
         property url glyphSource
         property string description: ""
         property bool selected: false
-        property real glyphSize: 16
+        property real glyphSize: 18
+        // Hover plate geometry shared with WindowControlButton: one inset squircle per 38px cell keeps
+        // the page actions and the caption buttons in the same visual family.
+        readonly property real platePadding: 4
+        readonly property real plateRadius: 10
+        // Icon-only actions on the service page stay tooltip-free (their plates plus Accessible.name are
+        // the documented contract); the home view keeps its historical hover hint through this opt-in.
+        property bool tooltipVisible: false
 
         implicitWidth: 38
         implicitHeight: 38
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
         opacity: enabled ? 1 : 0.45
-        scale: down ? 0.94 : 1
+        scale: down ? 0.96 : 1
         Accessible.name: description
+        ToolTip.visible: tooltipVisible && hovered
+        ToolTip.text: description
 
         contentItem: MonochromeIcon {
             anchors.centerIn: parent
             width: toolbarGlyphButton.glyphSize
             height: toolbarGlyphButton.glyphSize
             source: toolbarGlyphButton.glyphSource
-            iconColor: toolbarGlyphButton.selected ? theme.surface : theme.muted
+            // Resting muted, lit on hover, accent when the tool is engaged - the same ramp the caption
+            // buttons use, instead of inverting the glyph into a filled block.
+            iconColor: toolbarGlyphButton.selected ? theme.primary
+                : toolbarGlyphButton.hovered || toolbarGlyphButton.activeFocus ? theme.text : theme.muted
+
+            Behavior on iconColor { ColorAnimation { duration: 110 } }
         }
 
-        background: Rectangle {
-            radius: 0
-            color: toolbarGlyphButton.selected ? theme.text
-                : toolbarGlyphButton.down ? root.withAlpha(theme.text, darkTheme ? 0.20 : 0.12)
-                : theme.elevatedHover
-            opacity: toolbarGlyphButton.selected || toolbarGlyphButton.down
-                || toolbarGlyphButton.hovered || toolbarGlyphButton.activeFocus ? 1 : 0
+        background: Item {
+            Rectangle {
+                anchors.centerIn: parent
+                width: toolbarGlyphButton.width - 2 * toolbarGlyphButton.platePadding
+                height: toolbarGlyphButton.height - 2 * toolbarGlyphButton.platePadding
+                radius: toolbarGlyphButton.plateRadius
+                color: toolbarGlyphButton.selected
+                    ? root.withAlpha(theme.primary, darkTheme ? 0.22 : 0.15)
+                    : root.withAlpha(theme.text, toolbarGlyphButton.down
+                        ? (darkTheme ? 0.18 : 0.12) : (darkTheme ? 0.10 : 0.06))
+                opacity: toolbarGlyphButton.selected || toolbarGlyphButton.down
+                    || toolbarGlyphButton.hovered || toolbarGlyphButton.activeFocus ? 1 : 0
 
-            Behavior on opacity {
-                NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                Behavior on opacity { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+                Behavior on color { ColorAnimation { duration: 110 } }
             }
         }
 
@@ -5181,8 +5200,8 @@ ApplicationWindow {
 
                 MonochromeIcon {
                     anchors.centerIn: parent
-                    width: 17
-                    height: 17
+                    width: 18
+                    height: 18
                     source: serviceToolMenuItem.glyphSource
                     iconColor: theme.text
                 }
@@ -6224,6 +6243,20 @@ ApplicationWindow {
         id: windowButton
         property string controlType: "minimize"
         readonly property bool closeButton: controlType === "close"
+        // Same generated glyph set (icon/glyphs, see scripts/gen_icons.py) and hover plate as
+        // ToolbarGlyphButton, so the caption buttons and the page actions read as one row instead of
+        // two competing widget styles.
+        readonly property url glyphSource: controlType === "minimize"
+            ? "qrc:/app/icons/glyphs/minus.svg"
+            : controlType === "maximize" ? "qrc:/app/icons/glyphs/square.svg"
+                : controlType === "restore" ? "qrc:/app/icons/glyphs/copy.svg"
+                    : "qrc:/app/icons/glyphs/x.svg"
+        readonly property real platePadding: 4
+        readonly property real plateRadius: 10
+        // One hairline weight across the whole set; the nominal size is per-glyph because the marks
+        // hold different amounts of ink. Rasterized and measured: at 18px the closed shapes land on a
+        // 12px ink box while `x` only reaches 10, so close gets 20px to match its neighbours.
+        readonly property real glyphSize: controlType === "close" ? 20 : 18
 
         width: 38
         height: 38
@@ -6233,70 +6266,41 @@ ApplicationWindow {
         bottomPadding: 0
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
+        scale: down ? 0.96 : 1
         ToolTip.visible: hovered && ToolTip.text.length > 0
 
-        contentItem: Item {
+        contentItem: MonochromeIcon {
+            anchors.centerIn: parent
+            width: windowButton.glyphSize
+            height: windowButton.glyphSize
+            source: windowButton.glyphSource
+            iconColor: windowButton.closeButton && windowButton.hovered
+                ? "#ffffff"
+                : windowButton.hovered || windowButton.activeFocus ? theme.text : theme.muted
+
+            Behavior on iconColor { ColorAnimation { duration: 110 } }
+        }
+
+        background: Item {
             Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: Math.round(parent.height / 2 + 4)
-                width: 11
-                height: 1
-                visible: windowButton.controlType === "minimize"
-                color: windowButton.hovered ? theme.text : theme.muted
-            }
-
-            Rectangle {
                 anchors.centerIn: parent
-                width: 10
-                height: 9
-                visible: windowButton.controlType === "maximize"
-                color: "transparent"
-                border.width: 1
-                border.color: windowButton.hovered ? theme.text : theme.muted
-            }
+                width: windowButton.width - 2 * windowButton.platePadding
+                height: windowButton.height - 2 * windowButton.platePadding
+                radius: windowButton.plateRadius
+                color: windowButton.closeButton
+                    ? (windowButton.down ? "#b91c2b" : windowButton.hovered ? "#d9363e" : "transparent")
+                    : windowButton.down ? root.withAlpha(theme.text, darkTheme ? 0.18 : 0.12)
+                        : windowButton.hovered || windowButton.activeFocus
+                            ? root.withAlpha(theme.text, darkTheme ? 0.10 : 0.06) : "transparent"
 
-            Item {
-                anchors.centerIn: parent
-                width: 12
-                height: 11
-                visible: windowButton.controlType === "restore"
-
-                Rectangle {
-                    x: 3
-                    y: 0
-                    width: 9
-                    height: 8
-                    color: theme.elevated
-                    border.width: 1
-                    border.color: windowButton.hovered ? theme.text : theme.muted
+                Behavior on color {
+                    ColorAnimation { duration: 110; easing.type: Easing.OutCubic }
                 }
-
-                Rectangle {
-                    x: 0
-                    y: 3
-                    width: 9
-                    height: 8
-                    color: windowButton.hovered ? theme.elevatedHover : theme.elevated
-                    border.width: 1
-                    border.color: windowButton.hovered ? theme.text : theme.muted
-                }
-            }
-
-            Label {
-                anchors.centerIn: parent
-                visible: windowButton.closeButton
-                text: "\u00d7"
-                color: windowButton.hovered ? "#ffffff" : theme.muted
-                font.pixelSize: 18
-                font.weight: Font.Light
             }
         }
 
-        background: Rectangle {
-            color: windowButton.closeButton
-                ? (windowButton.down ? "#b91c2b" : windowButton.hovered ? "#d9363e" : "transparent")
-                : windowButton.down ? root.withAlpha(theme.primary, 0.18)
-                : windowButton.hovered ? theme.elevatedHover : "transparent"
+        Behavior on scale {
+            NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
         }
     }
 
