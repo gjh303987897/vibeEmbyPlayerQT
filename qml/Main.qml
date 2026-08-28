@@ -3568,6 +3568,49 @@ ApplicationWindow {
                     elide: Text.ElideMiddle
                 }
             }
+
+            // Wait indicator for the held phase.  External activation and the first home fetch are
+            // asynchronous and `holdOpen` keeps this surface opaque until they commit, which otherwise
+            // leaves a silent full-window card for a second or more.  It only arms after the growth
+            // animation finished plus a 300ms grace, so a cached service - which commits inside the
+            // growth - never flashes a spinner, and the width term keeps the mark out of card-sized
+            // surfaces where it would look like part of the tile.
+            Item {
+                id: expansionWait
+                property bool held: serviceTransitionOverlay.holdOpen
+                    && serviceTransitionOverlay.openFinished
+                property bool elapsed: false
+                readonly property real coverage: Math.max(0, Math.min(1,
+                    (expansionSurface.width - 360) / 240))
+
+                anchors.centerIn: parent
+                width: 54
+                height: 54
+                visible: opacity > 0.001
+                opacity: (held && elapsed ? 1 : 0) * coverage
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                }
+
+                onHeldChanged: if (!held) elapsed = false
+
+                Timer {
+                    id: expansionWaitGate
+                    interval: 300
+                    running: expansionWait.held && !expansionWait.elapsed
+                    onTriggered: expansionWait.elapsed = true
+                }
+
+                ThumbnailLoadingIcon {
+                    anchors.centerIn: parent
+                    iconSize: 45
+                    accentColor: serviceTransitionOverlay.sourceAccent
+                    backgroundVisible: false
+                    running: serviceTransitionOverlay.visible && expansionWait.visible
+                        && expansionWait.held
+                }
+            }
         }
 
         MouseArea {

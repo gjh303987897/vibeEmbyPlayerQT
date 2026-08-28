@@ -134,6 +134,14 @@ QML does not make network requests and does not parse JSON.
   hiding the toolbar on the Emby cinematic home cannot change the animation's
   target geometry. It blocks repeated input for the whole transition and
   follows the global page-transition preference.
+- While that held phase lasts, `expansionWait` shows the same 8-dot spinner used elsewhere in the app
+  (`ThumbnailLoadingIcon`, `backgroundVisible: false`) centered on the surface and tinted with the
+  activated card's accent, so a slow server or a cold Emby home is not a silent full-window card. It
+  arms only after `openFinished` **and** a 300ms grace - a cached service commits inside the growth
+  animation and must never flash a spinner - and its opacity carries a `(width - 360) / 240` term so it
+  stays out of card-sized surfaces where it would read as part of the tile. Built-in entry cards use
+  `openServiceFromCard`, which does not hold the surface; their asynchronous indexes are reported by
+  their own pages instead.
 - Adding a card stores service name, base URL, username, service type, certificate policy and auto-login preference.
 - If a password is provided while saving, the card is logged in immediately and the token is persisted through `SessionRepository`.
 - If auto-login is enabled, clicking a card attempts to restore the saved session and opens the service home.
