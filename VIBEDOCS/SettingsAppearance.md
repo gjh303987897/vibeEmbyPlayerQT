@@ -89,6 +89,26 @@ Theme mode is stored as:
 
 QML maps `appViewModel.effectiveTheme` to local theme tokens. Components should use tokens such as `theme.bg`, `theme.surface`, `theme.text`, `theme.border` and `theme.primary` instead of hard-coded colors.
 
+`theme.bg` is the page canvas (it is also the `ApplicationWindow` color), so any full-width chrome that
+sits *on* the canvas - the shared `applicationToolbar` and the `windowControlsPanel` in normal mode -
+uses `theme.bg` with no border. `theme.surface`/`theme.elevated` are reserved for items that must read
+as raised above that canvas: cards, dialogs, popovers and inputs. Painting the header with
+`theme.surface` instead made the whole 64px title band a different color from the page below it (dark
+`#171c22` over `#0f1217`, light `#ffffff` over `#f5f7fb`), which read as a second window rather than as
+part of the page.
+
+Anything that still has to read as a control group inside that blended header uses one shared capsule,
+published once on `windowHeader` so the groups cannot drift apart: `plateRadius` (14), `platePadding` (4),
+`plateFill` = `theme.elevated` at 0.85/0.96 alpha and `plateBorder` = `theme.border` at 0.85/0.80 alpha
+(dark/light). Individual components reference these instead of inventing fills.
+
+Tints go through `root.withAlpha(token, alpha)`, which coerces with `Qt.color()` before reading channels.
+`theme` stores plain strings, so `token.r` was `undefined` and `Qt.rgba()` silently painted black at that
+alpha - every `withAlpha(theme.*)` site (primary focus rings, hover plates, the caption reveal strip) was
+rendering grey-black: loud in the light theme, near-invisible in the dark one. Never reintroduce
+`Qt.rgba(x.r, ...)` on a raw token. New strings keep going through the `AppViewModel` translation tables;
+QML never hard-codes CJK literals.
+
 ## Service Card Sorting
 
 The final service sorting interaction is drag-and-drop.

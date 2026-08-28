@@ -53,11 +53,34 @@ QML does not make network requests and does not parse JSON.
 ## Service Card Flow
 
 - App launch opens the service-card page.
-- Service-card actions live in a borderless row at the top-right, immediately before the caption
-  buttons: no container fill, no outline, no clipping, and an even 4px gap between buttons. Both the
-  row (`serviceActionGroup`) and `windowControlsPanel` paint nothing in normal mode; the caption panel
-  keeps its translucent capsule only for the immersive Emby reveal, where it must stay legible over
-  artwork.
+- The header carries two capsules over the blended `theme.bg` (the shared `applicationToolbar` paints no
+  `theme.surface` band and no bottom hairline): the page actions centered on the window, and the caption
+  buttons at the far right. Both use one treatment, published on `windowHeader` so it cannot drift -
+  `plateRadius` 14, `platePadding` 4, `plateFill` = `theme.elevated` at 0.85 (dark) / 0.96 (light) alpha,
+  `plateBorder` = `theme.border` at 0.85 / 0.80 alpha. Composite values: dark fill (27,32,40) with a
+  (43,51,62) edge over `theme.bg` (15,18,23); light fill (255,255,255) with a (222,229,237) edge over
+  (245,247,251). Measured from the running app at the 1240x780 default: actions capsule x 513..727 (214x46,
+  its center exactly on the window center 620), caption capsule x 1102..1224 (122x46); both share y 9..55,
+  so they read as matching bookends. Nothing collides at the 980px minimum width. A `主服务` section chip
+  briefly sat between them and was removed at the user's request (the `nav.mainServices` key went with it).
+- Inside the actions capsule the buttons stay borderless with an even 4px gap and no container chrome of
+  their own; the capsule is the only outline.
+- Two `QtQuick.Controls` traps are recorded because each cost a debugging round. (1) A control reparents
+  its children into its `contentItem`, so a child cannot `anchors.centerIn: applicationToolbar`: that is a
+  grandparent, the anchor is rejected *silently at runtime* (no QML warning reached the console here) and
+  the item falls back to (0,0) - which is how the whole action row ended up printed over the page title.
+  Anchor to `parent` instead; the contentItem spans the toolbar, so it is the window center. (2) That
+  contentItem is inset by the toolbar's 6px padding, so child coordinates sit 6px off relative to items
+  parented to `windowHeader`/`root`; cross-parent position math has to convert spaces explicitly.
+- `root.withAlpha()` was repaired in the same pass, and it reached far beyond the header: `theme` is a JS
+  object of color *strings*, so `value.r` was `undefined` and `Qt.rgba()` silently produced **black at the
+  requested alpha**. Every tint derived from a raw token (`withAlpha(theme.primary, ...)` x32, `theme.text`
+  x7, danger/warning/success/muted/surface/bg) rendered grey-black - which is why the light-theme capsules
+  were near-black and the dark-theme ones almost invisible. The helper coerces with `Qt.color(value)` now.
+  Verified offscreen: `withAlpha("#4f8cff", 0.72)` over `#f5f7fb` went from (71,71,71) to (128,172,255).
+- `windowControlsPanel` keeps the shared capsule in normal mode too: its width/height are derived from the
+  38px button row plus `windowHeader.platePadding`, and the immersive Emby reveal switches to its own
+  translucent fill with the primary top highlight, because there it must stay legible over artwork.
 - `ToolbarGlyphButton` and `WindowControlButton` share one hover language: a 38px hit cell with an
   inset 30px squircle plate (`platePadding: 4`, `plateRadius: 10`) filled by a low-alpha `theme.text`
   tint (dark 0.10 / light 0.06, 0.18 / 0.12 while pressed) that fades in on hover, press or focus, plus

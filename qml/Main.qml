@@ -135,7 +135,12 @@ ApplicationWindow {
     }
 
     function withAlpha(value, alpha) {
-        return Qt.rgba(value.r, value.g, value.b, alpha)
+        // Most call sites pass a raw theme token, and `theme` is a plain JS object of *strings*
+        // ("#4f8cff"), so `value.r` was undefined and Qt.rgba() silently produced black at the given
+        // alpha - every theme tint (primary rings, hover plates, the caption reveal strip) rendered as
+        // grey/black instead of its color. Coerce first: Qt.color() accepts strings and real colors.
+        const color = Qt.color(value)
+        return Qt.rgba(color.r, color.g, color.b, alpha)
     }
 
     function copyTsslRows(rows) {
@@ -2295,6 +2300,16 @@ ApplicationWindow {
             && !root.immersiveMediaHome
         height: applicationToolbarVisible ? 64 : 0
 
+        // The three header groups (page actions, section chip, caption buttons) share one capsule
+        // treatment so they read as a family now that the header itself is flush with the page.
+        readonly property real plateRadius: 14
+        readonly property real platePadding: 4
+        // Composite over the blended header: dark -> (27,32,40) fill with a (43,51,62) edge, light ->
+        // near-white fill with a (222,229,237) edge. Both stay one step above theme.bg, never below.
+        readonly property color plateFill: root.withAlpha(theme.elevated, darkTheme ? 0.85 : 0.96)
+        readonly property color plateBorder: root.withAlpha(theme.border, darkTheme ? 0.85 : 0.80)
+
+
         ToolBar {
             id: applicationToolbar
             y: 0
@@ -2302,9 +2317,12 @@ ApplicationWindow {
             height: windowHeader.applicationToolbarVisible ? 64 : 0
             visible: windowHeader.applicationToolbarVisible
             enabled: visible
+            // Same color as the page below (`theme.bg`, which is also the window color) and no
+            // bottom hairline: the header used to be theme.surface, which cut a visible band across
+            // the top of the services page.
             background: Rectangle {
-                color: theme.surface
-                border.color: theme.border
+                color: theme.bg
+                border.width: 0
             }
 
             DragHandler {
@@ -2524,193 +2542,6 @@ ApplicationWindow {
                 Layout.maximumWidth: visible ? Layout.preferredWidth : 0
             }
 
-            Item {
-                visible: appViewModel.currentView === "services"
-                Layout.fillWidth: visible
-                Layout.minimumWidth: 0
-            }
-
-            Rectangle {
-                id: serviceActionGroup
-                visible: appViewModel.currentView === "services"
-                enabled: !appViewModel.loading
-                Layout.preferredWidth: serviceActionRow.implicitWidth
-                Layout.minimumWidth: Layout.preferredWidth
-                Layout.maximumWidth: Layout.preferredWidth
-                Layout.preferredHeight: 38
-                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                // No container chrome: the actions float on the page and the shared inset hover plate
-                // (see ToolbarGlyphButton) is the only affordance, so an outline around the row would
-                // fight the borderless caption buttons right next to it.
-                radius: 10
-                color: "transparent"
-                border.width: 0
-
-                RowLayout {
-                    id: serviceActionRow
-                    anchors.centerIn: parent
-                    spacing: 4
-
-                    ToolbarGlyphButton {
-                        glyphSource: appViewModel.privacyMode
-                            ? "qrc:/app/icons/glyphs/lock-open.svg"
-                            : "qrc:/app/icons/glyphs/lock.svg"
-                        description: t("nav.privacy")
-                        selected: appViewModel.privacyMode
-                        onClicked: {
-                            if (appViewModel.privacyMode) {
-                                appViewModel.exitPrivacyMode()
-                            } else if (appViewModel.privacyPinConfigured) {
-                                privacyPinDialog.open()
-                            } else {
-                                appViewModel.unlockPrivacyMode("")
-                                appViewModel.openSettings()
-                            }
-                        }
-                    }
-
-                    ToolbarGlyphButton {
-                        visible: appViewModel.privacyMode
-                        glyphSource: "qrc:/app/icons/glyphs/shield-dots.svg"
-                        description: t("privacy.editCards")
-                        onClicked: {
-                            appViewModel.refreshPrivacyCards()
-                            privacyCardsDialog.open()
-                        }
-                    }
-
-                    ToolbarGlyphButton {
-                        id: serviceMoreButton
-                        glyphSource: "qrc:/app/icons/glyphs/ellipsis.svg"
-                        description: t("action.more")
-                        selected: serviceMorePopup.visible
-                        onClicked: serviceMorePopup.visible
-                            ? serviceMorePopup.close() : serviceMorePopup.open()
-
-                        Popup {
-                            id: serviceMorePopup
-                            parent: Overlay.overlay
-                            property point anchorPosition: Qt.point(0, 0)
-                            x: Math.round(anchorPosition.x - width + 4)
-                            y: Math.round(anchorPosition.y + 10)
-                            width: 226
-                            padding: 6
-                            focus: true
-                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                            transformOrigin: Item.TopLeft
-
-                            onAboutToShow: {
-                                anchorPosition = serviceMoreButton.parent.mapToItem(
-                                    Overlay.overlay,
-                                    serviceMoreButton.x + serviceMoreButton.width,
-                                    serviceMoreButton.y + serviceMoreButton.height)
-                            }
-
-                            enter: Transition {
-                                ParallelAnimation {
-                                    NumberAnimation {
-                                        property: "opacity"
-                                        from: 0
-                                        to: 1
-                                        duration: 130
-                                        easing.type: Easing.OutCubic
-                                    }
-                                    NumberAnimation {
-                                        property: "scale"
-                                        from: 0.96
-                                        to: 1
-                                        duration: 160
-                                        easing.type: Easing.OutCubic
-                                    }
-                                }
-                            }
-
-                            exit: Transition {
-                                ParallelAnimation {
-                                    NumberAnimation {
-                                        property: "opacity"
-                                        from: 1
-                                        to: 0
-                                        duration: 90
-                                        easing.type: Easing.InCubic
-                                    }
-                                    NumberAnimation {
-                                        property: "scale"
-                                        from: 1
-                                        to: 0.98
-                                        duration: 90
-                                        easing.type: Easing.InCubic
-                                    }
-                                }
-                            }
-
-                            background: Rectangle {
-                                radius: 8
-                                color: theme.surface
-                                border.width: 1
-                                border.color: theme.border
-                            }
-
-                            contentItem: ColumnLayout {
-                                spacing: 2
-
-                                ServiceToolMenuItem {
-                                    Layout.fillWidth: true
-                                    glyphSource: "qrc:/app/icons/glyphs/clock.svg"
-                                    text: t("nav.scheduledTasks")
-                                    onClicked: {
-                                        serviceMorePopup.close()
-                                        appViewModel.openScheduledPlaybackTasks()
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 8
-                                    Layout.rightMargin: 8
-                                    Layout.preferredHeight: 1
-                                    color: theme.border
-                                }
-
-                                ServiceToolMenuItem {
-                                    Layout.fillWidth: true
-                                    glyphSource: "qrc:/app/icons/glyphs/chart.svg"
-                                    text: t("nav.history")
-                                    onClicked: {
-                                        serviceMorePopup.close()
-                                        appViewModel.openHistoryStats()
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    ToolbarGlyphButton {
-                        glyphSource: "qrc:/app/icons/glyphs/plus.svg"
-                        description: t("action.add")
-                        onClicked: {
-                            appViewModel.editingServices = false
-                            appViewModel.beginAddServiceCard()
-                            serviceDialog.open()
-                        }
-                    }
-
-                    ToolbarGlyphButton {
-                        glyphSource: appViewModel.editingServices
-                            ? "qrc:/app/icons/glyphs/check.svg"
-                            : "qrc:/app/icons/glyphs/pencil.svg"
-                        description: appViewModel.editingServices ? t("action.done") : t("action.edit")
-                        selected: appViewModel.editingServices
-                        onClicked: appViewModel.editingServices = !appViewModel.editingServices
-                    }
-
-                    ToolbarGlyphButton {
-                        glyphSource: "qrc:/app/icons/glyphs/sliders.svg"
-                        description: t("nav.settings")
-                        onClicked: appViewModel.openSettings()
-                    }
-                }
-            }
 
             ModernButton {
                 text: t("action.refresh")
@@ -2752,6 +2583,191 @@ ApplicationWindow {
             }
 
         }
+
+        // Centered on the full toolbar rather than on the text row: that row reserves 140px on the
+        // right for the caption buttons, and centering inside it would leave the group visibly left of
+        // the window. The caption buttons keep their own fixed slot, and the group is hidden with the
+        // toolbar itself because it is a child of it.
+        Rectangle {
+            id: serviceActionGroup
+            visible: appViewModel.currentView === "services"
+            enabled: !appViewModel.loading
+            // The ToolBar reparents children into its contentItem, so anchoring to `applicationToolbar`
+            // was rejected at runtime (grandparent) and the group collapsed onto the page title at
+            // (6,0). The contentItem spans the toolbar, so centering on it is centering on the window.
+            anchors.centerIn: parent
+            width: serviceActionRow.implicitWidth + windowHeader.platePadding * 2
+            height: 38 + windowHeader.platePadding * 2
+            radius: windowHeader.plateRadius
+            color: windowHeader.plateFill
+            border.width: 1
+            border.color: windowHeader.plateBorder
+            RowLayout {
+                id: serviceActionRow
+                anchors.centerIn: parent
+                spacing: 4
+
+                ToolbarGlyphButton {
+                    glyphSource: appViewModel.privacyMode
+                        ? "qrc:/app/icons/glyphs/lock-open.svg"
+                        : "qrc:/app/icons/glyphs/lock.svg"
+                    description: t("nav.privacy")
+                    selected: appViewModel.privacyMode
+                    onClicked: {
+                        if (appViewModel.privacyMode) {
+                            appViewModel.exitPrivacyMode()
+                        } else if (appViewModel.privacyPinConfigured) {
+                            privacyPinDialog.open()
+                        } else {
+                            appViewModel.unlockPrivacyMode("")
+                            appViewModel.openSettings()
+                        }
+                    }
+                }
+
+                ToolbarGlyphButton {
+                    visible: appViewModel.privacyMode
+                    glyphSource: "qrc:/app/icons/glyphs/shield-dots.svg"
+                    description: t("privacy.editCards")
+                    onClicked: {
+                        appViewModel.refreshPrivacyCards()
+                        privacyCardsDialog.open()
+                    }
+                }
+
+                ToolbarGlyphButton {
+                    id: serviceMoreButton
+                    glyphSource: "qrc:/app/icons/glyphs/ellipsis.svg"
+                    description: t("action.more")
+                    selected: serviceMorePopup.visible
+                    onClicked: serviceMorePopup.visible
+                        ? serviceMorePopup.close() : serviceMorePopup.open()
+
+                    Popup {
+                        id: serviceMorePopup
+                        parent: Overlay.overlay
+                        property point anchorPosition: Qt.point(0, 0)
+                        x: Math.round(anchorPosition.x - width + 4)
+                        y: Math.round(anchorPosition.y + 10)
+                        width: 226
+                        padding: 6
+                        focus: true
+                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                        transformOrigin: Item.TopLeft
+
+                        onAboutToShow: {
+                            anchorPosition = serviceMoreButton.parent.mapToItem(
+                                Overlay.overlay,
+                                serviceMoreButton.x + serviceMoreButton.width,
+                                serviceMoreButton.y + serviceMoreButton.height)
+                        }
+
+                        enter: Transition {
+                            ParallelAnimation {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    from: 0
+                                    to: 1
+                                    duration: 130
+                                    easing.type: Easing.OutCubic
+                                }
+                                NumberAnimation {
+                                    property: "scale"
+                                    from: 0.96
+                                    to: 1
+                                    duration: 160
+                                    easing.type: Easing.OutCubic
+                                }
+                            }
+                        }
+
+                        exit: Transition {
+                            ParallelAnimation {
+                                NumberAnimation {
+                                    property: "opacity"
+                                    from: 1
+                                    to: 0
+                                    duration: 90
+                                    easing.type: Easing.InCubic
+                                }
+                                NumberAnimation {
+                                    property: "scale"
+                                    from: 1
+                                    to: 0.98
+                                    duration: 90
+                                    easing.type: Easing.InCubic
+                                }
+                            }
+                        }
+
+                        background: Rectangle {
+                            radius: 8
+                            color: theme.surface
+                            border.width: 1
+                            border.color: theme.border
+                        }
+
+                        contentItem: ColumnLayout {
+                            spacing: 2
+
+                            ServiceToolMenuItem {
+                                Layout.fillWidth: true
+                                glyphSource: "qrc:/app/icons/glyphs/clock.svg"
+                                text: t("nav.scheduledTasks")
+                                onClicked: {
+                                    serviceMorePopup.close()
+                                    appViewModel.openScheduledPlaybackTasks()
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 8
+                                Layout.rightMargin: 8
+                                Layout.preferredHeight: 1
+                                color: theme.border
+                            }
+
+                            ServiceToolMenuItem {
+                                Layout.fillWidth: true
+                                glyphSource: "qrc:/app/icons/glyphs/chart.svg"
+                                text: t("nav.history")
+                                onClicked: {
+                                    serviceMorePopup.close()
+                                    appViewModel.openHistoryStats()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ToolbarGlyphButton {
+                    glyphSource: "qrc:/app/icons/glyphs/plus.svg"
+                    description: t("action.add")
+                    onClicked: {
+                        appViewModel.editingServices = false
+                        appViewModel.beginAddServiceCard()
+                        serviceDialog.open()
+                    }
+                }
+
+                ToolbarGlyphButton {
+                    glyphSource: appViewModel.editingServices
+                        ? "qrc:/app/icons/glyphs/check.svg"
+                        : "qrc:/app/icons/glyphs/pencil.svg"
+                    description: appViewModel.editingServices ? t("action.done") : t("action.edit")
+                    selected: appViewModel.editingServices
+                    onClicked: appViewModel.editingServices = !appViewModel.editingServices
+                }
+
+                ToolbarGlyphButton {
+                    glyphSource: "qrc:/app/icons/glyphs/sliders.svg"
+                    description: t("nav.settings")
+                    onClicked: appViewModel.openSettings()
+                }
+            }
+        }
+
     }
 
     ModernDialog {
@@ -3080,24 +3096,24 @@ ApplicationWindow {
             && (root.embyWindowControlsHoverMode || windowHeader.applicationToolbarVisible)
         x: parent.width - width - 16
         y: root.embyWindowControlsHoverMode
-            ? (root.windowControlsShouldShow ? 12 : -60) : 12
-        width: root.embyWindowControlsHoverMode ? 164 : 116
-        height: root.embyWindowControlsHoverMode ? 48 : 40
-        radius: root.embyWindowControlsHoverMode ? 14 : 8
+            ? (root.windowControlsShouldShow ? 12 : -60)
+            : (windowHeader.height - height) / 2
+        width: root.embyWindowControlsHoverMode ? 164 : windowButtonRow.width + windowHeader.platePadding * 2
+        height: root.embyWindowControlsHoverMode ? 48 : 38 + windowHeader.platePadding * 2
+        radius: windowHeader.plateRadius
         opacity: root.embyWindowControlsHoverMode
             ? (root.windowControlsShouldShow ? 1 : 0) : 1
         enabled: root.embyWindowControlsHoverMode
             ? root.windowControlsShouldShow : true
-        // Normal mode: no capsule. The caption buttons float on the header surface with the same inset
-        // hover plate as the page actions, so the whole top-right cluster is one family. The immersive
-        // Emby reveal keeps its translucent capsule because it has to stay legible over video artwork.
+        // Normal mode uses the shared header capsule. The immersive Emby reveal keeps its own
+        // translucent fill because it has to stay legible over artwork.
         color: root.embyWindowControlsHoverMode
             ? (root.darkTheme
                 ? Qt.rgba(0.059, 0.071, 0.090, 0.78)
                 : Qt.rgba(1.0, 1.0, 1.0, 0.90))
-            : "transparent"
-        border.width: 0
-        border.color: theme.border
+            : windowHeader.plateFill
+        border.width: 1
+        border.color: root.embyWindowControlsHoverMode ? theme.border : windowHeader.plateBorder
         clip: true
         z: root.embyWindowControlsHoverMode ? 9003 : 9001
 
@@ -3133,9 +3149,9 @@ ApplicationWindow {
         }
 
         Row {
+            id: windowButtonRow
             anchors.verticalCenter: parent.verticalCenter
-            x: root.embyWindowControlsHoverMode
-                ? (parent.width - width) / 2 : (parent.width - width) / 2
+            x: (parent.width - width) / 2
 
             WindowControlButton {
                 controlType: "minimize"

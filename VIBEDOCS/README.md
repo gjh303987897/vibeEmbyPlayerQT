@@ -20,3 +20,12 @@
 - `GlobalPlaybackHistory.md`：六类播放来源的统一历史、SQLite 数据模型、进度更新、隐私隔离与重播路由。
 - `WebDAV.md`：WebDAV 协议边界、下载规划、总任务/文件明细模型与传输统计口径。
 - `GitHubActionsRelease.md`：跨平台构建、原生安装包、Flatpak 与 GitHub Release 发布流程。
+
+调试提示（QML 布局自检）：
+
+- 从 git-bash 以 `./vibePlayerQT.exe > log 2>&1 &` 启动时，QML 的 `console.log/warn` 与 Qt 警告都不会
+  出现在该文件里（长期 0 行），所以“日志无输出”不能作为“无错误”的证据。
+- 需要确认运行时几何时，把结果字符串赋给 `root.title`，再用
+  `powershell.exe -NoProfile -Command "(Get-Process vibePlayerQT | Select-Object -First 1).MainWindowTitle"`
+  读回，即可拿到 x/y/width/height、`visible`，以及 `anchors` 是否真的生效（例如
+  `anchors.centerIn: <Control>` 会被静默拒绝并把 item 落在 (0,0)）。验证完删除探针。
