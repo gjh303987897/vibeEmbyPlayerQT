@@ -63,9 +63,43 @@ QML does not make network requests and does not parse JSON.
   action keeps an accessible name without displaying a hover tooltip. Mouse
   clicks do not retain a focus outline; keyboard tab focus remains available.
 - Service cards derive their visual identity from the existing `serviceType` role. Emby, Jellyfin, WebDAV and IPTV each use a local vector-style mark and a stable accent color, so card rendering never depends on remote image assets.
-- The reusable QML service icon and status-chip components keep the card hierarchy consistent across light and dark themes: service identity and account details stay in the primary row, while login and session state remain in a fixed footer row.
-- Built-in entry cards and saved service cards share the same responsive size contract. The service page selects two or three columns from the available width, calculates one common card width and keeps every card at a fixed 156-pixel height; both the `GridLayout` and `GridView` consume those values so separate sections remain aligned while the window resizes.
-- Hover, drag and edit states reuse the same service accent without changing the card's information layout or invoking service-layer logic.
+- The service tile is a wallet-card slab. Measured from the reference art, every number is a ratio of
+  the tile itself so the layout survives any column count: radius = 12.5% of the width, brand emblem
+  = 15.5% of the width anchored in the top-right corner, title anchored top-left at 10% of the height,
+  and the two status marks pinned into the bottom-left / bottom-right corners. The surface stays
+  neutral near-black on the left and carries a horizontal brand-coloured sheen that peaks under the
+  emblem, plus a vertical falloff over the lower half, which is what makes the tile read as a solid
+  object instead of a flat swatch. The private-mode pill and the `username . host` line sit under the
+  title, so hovering never reflows the grid.
+- The emblem is lit, not stuck on: `emblemHalo` is one Canvas that paints a clipped light pool centred
+  on `emblemCenterX/emblemCenterY` - a wide `pool` gradient plus a tight `hot` core - so the mark reads
+  as emissive and the tint concentrates around it instead of flattening across the tile. The gradient is
+  painted inside a `roundRect` + `clip()` so the halo can never bleed past the tile corner into the grid
+  gutter, and it repaints from bound properties (accent, theme, centre, mark size, own size) instead of
+  watching the tile paint signal, which would miss the column reflow that changes those anchors. The
+  transition overlay uses the same colors through a **fixed 340x340** Canvas that only moves with the
+  emblem, because repainting a window-sized Canvas every frame of the growth animation would stall the
+  transition.
+- `ServiceTypeIcon` has two render modes. `plate` (default) keeps the coloured badge with a white
+  glyph used by headers, dialogs and the local/link/history pages. `mark` paints the same glyph in the
+  (dark theme: lightened) brand colour on a transparent background and erases its negative shapes with
+  `destination-out`, so the tile gradient shows through them on any surface. Glyphs are authored in a
+  fixed 34x34 box and scaled to the item through `glyphRatio`, so one canvas serves every size; the
+  canvas repaints on type, mode, colour and size changes.
+- Built-in entry cards and saved service cards share the same responsive size contract. The service page
+  selects two, three, four or five columns from the available width and sets the tile height to
+  `width / 1.7` (the reference tiles measure 1.70:1) with an 18px column gap and a 28px row gap; the
+  `GridLayout` and the `GridView` consume the same values so both sections stay aligned while the
+  window resizes.
+- Because tile rows can still exceed a short window, `servicePage` is a `Flickable`: its content column
+  is at least as tall as the viewport and grows with the grid, and the vertical scrollbar appears as
+  needed. Page flicking is disabled in edit mode so a tile reorder cannot turn into a page scroll; the
+  scrollbar stays available for reaching lower rows.
+- Hover, drag and edit states reuse the same service accent (border, stronger brand sheen, slight tile
+  and emblem lift) without changing the card's information layout or invoking service-layer logic. The
+  card-to-page transition overlay mirrors the resting tile exactly - base colour, sheen and falloff,
+  `mark` emblem top-right, title plus the `username . host` line captured from the card - so the tile
+  grows into the page instead of cross-fading into a different design.
 - Opening any built-in or saved service starts from the activated card's mapped
   window rectangle, so the first click immediately has visible feedback. Saved
   external services keep the expanded, theme-aware surface opaque while the

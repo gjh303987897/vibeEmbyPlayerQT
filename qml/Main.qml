@@ -3274,6 +3274,7 @@ ApplicationWindow {
         property real sourceRadius: 14
         property color sourceAccent: theme.primary
         property string sourceTitle: ""
+        property string sourceSubtitle: ""
         property string sourceType: ""
 
         function captureSource(sourceCard) {
@@ -3291,6 +3292,7 @@ ApplicationWindow {
             sourceRadius = sourceCard.radius
             sourceAccent = sourceCard.accentColor
             sourceTitle = sourceCard.serviceName
+            sourceSubtitle = sourceCard.metaText
             sourceType = sourceCard.serviceType
             hasSource = true
             return true
@@ -3446,50 +3448,124 @@ ApplicationWindow {
             id: expansionSurface
             property real cornerRadius: 14
 
-            color: theme.surface
+            color: root.darkTheme ? "#191c20" : theme.surface
             radius: cornerRadius
             border.width: 1
             border.color: root.withAlpha(serviceTransitionOverlay.sourceAccent, 0.62)
             clip: true
 
+            // Mirrors ServiceCard: horizontal brand sheen plus the lower falloff, so the growing
+            // tile keeps the wallet-card proportions all the way to the full-window surface.
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: 1
                 radius: Math.max(0, expansionSurface.cornerRadius - 1)
-                color: root.withAlpha(serviceTransitionOverlay.sourceAccent,
-                    root.darkTheme ? 0.09 : 0.055)
+                color: "transparent"
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.0; color: root.withAlpha(serviceTransitionOverlay.sourceAccent, 0.0) }
+                    GradientStop {
+                        position: 0.45
+                        color: root.withAlpha(serviceTransitionOverlay.sourceAccent,
+                            root.darkTheme ? 0.05 : 0.03)
+                    }
+                    GradientStop {
+                        position: 1.0
+                        color: root.withAlpha(serviceTransitionOverlay.sourceAccent,
+                            root.darkTheme ? 0.30 : 0.17)
+                    }
+                }
             }
 
             Rectangle {
-                anchors.left: parent.left
+                anchors.fill: parent
+                anchors.margins: 1
+                radius: Math.max(0, expansionSurface.cornerRadius - 1)
+                color: "transparent"
+                gradient: Gradient {
+                    orientation: Gradient.Vertical
+                    GradientStop { position: 0.0; color: "#00000000" }
+                    GradientStop { position: 0.5; color: root.darkTheme ? "#14000000" : "#00000000" }
+                    GradientStop { position: 1.0; color: root.darkTheme ? "#66000000" : "#1A000000" }
+                }
+            }
+
+            // Light pool under the emblem, matching the resting tile.  Fixed-size so the growing
+            // surface never repaints it; it only follows the emblem.  The gradient fades to fully
+            // transparent before the canvas edge, so it cannot poke past the rounded surface corner.
+            Canvas {
+                id: expansionHalo
+                width: 340
+                height: 340
+                x: expansionEmblem.x + expansionEmblem.width / 2 - width / 2
+                y: expansionEmblem.y + expansionEmblem.height / 2 - height / 2
+
+                onPaint: {
+                    var context = getContext("2d")
+                    context.setTransform(1, 0, 0, 1, 0, 0)
+                    context.clearRect(0, 0, width, height)
+                    var accent = serviceTransitionOverlay.sourceAccent
+                    var cx = width / 2
+                    var cy = height / 2
+                    var pool = context.createRadialGradient(cx, cy, 34, cx, cy, 170)
+                    pool.addColorStop(0.0, root.withAlpha(accent, root.darkTheme ? 0.34 : 0.20))
+                    pool.addColorStop(0.4, root.withAlpha(accent, root.darkTheme ? 0.13 : 0.07))
+                    pool.addColorStop(1.0, root.withAlpha(accent, 0.0))
+                    context.fillStyle = pool
+                    context.fillRect(0, 0, width, height)
+
+                    var hot = context.createRadialGradient(cx, cy, 0, cx, cy, 64)
+                    hot.addColorStop(0.0, root.withAlpha(accent, root.darkTheme ? 0.52 : 0.30))
+                    hot.addColorStop(0.6, root.withAlpha(accent, root.darkTheme ? 0.22 : 0.12))
+                    hot.addColorStop(1.0, root.withAlpha(accent, 0.0))
+                    context.fillStyle = hot
+                    context.fillRect(0, 0, width, height)
+                }
+
+                Component.onCompleted: requestPaint()
+                onVisibleChanged: if (visible) requestPaint()
+            }
+
+            ServiceTypeIcon {
+                id: expansionEmblem
                 anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: Math.min(4, parent.width)
-                color: serviceTransitionOverlay.sourceAccent
-                opacity: 0.9
+                anchors.right: parent.right
+                anchors.topMargin: Math.round(parent.height * 0.09)
+                anchors.rightMargin: Math.round(parent.width * 0.07)
+                width: Math.min(62, Math.max(26, Math.round(parent.width * 0.155)))
+                height: width
+                markMode: true
+                glyphRatio: 0.9
+                serviceType: serviceTransitionOverlay.sourceType
             }
 
             Column {
-                anchors.centerIn: parent
-                width: Math.max(0, Math.min(260, parent.width - 24))
-                spacing: 9
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.right: expansionEmblem.left
+                anchors.leftMargin: Math.round(parent.width * 0.07)
+                anchors.rightMargin: 10
+                anchors.topMargin: Math.round(parent.height * 0.10)
+                spacing: 4
                 opacity: Math.min(1, expansionSurface.width / 220)
-
-                ServiceTypeIcon {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    width: 46
-                    height: 46
-                    serviceType: serviceTransitionOverlay.sourceType
-                }
 
                 Label {
                     width: parent.width
                     text: serviceTransitionOverlay.sourceTitle
                     color: theme.text
-                    font.pixelSize: 16
+                    font.pixelSize: Math.round(Math.min(20, Math.max(13,
+                        expansionSurface.height * 0.115)))
                     font.bold: true
-                    horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
+                }
+
+                Label {
+                    width: parent.width
+                    visible: serviceTransitionOverlay.sourceSubtitle.length > 0
+                    text: serviceTransitionOverlay.sourceSubtitle
+                    color: theme.subtle
+                    font.pixelSize: 11
+                    elide: Text.ElideMiddle
                 }
             }
         }
@@ -3700,23 +3776,44 @@ ApplicationWindow {
                     }
                 }
 
-                Item {
+                Flickable {
                     id: servicePage
-                    readonly property int cardColumnCount: width < 1080 ? 2 : 3
-                    readonly property real cardSpacing: 16
+                    readonly property int cardColumnCount: width < 700 ? 2
+                        : width < 1000 ? 3 : width < 1400 ? 4 : 5
+                    readonly property real cardSpacing: 18
+                    readonly property real cardRowSpacing: 28
                     readonly property real cardCellWidth: (width + cardSpacing) / cardColumnCount
                     readonly property real cardWidth: Math.max(0, cardCellWidth - cardSpacing)
-                    readonly property real cardHeight: 156
+                    // Wallet-card proportions: the reference tiles measure 1.70:1, which also keeps
+                    // two stacked rows plus the built-in row inside a 780px window.
+                    readonly property real cardHeight: Math.round(Math.max(150, cardWidth / 1.7))
+
+                    // Two rows of poster tiles already exceed a 780px window, so the whole home
+                    // flow scrolls instead of clipping the last row.
+                    contentWidth: width
+                    contentHeight: Math.max(height, serviceHomeColumn.implicitHeight)
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
+                    // Card reordering drags the tile itself.  Letting the page flick consume the
+                    // same gesture would turn a reorder into a scroll, so in edit mode the page is
+                    // scrolled with the vertical scrollbar instead of by dragging the content.
+                    interactive: !appViewModel.editingServices
+
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                    }
 
                     ColumnLayout {
-                        anchors.fill: parent
-                        spacing: 16
+                        id: serviceHomeColumn
+                        width: servicePage.width
+                        height: Math.max(implicitHeight, servicePage.height)
+                        spacing: servicePage.cardRowSpacing
 
                         GridLayout {
                             Layout.fillWidth: true
                             columns: servicePage.cardColumnCount
                             columnSpacing: servicePage.cardSpacing
-                            rowSpacing: servicePage.cardSpacing
+                            rowSpacing: servicePage.cardRowSpacing
 
                             ServiceCard {
                                 Layout.minimumWidth: servicePage.cardWidth
@@ -3802,18 +3899,21 @@ ApplicationWindow {
                         Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            Layout.minimumHeight: serviceGrid.contentHeight
+                            Layout.preferredHeight: serviceGrid.contentHeight
                             clip: true
 
                             GridView {
                                 id: serviceGrid
                                 anchors.left: parent.left
                                 anchors.top: parent.top
-                                anchors.bottom: parent.bottom
                                 width: parent.width + servicePage.cardSpacing
-                                clip: true
+                                height: contentHeight
+                                interactive: false
+                                boundsBehavior: Flickable.StopAtBounds
                                 model: appViewModel.services
                                 cellWidth: servicePage.cardCellWidth
-                                cellHeight: servicePage.cardHeight + servicePage.cardSpacing
+                                cellHeight: servicePage.cardHeight + servicePage.cardRowSpacing
                                 displaced: Transition {
                                     NumberAnimation { properties: "x,y"; duration: 160; easing.type: Easing.OutCubic }
                                 }
@@ -6397,13 +6497,39 @@ ApplicationWindow {
     component ServiceTypeIcon: Item {
         id: serviceIcon
         property string serviceType: ""
+        // "mark" paints the brand glyph directly in its own colour on a transparent background, so
+        // it can sit on a service tile and let the tile gradient show through its negative space.
+        // "plate" (default) keeps the coloured badge used by headers, dialogs and side pages.
+        property bool markMode: false
+        property real glyphRatio: 0.66
         readonly property string normalizedType: serviceType.toLowerCase()
         readonly property color accentColor: root.serviceAccentColor(serviceType)
+        readonly property color glyphColor: markMode
+            ? (darkTheme ? Qt.lighter(accentColor, 1.18) : Qt.darker(accentColor, 1.06))
+            : "#ffffff"
+        readonly property color voidColor: markMode ? "#ff000000" : accentColor
+        readonly property real canvasBox: markMode
+            ? Math.max(12, Math.round(Math.min(width, height) * glyphRatio))
+            : 34
 
         implicitWidth: 54
         implicitHeight: 54
 
+        // Mark mode erases the negative shapes instead of painting them, which keeps the glyph
+        // readable on any background (tile gradients, hover states, the expansion surface).
+        function beginVoid(context) {
+            context.save()
+            if (serviceIcon.markMode) {
+                context.globalCompositeOperation = "destination-out"
+            }
+        }
+
+        function endVoid(context) {
+            context.restore()
+        }
+
         Rectangle {
+            visible: !serviceIcon.markMode
             x: 5
             y: 7
             width: parent.width - 10
@@ -6415,12 +6541,13 @@ ApplicationWindow {
         Rectangle {
             id: serviceIconPlate
             anchors.fill: parent
-            anchors.margins: 3
+            anchors.margins: serviceIcon.markMode ? 0 : 3
             radius: 14
-            color: serviceIcon.accentColor
-            clip: true
+            color: serviceIcon.markMode ? "transparent" : serviceIcon.accentColor
+            clip: !serviceIcon.markMode
 
             Rectangle {
+                visible: !serviceIcon.markMode
                 anchors.fill: parent
                 radius: parent.radius
                 color: "transparent"
@@ -6435,8 +6562,8 @@ ApplicationWindow {
             Canvas {
                 id: serviceIconCanvas
                 anchors.centerIn: parent
-                width: 34
-                height: 34
+                width: serviceIcon.canvasBox
+                height: serviceIcon.canvasBox
                 antialiasing: true
 
                 function roundedRectPath(context, x, y, width, height, radius) {
@@ -6455,7 +6582,13 @@ ApplicationWindow {
 
                 onPaint: {
                     var context = getContext("2d")
+                    var glyph = serviceIcon.glyphColor
+                    var knockout = serviceIcon.voidColor
+                    context.setTransform(1, 0, 0, 1, 0, 0)
                     context.clearRect(0, 0, width, height)
+                    // Every glyph below is authored inside a 34x34 box and scaled to the canvas.
+                    context.save()
+                    context.scale(width / 34, height / 34)
                     context.lineCap = "round"
                     context.lineJoin = "round"
 
@@ -6463,12 +6596,12 @@ ApplicationWindow {
                         context.save()
                         context.translate(17, 17)
                         context.rotate(Math.PI / 4)
-                        context.strokeStyle = "#ffffff"
+                        context.strokeStyle = glyph
                         context.lineWidth = 2.4
                         context.strokeRect(-9.5, -9.5, 19, 19)
                         context.restore()
 
-                        context.fillStyle = "#ffffff"
+                        context.fillStyle = glyph
                         context.beginPath()
                         context.moveTo(14, 11)
                         context.lineTo(14, 23)
@@ -6476,7 +6609,7 @@ ApplicationWindow {
                         context.closePath()
                         context.fill()
                     } else if (serviceIcon.normalizedType === "jellyfin") {
-                        context.fillStyle = "#ffffff"
+                        context.fillStyle = glyph
                         context.beginPath()
                         context.moveTo(17, 4)
                         context.lineTo(31, 29)
@@ -6484,15 +6617,17 @@ ApplicationWindow {
                         context.closePath()
                         context.fill()
 
-                        context.fillStyle = serviceIcon.accentColor
+                        serviceIcon.beginVoid(context)
+                        context.fillStyle = knockout
                         context.beginPath()
                         context.moveTo(17, 10)
                         context.lineTo(25.5, 25.5)
                         context.lineTo(8.5, 25.5)
                         context.closePath()
                         context.fill()
+                        serviceIcon.endVoid(context)
 
-                        context.fillStyle = "#ffffff"
+                        context.fillStyle = glyph
                         context.beginPath()
                         context.moveTo(17, 14)
                         context.lineTo(22.5, 24)
@@ -6500,7 +6635,7 @@ ApplicationWindow {
                         context.closePath()
                         context.fill()
                     } else if (serviceIcon.normalizedType === "webdav") {
-                        context.fillStyle = "#ffffff"
+                        context.fillStyle = glyph
                         context.beginPath()
                         context.moveTo(8, 26)
                         context.bezierCurveTo(4.5, 26, 3, 23.5, 3, 20.5)
@@ -6512,13 +6647,15 @@ ApplicationWindow {
                         context.closePath()
                         context.fill()
 
-                        context.fillStyle = serviceIcon.accentColor
+                        serviceIcon.beginVoid(context)
+                        context.fillStyle = knockout
                         context.font = "bold 8px sans-serif"
                         context.textAlign = "center"
                         context.textBaseline = "middle"
                         context.fillText("DAV", 17, 21)
+                        serviceIcon.endVoid(context)
                     } else if (serviceIcon.normalizedType === "iptv") {
-                        context.strokeStyle = "#ffffff"
+                        context.strokeStyle = glyph
                         context.lineWidth = 2.3
                         context.beginPath()
                         context.moveTo(17, 8)
@@ -6541,7 +6678,7 @@ ApplicationWindow {
                         context.save()
                         context.translate(17, 17)
                         context.rotate(-Math.PI / 4)
-                        context.strokeStyle = "#ffffff"
+                        context.strokeStyle = glyph
                         context.lineWidth = 2.6
                         roundedRectPath(context, -13, -5, 16, 10, 5)
                         context.stroke()
@@ -6550,8 +6687,8 @@ ApplicationWindow {
                         context.restore()
                     } else if (serviceIcon.normalizedType === "history"
                                || serviceIcon.normalizedType === "globalhistory") {
-                        context.strokeStyle = "#ffffff"
-                        context.fillStyle = "#ffffff"
+                        context.strokeStyle = glyph
+                        context.fillStyle = glyph
                         context.lineWidth = 2.4
                         context.beginPath()
                         context.arc(17, 17, 10.5, -Math.PI * 0.15, Math.PI * 1.55)
@@ -6568,8 +6705,8 @@ ApplicationWindow {
                         context.lineTo(22.2, 20.1)
                         context.stroke()
                     } else if (serviceIcon.normalizedType === "m3u8s") {
-                        context.strokeStyle = "#ffffff"
-                        context.fillStyle = "#ffffff"
+                        context.strokeStyle = glyph
+                        context.fillStyle = glyph
                         context.lineWidth = 2.1
                         roundedRectPath(context, 3.5, 7, 27, 20, 4)
                         context.stroke()
@@ -6584,20 +6721,22 @@ ApplicationWindow {
                             context.fillRect(5.5, frameY, 1.8, 2.5)
                             context.fillRect(26.7, frameY, 1.8, 2.5)
                         }
-                        context.fillStyle = serviceIcon.accentColor
+                        serviceIcon.beginVoid(context)
+                        context.fillStyle = knockout
                         roundedRectPath(context, 12, 16, 10, 8, 2)
                         context.fill()
-                        context.strokeStyle = "#ffffff"
+                        serviceIcon.endVoid(context)
+                        context.strokeStyle = glyph
                         context.lineWidth = 1.8
                         context.beginPath()
                         context.arc(17, 16, 3.2, Math.PI, 0)
                         context.stroke()
-                        context.fillStyle = "#ffffff"
+                        context.fillStyle = glyph
                         context.beginPath()
                         context.arc(17, 20, 1.2, 0, Math.PI * 2)
                         context.fill()
                     } else if (serviceIcon.normalizedType === "local") {
-                        context.fillStyle = "#ffffff"
+                        context.fillStyle = glyph
                         context.beginPath()
                         context.moveTo(4, 10)
                         context.lineTo(13, 10)
@@ -6608,16 +6747,18 @@ ApplicationWindow {
                         context.closePath()
                         context.fill()
 
-                        context.fillStyle = serviceIcon.accentColor
+                        serviceIcon.beginVoid(context)
+                        context.fillStyle = knockout
                         context.beginPath()
                         context.moveTo(15, 17)
                         context.lineTo(15, 25)
                         context.lineTo(22, 21)
                         context.closePath()
                         context.fill()
+                        serviceIcon.endVoid(context)
                     } else {
-                        context.strokeStyle = "#ffffff"
-                        context.fillStyle = "#ffffff"
+                        context.strokeStyle = glyph
+                        context.fillStyle = glyph
                         context.lineWidth = 2.2
                         context.beginPath()
                         context.moveTo(10, 12)
@@ -6634,6 +6775,8 @@ ApplicationWindow {
                             context.fill()
                         }
                     }
+
+                    context.restore()
                 }
 
                 Component.onCompleted: requestPaint()
@@ -6641,6 +6784,9 @@ ApplicationWindow {
         }
 
         onServiceTypeChanged: serviceIconCanvas.requestPaint()
+        onMarkModeChanged: serviceIconCanvas.requestPaint()
+        onGlyphColorChanged: serviceIconCanvas.requestPaint()
+        onCanvasBoxChanged: serviceIconCanvas.requestPaint()
     }
 
     component ServiceStatusChip: Rectangle {
@@ -6705,26 +6851,49 @@ ApplicationWindow {
         property real dragStartY: 0
         readonly property color accentColor: root.serviceAccentColor(serviceType)
 
-        radius: 14
-        color: loading || cardMouse.containsMouse || dropArea.containsDrag ? theme.elevatedHover : theme.elevated
+        // Wallet-card look: every measurement is a ratio of the tile itself, so the layout keeps the
+        // reference proportions at any column count.  Title sits top-left, the brand emblem glows in
+        // the tinted top-right corner, and the two status marks live in the bottom corners.
+        readonly property bool emphasized: cardMouse.containsMouse || dropArea.containsDrag
+        readonly property color tileColor: darkTheme ? "#191c20" : theme.elevated
+        readonly property real tileRadius: Math.round(Math.min(34, Math.max(16, width * 0.125)))
+        readonly property real contentMargin: Math.round(Math.min(26, Math.max(12, width * 0.07)))
+        readonly property real emblemSize: Math.round(Math.min(62, Math.max(26, width * 0.155)))
+        readonly property real emblemTop: Math.round(height * 0.09)
+        readonly property real emblemCenterX: width - contentMargin - emblemSize / 2
+        readonly property real emblemCenterY: emblemTop + emblemSize / 2
+        readonly property real titlePixelSize: Math.round(Math.min(20, Math.max(13, height * 0.115)))
+        readonly property string metaText: {
+            var parts = []
+            if (username.length > 0) {
+                parts.push(username)
+            }
+            if (host.length > 0) {
+                parts.push(host)
+            }
+            return parts.join("  ·  ")
+        }
+
+        radius: tileRadius
+        color: tileColor
         border.color: dropArea.containsDrag ? theme.primary
-            : loading ? root.withAlpha(accentColor, 0.82)
-            : cardMouse.containsMouse ? root.withAlpha(accentColor, 0.72)
+            : loading ? root.withAlpha(accentColor, 0.85)
+            : emphasized ? root.withAlpha(accentColor, 0.55)
             : theme.border
         border.width: dropArea.containsDrag ? 2 : 1
-        scale: cardMouse.drag.active ? 0.98
+        scale: cardMouse.drag.active ? 0.97
             : loading ? 1.004
-            : (cardMouse.containsMouse && !editing ? 1.008 : 1.0)
-        opacity: cardMouse.drag.active ? 0.92 : 1.0
+            : (emphasized && !editing ? 1.02 : 1.0)
+        opacity: cardMouse.drag.active ? 0.94 : 1.0
         z: cardMouse.drag.active ? 10 : 0
         Drag.active: cardMouse.drag.active && editing
         Drag.source: card
         Drag.hotSpot.x: width / 2
         Drag.hotSpot.y: height / 2
 
-        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-        Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
         function beginDrag() {
@@ -6747,37 +6916,6 @@ ApplicationWindow {
             onDropped: card.droppedOn(card.dragIndex)
         }
 
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: 1
-            radius: card.radius - 1
-            color: "transparent"
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop {
-                    position: 0.0
-                    color: root.withAlpha(card.accentColor,
-                        cardMouse.containsMouse || dropArea.containsDrag
-                            ? (darkTheme ? 0.15 : 0.10)
-                            : (darkTheme ? 0.09 : 0.055))
-                }
-                GradientStop { position: 0.65; color: root.withAlpha(card.accentColor, 0.0) }
-            }
-        }
-
-        Rectangle {
-            anchors.left: parent.left
-            anchors.leftMargin: 1
-            anchors.verticalCenter: parent.verticalCenter
-            width: 3
-            height: parent.height - 34
-            radius: 1.5
-            color: card.accentColor
-            opacity: cardMouse.containsMouse || dropArea.containsDrag ? 0.95 : 0.62
-
-            Behavior on opacity { NumberAnimation { duration: 140 } }
-        }
-
         MouseArea {
             id: cardMouse
             anchors.fill: parent
@@ -6798,152 +6936,238 @@ ApplicationWindow {
             onClicked: if (!editing) card.activated(card)
         }
 
-        ColumnLayout {
+        // Brand sheen: neutral at the left edge, brand-tinted where the emblem sits.
+        Rectangle {
             anchors.fill: parent
-            anchors.margins: 14
-            spacing: 10
-            opacity: card.loading ? 0.56 : 1
+            anchors.margins: 1
+            radius: card.tileRadius - 1
+            color: "transparent"
+            opacity: card.emphasized || card.loading ? 1 : 0.7
 
-            Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 12
-
-                ServiceTypeIcon {
-                    Layout.preferredWidth: 54
-                    Layout.preferredHeight: 54
-                    Layout.alignment: Qt.AlignTop
-                    serviceType: card.serviceType
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop {
+                    position: 0.0
+                    color: root.withAlpha(card.accentColor, 0.0)
                 }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 5
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: serviceName
-                            color: theme.text
-                            font.pixelSize: 17
-                            font.bold: true
-                            elide: Text.ElideRight
-                        }
-
-                        RowLayout {
-                            visible: editing
-                            spacing: 4
-
-                            IconButton {
-                                implicitWidth: 30
-                                implicitHeight: 30
-                                text: "✎"
-                                onClicked: editRequested()
-                            }
-
-                            IconButton {
-                                implicitWidth: 30
-                                implicitHeight: 30
-                                text: "×"
-                                onClicked: deleteRequested()
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Rectangle {
-                            Layout.preferredWidth: serviceTypeLabel.implicitWidth + 16
-                            Layout.preferredHeight: 21
-                            radius: 7
-                            color: root.withAlpha(card.accentColor, darkTheme ? 0.18 : 0.10)
-                            border.color: root.withAlpha(card.accentColor, 0.40)
-
-                            Label {
-                                id: serviceTypeLabel
-                                anchors.centerIn: parent
-                                text: card.serviceType
-                                color: card.accentColor
-                                font.pixelSize: 10
-                                font.bold: true
-                            }
-                        }
-
-                        Rectangle {
-                            visible: privateMode
-                            Layout.preferredWidth: privateModeLabel.implicitWidth + 14
-                            Layout.preferredHeight: 21
-                            radius: 7
-                            color: root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.10)
-                            border.color: root.withAlpha(theme.primary, 0.42)
-
-                            Label {
-                                id: privateModeLabel
-                                anchors.centerIn: parent
-                                text: t("history.privateBadge")
-                                color: theme.primary
-                                font.pixelSize: 10
-                                font.bold: true
-                            }
-                        }
-
-                        MutedText {
-                            visible: username.length > 0
-                            Layout.fillWidth: true
-                            text: username
-                            font.pixelSize: 11
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    MutedText {
-                        visible: host.length > 0
-                        Layout.fillWidth: true
-                        text: host
-                        color: theme.subtle
-                        font.pixelSize: 11
-                        elide: Text.ElideMiddle
-                    }
+                GradientStop {
+                    position: 0.45
+                    color: root.withAlpha(card.accentColor, darkTheme ? 0.05 : 0.03)
+                }
+                GradientStop {
+                    position: 1.0
+                    color: root.withAlpha(card.accentColor, darkTheme ? 0.22 : 0.13)
                 }
             }
+        }
 
-            Item { Layout.fillHeight: true }
+        // Light pool under the emblem: in the reference the mark does not sit on the card, it lights
+        // the card.  The gradient is painted inside a rounded-rect clip, so the halo can never bleed
+        // past the tile corner or into the grid gutter.
+        Canvas {
+            id: emblemHalo
+            property color accent: card.accentColor
+            property bool nightMode: darkTheme
+            property real centerX: card.emblemCenterX
+            property real centerY: card.emblemCenterY
+            property real markSize: card.emblemSize
+            anchors.fill: parent
+
+            function roundRect(context, x, y, w, h, r) {
+                context.beginPath()
+                context.moveTo(x + r, y)
+                context.lineTo(x + w - r, y)
+                context.quadraticCurveTo(x + w, y, x + w, y + r)
+                context.lineTo(x + w, y + h - r)
+                context.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+                context.lineTo(x + r, y + h)
+                context.quadraticCurveTo(x, y + h, x, y + h - r)
+                context.lineTo(x, y + r)
+                context.quadraticCurveTo(x, y, x + r, y)
+                context.closePath()
+            }
+
+            function paintHalo(context) {
+                var core = Math.max(5, markSize * 0.55)
+                var spread = core + Math.max(card.width, card.height) * 0.55
+                var pool = context.createRadialGradient(centerX, centerY, core,
+                    centerX, centerY, spread)
+                pool.addColorStop(0.0, root.withAlpha(accent, nightMode ? 0.34 : 0.20))
+                pool.addColorStop(0.4, root.withAlpha(accent, nightMode ? 0.13 : 0.07))
+                pool.addColorStop(1.0, root.withAlpha(accent, 0.0))
+                context.fillStyle = pool
+                context.fillRect(0, 0, width, height)
+
+                var hot = context.createRadialGradient(centerX, centerY, 0,
+                    centerX, centerY, core * 1.9)
+                hot.addColorStop(0.0, root.withAlpha(accent, nightMode ? 0.52 : 0.30))
+                hot.addColorStop(0.6, root.withAlpha(accent, nightMode ? 0.22 : 0.12))
+                hot.addColorStop(1.0, root.withAlpha(accent, 0.0))
+                context.fillStyle = hot
+                context.fillRect(0, 0, width, height)
+            }
+
+            onPaint: {
+                var context = getContext("2d")
+                context.setTransform(1, 0, 0, 1, 0, 0)
+                context.clearRect(0, 0, width, height)
+                context.save()
+                roundRect(context, 1, 1, width - 2, height - 2, Math.max(1, card.tileRadius - 1))
+                context.clip()
+                paintHalo(context)
+                context.restore()
+            }
+
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onAccentChanged: requestPaint()
+            onNightModeChanged: requestPaint()
+            onCenterXChanged: requestPaint()
+            onCenterYChanged: requestPaint()
+            onMarkSizeChanged: requestPaint()
+        }
+
+        // Lower falloff, so the tile reads as a solid object instead of a flat swatch.
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 1
+            radius: card.tileRadius - 1
+            color: "transparent"
+            gradient: Gradient {
+                orientation: Gradient.Vertical
+                GradientStop { position: 0.0; color: "#00000000" }
+                GradientStop { position: 0.5; color: darkTheme ? "#14000000" : "#00000000" }
+                GradientStop { position: 1.0; color: darkTheme ? "#66000000" : "#1A000000" }
+            }
+        }
+
+        ServiceTypeIcon {
+            id: cardEmblem
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.topMargin: card.emblemTop
+            anchors.rightMargin: card.contentMargin
+            width: card.emblemSize
+            height: card.emblemSize
+            markMode: true
+            glyphRatio: 0.9
+            serviceType: card.serviceType
+            scale: card.emphasized ? 1.06 : 1.0
+
+            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        }
+
+        ColumnLayout {
+            id: cardTitleBlock
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.right: cardEmblem.left
+            anchors.leftMargin: card.contentMargin
+            anchors.rightMargin: 10
+            anchors.topMargin: Math.round(card.height * 0.10)
+            spacing: 3
+
+            Label {
+                Layout.fillWidth: true
+                text: card.serviceName
+                color: theme.text
+                font.pixelSize: card.titlePixelSize
+                font.bold: true
+                elide: Text.ElideRight
+            }
 
             RowLayout {
-                id: serviceStatusRow
                 Layout.fillWidth: true
-                spacing: 8
+                Layout.preferredHeight: 15
+                spacing: 6
+                visible: card.metaText.length > 0 || card.privateMode
 
-                ServiceStatusChip {
-                    Layout.maximumWidth: serviceStatusRow.width * 0.62
-                    text: card.leadingStatusText
-                    accentColor: card.leadingStatusColor
+                Rectangle {
+                    visible: card.privateMode
+                    Layout.preferredWidth: privateModeLabel.implicitWidth + 12
+                    Layout.preferredHeight: 17
+                    radius: 5
+                    color: root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
+                    border.color: root.withAlpha(theme.primary, 0.45)
+
+                    Label {
+                        id: privateModeLabel
+                        anchors.centerIn: parent
+                        text: t("history.privateBadge")
+                        color: theme.primary
+                        font.pixelSize: 9
+                        font.bold: true
+                    }
                 }
 
-                Item { Layout.fillWidth: true }
+                MutedText {
+                    Layout.fillWidth: true
+                    text: card.metaText
+                    color: card.emphasized ? theme.muted : theme.subtle
+                    font.pixelSize: 11
+                    elide: Text.ElideMiddle
 
-                ServiceStatusChip {
-                    Layout.maximumWidth: serviceStatusRow.width * 0.46
-                    text: card.trailingStatusText
-                    accentColor: card.trailingStatusColor
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                }
+            }
+        }
+
+        RowLayout {
+            id: serviceStatusRow
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: card.contentMargin
+            anchors.rightMargin: card.contentMargin
+            anchors.bottomMargin: Math.round(card.height * 0.1)
+            spacing: 6
+
+            ServiceStatusChip {
+                Layout.maximumWidth: serviceStatusRow.width * 0.42
+                text: card.leadingStatusText
+                accentColor: card.leadingStatusColor
+            }
+
+            Item { Layout.fillWidth: true }
+
+            ServiceStatusChip {
+                visible: !card.editing
+                Layout.maximumWidth: serviceStatusRow.width * 0.42
+                text: card.trailingStatusText
+                accentColor: card.trailingStatusColor
+            }
+
+            RowLayout {
+                spacing: 6
+                visible: card.editing
+
+                IconButton {
+                    implicitWidth: 30
+                    implicitHeight: 30
+                    text: "✎"
+                    onClicked: editRequested()
+                }
+
+                IconButton {
+                    implicitWidth: 30
+                    implicitHeight: 30
+                    text: "×"
+                    onClicked: deleteRequested()
                 }
             }
         }
 
         Rectangle {
+            id: cardLoadingLayer
             anchors.fill: parent
             anchors.margins: 1
             visible: card.loading || opacity > 0
             opacity: card.loading ? 1 : 0
             z: 2
-            radius: card.radius - 1
-            color: root.withAlpha(card.accentColor, darkTheme ? 0.10 : 0.07)
+            radius: card.tileRadius - 1
+            color: root.withAlpha(card.tileColor, darkTheme ? 0.72 : 0.66)
 
             Behavior on opacity {
                 NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
@@ -6952,8 +7176,8 @@ ApplicationWindow {
             Rectangle {
                 anchors.centerIn: parent
                 width: loadingStatusRow.implicitWidth + 26
-                height: 46
-                radius: 10
+                height: 44
+                radius: Math.min(10, card.tileRadius - 4)
                 color: darkTheme ? "#e61d232b" : "#f2ffffff"
                 border.color: root.withAlpha(card.accentColor, 0.42)
 
@@ -6965,7 +7189,7 @@ ApplicationWindow {
                     ThumbnailLoadingIcon {
                         anchors.verticalCenter: parent.verticalCenter
                         running: card.loading
-                        iconSize: 30
+                        iconSize: 28
                         accentColor: card.accentColor
                         backgroundVisible: false
                     }
@@ -6984,6 +7208,7 @@ ApplicationWindow {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
+                anchors.margins: 10
                 height: 3
                 clip: true
 
