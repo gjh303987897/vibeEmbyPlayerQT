@@ -871,86 +871,372 @@ ApplicationWindow {
         onOpened: appViewModel.refreshPrivacyCards()
     }
 
-    ModernDialog {
+    Dialog {
         id: serviceDialog
-        title: t("dialog.serviceTitle")
-        standardButtons: Dialog.Save | Dialog.Cancel
+        modal: true
+        anchors.centerIn: parent
+        padding: 0
         width: Math.min(root.width - 64, 540)
+        standardButtons: Dialog.Save | Dialog.Cancel
 
-        ColumnLayout {
-            width: parent.width
-            spacing: 12
+        // Service-type accent tint that recolors the top strip as the user
+        // switches between Emby / Jellyfin / IPTV / WebDAV.
+        readonly property color accent: root.serviceAccentColor(appViewModel.serviceType)
 
-            ModernComboBox {
-                Layout.fillWidth: true
-                model: ["Emby", "Jellyfin", "IPTV", "WebDAV"]
-                currentIndex: appViewModel.serviceType === "WebDAV" ? 3 : appViewModel.serviceType === "IPTV" ? 2 : appViewModel.serviceType === "Jellyfin" ? 1 : 0
-                onActivated: appViewModel.serviceType = currentText
+        // Slide transition state machine. Clicking a type chip only freezes the
+        // outgoing form's type and starts the slide; the state is committed when
+        // the animation actually finishes, so the forms never get rebound
+        // mid-flight.
+        readonly property var typeOrder: ["Emby", "Jellyfin", "IPTV", "WebDAV"]
+        // Type the incoming form is showing right now.
+        property string displayedType: appViewModel.serviceType
+        // Type frozen on the form that is sliding out; empty while idle.
+        property string exitingType: ""
+
+        function switchServiceType(nextType) {
+            if (nextType === appViewModel.serviceType) {
+                return
+            }
+            appViewModel.serviceType = nextType
+            // Direction follows the chip order: picking a type further right in
+            // the row slides the old form out to the left and flies the new one
+            // in from the right (and vice versa).
+            var oldIndex = typeOrder.indexOf(displayedType)
+            var newIndex = typeOrder.indexOf(nextType)
+            serviceFormViewport.slideDirection = newIndex >= oldIndex ? 1 : -1
+            exitingType = displayedType
+            displayedType = nextType
+            serviceFormViewport.startTransition()
+        }
+
+        onOpened: {
+            displayedType = appViewModel.serviceType
+            exitingType = ""
+        }
+
+        Overlay.modal: Rectangle {
+            color: root.withAlpha("#000000", darkTheme ? 0.62 : 0.30)
+        }
+
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 170; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 190; easing.type: Easing.OutCubic }
+        }
+
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120; easing.type: Easing.InCubic }
+            NumberAnimation { property: "scale"; from: 1; to: 0.98; duration: 120; easing.type: Easing.InCubic }
+        }
+
+        background: Item {
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -14
+                radius: 26
+                color: theme.shadow
+                opacity: darkTheme ? 0.45 : 0.30
             }
 
-            ModernTextField {
-                Layout.fillWidth: true
-                placeholderText: t("form.serviceName")
-                text: appViewModel.serverName
-                onTextChanged: appViewModel.serverName = text
+            Rectangle {
+                id: serviceDialogCard
+                anchors.fill: parent
+                radius: 14
+                color: theme.surface
+                border.color: theme.border
+                clip: true
+
+                // Accent strip along the top edge of the dialog.
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 4
+                    color: serviceDialog.accent
+
+                    Behavior on color { ColorAnimation { duration: 160 } }
+                }
+            }
+        }
+
+        header: Item {
+            implicitHeight: 64
+
+            Label {
+                anchors.fill: parent
+                anchors.leftMargin: 22
+                anchors.rightMargin: 22
+                text: t("dialog.serviceTitle")
+                color: theme.text
+                font.pixelSize: 18
+                font.bold: true
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
             }
 
-            ModernTextField {
-                Layout.fillWidth: true
-                visible: appViewModel.serviceType !== "IPTV"
-                placeholderText: appViewModel.serviceType === "WebDAV" ? t("form.webDavEndpoint") : t("form.serverUrl")
-                inputMethodHints: Qt.ImhUrlCharactersOnly
-                text: appViewModel.serverUrl
-                onTextChanged: appViewModel.serverUrl = text
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: theme.border
             }
+        }
 
-            ModernTextField {
-                Layout.fillWidth: true
-                visible: appViewModel.serviceType !== "IPTV"
-                placeholderText: t("form.username")
-                text: appViewModel.username
-                onTextChanged: appViewModel.username = text
-            }
+        contentItem: ColumnLayout {
+            spacing: 16
 
-            ModernTextField {
-                Layout.fillWidth: true
-                visible: appViewModel.serviceType !== "IPTV"
-                placeholderText: t("form.password")
-                echoMode: TextInput.Password
-                text: appViewModel.password
-                onTextChanged: appViewModel.password = text
-            }
+            Item { Layout.preferredHeight: 8 }
 
+            // Segmented service-type selector - brand glyphs instead of text labels.
             RowLayout {
                 Layout.fillWidth: true
-                visible: appViewModel.serviceType === "IPTV"
+                Layout.leftMargin: 22
+                Layout.rightMargin: 22
                 spacing: 10
 
-                ModernTextField {
-                    Layout.fillWidth: true
-                    readOnly: true
-                    placeholderText: t("iptv.filePlaceholder")
-                    text: appViewModel.iptvFilePath
-                }
+                Repeater {
+                    model: serviceDialog.typeOrder
 
-                ModernButton {
-                    text: t("iptv.chooseFile")
-                    onClicked: appViewModel.chooseIptvPlaylistFile()
+                    delegate: Button {
+                        id: serviceTypeChip
+                        required property string modelData
+                        readonly property bool selected: appViewModel.serviceType === modelData
+                        readonly property color chipAccent: root.serviceAccentColor(modelData)
+
+                        Layout.fillWidth: true
+                        implicitHeight: 52
+                        hoverEnabled: true
+                        Accessible.name: modelData
+                        ToolTip.visible: hovered
+                        ToolTip.text: modelData
+                        ToolTip.delay: 500
+                        onClicked: serviceDialog.switchServiceType(modelData)
+
+                        contentItem: Item {
+                            // "mark" mode paints the brand glyph in its own colour on a
+                            // transparent background; white when the chip is selected.
+                            Item {
+                                anchors.centerIn: parent
+                                width: 34
+                                height: 34
+                                opacity: serviceTypeChip.selected ? 0 : 1
+                                scale: serviceTypeChip.selected ? 0.82 : 1
+
+                                ServiceTypeIcon {
+                                    anchors.fill: parent
+                                    markMode: true
+                                    serviceType: serviceTypeChip.modelData
+                                    glyphRatio: 0.95
+                                }
+
+                                Behavior on opacity { NumberAnimation { duration: 120 } }
+                                Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                            }
+
+                            Item {
+                                anchors.centerIn: parent
+                                width: 34
+                                height: 34
+                                opacity: serviceTypeChip.selected ? 1 : 0
+                                scale: serviceTypeChip.selected ? 1 : 0.82
+
+                                ServiceTypeIcon {
+                                    anchors.fill: parent
+                                    markMode: true
+                                    serviceType: serviceTypeChip.modelData
+                                    glyphColor: "#ffffff"
+                                    glyphRatio: 0.95
+                                }
+
+                                Behavior on opacity { NumberAnimation { duration: 120 } }
+                                Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                            }
+                        }
+
+                        background: Rectangle {
+                            radius: 10
+                            color: serviceTypeChip.selected
+                                ? serviceTypeChip.chipAccent
+                                : serviceTypeChip.hovered
+                                    ? root.withAlpha(serviceTypeChip.chipAccent, darkTheme ? 0.16 : 0.09)
+                                    : theme.input
+                            border.color: serviceTypeChip.selected
+                                ? serviceTypeChip.chipAccent
+                                : serviceTypeChip.hovered
+                                    ? serviceTypeChip.chipAccent
+                                    : theme.border
+
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            Behavior on border.color { ColorAnimation { duration: 120 } }
+                        }
+                    }
                 }
             }
 
-            ModernCheckBox {
-                visible: appViewModel.serviceType !== "IPTV"
-                text: t("form.autoLogin")
-                checked: appViewModel.autoLogin
-                onToggled: appViewModel.autoLogin = checked
+            // Form fields, grouped inside a subtle card. The card height is fixed so
+            // the dialog keeps the same size for every service type; switching types
+            // slides the outgoing form out to one side while the incoming form flies
+            // in from the other side.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.leftMargin: 22
+                Layout.rightMargin: 22
+                Layout.preferredHeight: 300
+                radius: 12
+                color: root.withAlpha(theme.input, darkTheme ? 0.55 : 1.0)
+                border.color: theme.border
+                clip: true
+
+                Item {
+                    id: serviceFormViewport
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    // true while the slide runs. The incoming form's resting opacity
+                    // is 1 and its resting x is 0, so releasing this flag right when
+                    // the slide ends leaves both properties at exactly the values the
+                    // animation finished on - no snap, no extra reset frame needed.
+                    property bool transitioning: false
+                    // +1 slides the outgoing form left and flies the incoming form
+                    // in from the right; -1 runs the reverse.
+                    property int slideDirection: 1
+                    // Horizontal travel distance for the fly-out / fly-in, scaled to
+                    // the viewport but capped so wide dialogs stay snappy.
+                    readonly property real slideDistance: Math.min(width * 0.4, 180)
+
+                    function startTransition() {
+                        transitioning = true
+                        serviceFormSlide.restart()
+                    }
+
+                    function finishTransition() {
+                        transitioning = false
+                        serviceDialog.exitingType = ""
+                    }
+
+                    // Outgoing form, frozen at the type the user just left.
+                    // The slide distance is applied through a Translate transform
+                    // because anchors.fill owns the x coordinate and would reset
+                    // any direct x animation back to 0.
+                    ServiceDialogForm {
+                        id: serviceOutgoingForm
+                        anchors.fill: parent
+                        formType: serviceDialog.exitingType
+                        visible: formType.length > 0
+                        opacity: 0
+                        transform: Translate { id: serviceOutgoingSlide }
+                    }
+
+                    // Incoming form, showing the newly selected type.
+                    ServiceDialogForm {
+                        id: serviceIncomingForm
+                        anchors.fill: parent
+                        formType: serviceDialog.displayedType
+                        opacity: serviceFormViewport.transitioning ? 0 : 1
+                        transform: Translate {
+                            id: serviceIncomingSlide
+                            x: serviceFormViewport.transitioning
+                                ? serviceFormViewport.slideDirection * serviceFormViewport.slideDistance
+                                : 0
+                        }
+                    }
+
+                    // Parallel slide: the outgoing form flies out to one side while
+                    // fading, the incoming form flies in from the opposite side. The
+                    // card above clips both forms so they never paint outside it.
+                    // Committing the state on finish leaves opacity/Translate.x at
+                    // exactly the resting binding values, so the hand-back is
+                    // seamless.
+                    ParallelAnimation {
+                        id: serviceFormSlide
+                        NumberAnimation {
+                            target: serviceOutgoingSlide
+                            property: "x"
+                            from: 0
+                            to: -serviceFormViewport.slideDirection * serviceFormViewport.slideDistance
+                            duration: 230
+                            easing.type: Easing.InCubic
+                        }
+                        NumberAnimation {
+                            target: serviceOutgoingForm
+                            property: "opacity"
+                            from: 1
+                            to: 0
+                            duration: 180
+                            easing.type: Easing.InCubic
+                        }
+                        NumberAnimation {
+                            target: serviceIncomingSlide
+                            property: "x"
+                            from: serviceFormViewport.slideDirection * serviceFormViewport.slideDistance
+                            to: 0
+                            duration: 260
+                            easing.type: Easing.OutCubic
+                        }
+                        NumberAnimation {
+                            target: serviceIncomingForm
+                            property: "opacity"
+                            from: 0
+                            to: 1
+                            duration: 220
+                            easing.type: Easing.OutCubic
+                        }
+                        onFinished: serviceFormViewport.finishTransition()
+                    }
+                }
             }
 
-            ModernCheckBox {
-                visible: appViewModel.serviceType !== "IPTV"
-                text: t("form.selfSigned")
-                checked: appViewModel.trustSelfSignedCertificate
-                onToggled: appViewModel.trustSelfSignedCertificate = checked
+            Item { Layout.preferredHeight: 4 }
+        }
+
+        footer: DialogButtonBox {
+            standardButtons: serviceDialog.standardButtons
+            alignment: Qt.AlignRight
+            spacing: 10
+            padding: 16
+            background: Item {
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 1
+                    color: theme.border
+                }
+            }
+            delegate: Button {
+                id: dialogButton
+                // DialogButtonBox does not expose the role through its delegate,
+                // so infer the primary action from the translated caption. `t()`
+                // depends on the runtime translation revision, so keep this a plain
+                // (non-readonly) property to preserve live re-evaluation.
+                property bool isPrimary: text === t("action.save")
+                implicitHeight: 38
+                leftPadding: 18
+                rightPadding: 18
+                font.pixelSize: 13
+                font.bold: true
+                contentItem: Label {
+                    text: dialogButton.text
+                    color: dialogButton.enabled
+                        ? (dialogButton.isPrimary ? "#ffffff" : theme.text)
+                        : theme.subtle
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    font: dialogButton.font
+                }
+                background: Rectangle {
+                    radius: 9
+                    color: dialogButton.isPrimary
+                        ? (dialogButton.down ? theme.primaryHover : theme.primary)
+                        : dialogButton.down ? theme.primary
+                        : dialogButton.hovered ? theme.elevatedHover
+                        : theme.elevated
+                    border.color: dialogButton.isPrimary
+                        ? "transparent"
+                        : dialogButton.hovered ? theme.primary : theme.border
+
+                    Behavior on color { ColorAnimation { duration: 110 } }
+                }
             }
         }
 
@@ -6557,6 +6843,93 @@ ApplicationWindow {
         }
     }
 
+    // Service-dialog form body, driven entirely by `formType` so the add-service
+    // dialog can keep one outgoing and one incoming copy alive during the
+    // slide transition between service types.
+    component ServiceDialogForm: ColumnLayout {
+        id: serviceDialogForm
+        property string formType: "Emby"
+        readonly property bool isIptv: formType === "IPTV"
+
+        spacing: 12
+
+        ModernTextField {
+            Layout.fillWidth: true
+            placeholderText: t("form.serviceName")
+            text: appViewModel.serverName
+            onTextChanged: appViewModel.serverName = text
+        }
+
+        ModernTextField {
+            Layout.fillWidth: true
+            visible: !serviceDialogForm.isIptv
+            placeholderText: serviceDialogForm.formType === "WebDAV" ? t("form.webDavEndpoint") : t("form.serverUrl")
+            inputMethodHints: Qt.ImhUrlCharactersOnly
+            text: appViewModel.serverUrl
+            onTextChanged: appViewModel.serverUrl = text
+        }
+
+        ModernTextField {
+            Layout.fillWidth: true
+            visible: !serviceDialogForm.isIptv
+            placeholderText: t("form.username")
+            text: appViewModel.username
+            onTextChanged: appViewModel.username = text
+        }
+
+        ModernTextField {
+            Layout.fillWidth: true
+            visible: !serviceDialogForm.isIptv
+            placeholderText: t("form.password")
+            echoMode: TextInput.Password
+            text: appViewModel.password
+            onTextChanged: appViewModel.password = text
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: serviceDialogForm.isIptv
+            spacing: 10
+
+            ModernTextField {
+                Layout.fillWidth: true
+                readOnly: true
+                placeholderText: t("iptv.filePlaceholder")
+                text: appViewModel.iptvFilePath
+            }
+
+            ModernButton {
+                text: t("iptv.chooseFile")
+                onClicked: appViewModel.chooseIptvPlaylistFile()
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            visible: !serviceDialogForm.isIptv
+            color: theme.border
+        }
+
+        ModernCheckBox {
+            visible: !serviceDialogForm.isIptv
+            text: t("form.autoLogin")
+            checked: appViewModel.autoLogin
+            onToggled: appViewModel.autoLogin = checked
+        }
+
+        ModernCheckBox {
+            visible: !serviceDialogForm.isIptv
+            text: t("form.selfSigned")
+            checked: appViewModel.trustSelfSignedCertificate
+            onToggled: appViewModel.trustSelfSignedCertificate = checked
+        }
+
+        // Absorbs the leftover card height so the dialog keeps one fixed size
+        // no matter which service type is showing.
+        Item { Layout.fillHeight: true }
+    }
+
     component ServiceTypeIcon: Item {
         id: serviceIcon
         property string serviceType: ""
@@ -6565,11 +6938,13 @@ ApplicationWindow {
         // "plate" (default) keeps the coloured badge used by headers, dialogs and side pages.
         property bool markMode: false
         property real glyphRatio: 0.66
-        readonly property string normalizedType: serviceType.toLowerCase()
-        readonly property color accentColor: root.serviceAccentColor(serviceType)
-        readonly property color glyphColor: markMode
+        // Overridable so callers can force a specific glyph colour (e.g. white on a
+        // filled chip); defaults to the brand-tinted mark / white-on-plate ramp.
+        property color glyphColor: markMode
             ? (darkTheme ? Qt.lighter(accentColor, 1.18) : Qt.darker(accentColor, 1.06))
             : "#ffffff"
+        readonly property string normalizedType: serviceType.toLowerCase()
+        readonly property color accentColor: root.serviceAccentColor(serviceType)
         readonly property color voidColor: markMode ? "#ff000000" : accentColor
         readonly property real canvasBox: markMode
             ? Math.max(12, Math.round(Math.min(width, height) * glyphRatio))
