@@ -16400,22 +16400,32 @@ ApplicationWindow {
         }
     }
 
-    component SettingsPage: Flickable {
-        id: settingsFlick
+    component SettingsPage: Item {
+        id: settingsPage
         property string oldPrivacyPin: ""
         property string newPrivacyPin: ""
         property string confirmPrivacyPin: ""
         property string tsslBackupSecretDraft: ""
         property bool updateDialogShown: false
-        contentWidth: width
-        contentHeight: settingsColumn.implicitHeight
-        clip: true
+        // Selected settings category shown in the right-hand panel.
+        property int currentCategory: 0
+
+        // One entry per left-nav item; `groups` lists the SettingsGroup ids
+        // that make up the category's right-hand content, in display order.
+        readonly property var categories: [
+            { title: t("settings.appearance"), groups: [appearanceGroup] },
+            { title: t("settings.category.general"), groups: [desktopGroup, historyGroup, privacyGroup] },
+            { title: t("settings.recommendations"), groups: [recommendationsGroup] },
+            { title: t("settings.webdav"), groups: [webdavGroup] },
+            { title: t("settings.tsslBackup"), groups: [tsslBackupGroup] },
+            { title: t("settings.updates"), groups: [updatesGroup] }
+        ]
 
         Connections {
             target: appViewModel
             function onUpdateStateChanged() {
-                if (appViewModel.updateAvailable && !settingsFlick.updateDialogShown) {
-                    settingsFlick.updateDialogShown = true
+                if (appViewModel.updateAvailable && !settingsPage.updateDialogShown) {
+                    settingsPage.updateDialogShown = true
                     updateDialog.open()
                 }
             }
@@ -16425,7 +16435,7 @@ ApplicationWindow {
             id: updateDialog
             title: t("updates.latest")
             standardButtons: Dialog.Cancel
-            width: Math.min(settingsFlick.width - 24, 560)
+            width: Math.min(settingsPage.width - 24, 560)
 
             Label {
                 Layout.fillWidth: true
@@ -16460,10 +16470,10 @@ ApplicationWindow {
         }
 
         function savePrivacyPin() {
-            if (appViewModel.changePrivacyPin(settingsFlick.oldPrivacyPin, settingsFlick.newPrivacyPin, settingsFlick.confirmPrivacyPin)) {
-                settingsFlick.oldPrivacyPin = ""
-                settingsFlick.newPrivacyPin = ""
-                settingsFlick.confirmPrivacyPin = ""
+            if (appViewModel.changePrivacyPin(settingsPage.oldPrivacyPin, settingsPage.newPrivacyPin, settingsPage.confirmPrivacyPin)) {
+                settingsPage.oldPrivacyPin = ""
+                settingsPage.newPrivacyPin = ""
+                settingsPage.confirmPrivacyPin = ""
             }
         }
 
@@ -16476,13 +16486,124 @@ ApplicationWindow {
             return -1
         }
 
-        ColumnLayout {
-            id: settingsColumn
-            width: Math.min(settingsFlick.width, 760)
+        // Left navigation column. Selecting an item swaps the groups shown in
+        // the right-hand panel; the panel itself keeps scrolling.
+        RowLayout {
+            anchors.fill: parent
             spacing: 18
 
-            SettingsGroup {
-                title: t("settings.appearance")
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.preferredWidth: 190
+                Layout.topMargin: 2
+                Layout.bottomMargin: 2
+                radius: 12
+                color: theme.surface
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 2
+
+                    Repeater {
+                        model: settingsPage.categories
+
+                        delegate: Button {
+                            id: settingsNavButton
+                            required property int index
+                            required property var modelData
+                            readonly property bool selected: settingsPage.currentCategory === index
+
+                            Layout.fillWidth: true
+                            implicitHeight: 40
+                            hoverEnabled: true
+                            Accessible.name: modelData.title
+                            onClicked: settingsPage.currentCategory = index
+
+                            contentItem: Label {
+                                text: settingsNavButton.modelData.title
+                                color: settingsNavButton.selected ? theme.primary : theme.text
+                                font.pixelSize: 13
+                                font.bold: settingsNavButton.selected
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+
+                            background: Rectangle {
+                                radius: 8
+                                color: settingsNavButton.selected
+                                    ? root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.10)
+                                    : settingsNavButton.hovered ? theme.elevatedHover : "transparent"
+
+                                // Accent tick on the selected item's left edge.
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 3
+                                    height: 18
+                                    radius: 1.5
+                                    color: theme.primary
+                                    visible: settingsNavButton.selected
+                                }
+
+                                Behavior on color { ColorAnimation { duration: 110 } }
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+            }
+
+            // Right-hand content panel. Only the selected category's groups are
+            // instantiated, so hidden categories cost nothing.
+            Flickable {
+                id: settingsFlick
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: width
+                contentHeight: settingsColumn.implicitHeight
+                clip: true
+
+                ColumnLayout {
+                    id: settingsColumn
+                    width: settingsFlick.width
+                    spacing: 18
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: settingsPage.categories[settingsPage.currentCategory].title
+                        color: theme.text
+                        font.pixelSize: 20
+                        font.bold: true
+                    }
+
+                    Repeater {
+                        model: settingsPage.categories[settingsPage.currentCategory].groups
+
+                        delegate: ColumnLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 18
+                            data: [modelData]
+                        }
+                    }
+                }
+            }
+        }
+
+        // Settings groups, one per section. They are parented into the
+        // right-hand panel by the Repeater above whenever their category is
+        // selected.
+        Item {
+            visible: false
+            width: 0
+            height: 0
+
+        SettingsGroup {
+            id: appearanceGroup
+            title: t("settings.appearance")
 
                 SettingRow {
                     label: t("settings.theme")
@@ -16561,6 +16682,7 @@ ApplicationWindow {
             }
 
             SettingsGroup {
+                id: desktopGroup
                 title: t("settings.desktop")
 
                 SettingRow {
@@ -16574,6 +16696,7 @@ ApplicationWindow {
             }
 
             SettingsGroup {
+                id: historyGroup
                 title: t("settings.history")
 
                 SettingRow {
@@ -16603,6 +16726,7 @@ ApplicationWindow {
             }
 
             SettingsGroup {
+                id: recommendationsGroup
                 title: t("settings.recommendations")
 
                 SettingRow {
@@ -16685,6 +16809,7 @@ ApplicationWindow {
             }
 
             SettingsGroup {
+                id: updatesGroup
                 title: t("settings.updates")
 
                 SettingRow {
@@ -16782,6 +16907,7 @@ ApplicationWindow {
             }
 
             SettingsGroup {
+                id: privacyGroup
                 title: t("settings.privacy")
 
                 SettingRow {
@@ -16802,8 +16928,8 @@ ApplicationWindow {
                             placeholderText: t("privacy.oldPin")
                             echoMode: TextInput.Password
                             inputMethodHints: Qt.ImhDigitsOnly
-                            text: settingsFlick.oldPrivacyPin
-                            onTextChanged: settingsFlick.oldPrivacyPin = text
+                            text: settingsPage.oldPrivacyPin
+                            onTextChanged: settingsPage.oldPrivacyPin = text
                         }
 
                         ModernTextField {
@@ -16811,8 +16937,8 @@ ApplicationWindow {
                             placeholderText: t("privacy.newPin")
                             echoMode: TextInput.Password
                             inputMethodHints: Qt.ImhDigitsOnly
-                            text: settingsFlick.newPrivacyPin
-                            onTextChanged: settingsFlick.newPrivacyPin = text
+                            text: settingsPage.newPrivacyPin
+                            onTextChanged: settingsPage.newPrivacyPin = text
                         }
 
                         ModernTextField {
@@ -16820,21 +16946,22 @@ ApplicationWindow {
                             placeholderText: t("privacy.confirmPin")
                             echoMode: TextInput.Password
                             inputMethodHints: Qt.ImhDigitsOnly
-                            text: settingsFlick.confirmPrivacyPin
-                            onTextChanged: settingsFlick.confirmPrivacyPin = text
-                            onAccepted: settingsFlick.savePrivacyPin()
+                            text: settingsPage.confirmPrivacyPin
+                            onTextChanged: settingsPage.confirmPrivacyPin = text
+                            onAccepted: settingsPage.savePrivacyPin()
                         }
 
                         ModernButton {
                             id: privacyPinSaveButton
                             text: appViewModel.privacyPinConfigured ? t("privacy.changePin") : t("privacy.setPin")
-                            onClicked: settingsFlick.savePrivacyPin()
+                            onClicked: settingsPage.savePrivacyPin()
                         }
                     }
                 }
             }
 
             SettingsGroup {
+                id: tsslBackupGroup
                 title: t("settings.tsslBackup")
 
                 SettingRow {
@@ -16883,7 +17010,7 @@ ApplicationWindow {
                         textRole: "name"
                         valueRole: "id"
                         model: appViewModel.tsslBackupWebDavServices
-                        currentIndex: settingsFlick.tsslBackupWebDavServiceIndex()
+                        currentIndex: settingsPage.tsslBackupWebDavServiceIndex()
                         onActivated: appViewModel.tsslBackupWebDavServiceId = model[index].id
                     }
                 }
@@ -16963,14 +17090,14 @@ ApplicationWindow {
                             placeholderText: appViewModel.tsslBackupS3SecretConfigured
                                 ? t("tsslBackup.secretConfigured") : t("tsslBackup.secretPlaceholder")
                             echoMode: TextInput.Password
-                            text: settingsFlick.tsslBackupSecretDraft
-                            onTextChanged: settingsFlick.tsslBackupSecretDraft = text
+                            text: settingsPage.tsslBackupSecretDraft
+                            onTextChanged: settingsPage.tsslBackupSecretDraft = text
                         }
                         ModernButton {
                             text: t("tsslBackup.saveSecret")
                             onClicked: {
-                                appViewModel.setTsslBackupS3Secret(settingsFlick.tsslBackupSecretDraft)
-                                settingsFlick.tsslBackupSecretDraft = ""
+                                appViewModel.setTsslBackupS3Secret(settingsPage.tsslBackupSecretDraft)
+                                settingsPage.tsslBackupSecretDraft = ""
                             }
                         }
                     }
@@ -17011,6 +17138,7 @@ ApplicationWindow {
             }
 
             SettingsGroup {
+                id: webdavGroup
                 title: t("settings.webdav")
 
                 SettingRow {
