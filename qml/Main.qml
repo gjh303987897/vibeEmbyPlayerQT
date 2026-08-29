@@ -7400,8 +7400,14 @@ ApplicationWindow {
 
         Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
         Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 120 } }
+        // Scale around the card's top edge instead of the center: the grid
+        // cells sit flush against the content top, so a center-based hover
+        // scale pushes the enlarged card above the scroll area where the
+        // page clip cuts it off.
+        transformOrigin: Item.Top
+
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
         function beginDrag() {
             dragStartX = x
@@ -7534,6 +7540,100 @@ ApplicationWindow {
             onCenterXChanged: requestPaint()
             onCenterYChanged: requestPaint()
             onMarkSizeChanged: requestPaint()
+        }
+
+        // Sheen sweep: on hover a diagonal band of light travels once across
+        // the card. Painted on a Canvas so the band can be clipped to the
+        // tile's rounded corners.
+        Canvas {
+            id: sheenCanvas
+            anchors.fill: parent
+            opacity: 0
+            // -1 parks the band just left of the card; 1 clears the right
+            // edge.  Only driven by the sweep animation, never by bindings.
+            property real sweepPosition: -1
+
+            onPaint: {
+                var context = getContext("2d")
+                context.setTransform(1, 0, 0, 1, 0, 0)
+                context.clearRect(0, 0, width, height)
+                if (opacity <= 0 || sweepPosition <= -1 || sweepPosition >= 1) {
+                    return
+                }
+                context.save()
+                emblemHalo.roundRect(context, 1, 1, width - 2, height - 2,
+                    Math.max(1, card.tileRadius - 1))
+                context.clip()
+
+                // Slanted band: the x range is widened by the slant so the
+                // band's top and bottom edges enter/leave fully off-card.
+                var slant = height * 0.35
+                var bandWidth = Math.max(50, width * 0.24)
+                var bandCenter = sweepPosition * (width + slant + bandWidth * 2) - bandWidth
+                var sheen = context.createLinearGradient(bandCenter - bandWidth / 2, 0,
+                    bandCenter + bandWidth / 2, 0)
+                var peak = darkTheme ? 0.16 : 0.20
+                sheen.addColorStop(0.0, "rgba(255, 255, 255, 0)")
+                sheen.addColorStop(0.5, "rgba(255, 255, 255, " + peak + ")")
+                sheen.addColorStop(1.0, "rgba(255, 255, 255, 0)")
+                context.fillStyle = sheen
+
+                context.beginPath()
+                context.moveTo(bandCenter - slant / 2 - bandWidth / 2, 0)
+                context.lineTo(bandCenter + slant / 2 + bandWidth / 2, 0)
+                context.lineTo(bandCenter - slant / 2 + bandWidth / 2, height)
+                context.lineTo(bandCenter - slant / 2 - bandWidth / 2, height)
+                context.closePath()
+                context.fill()
+                context.restore()
+            }
+
+            onSweepPositionChanged: requestPaint()
+
+            SequentialAnimation {
+                id: sheenSweep
+                NumberAnimation {
+                    target: sheenCanvas
+                    property: "opacity"
+                    to: 1
+                    duration: 60
+                }
+                NumberAnimation {
+                    target: sheenCanvas
+                    property: "sweepPosition"
+                    from: -1
+                    to: 1
+                    duration: 640
+                    easing.type: Easing.InOutQuad
+                }
+                NumberAnimation {
+                    target: sheenCanvas
+                    property: "opacity"
+                    to: 0
+                    duration: 120
+                }
+            }
+
+            // Debounce: the sweep only fires after the pointer has rested on
+            // the card for 300ms, so skimming across the grid does not light
+            // up every tile on the way.
+            Timer {
+                id: sheenDebounce
+                interval: 300
+                onTriggered: sheenSweep.restart()
+            }
+
+            Connections {
+                target: cardMouse
+                function onEntered() {
+                    if (!card.editing && !cardMouse.drag.active) {
+                        sheenDebounce.restart()
+                    }
+                }
+                function onExited() {
+                    sheenDebounce.stop()
+                }
+            }
         }
 
         // Lower falloff, so the tile reads as a solid object instead of a flat swatch.
