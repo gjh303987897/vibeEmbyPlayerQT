@@ -443,6 +443,7 @@ if(BUILD_TESTING)
         src/models/LinkPlaybackHistoryItem.h
         src/viewmodels/LinkPlaybackHistoryListModel.cpp
         src/viewmodels/LinkPlaybackHistoryListModel.h
+        tests/TimeFixtures.h
     )
     target_include_directories(link_playback_history_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -474,6 +475,7 @@ if(BUILD_TESTING)
         src/models/UserSession.h
         src/viewmodels/PlaybackHistoryListModel.cpp
         src/viewmodels/PlaybackHistoryListModel.h
+        tests/TimeFixtures.h
     )
     target_include_directories(playback_history_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -501,6 +503,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_link_libraries(webdav_download_planner_test PRIVATE
+        Qt6::Concurrent
         Qt6::Network
         Qt6::Test
         Qt6::Xml
@@ -627,6 +630,7 @@ if(BUILD_TESTING)
         Qt6::Concurrent
         Qt6::Network
         Qt6::Test
+        Qt6::Xml
         ${VIBE_CRYPTO_LIBRARIES}
     )
 

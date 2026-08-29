@@ -39,6 +39,7 @@ tests/*
 !tests/IptvPlaylistStoreTest.cpp
 !tests/EmbyRecommendationCacheTest.cpp
 !tests/UpdateServiceTest.cpp
+!tests/TimeFixtures.h
 test-runtime/
 local-data/
 local-data*/

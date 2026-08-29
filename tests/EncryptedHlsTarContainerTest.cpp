@@ -1,6 +1,7 @@
 #include "services/encryptedhls/EncryptedHlsTarContainer.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QProcess>
 #include <QStandardPaths>
@@ -61,7 +62,13 @@ void EncryptedHlsTarContainerTest::createsIndexedTarAndReadsEntries()
     const auto tarExecutable = QStandardPaths::findExecutable(QStringLiteral("tar"));
     if (!tarExecutable.isEmpty()) {
         QProcess tar;
-        tar.start(tarExecutable, { QStringLiteral("-tf"), archivePath });
+        // Run against the file name from inside its own directory: the MSYS build of GNU tar that a
+        // git-bash shell puts on PATH reads "D:/path/archive.tar" as user D: on host path, fails with
+        // exit 128 and turns this portability check into a false local failure. bsdtar (the tar on a
+        // clean Windows PATH) and GNU tar on Linux/macOS both accept the relative form.
+        const auto archiveInfo = QFileInfo(archivePath);
+        tar.setWorkingDirectory(archiveInfo.absolutePath());
+        tar.start(tarExecutable, { QStringLiteral("-tf"), archiveInfo.fileName() });
         QVERIFY(tar.waitForFinished(5000));
         QCOMPARE(tar.exitStatus(), QProcess::NormalExit);
         QCOMPARE(tar.exitCode(), 0);

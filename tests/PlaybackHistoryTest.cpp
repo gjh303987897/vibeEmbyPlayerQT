@@ -1,11 +1,14 @@
 #include "database/SessionRepository.h"
 #include "viewmodels/PlaybackHistoryListModel.h"
+#include "TimeFixtures.h"
 
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtTest>
+
+using namespace TimeFixtures;
 
 class PlaybackHistoryTest final : public QObject {
     Q_OBJECT
@@ -61,20 +64,20 @@ void PlaybackHistoryTest::persistsFiltersUpdatesAndDeletesRecords()
     const auto older = historyItem(QStringLiteral("older"),
                                    PlaybackHistorySource::Local,
                                    QStringLiteral("C:/Media/older.mkv"),
-                                   QStringLiteral("2026-07-28T08:00:00Z"));
+                                   stampAt(2, 8, 0));
     const auto newer = historyItem(QStringLiteral("newer"),
                                    PlaybackHistorySource::Emby,
                                    QStringLiteral("item-42"),
-                                   QStringLiteral("2026-07-29T09:30:00Z"));
+                                   stampAt(1, 9, 30));
     const auto privateItem = historyItem(QStringLiteral("private"),
                                          PlaybackHistorySource::Link,
                                          QStringLiteral("https://example.com/private.m3u8"),
-                                         QStringLiteral("2026-07-30T10:00:00Z"),
+                                         stampAt(0, 10, 0),
                                          true);
     const auto latestSameItem = historyItem(QStringLiteral("latest-same-item"),
                                             PlaybackHistorySource::Emby,
                                             QStringLiteral("item-42"),
-                                            QStringLiteral("2026-07-29T11:00:00Z"));
+                                            stampAt(1, 11, 0));
     QVERIFY(repository.savePlaybackHistory(older).has_value());
     QVERIFY(repository.savePlaybackHistory(newer).has_value());
     QVERIFY(repository.savePlaybackHistory(latestSameItem).has_value());
@@ -108,7 +111,7 @@ void PlaybackHistoryTest::persistsFiltersUpdatesAndDeletesRecords()
                                                      315,
                                                      600,
                                                      true,
-                                                     QDateTime::fromString(QStringLiteral("2026-07-29T11:06:00Z"), Qt::ISODate))
+                                                     playedAt(1, 11, 6))
                 .has_value());
     const auto updated = repository.loadPlaybackHistory(true, 0, 20, PlaybackHistorySource::Emby);
     QVERIFY(updated.has_value());
@@ -139,7 +142,7 @@ void PlaybackHistoryTest::keepsSameTargetFromDifferentServices()
         QStringLiteral("first-service"),
         PlaybackHistorySource::Emby,
         QStringLiteral("item-42"),
-        QStringLiteral("2026-07-29T10:00:00Z"));
+        stampAt(1, 10, 0));
     first.serviceId = QStringLiteral("emby-service-1");
     first.serviceName = QStringLiteral("Emby One");
     first.title = QStringLiteral("Shared Movie");
@@ -148,7 +151,7 @@ void PlaybackHistoryTest::keepsSameTargetFromDifferentServices()
     second.id = QStringLiteral("second-service");
     second.serviceId = QStringLiteral("emby-service-2");
     second.serviceName = QStringLiteral("Emby Two");
-    second.playedAt = QDateTime::fromString(QStringLiteral("2026-07-29T11:00:00Z"), Qt::ISODate);
+    second.playedAt = playedAt(1, 11, 0);
 
     QVERIFY(repository.savePlaybackHistory(first).has_value());
     QVERIFY(repository.savePlaybackHistory(second).has_value());
@@ -170,16 +173,16 @@ void PlaybackHistoryTest::supportsDateManagement()
     const auto firstDay = historyItem(QStringLiteral("first-day"),
                                       PlaybackHistorySource::Local,
                                       QStringLiteral("C:/Media/first-day.mkv"),
-                                      QStringLiteral("2026-07-29T08:00:00Z"));
+                                      stampAt(1, 8, 0));
     const auto firstDayPrivate = historyItem(QStringLiteral("first-day-private"),
                                              PlaybackHistorySource::Link,
                                              QStringLiteral("https://example.com/private.m3u8"),
-                                             QStringLiteral("2026-07-29T09:00:00Z"),
+                                             stampAt(1, 9, 0),
                                              true);
     const auto secondDay = historyItem(QStringLiteral("second-day"),
                                        PlaybackHistorySource::Local,
                                        QStringLiteral("C:/Media/second-day.mkv"),
-                                       QStringLiteral("2026-07-30T08:00:00Z"));
+                                       stampAt(0, 8, 0));
     QVERIFY(repository.savePlaybackHistory(firstDay).has_value());
     QVERIFY(repository.savePlaybackHistory(firstDayPrivate).has_value());
     QVERIFY(repository.savePlaybackHistory(secondDay).has_value());
@@ -334,8 +337,8 @@ void PlaybackHistoryTest::migratesExistingLinkHistory()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const auto databasePath = directory.filePath(QStringLiteral("migration.sqlite3"));
-    const auto olderPlayedAt = QDateTime::fromString(QStringLiteral("2026-07-28T09:30:00Z"), Qt::ISODate);
-    const auto latestPlayedAt = QDateTime::fromString(QStringLiteral("2026-07-29T09:30:00Z"), Qt::ISODate);
+    const auto olderPlayedAt = playedAt(2, 9, 30);
+    const auto latestPlayedAt = playedAt(1, 9, 30);
 
     {
         const auto connectionName = uniqueConnectionName();
@@ -403,9 +406,10 @@ void PlaybackHistoryTest::deduplicatesExistingGlobalHistory()
         QVERIFY(query.exec(QStringLiteral(
             "INSERT INTO playback_history VALUES "
             "('duplicate-older', 'Emby', 'service-1', 'Server One', 'item-42', 'Older title', '', "
-            "'2026-07-28', '2026-07-28T08:00:00.000Z', '2026-07-28T08:00:00.000Z', 120, 600, 0, 0), "
+            "'%1', '%2', '%2', 120, 600, 0, 0), "
             "('duplicate-latest', 'Emby', 'service-1', 'Server One', 'item-42', 'Latest title', '', "
-            "'2026-07-29', '2026-07-29T08:00:00.000Z', '2026-07-29T08:00:00.000Z', 240, 600, 0, 0)")));
+            "'%3', '%4', '%4', 240, 600, 0, 0)")
+            .arg(dateAt(2), stampWithMsAt(2, 8, 0), dateAt(1), stampWithMsAt(1, 8, 0))));
         database.close();
     }
     QSqlDatabase::removeDatabase(connectionName);

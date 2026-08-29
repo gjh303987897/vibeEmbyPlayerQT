@@ -1,9 +1,12 @@
 #include "database/SessionRepository.h"
 #include "viewmodels/LinkPlaybackHistoryListModel.h"
+#include "TimeFixtures.h"
 
 #include <QTemporaryDir>
 #include <QUuid>
 #include <QtTest>
+
+using namespace TimeFixtures;
 
 class LinkPlaybackHistoryTest final : public QObject {
     Q_OBJECT
@@ -45,21 +48,21 @@ void LinkPlaybackHistoryTest::persistsOrdersAndDeletesIndividualRecords()
 
     const auto older = historyItem(QStringLiteral("older"),
                                    QStringLiteral("https://media.example.com/older.mp4"),
-                                   QStringLiteral("2026-07-28"),
-                                   QStringLiteral("2026-07-28T08:00:00Z"));
+                                   dateAt(2),
+                                   stampAt(2, 8, 0));
     const auto newer = historyItem(QStringLiteral("newer"),
                                    QStringLiteral("https://media.example.com/live/index.m3u8?token=abc%2F123"),
-                                   QStringLiteral("2026-07-29"),
-                                   QStringLiteral("2026-07-29T09:30:00Z"));
+                                   dateAt(1),
+                                   stampAt(1, 9, 30));
     const auto privateItem = historyItem(QStringLiteral("private"),
                                          QStringLiteral("https://media.example.com/private.m3u8"),
-                                         QStringLiteral("2026-07-30"),
-                                         QStringLiteral("2026-07-30T10:00:00Z"),
+                                         dateAt(0),
+                                         stampAt(0, 10, 0),
                                          true);
     const auto latestSameLink = historyItem(QStringLiteral("latest-same-link"),
                                             QStringLiteral("https://media.example.com/live/index.m3u8?token=abc%2F123"),
-                                            QStringLiteral("2026-07-29"),
-                                            QStringLiteral("2026-07-29T11:00:00Z"));
+                                            dateAt(1),
+                                            stampAt(1, 11, 0));
     QVERIFY(repository.saveLinkPlaybackHistory(older).has_value());
     QVERIFY(repository.saveLinkPlaybackHistory(newer).has_value());
     QVERIFY(repository.saveLinkPlaybackHistory(latestSameLink).has_value());
@@ -69,7 +72,7 @@ void LinkPlaybackHistoryTest::persistsOrdersAndDeletesIndividualRecords()
     QVERIFY(loaded.has_value());
     QCOMPARE(loaded->size(), size_t { 2 });
     QCOMPARE(loaded->at(0).id, QStringLiteral("latest-same-link"));
-    QCOMPARE(loaded->at(0).playedDate, QDate(2026, 7, 29));
+    QCOMPARE(loaded->at(0).playedDate, dayAt(1));
     QCOMPARE(loaded->at(0).playbackUrl.query(QUrl::FullyEncoded), QStringLiteral("token=abc%2F123"));
     QCOMPARE(loaded->at(1).id, QStringLiteral("older"));
 

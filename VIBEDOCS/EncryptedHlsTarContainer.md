@@ -36,3 +36,7 @@
 - 使用 POSIX/PAX 以保持跨平台 TAR 工具的列出和解包能力。
 
 标准 TAR 工具可以列出和提取成员，但没有外部 TSSL 时不能播放加密 TS。
+
+`EncryptedHlsTarContainerTest` 用系统 `tar -tf` 做跨工具兼容性校验时，会把工作目录设到归档所在目录并只传文件名：
+git-bash 的 PATH 上是 MSYS 版 GNU tar，它会把 `D:/path/x.tar` 解析成"user D: 于 host path"并以 128 退出，
+变成一个只有本机才会红的假失败（Windows 干净 PATH 下是 System32 的 bsdtar，读取正常）。

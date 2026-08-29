@@ -79,6 +79,14 @@ also performed during database initialization and before daily usage statistics
 are loaded, so expired records do not remain visible after an application
 restart.
 
+Because pruning runs during `initialize()`, history fixtures must never use calendar dates: a hardcoded
+timestamp silently leaves the retention window and the test then fails as "writes succeed, reads return
+empty", which looks like a database bug. `tests/TimeFixtures.h` (`playedAt`/`stampAt`/`stampWithMsAt`/
+`dateAt`/`dayAt`) anchors fixtures to `QDate::currentDate()` with small offsets (0..2 days) and is the
+required pattern for `PlaybackHistoryTest` and `LinkPlaybackHistoryTest`; the same file also documents why
+timestamps are built in local time before being converted to UTC (`played_date` is derived from the
+local-time date, which is also the reference the prune cutoff uses).
+
 Replay targets never enter the QML model. Display addresses remove query and fragment data, media-server tokens are not stored, WebDAV passwords remain in `CredentialStore`, and logs contain only generic lifecycle/error messages.
 
 When clearing `QUrl` components, use explicit `QString {}` arguments. Empty braced arguments are ambiguous between the `QString` and `QUrlQuery` overloads of `QUrl::setQuery` on GCC and break Linux x86_64 and ARM64 builds.

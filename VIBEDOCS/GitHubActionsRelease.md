@@ -25,6 +25,18 @@ The workflow separates compilation from packaging. A five-platform `build` matri
 
 This separation keeps a Flatpak, installer, or archive failure in its own GitHub Actions job instead of mixing every format into the platform compilation job. Windows and macOS build inputs are transported inside ZIP files; Linux uses tar.gz so executable modes and symbolic links survive `upload-artifact` transfer.
 
+The `build` step compiles **every** target, including all `*_test` executables, and the `ctest` step then
+runs them, so a unit test target is as much a CI gate as the application binary. Two consequences are
+recorded because both broke the matrix:
+
+- Each test target lists its sources explicitly, so it must also link every Qt module those sources
+  include. `Qt6::Concurrent` was missing from `webdav_download_planner_test` (it compiles
+  `WebDavClient.cpp`, which uses `QtConcurrent::run`) and `Qt6::Xml` was missing from
+  `encrypted_hls_packager_test` (it compiles `TsslBackupService.cpp`, which uses `QDomDocument`). The
+  application target linked both, so only CI - which builds the tests - noticed.
+- History fixtures must not use calendar dates; see `GlobalPlaybackHistory.md`. They pruned themselves
+  out of the retention window and `ctest` failed once the build got past the link errors.
+
 Main commands:
 
 ```bash
