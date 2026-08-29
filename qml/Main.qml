@@ -879,8 +879,9 @@ ApplicationWindow {
         width: Math.min(root.width - 64, 540)
         standardButtons: Dialog.Save | Dialog.Cancel
 
-        // Service-type accent tint that recolors the top strip as the user
-        // switches between Emby / Jellyfin / IPTV / WebDAV.
+        // Service-type accent tint that recolors the underline beneath the
+        // dialog title as the user switches between Emby / Jellyfin / IPTV /
+        // WebDAV.
         readonly property color accent: root.serviceAccentColor(appViewModel.serviceType)
 
         // Slide transition state machine. Clicking a type chip only freezes the
@@ -944,17 +945,6 @@ ApplicationWindow {
                 color: theme.surface
                 border.color: theme.border
                 clip: true
-
-                // Accent strip along the top edge of the dialog.
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    height: 4
-                    color: serviceDialog.accent
-
-                    Behavior on color { ColorAnimation { duration: 160 } }
-                }
             }
         }
 
@@ -962,9 +952,11 @@ ApplicationWindow {
             implicitHeight: 64
 
             Label {
-                anchors.fill: parent
+                id: serviceDialogTitle
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
                 anchors.leftMargin: 22
-                anchors.rightMargin: 22
                 text: t("dialog.serviceTitle")
                 color: theme.text
                 font.pixelSize: 18
@@ -973,12 +965,18 @@ ApplicationWindow {
                 elide: Text.ElideRight
             }
 
+            // Accent underline beneath the title text, tinted by the selected
+            // service type.
             Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
+                anchors.left: serviceDialogTitle.left
                 anchors.bottom: parent.bottom
-                height: 1
-                color: theme.border
+                anchors.bottomMargin: 12
+                width: serviceDialogTitle.implicitWidth
+                height: 3
+                radius: 1.5
+                color: serviceDialog.accent
+
+                Behavior on color { ColorAnimation { duration: 160 } }
             }
         }
 
@@ -1073,24 +1071,21 @@ ApplicationWindow {
                 }
             }
 
-            // Form fields, grouped inside a subtle card. The card height is fixed so
-            // the dialog keeps the same size for every service type; switching types
-            // slides the outgoing form out to one side while the incoming form flies
-            // in from the other side.
-            Rectangle {
+            // Form fields in a plain fixed-height viewport. The height is
+            // fixed so the dialog keeps the same size for every service type;
+            // switching types slides the outgoing form out to one side while
+            // the incoming form flies in from the other side. No card chrome
+            // here - the input fields carry the structure on their own.
+            Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: 22
                 Layout.rightMargin: 22
                 Layout.preferredHeight: 300
-                radius: 12
-                color: root.withAlpha(theme.input, darkTheme ? 0.55 : 1.0)
-                border.color: theme.border
                 clip: true
 
                 Item {
                     id: serviceFormViewport
                     anchors.fill: parent
-                    anchors.margins: 14
                     // true while the slide runs. The incoming form's resting opacity
                     // is 1 and its resting x is 0, so releasing this flag right when
                     // the slide ends leaves both properties at exactly the values the
@@ -1193,15 +1188,7 @@ ApplicationWindow {
             alignment: Qt.AlignRight
             spacing: 10
             padding: 16
-            background: Item {
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    height: 1
-                    color: theme.border
-                }
-            }
+            background: Item {}
             delegate: Button {
                 id: dialogButton
                 // DialogButtonBox does not expose the role through its delegate,
@@ -6973,11 +6960,10 @@ ApplicationWindow {
             }
         }
 
-        Rectangle {
-            Layout.fillWidth: true
+        // Spacer where the old divider sat, keeping the vertical rhythm
+        // between the fields and the checkboxes without drawing a line.
+        Item {
             Layout.preferredHeight: 1
-            visible: !serviceDialogForm.isIptv
-            color: theme.border
         }
 
         ModernCheckBox {
