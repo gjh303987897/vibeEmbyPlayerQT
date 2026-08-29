@@ -2941,6 +2941,17 @@ ApplicationWindow {
                         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                         transformOrigin: Item.TopLeft
 
+                        // The open animation runs in two phases: first the
+                        // whole card drops down from the anchor (height
+                        // unfolds), then it widens out to both sides. The
+                        // transform origin sits on the button's center line
+                        // near the popup's right edge, so the menu appears to
+                        // unfold from the button itself. Background and
+                        // content live in one clipped container so the card
+                        // never paints outside its own bounds mid-animation.
+                        property real revealScaleX: 1
+                        property real revealScaleY: 1
+
                         onAboutToShow: {
                             anchorPosition = serviceMoreButton.parent.mapToItem(
                                 Overlay.overlay,
@@ -2949,80 +2960,138 @@ ApplicationWindow {
                         }
 
                         enter: Transition {
-                            ParallelAnimation {
-                                NumberAnimation {
-                                    property: "opacity"
-                                    from: 0
-                                    to: 1
-                                    duration: 130
-                                    easing.type: Easing.OutCubic
+                            SequentialAnimation {
+                                // Phase 1: drop down slowly - the menu unfolds
+                                // downward as a narrow strip under the button,
+                                // like a macOS panel sliding open.
+                                ParallelAnimation {
+                                    NumberAnimation {
+                                        target: serviceMorePopup
+                                        property: "opacity"
+                                        from: 0
+                                        to: 1
+                                        duration: 160
+                                        easing.type: Easing.OutCubic
+                                    }
+                                    NumberAnimation {
+                                        target: serviceMorePopup
+                                        property: "revealScaleY"
+                                        from: 0
+                                        to: 1
+                                        duration: 220
+                                        easing.type: Easing.OutQuart
+                                    }
                                 }
+                                // Phase 2: widen out to both sides from the
+                                // button's center line, with a smooth,
+                                // no-bounce ease.
                                 NumberAnimation {
-                                    property: "scale"
-                                    from: 0.96
+                                    target: serviceMorePopup
+                                    property: "revealScaleX"
+                                    from: 0.08
                                     to: 1
-                                    duration: 160
-                                    easing.type: Easing.OutCubic
+                                    duration: 240
+                                    easing.type: Easing.OutQuint
                                 }
                             }
                         }
 
                         exit: Transition {
-                            ParallelAnimation {
+                            // Mirror of the open: fold back into the button.
+                            SequentialAnimation {
                                 NumberAnimation {
-                                    property: "opacity"
-                                    from: 1
-                                    to: 0
-                                    duration: 90
+                                    target: serviceMorePopup
+                                    property: "revealScaleX"
+                                    to: 0.08
+                                    duration: 140
                                     easing.type: Easing.InCubic
                                 }
-                                NumberAnimation {
-                                    property: "scale"
-                                    from: 1
-                                    to: 0.98
-                                    duration: 90
-                                    easing.type: Easing.InCubic
+                                ParallelAnimation {
+                                    NumberAnimation {
+                                        target: serviceMorePopup
+                                        property: "opacity"
+                                        to: 0
+                                        duration: 130
+                                        easing.type: Easing.InCubic
+                                    }
+                                    NumberAnimation {
+                                        target: serviceMorePopup
+                                        property: "revealScaleY"
+                                        to: 0
+                                        duration: 150
+                                        easing.type: Easing.InCubic
+                                    }
                                 }
                             }
                         }
 
+                        // The card doubles as background and content host: the
+                        // template does not automatically parent contentItem
+                        // into background, so we embed the menu column here
+                        // and leave contentItem empty. Scaling this single
+                        // clipped item unfolds background and menu together.
                         background: Rectangle {
+                            id: serviceMoreCard
                             radius: 8
                             color: theme.surface
                             border.width: 1
                             border.color: theme.border
+                            clip: true
+
+                            transform: [
+                                Scale {
+                                    xScale: serviceMorePopup.revealScaleX
+                                    yScale: serviceMorePopup.revealScaleY
+                                    // Widen around the button's center line,
+                                    // which sits near the card's right edge.
+                                    origin.x: serviceMorePopup.width - serviceMoreButton.width / 2
+                                    origin.y: 0
+                                }
+                            ]
+
+                            ColumnLayout {
+                                id: serviceMoreColumn
+                                anchors.fill: parent
+                                anchors.margins: serviceMorePopup.padding
+                                spacing: 2
+
+                                ServiceToolMenuItem {
+                                    Layout.fillWidth: true
+                                    glyphSource: "qrc:/app/icons/glyphs/clock.svg"
+                                    text: t("nav.scheduledTasks")
+                                    onClicked: {
+                                        serviceMorePopup.close()
+                                        appViewModel.openScheduledPlaybackTasks()
+                                    }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 8
+                                    Layout.rightMargin: 8
+                                    Layout.preferredHeight: 1
+                                    color: theme.border
+                                }
+
+                                ServiceToolMenuItem {
+                                    Layout.fillWidth: true
+                                    glyphSource: "qrc:/app/icons/glyphs/chart.svg"
+                                    text: t("nav.history")
+                                    onClicked: {
+                                        serviceMorePopup.close()
+                                        appViewModel.openHistoryStats()
+                                    }
+                                }
+                            }
                         }
 
-                        contentItem: ColumnLayout {
-                            spacing: 2
+                        // Height follows the menu column; implicitWidth keeps
+                        // the explicit 226px popup width.
+                        implicitHeight: serviceMoreColumn.implicitHeight + padding * 2
 
-                            ServiceToolMenuItem {
-                                Layout.fillWidth: true
-                                glyphSource: "qrc:/app/icons/glyphs/clock.svg"
-                                text: t("nav.scheduledTasks")
-                                onClicked: {
-                                    serviceMorePopup.close()
-                                    appViewModel.openScheduledPlaybackTasks()
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.leftMargin: 8
-                                Layout.rightMargin: 8
-                                Layout.preferredHeight: 1
-                                color: theme.border
-                            }
-
-                            ServiceToolMenuItem {
-                                Layout.fillWidth: true
-                                glyphSource: "qrc:/app/icons/glyphs/chart.svg"
-                                text: t("nav.history")
-                                onClicked: {
-                                    serviceMorePopup.close()
-                                    appViewModel.openHistoryStats()
-                                }
-                            }
+                        contentItem: Item {
+                            implicitWidth: 10
+                            implicitHeight: 10
                         }
                     }
                 }
