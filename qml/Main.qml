@@ -3027,10 +3027,19 @@ ApplicationWindow {
                         property real revealScaleY: 1
 
                         onAboutToShow: {
-                            anchorPosition = serviceMoreButton.parent.mapToItem(
+                            anchorPosition = serviceMoreButton.mapToItem(
                                 Overlay.overlay,
-                                serviceMoreButton.x + serviceMoreButton.width,
-                                serviceMoreButton.y + serviceMoreButton.height)
+                                serviceMoreButton.width,
+                                serviceMoreButton.height)
+                            // Collapse to the animation's start state before the
+                            // popup turns visible. These properties rest at 1, and
+                            // on the first open the overlay and card are created
+                            // lazily inside open(), so one frame could be painted
+                            // at full size before the enter transition takes hold:
+                            // a flash, then the reveal restarted. yScale 0 makes
+                            // that first frame zero-height, so nothing can leak.
+                            revealScaleX = 0.08
+                            revealScaleY = 0
                         }
 
                         enter: Transition {
