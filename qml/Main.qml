@@ -915,8 +915,37 @@ ApplicationWindow {
             exitingType = ""
         }
 
-        Overlay.modal: Rectangle {
-            color: root.withAlpha("#000000", darkTheme ? 0.62 : 0.30)
+        // The dialog always renders on the black palette regardless of the
+        // app theme: near-black card, dark-grey inputs, light text.
+        readonly property color dialogBg: "#101114"
+        readonly property color dialogInput: "#26282e"
+        readonly property color dialogBorder: "#3a3d44"
+        readonly property color dialogText: "#f4f7fb"
+        readonly property color dialogMuted: "#9aa7b5"
+
+        // Blur and dim the page behind the dialog. The snapshot targets the
+        // page root so the native-window player surface (which Qt Quick
+        // cannot capture) is simply replaced by the dim layer.
+        Overlay.modal: Item {
+            MultiEffect {
+                anchors.fill: parent
+                source: ShaderEffectSource {
+                    sourceItem: windowHeader
+                    hideSource: false
+                }
+                blurEnabled: true
+                blurMax: 64
+                blur: 1.0
+                blurMultiplier: 0.4
+                brightness: -0.28
+                saturation: -0.12
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                color: "#000000"
+                opacity: 0.32
+            }
         }
 
         enter: Transition {
@@ -934,17 +963,64 @@ ApplicationWindow {
                 anchors.fill: parent
                 anchors.margins: -14
                 radius: 26
-                color: theme.shadow
-                opacity: darkTheme ? 0.45 : 0.30
+                color: "#000000"
+                opacity: 0.6
             }
 
             Rectangle {
                 id: serviceDialogCard
                 anchors.fill: parent
                 radius: 14
-                color: theme.surface
-                border.color: theme.border
+                color: serviceDialog.dialogBg
+                border.color: serviceDialog.dialogBorder
                 clip: true
+
+                // Watermark of the selected service's brand mark in the
+                // bottom-right corner, lit by a soft accent halo.
+                Canvas {
+                    id: serviceDialogWatermarkGlow
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    width: 220
+                    height: 220
+                    opacity: 0.9
+                    property color glowColor: serviceDialog.accent
+
+                    onPaint: {
+                        var context = getContext("2d")
+                        context.setTransform(1, 0, 0, 1, 0, 0)
+                        context.clearRect(0, 0, width, height)
+                        var pool = context.createRadialGradient(
+                            width - 56, height - 52, 8,
+                            width - 56, height - 52, 128)
+                        var c = serviceDialog.accent
+                        pool.addColorStop(0.0, Qt.rgba(c.r, c.g, c.b, 0.38))
+                        pool.addColorStop(0.45, Qt.rgba(c.r, c.g, c.b, 0.14))
+                        pool.addColorStop(1.0, Qt.rgba(c.r, c.g, c.b, 0.0))
+                        context.fillStyle = pool
+                        context.fillRect(0, 0, width, height)
+                    }
+
+                    onGlowColorChanged: requestPaint()
+
+                    Behavior on opacity { NumberAnimation { duration: 180 } }
+                }
+
+                ServiceTypeIcon {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.rightMargin: 18
+                    anchors.bottomMargin: 14
+                    width: 96
+                    height: 96
+                    markMode: true
+                    glyphRatio: 0.92
+                    glyphColor: serviceDialog.accent
+                    serviceType: serviceDialog.displayedType
+                    opacity: 0.24
+
+                    Behavior on opacity { NumberAnimation { duration: 180 } }
+                }
             }
         }
 
@@ -958,7 +1034,7 @@ ApplicationWindow {
                 anchors.bottom: parent.bottom
                 anchors.leftMargin: 22
                 text: t("dialog.serviceTitle")
-                color: theme.text
+                color: serviceDialog.dialogText
                 font.pixelSize: 18
                 font.bold: true
                 verticalAlignment: Text.AlignVCenter
@@ -1057,12 +1133,12 @@ ApplicationWindow {
                                 ? serviceTypeChip.chipAccent
                                 : serviceTypeChip.hovered
                                     ? root.withAlpha(serviceTypeChip.chipAccent, darkTheme ? 0.16 : 0.09)
-                                    : theme.input
+                                    : serviceDialog.dialogInput
                             border.color: serviceTypeChip.selected
                                 ? serviceTypeChip.chipAccent
                                 : serviceTypeChip.hovered
                                     ? serviceTypeChip.chipAccent
-                                    : theme.border
+                                    : serviceDialog.dialogBorder
 
                             Behavior on color { ColorAnimation { duration: 120 } }
                             Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -1204,8 +1280,8 @@ ApplicationWindow {
                 contentItem: Label {
                     text: dialogButton.text
                     color: dialogButton.enabled
-                        ? (dialogButton.isPrimary ? "#ffffff" : theme.text)
-                        : theme.subtle
+                        ? (dialogButton.isPrimary ? "#ffffff" : serviceDialog.dialogText)
+                        : serviceDialog.dialogMuted
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
@@ -1216,11 +1292,11 @@ ApplicationWindow {
                     color: dialogButton.isPrimary
                         ? (dialogButton.down ? theme.primaryHover : theme.primary)
                         : dialogButton.down ? theme.primary
-                        : dialogButton.hovered ? theme.elevatedHover
-                        : theme.elevated
+                        : dialogButton.hovered ? "#31343c"
+                        : serviceDialog.dialogInput
                     border.color: dialogButton.isPrimary
                         ? "transparent"
-                        : dialogButton.hovered ? theme.primary : theme.border
+                        : dialogButton.hovered ? theme.primary : serviceDialog.dialogBorder
 
                     Behavior on color { ColorAnimation { duration: 110 } }
                 }
@@ -6909,14 +6985,14 @@ ApplicationWindow {
 
         spacing: 12
 
-        ModernTextField {
+        DialogTextField {
             Layout.fillWidth: true
             placeholderText: t("form.serviceName")
             text: appViewModel.serverName
             onTextChanged: appViewModel.serverName = text
         }
 
-        ModernTextField {
+        DialogTextField {
             Layout.fillWidth: true
             visible: !serviceDialogForm.isIptv
             placeholderText: serviceDialogForm.formType === "WebDAV" ? t("form.webDavEndpoint") : t("form.serverUrl")
@@ -6925,7 +7001,7 @@ ApplicationWindow {
             onTextChanged: appViewModel.serverUrl = text
         }
 
-        ModernTextField {
+        DialogTextField {
             Layout.fillWidth: true
             visible: !serviceDialogForm.isIptv
             placeholderText: t("form.username")
@@ -6933,7 +7009,7 @@ ApplicationWindow {
             onTextChanged: appViewModel.username = text
         }
 
-        ModernTextField {
+        DialogTextField {
             Layout.fillWidth: true
             visible: !serviceDialogForm.isIptv
             placeholderText: t("form.password")
@@ -6947,7 +7023,7 @@ ApplicationWindow {
             visible: serviceDialogForm.isIptv
             spacing: 10
 
-            ModernTextField {
+            DialogTextField {
                 Layout.fillWidth: true
                 readOnly: true
                 placeholderText: t("iptv.filePlaceholder")
@@ -6961,19 +7037,19 @@ ApplicationWindow {
         }
 
         // Spacer where the old divider sat, keeping the vertical rhythm
-        // between the fields and the checkboxes without drawing a line.
+        // between the fields and the switches without drawing a line.
         Item {
             Layout.preferredHeight: 1
         }
 
-        ModernCheckBox {
+        DialogSwitch {
             visible: !serviceDialogForm.isIptv
             text: t("form.autoLogin")
             checked: appViewModel.autoLogin
             onToggled: appViewModel.autoLogin = checked
         }
 
-        ModernCheckBox {
+        DialogSwitch {
             visible: !serviceDialogForm.isIptv
             text: t("form.selfSigned")
             checked: appViewModel.trustSelfSignedCertificate
@@ -6983,6 +7059,67 @@ ApplicationWindow {
         // Absorbs the leftover card height so the dialog keeps one fixed size
         // no matter which service type is showing.
         Item { Layout.fillHeight: true }
+    }
+
+    // Text field on the service dialog's black palette.
+    component DialogTextField: TextField {
+        id: dialogField
+        implicitHeight: 38
+        color: serviceDialog.dialogText
+        placeholderTextColor: serviceDialog.dialogMuted
+        selectedTextColor: "#ffffff"
+        selectionColor: theme.primary
+        font.pixelSize: 14
+        background: Rectangle {
+            radius: 8
+            color: serviceDialog.dialogInput
+            border.color: dialogField.activeFocus ? theme.primary : serviceDialog.dialogBorder
+        }
+    }
+
+    // Switch row on the service dialog's black palette. The thumb slides
+    // across the track with a small overshoot and the track fades to the
+    // accent color as it engages.
+    component DialogSwitch: Switch {
+        id: dialogSwitch
+        spacing: 10
+        font.pixelSize: 14
+
+        contentItem: Label {
+            text: dialogSwitch.text
+            color: serviceDialog.dialogText
+            verticalAlignment: Text.AlignVCenter
+            leftPadding: dialogSwitch.indicator.width + dialogSwitch.spacing
+            font: dialogSwitch.font
+        }
+
+        indicator: Rectangle {
+            implicitWidth: 44
+            implicitHeight: 24
+            radius: 12
+            x: 0
+            y: parent.height / 2 - height / 2
+            color: dialogSwitch.checked ? theme.primary : serviceDialog.dialogInput
+            border.color: dialogSwitch.checked ? theme.primary : serviceDialog.dialogBorder
+
+            Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+            Rectangle {
+                id: dialogSwitchThumb
+                width: 18
+                height: 18
+                radius: 9
+                anchors.verticalCenter: parent.verticalCenter
+                x: dialogSwitch.checked ? parent.width - width - 3 : 3
+                color: dialogSwitch.checked ? "#ffffff" : serviceDialog.dialogMuted
+                scale: dialogSwitch.pressed ? 0.86 : 1.0
+
+                Behavior on x { NumberAnimation { duration: 170; easing.type: Easing.OutBack } }
+                Behavior on color { ColorAnimation { duration: 150 } }
+                Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+            }
+        }
     }
 
     component ServiceTypeIcon: Item {
