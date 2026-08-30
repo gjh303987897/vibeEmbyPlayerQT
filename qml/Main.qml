@@ -775,6 +775,27 @@ ApplicationWindow {
         standardButtons: Dialog.Ok | Dialog.Cancel
         width: Math.min(root.width - 64, 380)
 
+        // Same blurred backdrop as the service dialog, a touch stronger so the
+        // PIN gate reads as blocking.
+        Overlay.modal: DialogBackdropBlur {
+            dimOpacity: darkTheme ? 0.45 : 0.20
+        }
+
+        // Pop in with a short overshoot, matching the service dialog.
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 140; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.86; to: 1; duration: 260; easing.type: Easing.OutBack }
+            }
+        }
+
+        exit: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 110; easing.type: Easing.InCubic }
+                NumberAnimation { property: "scale"; from: 1; to: 0.94; duration: 110; easing.type: Easing.InCubic }
+            }
+        }
+
         PinEntryField {
             id: privacyPinField
             width: parent.width
@@ -925,70 +946,26 @@ ApplicationWindow {
         readonly property color dialogMuted: darkTheme ? "#9aa7b5" : "#5d6978"
         readonly property color dialogHover: darkTheme ? "#31343c" : "#eaeef6"
 
-        // Background blur for the dialog. The backdrop is two siblings: the
-        // toolbar (`windowHeader`) and the page under it (`mainPageRoot`). Each
-        // is grabbed and drawn at its own 1:1 geometry, so the live page shows
-        // through blurred. Grabbing only the header and stretching it across
-        // the overlay is what used to read as a dark halo around the dialog
-        // instead of a blurred background.
-        Overlay.modal: Item {
-            MultiEffect {
-                id: serviceDialogHeaderBlur
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: windowHeader.height
-                visible: height > 0
-                source: ShaderEffectSource {
-                    sourceItem: windowHeader
-                    hideSource: false
-                }
-                autoPaddingEnabled: false
-                blurEnabled: true
-                blurMax: 64
-                blur: 1.0
-                blurMultiplier: 0.8
-                brightness: darkTheme ? -0.3 : -0.1
-                saturation: darkTheme ? -0.15 : -0.05
-            }
-
-            MultiEffect {
-                id: serviceDialogPageBlur
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.top: parent.top
-                anchors.topMargin: windowHeader.height
-                source: ShaderEffectSource {
-                    sourceItem: mainPageRoot
-                    hideSource: false
-                }
-                autoPaddingEnabled: false
-                blurEnabled: true
-                blurMax: 64
-                blur: 1.0
-                blurMultiplier: 0.8
-                brightness: darkTheme ? -0.3 : -0.1
-                saturation: darkTheme ? -0.15 : -0.05
-            }
-
-            // Light mode needs a much softer dim; the full-strength black wash
-            // that reads well over a dark page turns a light page muddy.
-            Rectangle {
-                anchors.fill: parent
-                color: "#000000"
-                opacity: darkTheme ? 0.35 : 0.16
-            }
+        // Shared blurred backdrop; see the DialogBackdropBlur component
+        // declared with the other dialog parts at the bottom of this file.
+        Overlay.modal: DialogBackdropBlur {
+            dimOpacity: darkTheme ? 0.35 : 0.16
         }
 
+        // Pop open with a short overshoot instead of a flat fade, so the dialog
+        // reads as something the button threw up.
         enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 170; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 190; easing.type: Easing.OutCubic }
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 140; easing.type: Easing.OutCubic }
+                NumberAnimation { property: "scale"; from: 0.86; to: 1; duration: 260; easing.type: Easing.OutBack }
+            }
         }
 
         exit: Transition {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 120; easing.type: Easing.InCubic }
-            NumberAnimation { property: "scale"; from: 1; to: 0.98; duration: 120; easing.type: Easing.InCubic }
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 110; easing.type: Easing.InCubic }
+                NumberAnimation { property: "scale"; from: 1; to: 0.94; duration: 110; easing.type: Easing.InCubic }
+            }
         }
 
         background: Item {
@@ -7094,6 +7071,62 @@ ApplicationWindow {
         // Absorbs the leftover card height so the dialog keeps one fixed size
         // no matter which service type is showing.
         Item { Layout.fillHeight: true }
+    }
+
+    // Shared blurred backdrop for modal dialogs. The scene behind a dialog is
+    // two siblings: the toolbar (`windowHeader`) and the page under it
+    // (`mainPageRoot`). Each is grabbed through its own ShaderEffectSource and
+    // drawn at 1:1 geometry so the live page shows through blurred; grabbing
+    // only one and stretching it across the overlay reads as a dark halo
+    // around the dialog instead of a blurred background.
+    component DialogBackdropBlur: Item {
+        // Light mode needs a much softer dim; the full-strength black wash that
+        // reads well over a dark page turns a light page muddy.
+        property real dimOpacity: darkTheme ? 0.35 : 0.16
+
+        MultiEffect {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: windowHeader.height
+            visible: height > 0
+            source: ShaderEffectSource {
+                sourceItem: windowHeader
+                hideSource: false
+            }
+            autoPaddingEnabled: false
+            blurEnabled: true
+            blurMax: 64
+            blur: 1.0
+            blurMultiplier: 0.8
+            brightness: darkTheme ? -0.3 : -0.1
+            saturation: darkTheme ? -0.15 : -0.05
+        }
+
+        MultiEffect {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.top: parent.top
+            anchors.topMargin: windowHeader.height
+            source: ShaderEffectSource {
+                sourceItem: mainPageRoot
+                hideSource: false
+            }
+            autoPaddingEnabled: false
+            blurEnabled: true
+            blurMax: 64
+            blur: 1.0
+            blurMultiplier: 0.8
+            brightness: darkTheme ? -0.3 : -0.1
+            saturation: darkTheme ? -0.15 : -0.05
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: "#000000"
+            opacity: dimOpacity
+        }
     }
 
     // Text field on the service dialog's theme-aware palette.

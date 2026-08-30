@@ -20,6 +20,7 @@
 - `GlobalPlaybackHistory.md`：六类播放来源的统一历史、SQLite 数据模型、进度更新、隐私隔离与重播路由。
 - `WebDAV.md`：WebDAV 协议边界、下载规划、总任务/文件明细模型与传输统计口径。
 - `GitHubActionsRelease.md`：跨平台构建、原生安装包、Flatpak 与 GitHub Release 发布流程。
+- `DialogBackdropBlur.md`：模态对话框共享的背景虚化遮罩（双源 1:1 抓取）与弹出动效约定。
 
 调试提示（QML 布局自检）：
 
