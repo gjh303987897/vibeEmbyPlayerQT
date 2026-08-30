@@ -915,36 +915,69 @@ ApplicationWindow {
             exitingType = ""
         }
 
-        // The dialog always renders on the black palette regardless of the
-        // app theme: near-black card, dark-grey inputs, light text.
-        readonly property color dialogBg: "#101114"
-        readonly property color dialogInput: "#26282e"
-        readonly property color dialogBorder: "#3a3d44"
-        readonly property color dialogText: "#f4f7fb"
-        readonly property color dialogMuted: "#9aa7b5"
+        // Dialog palette follows the app theme. Dark mode keeps the near-black
+        // card with dark-grey inputs; light mode swaps to a white card with
+        // light-grey inputs so nothing in the dialog renders white-on-white.
+        readonly property color dialogBg: darkTheme ? "#101114" : "#ffffff"
+        readonly property color dialogInput: darkTheme ? "#26282e" : "#f4f6fa"
+        readonly property color dialogBorder: darkTheme ? "#3a3d44" : "#dfe4ec"
+        readonly property color dialogText: darkTheme ? "#f4f7fb" : "#151922"
+        readonly property color dialogMuted: darkTheme ? "#9aa7b5" : "#5d6978"
+        readonly property color dialogHover: darkTheme ? "#31343c" : "#eaeef6"
 
-        // Blur and dim the page behind the dialog. The snapshot targets the
-        // page root so the native-window player surface (which Qt Quick
-        // cannot capture) is simply replaced by the dim layer.
+        // Background blur for the dialog. The backdrop is two siblings: the
+        // toolbar (`windowHeader`) and the page under it (`mainPageRoot`). Each
+        // is grabbed and drawn at its own 1:1 geometry, so the live page shows
+        // through blurred. Grabbing only the header and stretching it across
+        // the overlay is what used to read as a dark halo around the dialog
+        // instead of a blurred background.
         Overlay.modal: Item {
             MultiEffect {
-                anchors.fill: parent
+                id: serviceDialogHeaderBlur
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: windowHeader.height
+                visible: height > 0
                 source: ShaderEffectSource {
                     sourceItem: windowHeader
                     hideSource: false
                 }
+                autoPaddingEnabled: false
                 blurEnabled: true
                 blurMax: 64
                 blur: 1.0
-                blurMultiplier: 0.4
-                brightness: -0.28
-                saturation: -0.12
+                blurMultiplier: 0.8
+                brightness: darkTheme ? -0.3 : -0.1
+                saturation: darkTheme ? -0.15 : -0.05
             }
 
+            MultiEffect {
+                id: serviceDialogPageBlur
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.top: parent.top
+                anchors.topMargin: windowHeader.height
+                source: ShaderEffectSource {
+                    sourceItem: mainPageRoot
+                    hideSource: false
+                }
+                autoPaddingEnabled: false
+                blurEnabled: true
+                blurMax: 64
+                blur: 1.0
+                blurMultiplier: 0.8
+                brightness: darkTheme ? -0.3 : -0.1
+                saturation: darkTheme ? -0.15 : -0.05
+            }
+
+            // Light mode needs a much softer dim; the full-strength black wash
+            // that reads well over a dark page turns a light page muddy.
             Rectangle {
                 anchors.fill: parent
                 color: "#000000"
-                opacity: 0.32
+                opacity: darkTheme ? 0.35 : 0.16
             }
         }
 
@@ -960,14 +993,6 @@ ApplicationWindow {
 
         background: Item {
             Rectangle {
-                anchors.fill: parent
-                anchors.margins: -14
-                radius: 26
-                color: "#000000"
-                opacity: 0.6
-            }
-
-            Rectangle {
                 id: serviceDialogCard
                 anchors.fill: parent
                 radius: 14
@@ -976,48 +1001,57 @@ ApplicationWindow {
                 clip: true
 
                 // Watermark of the selected service's brand mark in the
-                // bottom-right corner, lit by a soft accent halo.
+                // bottom-right corner, lit by a soft accent halo. The halo is
+                // an oversized canvas centered on the mark itself, so the glow
+                // always reads as a pool around the icon no matter where the
+                // mark sits; the card's clip trims the overflow.
                 Canvas {
                     id: serviceDialogWatermarkGlow
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    width: 220
-                    height: 220
+                    anchors.centerIn: serviceDialogWatermarkIcon
+                    width: 340
+                    height: 340
                     opacity: 0.9
                     property color glowColor: serviceDialog.accent
+                    property bool nightMode: darkTheme
 
                     onPaint: {
                         var context = getContext("2d")
                         context.setTransform(1, 0, 0, 1, 0, 0)
                         context.clearRect(0, 0, width, height)
                         var pool = context.createRadialGradient(
-                            width - 56, height - 52, 8,
-                            width - 56, height - 52, 128)
+                            width / 2, height / 2, 12,
+                            width / 2, height / 2, 186)
                         var c = serviceDialog.accent
-                        pool.addColorStop(0.0, Qt.rgba(c.r, c.g, c.b, 0.38))
-                        pool.addColorStop(0.45, Qt.rgba(c.r, c.g, c.b, 0.14))
+                        // The accent pool needs to be gentler on white, which
+                        // otherwise takes on a heavy coloured cast.
+                        var peak = darkTheme ? 0.40 : 0.20
+                        var mid = darkTheme ? 0.16 : 0.08
+                        pool.addColorStop(0.0, Qt.rgba(c.r, c.g, c.b, peak))
+                        pool.addColorStop(0.42, Qt.rgba(c.r, c.g, c.b, mid))
                         pool.addColorStop(1.0, Qt.rgba(c.r, c.g, c.b, 0.0))
                         context.fillStyle = pool
                         context.fillRect(0, 0, width, height)
                     }
 
                     onGlowColorChanged: requestPaint()
+                    onNightModeChanged: requestPaint()
 
                     Behavior on opacity { NumberAnimation { duration: 180 } }
                 }
 
                 ServiceTypeIcon {
+                    id: serviceDialogWatermarkIcon
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    anchors.rightMargin: 18
-                    anchors.bottomMargin: 14
+                    anchors.rightMargin: 46
+                    anchors.bottomMargin: 40
                     width: 96
                     height: 96
                     markMode: true
                     glyphRatio: 0.92
                     glyphColor: serviceDialog.accent
                     serviceType: serviceDialog.displayedType
-                    opacity: 0.24
+                    opacity: darkTheme ? 0.26 : 0.18
 
                     Behavior on opacity { NumberAnimation { duration: 180 } }
                 }
@@ -1292,7 +1326,7 @@ ApplicationWindow {
                     color: dialogButton.isPrimary
                         ? (dialogButton.down ? theme.primaryHover : theme.primary)
                         : dialogButton.down ? theme.primary
-                        : dialogButton.hovered ? "#31343c"
+                        : dialogButton.hovered ? serviceDialog.dialogHover
                         : serviceDialog.dialogInput
                     border.color: dialogButton.isPrimary
                         ? "transparent"
@@ -4120,6 +4154,7 @@ ApplicationWindow {
     }
 
     Rectangle {
+        id: mainPageRoot
         anchors.fill: parent
         anchors.topMargin: windowHeader.height
         color: theme.bg
@@ -7030,7 +7065,7 @@ ApplicationWindow {
                 text: appViewModel.iptvFilePath
             }
 
-            ModernButton {
+            DialogButton {
                 text: t("iptv.chooseFile")
                 onClicked: appViewModel.chooseIptvPlaylistFile()
             }
@@ -7061,7 +7096,7 @@ ApplicationWindow {
         Item { Layout.fillHeight: true }
     }
 
-    // Text field on the service dialog's black palette.
+    // Text field on the service dialog's theme-aware palette.
     component DialogTextField: TextField {
         id: dialogField
         implicitHeight: 38
@@ -7077,7 +7112,40 @@ ApplicationWindow {
         }
     }
 
-    // Switch row on the service dialog's black palette. The thumb slides
+    // Action button on the service dialog's theme-aware palette. Mirrors the
+    // dialog footer buttons; the shared ModernButton cannot be used here
+    // because it paints with theme.elevated, which is white-on-white against a
+    // light dialog card.
+    component DialogButton: Button {
+        id: dialogActionButton
+        implicitHeight: 38
+        leftPadding: 16
+        rightPadding: 16
+        font.pixelSize: 13
+        font.bold: true
+
+        contentItem: Label {
+            text: dialogActionButton.text
+            color: dialogActionButton.enabled ? serviceDialog.dialogText : serviceDialog.dialogMuted
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            font: dialogActionButton.font
+        }
+
+        background: Rectangle {
+            radius: 8
+            color: dialogActionButton.down ? serviceDialog.dialogHover
+                : dialogActionButton.hovered ? serviceDialog.dialogHover
+                : serviceDialog.dialogInput
+            border.color: dialogActionButton.hovered ? theme.primary : serviceDialog.dialogBorder
+
+            Behavior on color { ColorAnimation { duration: 110 } }
+            Behavior on border.color { ColorAnimation { duration: 110 } }
+        }
+    }
+
+    // Switch row on the service dialog's theme-aware palette. The thumb slides
     // across the track with a small overshoot and the track fades to the
     // accent color as it engages.
     component DialogSwitch: Switch {
