@@ -45,6 +45,18 @@ struct TsslPackageInfo final {
     QString validationError;
 };
 
+// Cheap catalogue entry: file name, size and timestamp only. Listing a storage
+// directory full of packages must not read or parse any of them, so the browser
+// can show totals, dates and pages without paying for a full scan. Deciding
+// whether a package is valid requires parsing, so a summary never claims more
+// than "this looks like a package file".
+struct TsslPackageSummary final {
+    QByteArray rootManifestDigest;
+    QString filePath;
+    QDateTime modifiedAt;
+    qint64 fileSize { 0 };
+};
+
 class TsslStore final {
 public:
     explicit TsslStore(QString storageDirectory = {});
@@ -53,6 +65,10 @@ public:
     std::expected<void, QString> savePackage(const TsslPackage& package) const;
     std::expected<std::optional<TsslPackage>, QString> packageForRootDigest(QByteArrayView digest) const;
     std::expected<std::vector<TsslPackageInfo>, QString> listPackages() const;
+    // Enumerates package files without opening any of them.
+    std::expected<std::vector<TsslPackageSummary>, QString> listPackageSummaries() const;
+    // Parses exactly the listed files, which must come from this store.
+    std::expected<std::vector<TsslPackageInfo>, QString> packageInfosForPaths(const QStringList& paths) const;
     std::expected<QByteArray, QString> restoreFromFile(const QString& sourcePath) const;
     std::expected<void, QString> exportByRootDigest(QByteArrayView digest, const QString& destinationPath) const;
     std::expected<int, QString> exportByRootDigests(std::span<const QByteArray> digests,

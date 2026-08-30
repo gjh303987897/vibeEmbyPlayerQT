@@ -470,6 +470,74 @@ std::expected<std::optional<TsslPackage>, QString> TsslStore::packageForRootDige
     return std::optional<TsslPackage> { std::move(*package) };
 }
 
+namespace {
+
+// Reads, parses and validates one package file. Anything that goes wrong comes
+// back as an invalid TsslPackageInfo rather than an error, because the browser
+// lists the broken file and explains why it cannot be used.
+TsslPackageInfo readPackageInfo(const QFileInfo& fileInfo, const QByteArray& fileDigest)
+{
+    const auto appendInvalid = [&](QString error) {
+        return TsslPackageInfo {
+            .rootManifestDigest = fileDigest,
+            .filePath = fileInfo.absoluteFilePath(),
+            .modifiedAt = fileInfo.lastModified(),
+            .fileSize = fileInfo.size(),
+            .valid = false,
+            .validationError = std::move(error),
+        };
+    };
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return appendInvalid(QStringLiteral("Unable to open local TSSL package: %1").arg(file.errorString()));
+    }
+    if (file.size() <= 0 || file.size() > maximumTsslBytes) {
+        return appendInvalid(QStringLiteral("Local TSSL package is empty or exceeds the 64 MiB limit"));
+    }
+    auto package = TsslPackage::parse(file.readAll());
+    if (!package) {
+        return appendInvalid(package.error());
+    }
+    const auto expectedName = QString::fromLatin1(package->rootManifestDigest.toHex()) + QStringLiteral(".tssl");
+    if (fileInfo.fileName().compare(expectedName, Qt::CaseInsensitive) != 0) {
+        return appendInvalid(QStringLiteral("Local TSSL filename and manifest digest do not match"));
+    }
+    if (auto sourceFileName = package->decryptedSourceFileName(); !sourceFileName) {
+        return appendInvalid(sourceFileName.error());
+    }
+    return TsslPackageInfo {
+        .identifier = package->identifier,
+        .rootManifestDigest = package->rootManifestDigest,
+        .filePath = fileInfo.absoluteFilePath(),
+        .modifiedAt = fileInfo.lastModified(),
+        .fileSize = fileInfo.size(),
+        .manifestCount = static_cast<int>(package->manifestDigests.size()),
+        .segmentCount = static_cast<int>(package->segmentKeys.size()),
+        .resourceCount = static_cast<int>(package->resourceDigests.size()),
+        .valid = true,
+    };
+}
+
+// Package files are named after their root digest, so the name alone identifies
+// them and carries the digest the browser needs. Timestamps and sizes come from
+// the directory entry, so listing stays cheap however large the packages are.
+std::optional<TsslPackageSummary> readPackageSummary(const QFileInfo& fileInfo)
+{
+    const auto fileDigestText = fileInfo.completeBaseName();
+    if (!sha256Pattern().match(fileDigestText).hasMatch()) {
+        return std::nullopt;
+    }
+    return TsslPackageSummary {
+        .rootManifestDigest = QByteArray::fromHex(fileDigestText.toLatin1()),
+        .filePath = fileInfo.absoluteFilePath(),
+        .modifiedAt = fileInfo.lastModified(),
+        .fileSize = fileInfo.size(),
+    };
+}
+
+} // namespace
+
 std::expected<std::vector<TsslPackageInfo>, QString> TsslStore::listPackages() const
 {
     std::vector<TsslPackageInfo> result;
@@ -483,55 +551,55 @@ std::expected<std::vector<TsslPackageInfo>, QString> TsslStore::listPackages() c
                                                QDir::Time | QDir::Reversed);
     result.reserve(static_cast<size_t>(files.size()));
     for (const auto& fileInfo : files) {
-        const auto fileDigestText = fileInfo.completeBaseName();
-        if (!sha256Pattern().match(fileDigestText).hasMatch()) {
+        const auto summary = readPackageSummary(fileInfo);
+        if (!summary) {
             continue;
         }
-        const auto fileDigest = QByteArray::fromHex(fileDigestText.toLatin1());
-        const auto appendInvalid = [&](QString error) {
-            result.push_back(TsslPackageInfo {
-                .rootManifestDigest = fileDigest,
-                .filePath = fileInfo.absoluteFilePath(),
-                .modifiedAt = fileInfo.lastModified(),
-                .fileSize = fileInfo.size(),
-                .valid = false,
-                .validationError = std::move(error),
-            });
-        };
-        QFile file(fileInfo.absoluteFilePath());
-        if (!file.open(QIODevice::ReadOnly)) {
-            appendInvalid(QStringLiteral("Unable to open local TSSL package: %1").arg(file.errorString()));
-            continue;
+        result.push_back(readPackageInfo(fileInfo, summary->rootManifestDigest));
+    }
+    return result;
+}
+
+std::expected<std::vector<TsslPackageSummary>, QString> TsslStore::listPackageSummaries() const
+{
+    std::vector<TsslPackageSummary> result;
+    if (m_storageDirectory.isEmpty() || !QFileInfo::exists(m_storageDirectory)) {
+        return result;
+    }
+
+    const QDir directory(m_storageDirectory);
+    const auto files = directory.entryInfoList({ QStringLiteral("*.tssl") },
+                                               QDir::Files | QDir::Readable,
+                                               QDir::Time | QDir::Reversed);
+    result.reserve(static_cast<size_t>(files.size()));
+    for (const auto& fileInfo : files) {
+        if (const auto summary = readPackageSummary(fileInfo)) {
+            result.push_back(*summary);
         }
-        if (file.size() <= 0 || file.size() > maximumTsslBytes) {
-            appendInvalid(QStringLiteral("Local TSSL package is empty or exceeds the 64 MiB limit"));
-            continue;
+    }
+    return result;
+}
+
+std::expected<std::vector<TsslPackageInfo>, QString> TsslStore::packageInfosForPaths(const QStringList& paths) const
+{
+    std::vector<TsslPackageInfo> result;
+    result.reserve(static_cast<size_t>(paths.size()));
+    const QFileInfo storageDirectoryInfo(m_storageDirectory);
+    const auto storageRoot = storageDirectoryInfo.exists() ? storageDirectoryInfo.canonicalFilePath() : QString {};
+    for (const auto& path : paths) {
+        const QFileInfo fileInfo(path);
+        // Callers pass paths from listPackageSummaries(), but this is the one place
+        // that reads package files from a name supplied from elsewhere, so re-check
+        // that the file really is a package in this store before parsing it.
+        if (storageRoot.isEmpty() || !fileInfo.exists() || !fileInfo.isFile()
+            || fileInfo.dir().canonicalPath() != storageRoot) {
+            return std::unexpected(QStringLiteral("TSSL package is not in the local store: %1").arg(path));
         }
-        auto package = TsslPackage::parse(file.readAll());
-        if (!package) {
-            appendInvalid(package.error());
-            continue;
+        const auto summary = readPackageSummary(fileInfo);
+        if (!summary) {
+            return std::unexpected(QStringLiteral("TSSL package file name is not a manifest digest: %1").arg(path));
         }
-        const auto expectedName = QString::fromLatin1(package->rootManifestDigest.toHex()) + QStringLiteral(".tssl");
-        if (fileInfo.fileName().compare(expectedName, Qt::CaseInsensitive) != 0) {
-            appendInvalid(QStringLiteral("Local TSSL filename and manifest digest do not match"));
-            continue;
-        }
-        if (auto sourceFileName = package->decryptedSourceFileName(); !sourceFileName) {
-            appendInvalid(sourceFileName.error());
-            continue;
-        }
-        result.push_back(TsslPackageInfo {
-            .identifier = package->identifier,
-            .rootManifestDigest = package->rootManifestDigest,
-            .filePath = fileInfo.absoluteFilePath(),
-            .modifiedAt = fileInfo.lastModified(),
-            .fileSize = fileInfo.size(),
-            .manifestCount = static_cast<int>(package->manifestDigests.size()),
-            .segmentCount = static_cast<int>(package->segmentKeys.size()),
-            .resourceCount = static_cast<int>(package->resourceDigests.size()),
-            .valid = true,
-        });
+        result.push_back(readPackageInfo(fileInfo, summary->rootManifestDigest));
     }
     return result;
 }

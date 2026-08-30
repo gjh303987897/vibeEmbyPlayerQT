@@ -903,6 +903,9 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.batchExportEmpty"), QStringLiteral("Select at least one valid TSSL package") },
         { QStringLiteral("m3u8s.allDates"), QStringLiteral("All dates") },
         { QStringLiteral("m3u8s.filterDate"), QStringLiteral("Saved date") },
+        { QStringLiteral("m3u8s.loadMore"), QStringLiteral("Load 10 more packages") },
+        { QStringLiteral("m3u8s.loading"), QStringLiteral("Loading packages") },
+        { QStringLiteral("m3u8s.loadingHint"), QStringLiteral("Only the listed page is decrypted") },
         { QStringLiteral("m3u8s.batchManage"), QStringLiteral("Batch manage") },
         { QStringLiteral("m3u8s.batchDone"), QStringLiteral("Done") },
         { QStringLiteral("m3u8s.batchSelectedCount"), QStringLiteral("%1 selected") },
@@ -1452,6 +1455,9 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.batchExportEmpty"), QStringLiteral("请至少选择一个有效的 TSSL 密钥包") },
         { QStringLiteral("m3u8s.allDates"), QStringLiteral("全部日期") },
         { QStringLiteral("m3u8s.filterDate"), QStringLiteral("保存日期") },
+        { QStringLiteral("m3u8s.loadMore"), QStringLiteral("继续加载 10 个") },
+        { QStringLiteral("m3u8s.loading"), QStringLiteral("正在加载密钥包") },
+        { QStringLiteral("m3u8s.loadingHint"), QStringLiteral("每次只解析当前页") },
         { QStringLiteral("m3u8s.batchManage"), QStringLiteral("批量管理") },
         { QStringLiteral("m3u8s.batchDone"), QStringLiteral("完成") },
         { QStringLiteral("m3u8s.batchSelectedCount"), QStringLiteral("已选择 %1 项") },
@@ -1929,6 +1935,10 @@ AppViewModel::AppViewModel(QObject* parent)
     }
     connect(&m_transferManager, &TransferManager::tasksChanged, this, &AppViewModel::transferTasksChanged);
     connect(&m_transferManager, &TransferManager::selectionChanged, this, &AppViewModel::transferSelectionChanged);
+    // Picking another date changes which catalogue entries are visible, so the page
+    // shown has to be re-parsed for that date rather than filtered in place.
+    connect(&m_tsslPackages, &TsslPackageListModel::dateFilterChanged, this,
+            [this]() { loadTsslPackagePage(true); });
     connect(&m_updateService, &UpdateService::checkFinished, this, [this](const UpdateCheckResult& result, const QByteArray& etag) {
         m_updateChecking = false;
         if (!etag.isEmpty()) m_repository.setUpdateEtag(etag);
@@ -2496,6 +2506,16 @@ TsslPackageListModel* AppViewModel::tsslPackages()
 TsslPackageListModel* AppViewModel::tsslBatchPackages()
 {
     return &m_tsslBatchPackages;
+}
+
+bool AppViewModel::tsslPackagesHasMore() const
+{
+    return m_tsslPackagesHasMore;
+}
+
+bool AppViewModel::tsslPackagesLoading() const
+{
+    return m_tsslPackagesLoading;
 }
 
 bool AppViewModel::m3u8sPackaging() const
@@ -6138,21 +6158,123 @@ void AppViewModel::openM3u8sManager()
 void AppViewModel::refreshTsslPackages()
 {
     const auto generation = ++m_tsslRefreshGeneration;
+    // Any page still being parsed belongs to the previous listing.
+    ++m_tsslPageRequestGeneration;
+    m_tsslLoadedPackageCount = 0;
+    m_tsslPackagesLoading = true;
+    m_tsslPackagesHasMore = false;
+    emit tsslPackagesStateChanged();
+
+    const auto store = m_tsslStore;
+    auto* watcher = new QFutureWatcher<std::expected<std::vector<TsslPackageSummary>, QString>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation]() mutable {
+        auto summaries = watcher->future().takeResult();
+        watcher->deleteLater();
+        if (generation != m_tsslRefreshGeneration) {
+            return;
+        }
+        if (!summaries) {
+            m_tsslPackagesLoading = false;
+            emit tsslPackagesStateChanged();
+            AppLogger::warning(QStringLiteral("tssl"),
+                               QStringLiteral("List package catalogue failed: %1").arg(summaries.error()));
+            setError(summaries.error());
+            return;
+        }
+        // Loading stays true across this call so a date filter the new catalogue
+        // invalidates does not trigger a page load of its own.
+        m_tsslPackages.setSummaries(std::move(*summaries));
+        m_tsslPackagesLoading = false;
+        loadTsslPackagePage(true);
+    });
+    watcher->setFuture(QtConcurrent::run([store]() mutable {
+        return store.listPackageSummaries();
+    }));
+}
+
+void AppViewModel::loadMoreTsslPackages()
+{
+    loadTsslPackagePage(false);
+}
+
+void AppViewModel::loadTsslPackagePage(bool resetItems)
+{
+    if (m_tsslPackagesLoading) {
+        return;
+    }
+    const auto paths = m_tsslPackages.filteredSummaryPaths();
+    const auto totalVisible = static_cast<int>(paths.size());
+    if (resetItems) {
+        m_tsslPackages.setPackages({});
+        m_tsslLoadedPackageCount = 0;
+    }
+    const auto startIndex = std::min(m_tsslLoadedPackageCount, totalVisible);
+    auto pagePaths = paths.mid(startIndex, m_tsslPageSize);
+    if (pagePaths.isEmpty()) {
+        m_tsslPackagesHasMore = false;
+        emit tsslPackagesStateChanged();
+        return;
+    }
+
+    const auto requestedCount = static_cast<int>(pagePaths.size());
+    m_tsslPackagesLoading = true;
+    m_tsslPackagesHasMore = startIndex + requestedCount < totalVisible;
+    emit tsslPackagesStateChanged();
+
+    const auto generation = ++m_tsslPageRequestGeneration;
+    const auto store = m_tsslStore;
+    auto* watcher = new QFutureWatcher<std::expected<std::vector<TsslPackageInfo>, QString>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, generation, resetItems, requestedCount]() mutable {
+                auto packages = watcher->future().takeResult();
+                watcher->deleteLater();
+                if (generation != m_tsslPageRequestGeneration) {
+                    return;
+                }
+                m_tsslPackagesLoading = false;
+                if (!packages) {
+                    m_tsslPackagesHasMore = false;
+                    AppLogger::warning(QStringLiteral("tssl"),
+                                       QStringLiteral("Parse package page failed: %1").arg(packages.error()));
+                    setError(packages.error());
+                    emit tsslPackagesStateChanged();
+                    return;
+                }
+                const auto loadedCount = static_cast<int>(packages->size());
+                if (resetItems) {
+                    m_tsslPackages.setPackages(std::move(*packages));
+                } else {
+                    m_tsslPackages.appendPackages(std::move(*packages));
+                }
+                m_tsslLoadedPackageCount += loadedCount;
+                if (loadedCount < requestedCount) {
+                    // The store skipped files it could not list; do not chase a page that
+                    // will never arrive.
+                    m_tsslPackagesHasMore = false;
+                }
+                emit tsslPackagesStateChanged();
+            });
+    watcher->setFuture(QtConcurrent::run([store, pagePaths]() mutable {
+        return store.packageInfosForPaths(pagePaths);
+    }));
+}
+
+void AppViewModel::refreshTsslBatchPackages()
+{
+    const auto generation = ++m_tsslBatchRefreshGeneration;
     const auto store = m_tsslStore;
     auto* watcher = new QFutureWatcher<std::expected<std::vector<TsslPackageInfo>, QString>>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation]() mutable {
         auto packages = watcher->future().takeResult();
         watcher->deleteLater();
-        if (generation != m_tsslRefreshGeneration) {
+        if (generation != m_tsslBatchRefreshGeneration) {
             return;
         }
         if (!packages) {
             setError(packages.error());
             return;
         }
-        auto loadedPackages = std::move(*packages);
-        m_tsslPackages.setPackages(loadedPackages);
-        m_tsslBatchPackages.setPackages(std::move(loadedPackages));
+        m_tsslBatchPackages.setPackages(std::move(*packages));
     });
     watcher->setFuture(QtConcurrent::run([store]() mutable {
         return store.listPackages();
@@ -6718,6 +6840,9 @@ void AppViewModel::deleteManagedTsslBatch(const QVariantList& rows)
         watcher->deleteLater();
         m_m3u8sBatchExporting = false;
         refreshTsslPackages();
+        // The batch dialog stays open across a batch delete and reads its own model,
+        // which is no longer covered by the manager refresh.
+        refreshTsslBatchPackages();
         if (!result) {
             m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchDeleteFailedStatus"));
             emit m3u8sStatusChanged();

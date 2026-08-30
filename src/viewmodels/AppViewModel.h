@@ -98,6 +98,8 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString tsslBackupStatus READ tsslBackupStatus NOTIFY tsslBackupChanged)
     Q_PROPERTY(TsslPackageListModel* tsslPackages READ tsslPackages CONSTANT)
     Q_PROPERTY(TsslPackageListModel* tsslBatchPackages READ tsslBatchPackages CONSTANT)
+    Q_PROPERTY(bool tsslPackagesHasMore READ tsslPackagesHasMore NOTIFY tsslPackagesStateChanged)
+    Q_PROPERTY(bool tsslPackagesLoading READ tsslPackagesLoading NOTIFY tsslPackagesStateChanged)
     Q_PROPERTY(bool m3u8sPackaging READ m3u8sPackaging NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(double m3u8sPackagingProgress READ m3u8sPackagingProgress NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sPackagingPhase READ m3u8sPackagingPhase NOTIFY m3u8sPackagingChanged)
@@ -348,6 +350,8 @@ public:
     QString tsslBackupStatus() const;
     TsslPackageListModel* tsslPackages();
     TsslPackageListModel* tsslBatchPackages();
+    bool tsslPackagesHasMore() const;
+    bool tsslPackagesLoading() const;
     bool m3u8sPackaging() const;
     double m3u8sPackagingProgress() const;
     QString m3u8sPackagingPhase() const;
@@ -610,6 +614,10 @@ public:
     Q_INVOKABLE void exportWebDavTssl(int row);
     Q_INVOKABLE void openM3u8sManager();
     Q_INVOKABLE void refreshTsslPackages();
+    Q_INVOKABLE void loadMoreTsslPackages();
+    // The batch dialog is the only thing that needs every package parsed at once, so
+    // it pays for that scan itself instead of every listing refresh.
+    Q_INVOKABLE void refreshTsslBatchPackages();
     Q_INVOKABLE void restoreManagedTssl();
     Q_INVOKABLE void exportManagedTssl(int row);
     Q_INVOKABLE void exportManagedTsslBatch(const QVariantList& rows);
@@ -785,6 +793,7 @@ signals:
     void historyRetentionChanged();
     void globalHistoryFilterChanged();
     void globalHistoryStateChanged();
+    void tsslPackagesStateChanged();
     void globalHistoryManagementChanged();
     void scheduledPlaybackTasksChanged();
     void scheduledPlaybackStatusChanged();
@@ -892,6 +901,7 @@ private:
     void startIptvChannelPlayback(const IptvChannel& channel);
     void loadGlobalHistoryPage(bool resetItems);
     void loadGlobalHistoryManagementDates();
+    void loadTsslPackagePage(bool resetItems);
     void loadGlobalHistoryManagementDate(const QString& date);
     std::vector<PlaybackHistoryItem> prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items);
     std::vector<PlaybackHistoryItem> prepareGlobalHistoryItems(std::vector<PlaybackHistoryItem> items,
@@ -1066,7 +1076,7 @@ private:
     int m_episodeDetailRequestGeneration { 0 };
     int m_globalHistoryReplayGeneration { 0 };
     int m_globalHistoryNextStartIndex { 0 };
-    int m_globalHistoryPageSize { 60 };
+    int m_globalHistoryPageSize { 10 };
     bool m_globalHistoryHasMore { false };
     bool m_globalHistoryLoading { false };
     quint64 m_globalHistoryRequestGeneration { 0 };
@@ -1124,6 +1134,14 @@ private:
     TsslPackageListModel m_tsslPackages;
     TsslPackageListModel m_tsslBatchPackages;
     quint64 m_tsslRefreshGeneration { 0 };
+    quint64 m_tsslBatchRefreshGeneration { 0 };
+    // The manager page lists packages from the cheap catalogue and parses only the
+    // page it shows, so these track how far into the catalogue that has got.
+    quint64 m_tsslPageRequestGeneration { 0 };
+    int m_tsslLoadedPackageCount { 0 };
+    int m_tsslPageSize { 10 };
+    bool m_tsslPackagesHasMore { false };
+    bool m_tsslPackagesLoading { false };
     QString m_m3u8sStatus;
     bool m_m3u8sBatchExporting { false };
     QStringList m_m3u8sSelectedSources;

@@ -22,7 +22,9 @@ int TsslPackageListModel::count() const
 
 int TsslPackageListModel::totalCount() const
 {
-    return static_cast<int>(m_allPackages.size());
+    // With a catalogue the count describes every package file on disk, not just the
+    // page that has been parsed so far.
+    return static_cast<int>(m_summaries.empty() ? m_allPackages.size() : m_summaries.size());
 }
 
 int TsslPackageListModel::validCount() const
@@ -44,6 +46,41 @@ void TsslPackageListModel::setDateFilter(const QString& value)
     m_dateFilter = normalized;
     rebuildFilteredPackages();
     emit dateFilterChanged();
+}
+
+void TsslPackageListModel::setSummaries(std::vector<TsslPackageSummary> summaries)
+{
+    m_summaries = std::move(summaries);
+    // The catalogue replaces the previous listing, so anything parsed from it is now
+    // stale; the view model refills the first page straight afterwards.
+    refreshCatalogueDates();
+    if (!m_dateFilter.isEmpty() && !m_availableDates.contains(m_dateFilter)) {
+        m_dateFilter.clear();
+        emit dateFilterChanged();
+    }
+    setPackages({});
+}
+
+const std::vector<TsslPackageSummary>& TsslPackageListModel::summaries() const
+{
+    return m_summaries;
+}
+
+QStringList TsslPackageListModel::filteredSummaryPaths() const
+{
+    if (m_summaries.empty()) {
+        return {};
+    }
+    QStringList paths;
+    paths.reserve(static_cast<qsizetype>(m_summaries.size()));
+    for (const auto& summary : m_summaries) {
+        if (m_dateFilter.isEmpty()
+            || (summary.modifiedAt.isValid()
+                && summary.modifiedAt.date().toString(Qt::ISODate) == m_dateFilter)) {
+            paths.append(summary.filePath);
+        }
+    }
+    return paths;
 }
 
 QStringList TsslPackageListModel::availableDates() const
@@ -132,11 +169,69 @@ QVariantList TsslPackageListModel::allRows() const
 void TsslPackageListModel::setPackages(std::vector<TsslPackageInfo> packages)
 {
     m_allPackages = std::move(packages);
+    if (m_summaries.empty()) {
+        // Full-list mode: the parsed packages are the only thing known about the
+        // store, so they also drive the total and the date filter options.
+        QStringList dates;
+        dates.reserve(static_cast<qsizetype>(m_allPackages.size()));
+        for (const auto& package : m_allPackages) {
+            if (package.modifiedAt.isValid()) {
+                dates.push_back(package.modifiedAt.date().toString(Qt::ISODate));
+            }
+        }
+        dates.removeDuplicates();
+        std::ranges::sort(dates, std::greater {});
+        if (m_availableDates != dates) {
+            m_availableDates = std::move(dates);
+            emit availableDatesChanged();
+        }
+        if (!m_dateFilter.isEmpty() && !m_availableDates.contains(m_dateFilter)) {
+            m_dateFilter.clear();
+            emit dateFilterChanged();
+        }
+    }
+    rebuildFilteredPackages();
+}
+
+void TsslPackageListModel::appendPackages(std::vector<TsslPackageInfo> packages)
+{
+    if (packages.empty()) {
+        return;
+    }
+    // Decide visibility before announcing rows, so the view is never told about a
+    // package the date filter hides.
+    std::vector<TsslPackageInfo> visible;
+    visible.reserve(packages.size());
+    for (const auto& package : packages) {
+        if (m_dateFilter.isEmpty()
+            || (package.modifiedAt.isValid()
+                && package.modifiedAt.date().toString(Qt::ISODate) == m_dateFilter)) {
+            visible.push_back(package);
+        }
+    }
+    const auto firstRow = static_cast<int>(m_packages.size());
+    if (!visible.empty()) {
+        beginInsertRows({}, firstRow, firstRow + static_cast<int>(visible.size()) - 1);
+    }
+    m_allPackages.insert(m_allPackages.end(),
+                         std::make_move_iterator(packages.begin()),
+                         std::make_move_iterator(packages.end()));
+    m_packages.insert(m_packages.end(),
+                      std::make_move_iterator(visible.begin()),
+                      std::make_move_iterator(visible.end()));
+    if (!visible.empty()) {
+        endInsertRows();
+    }
+    emit countChanged();
+}
+
+void TsslPackageListModel::refreshCatalogueDates()
+{
     QStringList dates;
-    dates.reserve(static_cast<qsizetype>(m_allPackages.size()));
-    for (const auto& package : m_allPackages) {
-        if (package.modifiedAt.isValid()) {
-            dates.push_back(package.modifiedAt.date().toString(Qt::ISODate));
+    dates.reserve(static_cast<qsizetype>(m_summaries.size()));
+    for (const auto& summary : m_summaries) {
+        if (summary.modifiedAt.isValid()) {
+            dates.push_back(summary.modifiedAt.date().toString(Qt::ISODate));
         }
     }
     dates.removeDuplicates();
@@ -145,11 +240,6 @@ void TsslPackageListModel::setPackages(std::vector<TsslPackageInfo> packages)
         m_availableDates = std::move(dates);
         emit availableDatesChanged();
     }
-    if (!m_dateFilter.isEmpty() && !m_availableDates.contains(m_dateFilter)) {
-        m_dateFilter.clear();
-        emit dateFilterChanged();
-    }
-    rebuildFilteredPackages();
 }
 
 std::optional<TsslPackageInfo> TsslPackageListModel::packageAt(int row) const

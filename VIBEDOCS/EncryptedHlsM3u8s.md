@@ -29,6 +29,44 @@ controls and selection state. The batch dialog uses a separate model from the
 manager page so changing dates does not rebuild the visible package cards. Its
 key list is virtualized and creates delegates only for the visible viewport.
 
+### Paged manager listing
+
+Reading every package in the store is expensive: each `.tssl` file has to be
+opened, read (up to 64 MiB), parsed as JSON, and used to decrypt and authenticate
+its source filename. Doing that for the whole store on every refresh made the
+manager page cost grow with both the number and the size of packages, even
+though the page only ever showed a list of rows.
+
+The manager now lists packages from a cheap catalogue and parses only the page it
+displays:
+
+| Store call | Work done |
+| --- | --- |
+| `TsslStore::listPackageSummaries()` | Directory enumeration only. Returns `TsslPackageSummary` (root digest from the file name, path, modification time, size) and opens no package file. | 
+| `TsslStore::packageInfosForPaths(paths)` | Reads, parses and validates exactly the listed paths. Rejects any path that is not a digest-named package inside this store. |
+| `TsslStore::listPackages()` | Full scan, unchanged. Still used by backup and by the batch dialog. |
+
+`TsslPackageListModel` supports both shapes. With a catalogue installed via
+`setSummaries()`, `totalCount()` and `availableDates()` describe every package on
+disk while the rows hold only the parsed page (`setPackages()` replaces it,
+`appendPackages()` adds the next page for "load more"). Without a catalogue the
+model behaves as before and derives totals and dates from the packages it was
+given, which is what the batch dialog needs.
+
+`AppViewModel` owns the cursor: `refreshTsslPackages()` loads the catalogue then
+the first page, `loadMoreTsslPackages()` appends the next page, and the page size
+is `m_tsslPageSize` (10). `tsslPackagesHasMore` and `tsslPackagesLoading` drive
+the "load more" control, and a generation counter drops page results that belong
+to a superseded listing or date filter. Changing `dateFilter` re-parses the first
+page for that date instead of filtering the loaded page, because validity and
+identifier previews only exist for parsed packages.
+
+The batch dialog is the one view that needs every package parsed at once, so
+`refreshTsslBatchPackages()` runs that scan when the dialog opens rather than on
+every manager refresh. Its date options only exist once that scan returns, so the
+dialog holds the date it wants to start on in `pendingTsslBatchDate` and applies
+it from `onAvailableDatesChanged`.
+
 ## TSSL v3
 
 TSSL is UTF-8 JSON with this shape:

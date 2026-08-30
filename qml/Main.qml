@@ -22,6 +22,9 @@ ApplicationWindow {
     property var selectedTsslRows: []
     property var selectedTsslRowSet: ({})
     property string selectedTsslBatchDate: ""
+    // Batch dates are only known once the lazy batch scan finishes, so the date the
+    // dialog wants to start on has to be held until those options exist.
+    property string pendingTsslBatchDate: ""
     property int pendingScheduledDeleteRow: -1
     property int dragFromRow: -1
     property bool playerImmersive: false
@@ -1389,10 +1392,30 @@ ApplicationWindow {
         width: Math.min(root.width - 64, 900)
         height: Math.min(root.height - 72, 620)
 
+        Connections {
+            target: appViewModel.tsslBatchPackages
+
+            function onAvailableDatesChanged() {
+                if (root.pendingTsslBatchDate.length === 0) {
+                    return
+                }
+                if (!appViewModel.tsslBatchPackages.availableDates.includes(root.pendingTsslBatchDate)) {
+                    root.pendingTsslBatchDate = ""
+                    return
+                }
+                appViewModel.tsslBatchPackages.dateFilter = root.pendingTsslBatchDate
+                root.pendingTsslBatchDate = ""
+            }
+        }
+
         onOpened: {
             root.clearTsslBatchSelection()
-            var dates = appViewModel.tsslBatchPackages.availableDates
+            // Batch management needs every package parsed, so the scan is started here
+            // instead of on every manager refresh.
+            appViewModel.refreshTsslBatchPackages()
+            var dates = appViewModel.tsslPackages.availableDates
             root.selectedTsslBatchDate = dates.length > 0 ? String(dates[0]) : ""
+            root.pendingTsslBatchDate = root.selectedTsslBatchDate
             appViewModel.tsslBatchPackages.dateFilter = root.selectedTsslBatchDate
         }
 
@@ -4386,7 +4409,7 @@ ApplicationWindow {
                                 host: t("m3u8s.cardSubtitle")
                                 leadingStatusText: t("local.builtIn")
                                 leadingStatusColor: theme.success
-                                trailingStatusText: t("m3u8s.packageCount").arg(appViewModel.tsslPackages.count)
+                                trailingStatusText: t("m3u8s.packageCount").arg(appViewModel.tsslPackages.totalCount)
                                 trailingStatusColor: root.serviceAccentColor("M3u8s")
                                 onActivated: root.openServiceFromCard(sourceCard, function() {
                                     appViewModel.openM3u8sManager()
@@ -16535,7 +16558,7 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("m3u8s.batchManage")
-                    enabled: appViewModel.tsslPackages.count > 0
+                    enabled: appViewModel.tsslPackages.totalCount > 0
                         && !appViewModel.m3u8sBatchExporting
                     onClicked: tsslBatchManageDialog.open()
                 }
@@ -16701,12 +16724,39 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.topMargin: 4
+                    spacing: 10
+                    visible: appViewModel.tsslPackagesHasMore
+
+                    LoadingSpinner {
+                        visible: appViewModel.tsslPackagesLoading
+                        running: visible
+                        implicitWidth: 18
+                        implicitHeight: 18
+                    }
+
+                    ModernButton {
+                        text: t("m3u8s.loadMore")
+                        enabled: !appViewModel.tsslPackagesLoading
+                        onClicked: appViewModel.loadMoreTsslPackages()
+                    }
+                }
+            }
+
+            PageLoadingPanel {
+                Layout.alignment: Qt.AlignHCenter
+                visible: appViewModel.tsslPackagesLoading && appViewModel.tsslPackages.count === 0
+                title: t("m3u8s.loading")
+                subtitle: t("m3u8s.loadingHint")
             }
 
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 170
-                visible: appViewModel.tsslPackages.count === 0
+                visible: !appViewModel.tsslPackagesLoading && appViewModel.tsslPackages.count === 0
                 radius: 8
                 color: theme.surface
                 border.color: theme.border
