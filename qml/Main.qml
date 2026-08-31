@@ -2928,23 +2928,9 @@ ApplicationWindow {
 
             ModernButton {
                 text: t("action.refresh")
-                visible: (appViewModel.currentView === "home" && !root.useTraditionalMediaHome)
-                    || appViewModel.currentView === "local"
-                enabled: !appViewModel.loading && !appViewModel.localMediaLoading
-                onClicked: {
-                    if (appViewModel.currentView === "local") {
-                        appViewModel.refreshLocalMediaDirectory()
-                    } else {
-                        appViewModel.refreshHome()
-                    }
-                }
-            }
-
-            ModernButton {
-                text: t("local.addFolder")
-                visible: appViewModel.currentView === "local"
-                enabled: !appViewModel.localMediaLoading
-                onClicked: localMediaFolderDialog.open()
+                visible: appViewModel.currentView === "home" && !root.useTraditionalMediaHome
+                enabled: !appViewModel.loading
+                onClicked: appViewModel.refreshHome()
             }
 
         }
@@ -13602,6 +13588,12 @@ ApplicationWindow {
                         ? appViewModel.localMediaRootName : t("local.foldersTitle")
                     subtitle: appViewModel.localMediaDirectoryOpen
                         ? appViewModel.localMediaCurrentPath : t("local.foldersSubtitle")
+                }
+
+                ModernButton {
+                    text: t("action.refresh")
+                    enabled: !appViewModel.localMediaLoading
+                    onClicked: appViewModel.refreshLocalMediaDirectory()
                 }
 
                 ModernButton {
