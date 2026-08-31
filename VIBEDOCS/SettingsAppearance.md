@@ -122,6 +122,17 @@ rendering grey-black: loud in the light theme, near-invisible in the dark one. N
 `Qt.rgba(x.r, ...)` on a raw token. New strings keep going through the `AppViewModel` translation tables;
 QML never hard-codes CJK literals.
 
+A hoverable background that animates its color must rest on the **actual backing color**, never on
+`"transparent"`. `ColorAnimation` interpolates ARGB channel-wise, and `"transparent"` is
+`#00000000` - opaque black with zero alpha - so animating to any token starts from RGB `(0,0,0)`.
+The element therefore dips *darker than the surface behind it* on the way in and again on the way
+out, which reads as a blink on every hover. The settings page left navigation showed exactly this
+against `theme.surface` (dark `#00000000` to `#252d36`, light `#00000000` to `#f1f5fb`, i.e. white to
+near-white passing through grey). Rest it on `theme.surface`, `theme.input`, `theme.elevated` or
+whatever the parent actually paints, as the rest of the app already does. A `"transparent"` resting
+color is only safe with no color `Behavior` on that property, since there is then nothing to
+interpolate - the player transport and filter chips rely on that.
+
 ## Service Card Sorting
 
 The final service sorting interaction is drag-and-drop.

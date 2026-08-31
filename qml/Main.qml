@@ -16989,7 +16989,7 @@ ApplicationWindow {
                                 radius: 8
                                 color: settingsNavButton.selected
                                     ? root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.10)
-                                    : settingsNavButton.hovered ? theme.elevatedHover : "transparent"
+                                    : settingsNavButton.hovered ? theme.elevatedHover : theme.surface
 
                                 // Accent tick on the selected item's left edge.
                                 Rectangle {
