@@ -16210,6 +16210,7 @@ ApplicationWindow {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 12
+                        visible: appViewModel.m3u8sOutputMode === "webdav"
 
                         Label {
                             Layout.preferredWidth: 112
