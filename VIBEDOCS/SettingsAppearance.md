@@ -64,6 +64,18 @@ use the same `PlayerPage` state and `MpvVideoItem` commands.
 
 All primary pages share one transition treatment at the page container boundary. A page enters with a short directional slide, gentle fade, and subtle scale recovery. The direction follows the destination page order, so forward and backward navigation remain visually distinct without rebuilding persistent pages.
 
+Entering or leaving the settings page replaces that nudge with a horizontal fly:
+the slide distance grows to nearly half the container width, the fade starts from
+fully transparent, and vertical offset and scale are dropped so the movement stays
+strictly sideways. Settings is the last page in the stack, so opening it slides in
+from the right and closing it sends the previous page back in from the left. The
+distance and timing live in the `slideDistance`, `slideDuration`, `slideStartOpacity`,
+`slideVertical` and `slideScale` properties of `pageStack`, which the shared
+`pageEnterAnimation` reads at start-up, so both treatments come from one animation.
+This is deliberately applied to the page container rather than to the settings page
+itself: `StackLayout` swaps pages instantly and `Item` has no `exit` transition, so a
+page cannot animate itself away.
+
 The animation is deliberately brief and does not move navigation or persistence logic into QML. `AppViewModel::pageTransitionsEnabled` exposes the preference, and `SessionRepository` persists it under `appearance/pageTransitionsEnabled`. Disabling the option resets the page container immediately and subsequent page changes occur without animation.
 
 ## I18n

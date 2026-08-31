@@ -4150,6 +4150,16 @@ ApplicationWindow {
                 property int previousIndex: -1
                 property bool transitionReady: false
                 readonly property int playerViewIndex: 5
+                readonly property int settingsViewIndex: 15
+                // Slide geometry for the shared page transition. StackLayout swaps pages
+                // instantly and an Item cannot animate itself away (it has no exit
+                // transition), so the movement has to live on the stack itself and be
+                // re-tuned per destination.
+                property real slideDistance: 26
+                property int slideDuration: 280
+                property real slideStartOpacity: 0.22
+                property real slideVertical: 6
+                property real slideScale: 0.992
                 currentIndex: appViewModel.currentView === "services" ? 0
                     : appViewModel.currentView === "home" ? 1
                     : appViewModel.currentView === "library" ? 2
@@ -4189,7 +4199,8 @@ ApplicationWindow {
 
                 function playTransition() {
                     var nextIndex = pageStack.currentIndex
-                    var direction = pageStack.previousIndex < 0 || nextIndex >= pageStack.previousIndex ? 1 : -1
+                    var fromIndex = pageStack.previousIndex
+                    var direction = fromIndex < 0 || nextIndex >= fromIndex ? 1 : -1
                     pageStack.previousIndex = nextIndex
 
                     if (!pageStack.transitionReady) {
@@ -4221,12 +4232,30 @@ ApplicationWindow {
                         return
                     }
 
+                    // Going to and from settings reads as a horizontal fly: the settings
+                    // page is the last index in the stack, so `direction` already pushes it
+                    // in from the right and brings the previous page back from the left.
+                    if (nextIndex === pageStack.settingsViewIndex
+                            || fromIndex === pageStack.settingsViewIndex) {
+                        pageStack.slideDistance = Math.max(220, pageStack.width * 0.45)
+                        pageStack.slideDuration = 380
+                        pageStack.slideStartOpacity = 0
+                        pageStack.slideVertical = 0
+                        pageStack.slideScale = 1
+                    } else {
+                        pageStack.slideDistance = 26
+                        pageStack.slideDuration = 280
+                        pageStack.slideStartOpacity = 0.22
+                        pageStack.slideVertical = 6
+                        pageStack.slideScale = 0.992
+                    }
+
                     pageEnterAnimation.stop()
-                    pageStack.opacity = 0.22
-                    pageTransitionOffset.x = direction * 26
-                    pageTransitionOffset.y = 6
-                    pageTransitionScale.xScale = 0.992
-                    pageTransitionScale.yScale = 0.992
+                    pageStack.opacity = pageStack.slideStartOpacity
+                    pageTransitionOffset.x = direction * pageStack.slideDistance
+                    pageTransitionOffset.y = pageStack.slideVertical
+                    pageTransitionScale.xScale = pageStack.slideScale
+                    pageTransitionScale.yScale = pageStack.slideScale
                     pageEnterAnimation.start()
                 }
 
@@ -4244,7 +4273,7 @@ ApplicationWindow {
                         target: pageStack
                         property: "opacity"
                         to: 1
-                        duration: 210
+                        duration: Math.round(pageStack.slideDuration * 0.7)
                         easing.type: Easing.OutCubic
                     }
 
@@ -4252,7 +4281,7 @@ ApplicationWindow {
                         target: pageTransitionOffset
                         properties: "x,y"
                         to: 0
-                        duration: 280
+                        duration: pageStack.slideDuration
                         easing.type: Easing.OutQuint
                     }
 
@@ -4260,7 +4289,7 @@ ApplicationWindow {
                         target: pageTransitionScale
                         properties: "xScale,yScale"
                         to: 1
-                        duration: 260
+                        duration: Math.round(pageStack.slideDuration * 0.93)
                         easing.type: Easing.OutCubic
                     }
                 }
