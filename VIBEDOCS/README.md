@@ -21,6 +21,7 @@
 - `WebDAV.md`：WebDAV 协议边界、下载规划、总任务/文件明细模型与传输统计口径。
 - `GitHubActionsRelease.md`：跨平台构建、原生安装包、Flatpak 与 GitHub Release 发布流程。
 - `DialogBackdropBlur.md`：模态对话框共享的背景虚化遮罩（双源 1:1 抓取）与弹出动效约定。
+- `OptionSegmentedControl.md`：分段按钮组选择控件，选中块横向滑移、等宽分段与悬停淡入规则，用于替代短枚举下拉框。
 
 调试提示（QML 布局自检）：
 

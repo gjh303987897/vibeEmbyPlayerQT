@@ -17087,17 +17087,14 @@ ApplicationWindow {
 
                 SettingRow {
                     label: t("settings.theme")
-                    ModernComboBox {
-                        Layout.preferredWidth: 220
-                        textRole: "label"
-                        valueRole: "value"
-                        model: [
+                    OptionSegmentedControl {
+                        options: [
                             { label: t("option.system"), value: "system" },
                             { label: t("option.dark"), value: "dark" },
                             { label: t("option.light"), value: "light" }
                         ]
-                        currentIndex: appViewModel.themeMode === "system" ? 0 : appViewModel.themeMode === "dark" ? 1 : 2
-                        onActivated: appViewModel.themeMode = model[index].value
+                        selectedValue: appViewModel.themeMode
+                        onChosen: appViewModel.themeMode = value
                     }
                 }
 
@@ -17702,6 +17699,97 @@ ApplicationWindow {
         BodyText {
             Layout.fillWidth: true
             text: label
+        }
+    }
+
+    // Segmented option picker for short, fixed value sets. One thumb slides behind the
+    // labels, so switching a value reads as moving a selection rather than repainting a
+    // row, and every choice stays visible for comparison instead of hiding behind a
+    // combo box popup.
+    component OptionSegmentedControl: Rectangle {
+        id: segmented
+        property var options: []
+        property string selectedValue: ""
+        readonly property color selectedTextColor: "#ffffff"
+        signal chosen(string value)
+
+        Layout.preferredWidth: 220
+        Layout.preferredHeight: 40
+        radius: 8
+        color: theme.input
+        border.color: theme.border
+
+        // Declared ahead of the segments so it paints under their labels: a segment is
+        // transparent unless it is hovered, which is what lets the thumb show through.
+        Rectangle {
+            id: segmentedThumb
+            readonly property Item target: segmentedRow.selectedItem
+            visible: target !== null
+            x: target ? target.x + segmentedRow.x : 0
+            y: target ? target.y + segmentedRow.y : 0
+            width: target ? target.width : 0
+            height: target ? target.height : 0
+            radius: 6
+            color: theme.primary
+
+            Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        }
+
+        RowLayout {
+            id: segmentedRow
+            anchors.fill: parent
+            anchors.margins: 3
+            spacing: 3
+            // The segment that currently owns the thumb.
+            property Item selectedItem: null
+
+            Repeater {
+                model: segmented.options
+
+                delegate: Button {
+                    id: segmentButton
+                    required property var modelData
+                    readonly property bool selected: segmented.selectedValue === modelData.value
+
+                    Layout.fillWidth: true
+                    // Split the row evenly: with fillWidth alone the implicit label
+                    // widths win and the segments come out different sizes, so the thumb
+                    // would resize as it slides instead of only moving.
+                    Layout.preferredWidth: segmented.options.length > 0
+                        ? Math.floor((segmentedRow.width
+                                        - segmentedRow.spacing * (segmented.options.length - 1))
+                                      / segmented.options.length)
+                        : 0
+                    Layout.fillHeight: true
+                    hoverEnabled: true
+                    Accessible.name: modelData.label
+                    onClicked: segmented.chosen(modelData.value)
+                    onSelectedChanged: if (selected) segmentedRow.selectedItem = segmentButton
+                    Component.onCompleted: if (selected) segmentedRow.selectedItem = segmentButton
+
+                    contentItem: Label {
+                        text: segmentButton.modelData.label
+                        color: segmentButton.selected ? segmented.selectedTextColor : theme.text
+                        font.pixelSize: 13
+                        font.bold: segmentButton.selected
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+
+                        // Both ends are opaque, so this ramp cannot darken like a
+                        // "transparent" resting color would.
+                        Behavior on color { ColorAnimation { duration: 160 } }
+                    }
+
+                    background: Rectangle {
+                        radius: 6
+                        color: theme.elevatedHover
+                        opacity: segmentButton.hovered && !segmentButton.selected ? 1 : 0
+
+                        Behavior on opacity { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+                    }
+                }
+            }
         }
     }
 

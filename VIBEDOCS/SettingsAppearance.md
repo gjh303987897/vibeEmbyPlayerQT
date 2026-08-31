@@ -56,6 +56,9 @@ single-section categories set `showTitle: false` because the panel heading above
 already carries the same words. When editing `categories`, keep `showTitle` in
 step with how many groups a category holds.
 
+The theme row is a segmented button group rather than a combo box; see
+`OptionSegmentedControl.md` for that control's sliding-thumb and even-segment rules.
+
 ## Media Server Home Layout
 
 The Emby and Jellyfin home presentations can be changed independently without
