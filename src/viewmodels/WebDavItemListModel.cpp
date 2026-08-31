@@ -51,6 +51,8 @@ QVariant WebDavItemListModel::data(const QModelIndex& index, int role) const
         return item.identifierPreview;
     case SourceFileNameRole:
         return item.sourceFileName;
+    case M3u8sMetadataPendingRole:
+        return item.encryptedHls && !item.m3u8sMetadataResolved;
     default:
         return {};
     }
@@ -71,6 +73,7 @@ QHash<int, QByteArray> WebDavItemListModel::roleNames() const
         { EncryptedHlsRole, "encryptedHls" },
         { IdentifierPreviewRole, "identifierPreview" },
         { SourceFileNameRole, "sourceFileName" },
+        { M3u8sMetadataPendingRole, "m3u8sMetadataPending" },
     };
 }
 
@@ -144,27 +147,6 @@ void WebDavItemListModel::clear()
     setItems({});
 }
 
-void WebDavItemListModel::setIdentifierPreview(const QUrl& url, QString preview)
-{
-    for (auto& item : m_allItems) {
-        if (item.url == url) {
-            item.identifierPreview = preview;
-            break;
-        }
-    }
-
-    for (int row = 0; row < rowCount(); ++row) {
-        auto& item = m_items[static_cast<size_t>(row)];
-        if (item.url != url || item.identifierPreview == preview) {
-            continue;
-        }
-        item.identifierPreview = std::move(preview);
-        const auto changedIndex = index(row, 0);
-        emit dataChanged(changedIndex, changedIndex, { IdentifierPreviewRole });
-        break;
-    }
-}
-
 void WebDavItemListModel::setM3u8sMetadata(const QUrl& url,
                                            QString identifierPreview,
                                            QString sourceFileName)
@@ -173,6 +155,7 @@ void WebDavItemListModel::setM3u8sMetadata(const QUrl& url,
         if (item.url == url) {
             item.identifierPreview = identifierPreview;
             item.sourceFileName = sourceFileName;
+            item.m3u8sMetadataResolved = true;
             break;
         }
     }
@@ -182,13 +165,14 @@ void WebDavItemListModel::setM3u8sMetadata(const QUrl& url,
         if (item.url != url) {
             continue;
         }
-        if (item.identifierPreview == identifierPreview && item.sourceFileName == sourceFileName) {
-            break;
-        }
         item.identifierPreview = std::move(identifierPreview);
         item.sourceFileName = std::move(sourceFileName);
+        item.m3u8sMetadataResolved = true;
         const auto changedIndex = index(row, 0);
-        emit dataChanged(changedIndex, changedIndex, { IdentifierPreviewRole, SourceFileNameRole });
+        // Emitted even when both strings came back empty: that is the failed-read case,
+        // and the pending flag still has to drop so the loading indicator disappears.
+        emit dataChanged(changedIndex, changedIndex,
+                         { IdentifierPreviewRole, SourceFileNameRole, M3u8sMetadataPendingRole });
         break;
     }
 }

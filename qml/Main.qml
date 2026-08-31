@@ -8910,15 +8910,21 @@ ApplicationWindow {
         property bool encryptedHls: false
         property string identifierPreview: ""
         property string sourceFileName: ""
+        property bool m3u8sMetadataPending: false
+        // A metadata line belongs to the row as soon as the row is known to be an
+        // encrypted package, whether or not the manifest read has answered. Reserving
+        // the line up front is what stops the row growing when the answer lands.
+        readonly property bool identifierLineVisible: encryptedHls && appViewModel.webDavShowM3u8sIdentifier
+            && (m3u8sMetadataPending || identifierPreview.length > 0)
+        readonly property bool sourceNameLineVisible: encryptedHls && appViewModel.webDavShowM3u8sSourceFileName
+            && (m3u8sMetadataPending || sourceFileName.length > 0)
 
         radius: 8
         color: fileMouse.containsMouse ? theme.elevatedHover : theme.elevated
         border.color: fileMouse.containsMouse ? theme.primary : theme.border
-        implicitHeight: encryptedHls && ((appViewModel.webDavShowM3u8sIdentifier && identifierPreview.length > 0)
-            || (appViewModel.webDavShowM3u8sSourceFileName && sourceFileName.length > 0))
-            ? ((appViewModel.webDavShowM3u8sIdentifier && identifierPreview.length > 0
-                && appViewModel.webDavShowM3u8sSourceFileName && sourceFileName.length > 0) ? 94 : 78)
-            : 62
+        implicitHeight: 62
+            + (identifierLineVisible ? 16 : 0)
+            + (sourceNameLineVisible ? 16 : 0)
 
         MouseArea {
             id: fileMouse
@@ -8958,21 +8964,62 @@ ApplicationWindow {
                     text: fileRow.subtitle
                     elide: Text.ElideRight
                 }
-                MutedText {
+                RowLayout {
                     Layout.fillWidth: true
-                    visible: fileRow.encryptedHls && appViewModel.webDavShowM3u8sIdentifier
-                        && fileRow.identifierPreview.length > 0
-                    text: t("m3u8s.identifier") + "  " + fileRow.identifierPreview
-                    font.family: "monospace"
-                    font.pixelSize: 11
-                    elide: Text.ElideMiddle
+                    spacing: 5
+                    visible: fileRow.identifierLineVisible
+
+                    MutedText {
+                        text: t("m3u8s.identifier")
+                        font.family: "monospace"
+                        font.pixelSize: 11
+                    }
+
+                    ThumbnailLoadingIcon {
+                        visible: fileRow.m3u8sMetadataPending
+                        running: visible
+                        iconSize: 11
+                        backgroundVisible: false
+                        Layout.preferredWidth: iconSize
+                        Layout.preferredHeight: iconSize
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: !fileRow.m3u8sMetadataPending
+                        text: fileRow.identifierPreview
+                        font.family: "monospace"
+                        font.pixelSize: 11
+                        elide: Text.ElideMiddle
+                    }
                 }
-                MutedText {
+
+                RowLayout {
                     Layout.fillWidth: true
-                    visible: fileRow.encryptedHls && appViewModel.webDavShowM3u8sSourceFileName
-                        && fileRow.sourceFileName.length > 0
-                    text: t("webdav.originalFileName") + "  " + fileRow.sourceFileName
-                    elide: Text.ElideRight
+                    spacing: 5
+                    visible: fileRow.sourceNameLineVisible
+
+                    MutedText {
+                        text: t("webdav.originalFileName")
+                    }
+
+                    ThumbnailLoadingIcon {
+                        visible: fileRow.m3u8sMetadataPending
+                        running: visible
+                        iconSize: 11
+                        backgroundVisible: false
+                        Layout.preferredWidth: iconSize
+                        Layout.preferredHeight: iconSize
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: !fileRow.m3u8sMetadataPending
+                        text: fileRow.sourceFileName
+                        elide: Text.ElideRight
+                    }
                 }
             }
 
@@ -9039,9 +9086,15 @@ ApplicationWindow {
         property bool encryptedHls: false
         property string identifierPreview: ""
         property string sourceFileName: ""
+        property bool m3u8sMetadataPending: false
+        // Same reservation rule as WebDavFileRow: an encrypted item shows its metadata
+        // lines immediately, with a loading icon where the value will go.
+        readonly property bool identifierLineVisible: encryptedHls && appViewModel.webDavShowM3u8sIdentifier
+            && (m3u8sMetadataPending || identifierPreview.length > 0)
+        readonly property bool sourceNameLineVisible: encryptedHls && appViewModel.webDavShowM3u8sSourceFileName
+            && (m3u8sMetadataPending || sourceFileName.length > 0)
         readonly property int visibleMetadataRows:
-            (encryptedHls && appViewModel.webDavShowM3u8sIdentifier && identifierPreview.length > 0 ? 1 : 0)
-            + (encryptedHls && appViewModel.webDavShowM3u8sSourceFileName && sourceFileName.length > 0 ? 1 : 0)
+            (identifierLineVisible ? 1 : 0) + (sourceNameLineVisible ? 1 : 0)
         readonly property color accentColor: directory ? theme.primary : theme.success
 
         function badgeText() {
@@ -9208,30 +9261,69 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     spacing: 1
 
-                    MutedText {
+                    RowLayout {
                         Layout.fillWidth: true
-                        visible: mediaCard.encryptedHls && appViewModel.webDavShowM3u8sIdentifier
-                            && mediaCard.identifierPreview.length > 0
-                        text: t("m3u8s.identifier") + "  " + mediaCard.identifierPreview
-                        font.family: "monospace"
-                        font.pixelSize: 10
-                        elide: Text.ElideMiddle
+                        spacing: 5
+                        visible: mediaCard.identifierLineVisible
+
+                        MutedText {
+                            text: t("m3u8s.identifier")
+                            font.family: "monospace"
+                            font.pixelSize: 10
+                        }
+
+                        ThumbnailLoadingIcon {
+                            visible: mediaCard.m3u8sMetadataPending
+                            running: visible
+                            iconSize: 10
+                            backgroundVisible: false
+                            Layout.preferredWidth: iconSize
+                            Layout.preferredHeight: iconSize
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+
+                        MutedText {
+                            Layout.fillWidth: true
+                            visible: !mediaCard.m3u8sMetadataPending
+                            text: mediaCard.identifierPreview
+                            font.family: "monospace"
+                            font.pixelSize: 10
+                            elide: Text.ElideMiddle
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 5
+                        visible: mediaCard.sourceNameLineVisible
+
+                        MutedText {
+                            text: t("webdav.originalFileName")
+                            font.pixelSize: 11
+                        }
+
+                        ThumbnailLoadingIcon {
+                            visible: mediaCard.m3u8sMetadataPending
+                            running: visible
+                            iconSize: 11
+                            backgroundVisible: false
+                            Layout.preferredWidth: iconSize
+                            Layout.preferredHeight: iconSize
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+
+                        MutedText {
+                            Layout.fillWidth: true
+                            visible: !mediaCard.m3u8sMetadataPending
+                            text: mediaCard.sourceFileName
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
                     }
 
                     MutedText {
                         Layout.fillWidth: true
-                        visible: mediaCard.encryptedHls && appViewModel.webDavShowM3u8sSourceFileName
-                            && mediaCard.sourceFileName.length > 0
-                        text: t("webdav.originalFileName") + "  " + mediaCard.sourceFileName
-                        font.pixelSize: 11
-                        elide: Text.ElideRight
-                    }
-
-                    MutedText {
-                        Layout.fillWidth: true
-                        visible: !mediaCard.encryptedHls
-                            || ((!appViewModel.webDavShowM3u8sIdentifier || mediaCard.identifierPreview.length === 0)
-                                && (!appViewModel.webDavShowM3u8sSourceFileName || mediaCard.sourceFileName.length === 0))
+                        visible: !mediaCard.identifierLineVisible && !mediaCard.sourceNameLineVisible
                         text: mediaCard.detailText()
                         font.pixelSize: 12
                         elide: Text.ElideRight
@@ -14801,6 +14893,7 @@ ApplicationWindow {
                         encryptedHls: model.encryptedHls
                         identifierPreview: model.identifierPreview
                         sourceFileName: model.sourceFileName
+                        m3u8sMetadataPending: model.m3u8sMetadataPending
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
                         onExportTsslRequested: appViewModel.exportWebDavTssl(index)
@@ -14827,6 +14920,7 @@ ApplicationWindow {
                         encryptedHls: model.encryptedHls
                         identifierPreview: model.identifierPreview
                         sourceFileName: model.sourceFileName
+                        m3u8sMetadataPending: model.m3u8sMetadataPending
                         onActivated: appViewModel.openWebDavItem(index)
                         onDownloadRequested: appViewModel.downloadWebDavItem(index)
                         onExportTsslRequested: appViewModel.exportWebDavTssl(index)

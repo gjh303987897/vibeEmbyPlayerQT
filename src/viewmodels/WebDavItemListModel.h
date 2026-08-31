@@ -24,6 +24,7 @@ public:
         EncryptedHlsRole,
         IdentifierPreviewRole,
         SourceFileNameRole,
+        M3u8sMetadataPendingRole,
     };
 
     explicit WebDavItemListModel(QObject* parent = nullptr);
@@ -40,7 +41,6 @@ public:
     bool videoMode() const;
     bool audioMode() const;
     void clear();
-    void setIdentifierPreview(const QUrl& url, QString preview);
     void setM3u8sMetadata(const QUrl& url, QString identifierPreview, QString sourceFileName);
     std::optional<WebDavItem> itemAt(int row) const;
 

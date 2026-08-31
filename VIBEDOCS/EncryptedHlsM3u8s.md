@@ -299,6 +299,19 @@ without blocking the directory listing. Two persistent WebDAV settings
 independently control identifier and original-filename visibility; both are
 enabled by default.
 
+Because the listing paints before any manifest has been read, the two metadata
+lines are reserved as soon as an entry is known to be encrypted, each with a
+small `ThumbnailLoadingIcon` where its value will appear, and the row keeps its
+final height throughout the fetch instead of growing when the answer lands. The
+pending state is `WebDavItem::m3u8sMetadataResolved`, exposed as the model role
+`m3u8sMetadataPending` (`encryptedHls && !resolved`), and it lives on the item
+struct so it survives `setDisplayMode()` rebuilding the visible rows. Both
+delegates share this treatment: `WebDavFileRow` in the list and `WebDavMediaCard`
+in the grid, whose size/content-type fallback line yields to the placeholders
+rather than competing with them. A failed read still reports itself as answered,
+so an unreadable manifest clears the icon and falls back to blank rather than
+spinning forever.
+
 `EncryptedHlsPlaybackProxy` uses one verification and HTTP-serving path for
 local and WebDAV packages. Local files are read on worker threads. The local
 preparation worker captures the TSSL storage directory and creates its own

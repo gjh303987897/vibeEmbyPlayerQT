@@ -9979,6 +9979,9 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
                     if (!preview) {
                         AppLogger::warning(QStringLiteral("encrypted-hls"),
                                            QStringLiteral("Unable to read a WebDAV M3U8S identifier"));
+                        // Still report the read as answered: an unreadable manifest leaves
+                        // both fields empty, but the row must stop showing a loading icon.
+                        m_webDavItems.setM3u8sMetadata(manifestUrl, QString {}, QString {});
                         return;
                     }
                     m_webDavItems.setM3u8sMetadata(manifestUrl,
