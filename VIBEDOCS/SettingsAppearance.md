@@ -30,6 +30,32 @@ color, while the button keeps a white surface with only subtle hover and pressed
 tints. Theme strings are converted to typed QML colors before alpha adjustments,
 preventing focused navigation buttons from rendering a black border.
 
+## Settings Page Layout
+
+The page is a `RowLayout` with a fixed 190px navigation panel and a scrolling
+content panel. `settingsPage.categories` maps each nav entry to the ids of the
+`SettingsGroup`s that make up its content, and the content Repeater re-parents
+those groups out of their holder (`data: [modelData]`), so only the selected
+category's sections exist in the visible tree and hidden categories cost nothing.
+
+Selection in the nav is **one plate that slides**, not a per-row highlight. A
+single `Rectangle` (`settingsNavSelection`) is declared ahead of the nav column so
+it paints beneath the labels, and it tracks `settingsNavColumn.selectedItem`, the
+row that last became selected. Only `y` is animated, because every row is full
+width and the same height. Rows therefore animate *opacity* on hover instead of
+color: a row's own background must stay transparent at rest or it would cover the
+plate, and fading an opaque fill in by opacity also avoids the black-ramp problem
+noted under Theme.
+
+The content panel is deliberately **not wrapped in cards**. `SettingsGroup` keeps
+its Rectangle base for layout and padding but paints no fill and no border, so
+sections sit directly on the page canvas and only real controls read as surfaces.
+A group shows its own heading only when its category has several sections
+(`showTitle: true`, the default, used by 桌面 / 历史记录 / 隐私 under `general`);
+single-section categories set `showTitle: false` because the panel heading above
+already carries the same words. When editing `categories`, keep `showTitle` in
+step with how many groups a category holds.
+
 ## Media Server Home Layout
 
 The Emby and Jellyfin home presentations can be changed independently without

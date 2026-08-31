@@ -16956,10 +16956,41 @@ ApplicationWindow {
                 color: theme.surface
                 border.color: theme.border
 
+                // One selection plate serves the whole list: it slides to the row the
+                // user clicked instead of each row toggling its own highlight. Declared
+                // ahead of the column so it stays under the button labels, and it only
+                // animates y because every row is full width and the same height.
+                Rectangle {
+                    id: settingsNavSelection
+                    readonly property Item target: settingsNavColumn.selectedItem
+                    visible: target !== null
+                    x: target ? target.x + settingsNavColumn.x : 0
+                    y: target ? target.y + settingsNavColumn.y : 0
+                    width: target ? target.width : 0
+                    height: target ? target.height : 0
+                    radius: 8
+                    color: root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.10)
+
+                    // Accent tick on the selected item's left edge.
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 3
+                        height: 18
+                        radius: 1.5
+                        color: theme.primary
+                    }
+
+                    Behavior on y { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                }
+
                 ColumnLayout {
+                    id: settingsNavColumn
                     anchors.fill: parent
                     anchors.margins: 8
                     spacing: 2
+                    // The row that currently owns the selection plate.
+                    property Item selectedItem: null
 
                     Repeater {
                         model: settingsPage.categories
@@ -16975,6 +17006,8 @@ ApplicationWindow {
                             hoverEnabled: true
                             Accessible.name: modelData.title
                             onClicked: settingsPage.currentCategory = index
+                            onSelectedChanged: if (selected) settingsNavColumn.selectedItem = settingsNavButton
+                            Component.onCompleted: if (selected) settingsNavColumn.selectedItem = settingsNavButton
 
                             contentItem: Label {
                                 text: settingsNavButton.modelData.title
@@ -16986,23 +17019,14 @@ ApplicationWindow {
                             }
 
                             background: Rectangle {
+                                // Hover only; the selection itself is the sliding plate below.
+                                // Opacity is animated rather than color so the fade cannot ramp
+                                // through black the way a "transparent" resting color would.
                                 radius: 8
-                                color: settingsNavButton.selected
-                                    ? root.withAlpha(theme.primary, darkTheme ? 0.18 : 0.10)
-                                    : settingsNavButton.hovered ? theme.elevatedHover : theme.surface
+                                color: theme.elevatedHover
+                                opacity: settingsNavButton.hovered && !settingsNavButton.selected ? 1 : 0
 
-                                // Accent tick on the selected item's left edge.
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 3
-                                    height: 18
-                                    radius: 1.5
-                                    color: theme.primary
-                                    visible: settingsNavButton.selected
-                                }
-
-                                Behavior on color { ColorAnimation { duration: 110 } }
+                                Behavior on opacity { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
                             }
                         }
                     }
@@ -17059,6 +17083,7 @@ ApplicationWindow {
         SettingsGroup {
             id: appearanceGroup
             title: t("settings.appearance")
+            showTitle: false
 
                 SettingRow {
                     label: t("settings.theme")
@@ -17183,6 +17208,7 @@ ApplicationWindow {
             SettingsGroup {
                 id: recommendationsGroup
                 title: t("settings.recommendations")
+                showTitle: false
 
                 SettingRow {
                     label: t("settings.embyRecommendationRefresh")
@@ -17266,6 +17292,7 @@ ApplicationWindow {
             SettingsGroup {
                 id: updatesGroup
                 title: t("settings.updates")
+                showTitle: false
 
                 SettingRow {
                     label: t("updates.currentVersion")
@@ -17418,6 +17445,7 @@ ApplicationWindow {
             SettingsGroup {
                 id: tsslBackupGroup
                 title: t("settings.tsslBackup")
+                showTitle: false
 
                 SettingRow {
                     label: t("tsslBackup.target")
@@ -17595,6 +17623,7 @@ ApplicationWindow {
             SettingsGroup {
                 id: webdavGroup
                 title: t("settings.webdav")
+                showTitle: false
 
                 SettingRow {
                     label: t("webdav.defaultDownload")
@@ -17633,12 +17662,18 @@ ApplicationWindow {
     }
 
     component SettingsGroup: Rectangle {
+        id: settingsGroup
         default property alias content: groupColumn.data
         property string title: ""
+        // Categories that hold several sections need a heading per section. A category
+        // with only this group is already titled by the panel heading above it, so such
+        // groups set showTitle: false to avoid printing the same words twice.
+        property bool showTitle: true
         Layout.fillWidth: true
         radius: 12
-        color: theme.surface
-        border.color: theme.border
+        // Flat on the page canvas: settings sections are no longer boxed into cards.
+        color: "transparent"
+        border.width: 0
         implicitHeight: groupColumn.implicitHeight + 28
 
         ColumnLayout {
@@ -17649,7 +17684,9 @@ ApplicationWindow {
 
             Label {
                 Layout.fillWidth: true
+                Layout.preferredHeight: settingsGroup.showTitle ? implicitHeight : 0
                 text: title
+                visible: settingsGroup.showTitle
                 color: theme.text
                 font.pixelSize: 17
                 font.bold: true
