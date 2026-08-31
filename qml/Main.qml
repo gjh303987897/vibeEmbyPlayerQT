@@ -2947,24 +2947,6 @@ ApplicationWindow {
                 onClicked: localMediaFolderDialog.open()
             }
 
-            ModernButton {
-                text: t("nav.settings")
-                visible: appViewModel.currentView !== "settings"
-                    && appViewModel.currentView !== "services"
-                    && appViewModel.currentView !== "webdav"
-                    && !root.useTraditionalMediaHome
-                onClicked: appViewModel.openSettings()
-            }
-
-            ModernButton {
-                text: t("action.backToServices")
-                visible: appViewModel.currentView !== "services"
-                    && appViewModel.currentView !== "settings"
-                    && appViewModel.currentView !== "webdav"
-                    && !root.useTraditionalMediaHome
-                onClicked: appViewModel.backToServices()
-            }
-
         }
 
         // Centered on the full toolbar rather than on the text row: that row reserves 140px on the
