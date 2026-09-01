@@ -2046,6 +2046,16 @@ void SessionRepository::setM3u8sContainerFormat(const QString& format)
     m_settings.setValue(QStringLiteral("m3u8s/containerFormat"), format);
 }
 
+int SessionRepository::m3u8sParallelJobs() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/parallelJobs"), 1).toInt();
+}
+
+void SessionRepository::setM3u8sParallelJobs(int jobs)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/parallelJobs"), jobs);
+}
+
 QString SessionRepository::updateChannel() const
 {
     return m_settings.value(QStringLiteral("updates/channel"), QStringLiteral("stable")).toString();

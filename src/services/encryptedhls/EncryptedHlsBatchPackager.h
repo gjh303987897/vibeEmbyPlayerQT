@@ -7,9 +7,12 @@
 #include <QString>
 
 #include <expected>
+#include <memory>
+#include <vector>
 
 struct EncryptedHlsBatchRequest final {
   QList<EncryptedHlsPackageRequest> packages;
+  int parallelJobs{1};
 };
 
 struct EncryptedHlsBatchFailure final {
@@ -31,12 +34,14 @@ public:
   explicit EncryptedHlsBatchPackager(TsslStore &store,
                                      QObject *parent = nullptr);
 
+  static int maximumParallelJobs();
   bool isRunning() const;
   double progress() const;
   QString phase() const;
   QString ffmpegExecutable() const;
   int totalCount() const;
   int processedCount() const;
+  int activeCount() const;
   int currentIndex() const;
   QString currentSourcePath() const;
 
@@ -54,20 +59,33 @@ signals:
   void canceled(const EncryptedHlsBatchResult &result);
 
 private:
-  void startNext();
-  void recordFailure(QString error);
+  struct WorkerSlot final {
+    std::unique_ptr<EncryptedHlsPackager> packager;
+    QString sourcePath;
+    int requestIndex{-1};
+    bool active{false};
+  };
+
+  void ensureWorkerCount(int count);
+  void connectWorker(WorkerSlot &worker);
+  WorkerSlot *availableWorker();
+  void scheduleDispatch();
+  void dispatchAvailable();
+  void releaseWorker(WorkerSlot &worker);
+  void recordFailure(WorkerSlot &worker, QString error);
   void finishCompleted();
   void finishCanceled();
+  void updateAggregatePhase();
   void setPhase(QString phase);
 
-  EncryptedHlsPackager m_packager;
+  TsslStore &m_store;
+  std::vector<std::unique_ptr<WorkerSlot>> m_workers;
   EncryptedHlsBatchRequest m_request;
   EncryptedHlsBatchResult m_result;
-  QString m_currentSourcePath;
   QString m_phase{QStringLiteral("idle")};
   int m_nextRequestIndex{0};
-  int m_currentIndex{0};
-  double m_currentProgress{0.0};
+  int m_parallelJobs{1};
+  quint64 m_runGeneration{0};
   bool m_running{false};
   bool m_cancelRequested{false};
 };

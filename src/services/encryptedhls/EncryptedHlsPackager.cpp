@@ -20,6 +20,7 @@
 #include <QtConcurrent>
 
 #include <algorithm>
+#include <ranges>
 
 namespace {
 constexpr qint64 maximumPlainSegmentBytes = 512LL * 1024 * 1024;
@@ -87,8 +88,15 @@ int crfFor(EncryptedHlsVideoEncoding encoding, EncryptedHlsVideoQuality quality)
 namespace EncryptedHlsPackaging {
 
 std::expected<QString, QString> probeVideoCodec(const QString& sourcePath,
-                                                const QString& ffmpegExecutable)
+                                                const QString& ffmpegExecutable,
+                                                std::atomic_bool* cancelRequested)
 {
+    const auto canceled = [cancelRequested]() {
+        return cancelRequested && cancelRequested->load(std::memory_order_relaxed);
+    };
+    if (canceled()) {
+        return std::unexpected(QStringLiteral("Packaging was canceled"));
+    }
     QProcess probe;
     probe.setProcessChannelMode(QProcess::SeparateChannels);
     probe.start(ffmpegExecutable,
@@ -99,14 +107,31 @@ std::expected<QString, QString> probeVideoCodec(const QString& sourcePath,
                   QStringLiteral("-an"), QStringLiteral("-f"), QStringLiteral("null"),
                   QStringLiteral("-") },
                 QIODevice::ReadOnly);
-    if (!probe.waitForStarted(5'000)) {
-        return std::unexpected(QStringLiteral("Unable to inspect the source video codec: %1")
-                                   .arg(probe.errorString()));
+    int startElapsed = 0;
+    while (!probe.waitForStarted(100)) {
+        if (canceled()) {
+            probe.kill();
+            probe.waitForFinished(2'000);
+            return std::unexpected(QStringLiteral("Packaging was canceled"));
+        }
+        if (probe.state() == QProcess::NotRunning || (startElapsed += 100) >= 5'000) {
+            return std::unexpected(QStringLiteral("Unable to inspect the source video codec: %1")
+                                       .arg(probe.errorString()));
+        }
     }
-    if (!probe.waitForFinished(60'000)) {
-        probe.kill();
-        probe.waitForFinished(2'000);
-        return std::unexpected(QStringLiteral("Timed out while inspecting the source video codec"));
+    constexpr int maximumProbeWaitMilliseconds = 60'000;
+    int elapsed = 0;
+    while (!probe.waitForFinished(100)) {
+        if (canceled()) {
+            probe.kill();
+            probe.waitForFinished(2'000);
+            return std::unexpected(QStringLiteral("Packaging was canceled"));
+        }
+        if ((elapsed += 100) >= maximumProbeWaitMilliseconds) {
+            probe.kill();
+            probe.waitForFinished(2'000);
+            return std::unexpected(QStringLiteral("Timed out while inspecting the source video codec"));
+        }
     }
     const auto diagnostics = QString::fromUtf8(probe.readAllStandardError());
     static const QRegularExpression codecPattern(
@@ -470,6 +495,10 @@ EncryptedHlsPackager::EncryptedHlsPackager(TsslStore& store, QObject* parent)
             finishFailure(QStringLiteral("Unable to start FFmpeg: %1").arg(m_ffmpeg.errorString()));
         }
     });
+    connect(&m_codecProbeWatcher,
+            &QFutureWatcher<std::expected<QString, QString>>::finished,
+            this,
+            &EncryptedHlsPackager::handleCodecProbeFinished);
     connect(&m_encryptionWatcher,
             &QFutureWatcher<std::expected<EncryptedHlsPreparedPackage, QString>>::finished,
             this,
@@ -489,6 +518,9 @@ EncryptedHlsPackager::~EncryptedHlsPackager()
     }
     if (m_encryptionWatcher.isRunning()) {
         m_encryptionWatcher.waitForFinished();
+    }
+    if (m_codecProbeWatcher.isRunning()) {
+        m_codecProbeWatcher.waitForFinished();
     }
     if (m_tarWatcher.isRunning()) {
         m_tarWatcher.waitForFinished();
@@ -553,54 +585,73 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
         return std::unexpected(QStringLiteral("Unable to create a temporary packaging directory"));
     }
 
-    const auto segmentPattern = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("segment_%06d.ts"));
-    const auto manifestPath = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("index.m3u8"));
     auto effectiveRequest = request;
     effectiveRequest.sourcePath = source.absoluteFilePath();
     effectiveRequest.outputDirectory = m_outputDirectory;
-    if (effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::Auto) {
-        const auto codec = EncryptedHlsPackaging::probeVideoCodec(source.absoluteFilePath(), ffmpeg);
-        if (!codec) {
+
+    // Keep malformed non-auto requests fail-fast. Automatic requests defer the
+    // same argument validation until codec probing has selected an encoder.
+    if (effectiveRequest.videoEncoding != EncryptedHlsVideoEncoding::Auto) {
+        const auto segmentPattern = QDir(m_stagingDirectory->path()).filePath(
+            QStringLiteral("segment_%06d.ts"));
+        const auto manifestPath = QDir(m_stagingDirectory->path()).filePath(
+            QStringLiteral("index.m3u8"));
+        if (auto arguments = EncryptedHlsPackaging::buildFfmpegArguments(
+                effectiveRequest, segmentPattern, manifestPath);
+            !arguments) {
             resetRunState();
-            return std::unexpected(codec.error());
+            return std::unexpected(arguments.error());
         }
-        const auto accepted = std::ranges::any_of(effectiveRequest.autoCopyVideoCodecs,
-                                                   [&codec](const QString& candidate) {
-                                                       return candidate == *codec;
-                                                   });
-        effectiveRequest.videoEncoding = accepted
-            ? EncryptedHlsVideoEncoding::Copy
-            : effectiveRequest.autoFallbackVideoEncoding;
-        AppLogger::info(QStringLiteral("encrypted-hls"),
-                        QStringLiteral("Automatic video encoding selected %1 for source codec %2")
-                            .arg(effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::Copy
-                                     ? QStringLiteral("copy")
-                                     : effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::H265
-                                         ? QStringLiteral("h265") : QStringLiteral("h264"),
-                                 *codec));
-    }
-    auto arguments = EncryptedHlsPackaging::buildFfmpegArguments(
-        effectiveRequest,
-        segmentPattern,
-        manifestPath);
-    if (!arguments) {
-        resetRunState();
-        return std::unexpected(arguments.error());
     }
 
+    ++m_runGeneration;
+    m_pendingRequest = effectiveRequest;
     m_cancelRequested.store(false, std::memory_order_relaxed);
     m_terminalReported = false;
     m_durationMicroseconds = 0;
     m_progressBuffer.clear();
     m_diagnostics.clear();
     m_running = true;
-    emit runningChanged();
     setProgress(0.01);
-    setPhase(QStringLiteral("segmenting"));
+    if (effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::Auto) {
+        setPhase(QStringLiteral("probing"));
+    } else {
+        setPhase(QStringLiteral("segmenting"));
+    }
+    emit runningChanged();
+    if (effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::Auto) {
+        const auto sourcePath = effectiveRequest.sourcePath;
+        m_codecProbeWatcher.setFuture(QtConcurrent::run(
+            [sourcePath, ffmpeg, this]() {
+                return EncryptedHlsPackaging::probeVideoCodec(
+                    sourcePath, ffmpeg, &m_cancelRequested);
+            }));
+        return {};
+    }
 
+    if (auto launched = launchFfmpeg(effectiveRequest); !launched) {
+        finishFailure(launched.error());
+        return {};
+    }
+    return {};
+}
+
+std::expected<void, QString> EncryptedHlsPackager::launchFfmpeg(
+    const EncryptedHlsPackageRequest& request)
+{
+    if (!m_stagingDirectory) {
+        return std::unexpected(QStringLiteral("Unable to prepare a temporary packaging directory"));
+    }
+    const auto segmentPattern = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("segment_%06d.ts"));
+    const auto manifestPath = QDir(m_stagingDirectory->path()).filePath(QStringLiteral("index.m3u8"));
+    auto arguments = EncryptedHlsPackaging::buildFfmpegArguments(request, segmentPattern, manifestPath);
+    if (!arguments) {
+        return std::unexpected(arguments.error());
+    }
+    setPhase(QStringLiteral("segmenting"));
     AppLogger::info(QStringLiteral("encrypted-hls"),
                     QStringLiteral("Starting local video segmentation for an M3U8S package"));
-    m_ffmpeg.start(ffmpeg, *arguments, QIODevice::ReadOnly);
+    m_ffmpeg.start(m_ffmpegExecutable, *arguments, QIODevice::ReadOnly);
     return {};
 }
 
@@ -611,10 +662,15 @@ void EncryptedHlsPackager::cancel()
     }
     m_cancelRequested.store(true, std::memory_order_relaxed);
     setPhase(QStringLiteral("canceling"));
+    if (m_codecProbeWatcher.isRunning()) {
+        return;
+    }
     if (m_ffmpeg.state() != QProcess::NotRunning) {
         m_ffmpeg.terminate();
-        QTimer::singleShot(2000, this, [this]() {
-            if (m_ffmpeg.state() != QProcess::NotRunning) {
+        const auto generation = m_runGeneration;
+        QTimer::singleShot(2000, this, [this, generation]() {
+            if (generation == m_runGeneration &&
+                m_ffmpeg.state() != QProcess::NotRunning) {
                 m_ffmpeg.kill();
             }
         });
@@ -691,13 +747,14 @@ void EncryptedHlsPackager::beginEncryption()
     const auto directoryPath = m_stagingDirectory->path();
     const auto sourceFileName = m_sourceFileName;
     const auto ffmpegExecutable = m_ffmpegExecutable;
+    const auto runGeneration = m_runGeneration;
     QPointer<EncryptedHlsPackager> owner(this);
-    auto progressCallback = [owner](double value) {
+    auto progressCallback = [owner, runGeneration](double value) {
         if (!owner) {
             return;
         }
-        QMetaObject::invokeMethod(owner, [owner, value]() {
-            if (owner) {
+        QMetaObject::invokeMethod(owner, [owner, runGeneration, value]() {
+            if (owner && owner->m_running && owner->m_runGeneration == runGeneration) {
                 owner->setProgress(0.65 + std::clamp(value, 0.0, 1.0) * 0.30);
             }
         });
@@ -794,6 +851,40 @@ void EncryptedHlsPackager::handleEncryptionFinished()
     }));
 }
 
+void EncryptedHlsPackager::handleCodecProbeFinished()
+{
+    if (!m_running || m_terminalReported) {
+        return;
+    }
+    auto codec = m_codecProbeWatcher.result();
+    if (m_cancelRequested.load(std::memory_order_relaxed)) {
+        finishCanceled();
+        return;
+    }
+    if (!codec) {
+        finishFailure(codec.error());
+        return;
+    }
+
+    const auto accepted = std::ranges::any_of(m_pendingRequest.autoCopyVideoCodecs,
+                                               [&codec](const QString& candidate) {
+                                                   return candidate == *codec;
+                                               });
+    m_pendingRequest.videoEncoding = accepted
+        ? EncryptedHlsVideoEncoding::Copy
+        : m_pendingRequest.autoFallbackVideoEncoding;
+    AppLogger::info(QStringLiteral("encrypted-hls"),
+                    QStringLiteral("Automatic video encoding selected %1 for source codec %2")
+                        .arg(m_pendingRequest.videoEncoding == EncryptedHlsVideoEncoding::Copy
+                                 ? QStringLiteral("copy")
+                                 : m_pendingRequest.videoEncoding == EncryptedHlsVideoEncoding::H265
+                                     ? QStringLiteral("h265") : QStringLiteral("h264"),
+                             *codec));
+    if (auto launched = launchFfmpeg(m_pendingRequest); !launched) {
+        finishFailure(launched.error());
+    }
+}
+
 void EncryptedHlsPackager::handleTarFinished()
 {
     if (!m_running || m_terminalReported) return;
@@ -884,6 +975,7 @@ void EncryptedHlsPackager::resetRunState()
     m_finalOutputPath.clear();
     m_progressBuffer.clear();
     m_diagnostics.clear();
+    m_pendingRequest = {};
 }
 
 QString EncryptedHlsPackager::chooseOutputPath(const QString& outputDirectory,

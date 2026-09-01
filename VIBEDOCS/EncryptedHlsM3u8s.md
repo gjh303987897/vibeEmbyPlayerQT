@@ -150,16 +150,19 @@ job starts.
 
 The Qt Quick file picker accepts one or more source videos asynchronously. The
 selection is validated in the ViewModel after the dialog closes, then
-`EncryptedHlsBatchPackager`
-queues the resulting requests and runs the existing single-file packager
-serially. Each source therefore keeps its own staging directory, random
-identifier, encrypted source name, digest-named output directory, and local
-TSSL package. The displayed batch progress combines completed items with the
-current item's progress. A per-file failure is recorded and the next queued
-file still starts; the final status distinguishes complete, partial, and total
-failure. Canceling stops the active FFmpeg/encryption job and discards every
-request that has not started. A one-file selection follows the same queue path
-and preserves the original single-package behavior.
+`EncryptedHlsBatchPackager` queues the resulting requests. The `parallelJobs`
+setting controls how many independent single-file packagers may be active at
+once (one by default, bounded by the UI to a small CPU-aware maximum). Every
+worker keeps its own staging directory, random identifier, encrypted source
+name, digest-named output directory, and local TSSL package; TSSL metadata is
+saved on the application thread after each worker finishes. The displayed
+batch progress combines completed items with the aggregate progress of active
+workers, and a parallel phase is shown while more than one worker is running.
+A per-file failure is recorded and the next queued file still starts; the final
+status distinguishes complete, partial, and total failure. Canceling stops all
+active FFmpeg/encryption jobs and discards every request that has not started.
+A one-file selection follows the same queue path and preserves the original
+single-package behavior.
 
 The source picker can accumulate individual videos and folders in one batch.
 Folder discovery runs through `EncryptedHlsSourcePlanner` on a worker thread,

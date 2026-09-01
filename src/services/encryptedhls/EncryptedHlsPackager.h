@@ -74,7 +74,8 @@ std::expected<QStringList, QString> buildFfmpegArguments(
     const QString& manifestPath);
 
 std::expected<QString, QString> probeVideoCodec(const QString& sourcePath,
-                                                const QString& ffmpegExecutable);
+                                                 const QString& ffmpegExecutable,
+                                                 std::atomic_bool* cancelRequested = nullptr);
 
 std::expected<void, QString> validateGeneratedVideoTrack(
     const QString& directoryPath,
@@ -116,6 +117,7 @@ private:
     void readFfmpegProgress();
     void readFfmpegDiagnostics();
     void handleFfmpegFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void handleCodecProbeFinished();
     void beginEncryption();
     void handleEncryptionFinished();
     void handleTarFinished();
@@ -124,6 +126,7 @@ private:
     void finishFailure(QString error);
     void finishCanceled();
     void resetRunState();
+    std::expected<void, QString> launchFfmpeg(const EncryptedHlsPackageRequest& request);
     QString chooseOutputPath(const QString& outputDirectory,
                              QByteArrayView rootManifestDigest,
                              EncryptedHlsContainerFormat format) const;
@@ -131,9 +134,11 @@ private:
 
     TsslStore& m_store;
     QProcess m_ffmpeg;
+    QFutureWatcher<std::expected<QString, QString>> m_codecProbeWatcher;
     QFutureWatcher<std::expected<EncryptedHlsPreparedPackage, QString>> m_encryptionWatcher;
     QFutureWatcher<std::expected<EncryptedHlsTarIndex, QString>> m_tarWatcher;
     EncryptedHlsPreparedPackage m_pendingPreparedPackage;
+    EncryptedHlsPackageRequest m_pendingRequest;
     std::unique_ptr<QTemporaryDir> m_stagingDirectory;
     std::atomic_bool m_cancelRequested { false };
     QByteArray m_progressBuffer;
@@ -144,6 +149,7 @@ private:
     QString m_finalOutputPath;
     EncryptedHlsContainerFormat m_containerFormat { EncryptedHlsContainerFormat::TarM3u8sp };
     qint64 m_durationMicroseconds { 0 };
+    quint64 m_runGeneration { 0 };
     double m_progress { 0.0 };
     QString m_phase { QStringLiteral("idle") };
     bool m_running { false };

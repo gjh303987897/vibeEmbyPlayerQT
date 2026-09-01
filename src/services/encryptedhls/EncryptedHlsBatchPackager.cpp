@@ -3,45 +3,28 @@
 #include "utils/AppLogger.h"
 
 #include <QFileInfo>
+#include <QThread>
 #include <QTimer>
 
 #include <algorithm>
+#include <ranges>
 #include <utility>
 
+namespace {
+// FFmpeg may create codec threads of its own, so bound the outer worker pool
+// to keep a user-selected batch from oversubscribing the machine.
+constexpr int maximumConcurrentPackagingJobs = 4;
+}
+
 EncryptedHlsBatchPackager::EncryptedHlsBatchPackager(TsslStore &store,
-                                                     QObject *parent)
-    : QObject(parent), m_packager(store, this) {
-  connect(&m_packager, &EncryptedHlsPackager::progressChanged, this, [this]() {
-    m_currentProgress = m_packager.progress();
-    emit progressChanged();
-  });
-  connect(&m_packager, &EncryptedHlsPackager::phaseChanged, this,
-          [this]() { setPhase(m_packager.phase()); });
-  connect(&m_packager, &EncryptedHlsPackager::completed, this,
-          [this](const EncryptedHlsPackageResult &result) {
-            if (!m_running) {
-              return;
-            }
-            m_result.packages.append(result);
-            m_result.segmentCount += result.segmentCount;
-            m_currentProgress = 0.0;
-            emit itemCompleted(result);
-            emit progressChanged();
-            QTimer::singleShot(0, this, &EncryptedHlsBatchPackager::startNext);
-          });
-  connect(&m_packager, &EncryptedHlsPackager::failed, this,
-          [this](const QString &error) {
-            if (!m_running) {
-              return;
-            }
-            recordFailure(error);
-            QTimer::singleShot(0, this, &EncryptedHlsBatchPackager::startNext);
-          });
-  connect(&m_packager, &EncryptedHlsPackager::canceled, this, [this]() {
-    if (m_running) {
-      finishCanceled();
-    }
-  });
+                                                      QObject *parent)
+    : QObject(parent), m_store(store) {
+  ensureWorkerCount(1);
+}
+
+int EncryptedHlsBatchPackager::maximumParallelJobs() {
+  return std::clamp(QThread::idealThreadCount(), 1,
+                    maximumConcurrentPackagingJobs);
 }
 
 bool EncryptedHlsBatchPackager::isRunning() const { return m_running; }
@@ -51,7 +34,13 @@ double EncryptedHlsBatchPackager::progress() const {
     return 0.0;
   }
   const auto processed = m_result.packages.size() + m_result.failures.size();
-  return std::clamp((static_cast<double>(processed) + m_currentProgress) /
+  auto activeProgress = 0.0;
+  for (const auto &worker : m_workers) {
+    if (worker->active) {
+      activeProgress += worker->packager->progress();
+    }
+  }
+  return std::clamp((static_cast<double>(processed) + activeProgress) /
                         static_cast<double>(m_result.requestedCount),
                     0.0, 1.0);
 }
@@ -59,7 +48,8 @@ double EncryptedHlsBatchPackager::progress() const {
 QString EncryptedHlsBatchPackager::phase() const { return m_phase; }
 
 QString EncryptedHlsBatchPackager::ffmpegExecutable() const {
-  return m_packager.ffmpegExecutable();
+  return m_workers.empty() ? QString()
+                           : m_workers.front()->packager->ffmpegExecutable();
 }
 
 int EncryptedHlsBatchPackager::totalCount() const {
@@ -70,15 +60,28 @@ int EncryptedHlsBatchPackager::processedCount() const {
   return m_result.packages.size() + m_result.failures.size();
 }
 
-int EncryptedHlsBatchPackager::currentIndex() const { return m_currentIndex; }
+int EncryptedHlsBatchPackager::activeCount() const {
+  return static_cast<int>(std::ranges::count_if(
+      m_workers, [](const auto &worker) { return worker->active; }));
+}
+
+int EncryptedHlsBatchPackager::currentIndex() const {
+  const auto worker = std::ranges::find_if(
+      m_workers, [](const auto &candidate) { return candidate->active; });
+  return worker == m_workers.end() ? 0 : (*worker)->requestIndex + 1;
+}
 
 QString EncryptedHlsBatchPackager::currentSourcePath() const {
-  return m_currentSourcePath;
+  const auto worker = std::ranges::find_if(
+      m_workers, [](const auto &candidate) { return candidate->active; });
+  return worker == m_workers.end() ? QString() : (*worker)->sourcePath;
 }
 
 std::expected<void, QString>
 EncryptedHlsBatchPackager::start(EncryptedHlsBatchRequest request) {
-  if (m_running || m_packager.isRunning()) {
+  if (m_running || std::ranges::any_of(m_workers, [](const auto &worker) {
+        return worker->packager->isRunning();
+      })) {
     return std::unexpected(
         QStringLiteral("Another M3U8S batch is already being created"));
   }
@@ -87,14 +90,14 @@ EncryptedHlsBatchPackager::start(EncryptedHlsBatchRequest request) {
         QStringLiteral("Choose at least one local video file"));
   }
 
+  m_parallelJobs = std::clamp(request.parallelJobs, 1, maximumParallelJobs());
+  ensureWorkerCount(m_parallelJobs);
+  ++m_runGeneration;
   m_request = std::move(request);
   m_result = EncryptedHlsBatchResult{
       .requestedCount = static_cast<int>(m_request.packages.size()),
   };
-  m_currentSourcePath.clear();
   m_nextRequestIndex = 0;
-  m_currentIndex = 0;
-  m_currentProgress = 0.0;
   m_cancelRequested = false;
   m_running = true;
   setPhase(QStringLiteral("idle"));
@@ -102,9 +105,10 @@ EncryptedHlsBatchPackager::start(EncryptedHlsBatchRequest request) {
   emit progressChanged();
 
   AppLogger::info(QStringLiteral("encrypted-hls"),
-                  QStringLiteral("Starting an M3U8S batch with %1 source files")
-                      .arg(m_result.requestedCount));
-  startNext();
+                  QStringLiteral("Starting an M3U8S batch with %1 source files and %2 parallel jobs")
+                      .arg(m_result.requestedCount)
+                      .arg(m_parallelJobs));
+  dispatchAvailable();
   return {};
 }
 
@@ -114,47 +118,154 @@ void EncryptedHlsBatchPackager::cancel() {
   }
   m_cancelRequested = true;
   setPhase(QStringLiteral("canceling"));
-  if (m_packager.isRunning()) {
-    m_packager.cancel();
-  } else {
+  for (const auto &worker : m_workers) {
+    if (worker->active) {
+      worker->packager->cancel();
+    }
+  }
+  if (activeCount() == 0) {
     finishCanceled();
   }
 }
 
-void EncryptedHlsBatchPackager::startNext() {
+void EncryptedHlsBatchPackager::ensureWorkerCount(int count) {
+  while (static_cast<int>(m_workers.size()) < count) {
+    auto worker = std::make_unique<WorkerSlot>();
+    worker->packager = std::make_unique<EncryptedHlsPackager>(m_store);
+    connectWorker(*worker);
+    m_workers.push_back(std::move(worker));
+  }
+  while (static_cast<int>(m_workers.size()) > count) {
+    m_workers.pop_back();
+  }
+}
+
+void EncryptedHlsBatchPackager::connectWorker(WorkerSlot &worker) {
+  auto *slot = &worker;
+  connect(worker.packager.get(), &EncryptedHlsPackager::progressChanged, this,
+          [this, slot]() {
+            if (slot->active) {
+              emit progressChanged();
+            }
+          });
+  connect(worker.packager.get(), &EncryptedHlsPackager::phaseChanged, this,
+          [this, slot]() {
+            if (slot->active) {
+              updateAggregatePhase();
+            }
+          });
+  connect(worker.packager.get(), &EncryptedHlsPackager::completed, this,
+          [this, slot](const EncryptedHlsPackageResult &result) {
+            if (!m_running || !slot->active) {
+              return;
+            }
+            m_result.packages.append(result);
+            m_result.segmentCount += result.segmentCount;
+            releaseWorker(*slot);
+            emit itemCompleted(result);
+            emit currentChanged();
+            emit progressChanged();
+            updateAggregatePhase();
+            scheduleDispatch();
+          });
+  connect(worker.packager.get(), &EncryptedHlsPackager::failed, this,
+          [this, slot](const QString &error) {
+            if (!m_running || !slot->active) {
+              return;
+            }
+            recordFailure(*slot, error);
+            emit currentChanged();
+            updateAggregatePhase();
+            scheduleDispatch();
+          });
+  connect(worker.packager.get(), &EncryptedHlsPackager::canceled, this,
+          [this, slot]() {
+            if (!m_running || !slot->active) {
+              return;
+            }
+            releaseWorker(*slot);
+            m_cancelRequested = true;
+            emit currentChanged();
+            emit progressChanged();
+            updateAggregatePhase();
+            scheduleDispatch();
+          });
+}
+
+EncryptedHlsBatchPackager::WorkerSlot *
+EncryptedHlsBatchPackager::availableWorker() {
+  const auto worker = std::ranges::find_if(
+      m_workers, [](const auto &candidate) { return !candidate->active; });
+  return worker == m_workers.end() ? nullptr : worker->get();
+}
+
+void EncryptedHlsBatchPackager::scheduleDispatch() {
+  const auto generation = m_runGeneration;
+  QTimer::singleShot(0, this, [this, generation]() {
+    if (generation != m_runGeneration) {
+      return;
+    }
+    dispatchAvailable();
+  });
+}
+
+void EncryptedHlsBatchPackager::dispatchAvailable() {
   if (!m_running) {
     return;
   }
   if (m_cancelRequested) {
-    finishCanceled();
-    return;
-  }
-  if (m_nextRequestIndex >= m_request.packages.size()) {
-    finishCompleted();
+    if (activeCount() == 0) {
+      finishCanceled();
+    }
     return;
   }
 
-  const auto &request = m_request.packages.at(m_nextRequestIndex);
-  m_currentIndex = m_nextRequestIndex + 1;
-  ++m_nextRequestIndex;
-  m_currentSourcePath = request.sourcePath;
-  m_currentProgress = 0.0;
+  while (!m_cancelRequested &&
+         m_nextRequestIndex < m_request.packages.size()) {
+    auto *worker = availableWorker();
+    if (!worker) {
+      break;
+    }
+
+    const auto requestIndex = m_nextRequestIndex++;
+    const auto &request = m_request.packages.at(requestIndex);
+    worker->requestIndex = requestIndex;
+    worker->sourcePath = request.sourcePath;
+    worker->active = true;
+
+    if (auto started = worker->packager->start(request); !started) {
+      recordFailure(*worker, started.error());
+    }
+  }
+
   emit currentChanged();
   emit progressChanged();
+  updateAggregatePhase();
 
-  if (auto started = m_packager.start(request); !started) {
-    recordFailure(started.error());
-    QTimer::singleShot(0, this, &EncryptedHlsBatchPackager::startNext);
+  if (m_cancelRequested) {
+    if (activeCount() == 0) {
+      finishCanceled();
+    }
+  } else if (m_nextRequestIndex >= m_request.packages.size() &&
+             activeCount() == 0) {
+    finishCompleted();
   }
 }
 
-void EncryptedHlsBatchPackager::recordFailure(QString error) {
+void EncryptedHlsBatchPackager::releaseWorker(WorkerSlot &worker) {
+  worker.active = false;
+  worker.requestIndex = -1;
+  worker.sourcePath.clear();
+}
+
+void EncryptedHlsBatchPackager::recordFailure(WorkerSlot &worker,
+                                              QString error) {
   const EncryptedHlsBatchFailure failure{
-      .sourcePath = m_currentSourcePath,
+      .sourcePath = worker.sourcePath,
       .error = std::move(error),
   };
   m_result.failures.append(failure);
-  m_currentProgress = 0.0;
+  releaseWorker(worker);
   AppLogger::warning(
       QStringLiteral("encrypted-hls"),
       QStringLiteral("M3U8S batch item failed (%1): %2")
@@ -168,9 +279,6 @@ void EncryptedHlsBatchPackager::finishCompleted() {
     return;
   }
   m_running = false;
-  m_currentSourcePath.clear();
-  m_currentIndex = 0;
-  m_currentProgress = 0.0;
   setPhase(QStringLiteral("completed"));
   emit currentChanged();
   emit progressChanged();
@@ -188,9 +296,6 @@ void EncryptedHlsBatchPackager::finishCanceled() {
     return;
   }
   m_running = false;
-  m_currentSourcePath.clear();
-  m_currentIndex = 0;
-  m_currentProgress = 0.0;
   setPhase(QStringLiteral("canceled"));
   emit currentChanged();
   emit progressChanged();
@@ -201,6 +306,24 @@ void EncryptedHlsBatchPackager::finishCanceled() {
           .arg(processedCount())
           .arg(totalCount()));
   emit canceled(m_result);
+}
+
+void EncryptedHlsBatchPackager::updateAggregatePhase() {
+  if (!m_running) {
+    return;
+  }
+  if (m_cancelRequested) {
+    setPhase(QStringLiteral("canceling"));
+    return;
+  }
+  if (activeCount() > 1) {
+    setPhase(QStringLiteral("parallel"));
+    return;
+  }
+  const auto worker = std::ranges::find_if(
+      m_workers, [](const auto &candidate) { return candidate->active; });
+  setPhase(worker == m_workers.end() ? QStringLiteral("idle")
+                                     : (*worker)->packager->phase());
 }
 
 void EncryptedHlsBatchPackager::setPhase(QString phase) {

@@ -173,6 +173,8 @@ public:
     void setM3u8sVideoQuality(const QString& quality);
     QString m3u8sContainerFormat() const;
     void setM3u8sContainerFormat(const QString& format);
+    int m3u8sParallelJobs() const;
+    void setM3u8sParallelJobs(int jobs);
     QString updateChannel() const;
     void setUpdateChannel(const QString& channel);
     bool automaticUpdateCheck() const;

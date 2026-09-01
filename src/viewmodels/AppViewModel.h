@@ -108,6 +108,8 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QStringList m3u8sSelectedSources READ m3u8sSelectedSources NOTIFY m3u8sSourceSelectionChanged)
     Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
     Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
+    Q_PROPERTY(int m3u8sParallelJobs READ m3u8sParallelJobs WRITE setM3u8sParallelJobs NOTIFY m3u8sParallelJobsChanged)
+    Q_PROPERTY(int m3u8sMaximumParallelJobs READ m3u8sMaximumParallelJobs CONSTANT)
     Q_PROPERTY(QString m3u8sOutputDirectory READ m3u8sOutputDirectory NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sOutputMode READ m3u8sOutputMode WRITE setM3u8sOutputMode NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sWebDavServiceId READ m3u8sWebDavServiceId WRITE setM3u8sWebDavServiceId NOTIFY m3u8sSettingsChanged)
@@ -361,6 +363,9 @@ public:
     bool m3u8sFfmpegAvailable() const;
     int m3u8sSegmentDuration() const;
     void setM3u8sSegmentDuration(int value);
+    int m3u8sParallelJobs() const;
+    void setM3u8sParallelJobs(int value);
+    int m3u8sMaximumParallelJobs() const;
     QString m3u8sOutputDirectory() const;
     QString m3u8sOutputMode() const;
     void setM3u8sOutputMode(const QString& value);
@@ -752,6 +757,7 @@ signals:
     void m3u8sStatusChanged();
     void m3u8sSourceSelectionChanged();
     void m3u8sSegmentDurationChanged();
+    void m3u8sParallelJobsChanged();
     void m3u8sSettingsChanged();
     void m3u8sWebDavPickerChanged();
     void webDavAudioPlaybackChanged();
@@ -1148,6 +1154,7 @@ private:
     std::shared_ptr<std::atomic_bool> m_m3u8sSourceScanCanceled;
     bool m_m3u8sPreparing { false };
     int m_m3u8sSegmentDuration { 6 };
+    int m_m3u8sParallelJobs { 1 };
     QString m_m3u8sOutputDirectory;
     QString m_m3u8sOutputMode { QStringLiteral("local") };
     QString m_m3u8sWebDavServiceId;

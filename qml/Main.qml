@@ -16135,6 +16135,37 @@ ApplicationWindow {
 
                         Label {
                             Layout.preferredWidth: 112
+                            text: t("m3u8s.parallelJobs")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        ModernSpinBox {
+                            from: 1
+                            to: appViewModel.m3u8sMaximumParallelJobs
+                            stepSize: 1
+                            value: appViewModel.m3u8sParallelJobs
+                            enabled: !appViewModel.m3u8sPackaging
+                            onValueModified: appViewModel.m3u8sParallelJobs = value
+                            textFromValue: function(value, locale) {
+                                return t("m3u8s.jobs").arg(value)
+                            }
+                            valueFromText: function(text, locale) {
+                                var parsed = parseInt(text)
+                                return isNaN(parsed) ? appViewModel.m3u8sParallelJobs : parsed
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
+                            Layout.preferredWidth: 112
                             text: t("m3u8s.outputTarget")
                             color: theme.text
                             font.pixelSize: 13

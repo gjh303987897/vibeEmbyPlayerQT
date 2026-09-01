@@ -858,20 +858,25 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.qualityBalanced"), QStringLiteral("Balanced") },
         { QStringLiteral("m3u8s.qualityCompact"), QStringLiteral("Smaller file") },
         { QStringLiteral("m3u8s.segmentDuration"), QStringLiteral("Segment duration") },
+        { QStringLiteral("m3u8s.parallelJobs"), QStringLiteral("Parallel packaging jobs") },
         { QStringLiteral("m3u8s.seconds"), QStringLiteral("%1 seconds") },
+        { QStringLiteral("m3u8s.jobs"), QStringLiteral("%1 jobs") },
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg ready") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("FFmpeg not found") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("Preparing and segmenting video") },
+        { QStringLiteral("m3u8s.phase.probing"), QStringLiteral("Inspecting source video") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("Encrypting and verifying TS segments") },
         { QStringLiteral("m3u8s.phase.archiving"), QStringLiteral("Building the single-file M3U8SP container") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("Publishing media and saving TSSL keys locally") },
         { QStringLiteral("m3u8s.phase.uploading"), QStringLiteral("Uploading packages to WebDAV") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("Canceling and cleaning temporary files") },
+        { QStringLiteral("m3u8s.phase.parallel"), QStringLiteral("Packaging multiple videos in parallel") },
         { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("Packaging is in progress. The source video will not be modified.") },
         { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("Package completed with %1 encrypted TS segments") },
         { QStringLiteral("m3u8s.failedStatus"), QStringLiteral("Package creation failed") },
         { QStringLiteral("m3u8s.canceledStatus"), QStringLiteral("Package creation canceled") },
         { QStringLiteral("m3u8s.batchProcessingStatus"), QStringLiteral("Packaging %1 of %2: %3") },
+        { QStringLiteral("m3u8s.batchParallelProcessingStatus"), QStringLiteral("Completed %1 of %2 packages (%3 active)") },
         { QStringLiteral("m3u8s.batchCompletedStatus"), QStringLiteral("Batch completed: %1 packages with %2 encrypted TS segments") },
         { QStringLiteral("m3u8s.batchPartialStatus"), QStringLiteral("Batch completed: %1 succeeded, %2 failed, %3 encrypted TS segments") },
         { QStringLiteral("m3u8s.batchFailedStatus"), QStringLiteral("Batch completed: all %1 files failed") },
@@ -1410,20 +1415,25 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.qualityBalanced"), QStringLiteral("均衡") },
         { QStringLiteral("m3u8s.qualityCompact"), QStringLiteral("较小体积") },
         { QStringLiteral("m3u8s.segmentDuration"), QStringLiteral("分片时长") },
+        { QStringLiteral("m3u8s.parallelJobs"), QStringLiteral("并行打包任务数") },
         { QStringLiteral("m3u8s.seconds"), QStringLiteral("%1 秒") },
+        { QStringLiteral("m3u8s.jobs"), QStringLiteral("%1 个任务") },
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg 已就绪") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("未找到 FFmpeg") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("正在准备并切分视频") },
+        { QStringLiteral("m3u8s.phase.probing"), QStringLiteral("正在检查源视频") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("正在加密并验证 TS 分片") },
         { QStringLiteral("m3u8s.phase.archiving"), QStringLiteral("正在创建 M3U8SP 单文件容器") },
         { QStringLiteral("m3u8s.phase.finalizing"), QStringLiteral("正在发布媒体并在本机保存 TSSL 密钥") },
         { QStringLiteral("m3u8s.phase.uploading"), QStringLiteral("正在上传视频包到 WebDAV") },
         { QStringLiteral("m3u8s.phase.canceling"), QStringLiteral("正在取消并清理临时文件") },
+        { QStringLiteral("m3u8s.phase.parallel"), QStringLiteral("正在并行打包多个视频") },
         { QStringLiteral("m3u8s.processingStatus"), QStringLiteral("正在打包，原始视频不会被修改。") },
         { QStringLiteral("m3u8s.completedStatus"), QStringLiteral("打包完成，共生成 %1 个加密 TS 分片") },
         { QStringLiteral("m3u8s.failedStatus"), QStringLiteral("视频包创建失败") },
         { QStringLiteral("m3u8s.canceledStatus"), QStringLiteral("已取消视频包创建") },
         { QStringLiteral("m3u8s.batchProcessingStatus"), QStringLiteral("正在处理第 %1 / %2 个：%3") },
+        { QStringLiteral("m3u8s.batchParallelProcessingStatus"), QStringLiteral("已完成 %1 / %2 个视频包（当前并行 %3 个）") },
         { QStringLiteral("m3u8s.batchCompletedStatus"), QStringLiteral("批量处理完成：成功生成 %1 个视频包，共 %2 个加密 TS 分片") },
         { QStringLiteral("m3u8s.batchPartialStatus"), QStringLiteral("批量处理完成：成功 %1 个，失败 %2 个，共 %3 个加密 TS 分片") },
         { QStringLiteral("m3u8s.batchFailedStatus"), QStringLiteral("批量处理完成：%1 个文件全部失败") },
@@ -1988,12 +1998,19 @@ AppViewModel::AppViewModel(QObject* parent)
         if (!m_m3u8sPackager.isRunning()) {
             return;
         }
-        m_m3u8sStatus = m_m3u8sPackager.totalCount() > 1
-            ? trText(QStringLiteral("m3u8s.batchProcessingStatus"))
-                  .arg(m_m3u8sPackager.currentIndex())
-                  .arg(m_m3u8sPackager.totalCount())
-                  .arg(QFileInfo(m_m3u8sPackager.currentSourcePath()).fileName())
-            : trText(QStringLiteral("m3u8s.processingStatus"));
+        if (m_m3u8sPackager.totalCount() <= 1) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.processingStatus"));
+        } else if (m_m3u8sPackager.activeCount() > 1) {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchParallelProcessingStatus"))
+                                 .arg(m_m3u8sPackager.processedCount())
+                                 .arg(m_m3u8sPackager.totalCount())
+                                 .arg(m_m3u8sPackager.activeCount());
+        } else {
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchProcessingStatus"))
+                                 .arg(m_m3u8sPackager.currentIndex())
+                                 .arg(m_m3u8sPackager.totalCount())
+                                 .arg(QFileInfo(m_m3u8sPackager.currentSourcePath()).fileName());
+        }
         emit m3u8sStatusChanged();
     });
     connect(&m_m3u8sPackager,
@@ -2575,6 +2592,27 @@ void AppViewModel::setM3u8sSegmentDuration(int value)
     }
     m_m3u8sSegmentDuration = normalized;
     emit m3u8sSegmentDurationChanged();
+}
+
+int AppViewModel::m3u8sParallelJobs() const
+{
+    return m_m3u8sParallelJobs;
+}
+
+void AppViewModel::setM3u8sParallelJobs(int value)
+{
+    const auto normalized = std::clamp(value, 1, EncryptedHlsBatchPackager::maximumParallelJobs());
+    if (m_m3u8sParallelJobs == normalized) {
+        return;
+    }
+    m_m3u8sParallelJobs = normalized;
+    m_repository.setM3u8sParallelJobs(normalized);
+    emit m3u8sParallelJobsChanged();
+}
+
+int AppViewModel::m3u8sMaximumParallelJobs() const
+{
+    return EncryptedHlsBatchPackager::maximumParallelJobs();
 }
 
 QString AppViewModel::m3u8sOutputDirectory() const
@@ -4023,6 +4061,9 @@ void AppViewModel::initialize()
     m_m3u8sAudioEncoding = normalizedM3u8sAudioEncoding(m_repository.m3u8sAudioEncoding());
     m_m3u8sVideoQuality = normalizedM3u8sVideoQuality(m_repository.m3u8sVideoQuality());
     m_m3u8sContainerFormat = normalizedM3u8sContainerFormat(m_repository.m3u8sContainerFormat());
+    m_m3u8sParallelJobs = std::clamp(m_repository.m3u8sParallelJobs(),
+                                     1,
+                                     EncryptedHlsBatchPackager::maximumParallelJobs());
     m_tsslBackupTarget = m_repository.tsslBackupTarget();
     if (m_tsslBackupTarget != QStringLiteral("local")
         && m_tsslBackupTarget != QStringLiteral("webdav")
@@ -4048,6 +4089,7 @@ void AppViewModel::initialize()
     emit historyRetentionChanged();
     emit defaultDownloadDirectoryChanged();
     emit webDavDisplaySettingsChanged();
+    emit m3u8sParallelJobsChanged();
     emit m3u8sSettingsChanged();
     emit tsslBackupChanged();
     emit privacyPinChanged();
@@ -6957,6 +6999,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     const auto audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding);
     const auto videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality);
     const auto containerFormat = m3u8sContainerFormatFor(m_m3u8sContainerFormat);
+    const auto parallelJobs = m_m3u8sParallelJobs;
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.discoveringStatus"));
     m_m3u8sBatchCompleted = false;
@@ -6979,7 +7022,8 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     const auto cancelFlag = m_m3u8sSourceScanCanceled;
     connect(watcher, &QFutureWatcherBase::finished, this,
             [this, watcher, cancelFlag, segmentDuration, videoEncoding, autoVideoTarget,
-             autoVideoCodecs = m_m3u8sAutoVideoCodecs, audioEncoding, videoQuality, containerFormat]() {
+             autoVideoCodecs = m_m3u8sAutoVideoCodecs, audioEncoding, videoQuality, containerFormat,
+             parallelJobs]() {
         auto plan = watcher->result();
         watcher->deleteLater();
         const auto canceled = cancelFlag->load(std::memory_order_relaxed);
@@ -7006,6 +7050,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
         }
 
         EncryptedHlsBatchRequest batch;
+        batch.parallelJobs = parallelJobs;
         batch.packages.reserve(plan->sources.size());
         for (const auto& source : plan->sources) {
             batch.packages.append(EncryptedHlsPackageRequest {
