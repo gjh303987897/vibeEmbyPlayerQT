@@ -1,4 +1,5 @@
 #include "app/TrayController.h"
+#include "app/ThemeSnapshotController.h"
 #include "app/WindowAppearanceController.h"
 #include "utils/AppLogger.h"
 #include "viewmodels/AppViewModel.h"
@@ -52,6 +53,7 @@ int main(int argc, char* argv[])
     AppViewModel appViewModel;
     TrayController trayController;
     WindowAppearanceController windowAppearanceController;
+    ThemeSnapshotController themeSnapshot;
     applyApplicationIcon(trayController);
     trayController.setMinimizeToTray(appViewModel.minimizeToTray());
 
@@ -62,6 +64,7 @@ int main(int argc, char* argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("appViewModel"), &appViewModel);
     engine.rootContext()->setContextProperty(QStringLiteral("trayController"), &trayController);
     engine.rootContext()->setContextProperty(QStringLiteral("windowAppearanceController"), &windowAppearanceController);
+    engine.rootContext()->setContextProperty(QStringLiteral("themeSnapshotController"), &themeSnapshot);
 
     QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app, [](const QList<QQmlError>& warnings) {
         for (const auto& warning : warnings) {

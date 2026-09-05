@@ -31,6 +31,12 @@ ApplicationWindow {
     readonly property bool usesCustomTitleBar: Qt.platform.os === "windows"
     property string downloadWarningTitle: ""
     property string downloadWarningMessage: ""
+    // vmDarkTheme flips the instant the user toggles; darkTheme is the *visual*
+    // theme and only flips inside themeApplyPalette (under the dissolve cover).
+    // All the `darkTheme ? …` color expressions in this file follow the visual
+    // one, so nothing recolors before the snapshot covers the screen - the first
+    // themeApplyPalette in Component.onCompleted breaks the initializer binding.
+    readonly property bool vmDarkTheme: appViewModel.effectiveTheme !== "light"
     property bool darkTheme: appViewModel.effectiveTheme !== "light"
     property bool useTraditionalMediaHome: appViewModel.currentView === "home"
         && ((appViewModel.serviceType === "Emby"
@@ -40,7 +46,20 @@ ApplicationWindow {
     property bool useTraditionalPlayer: appViewModel.playerLayout === "traditional"
     property bool immersiveMediaHome: appViewModel.currentView === "home"
         && !root.useTraditionalMediaHome
-    property var theme: darkTheme ? dark : light
+    // Theme switch animation (see VIBEDOCS/ThemeTransition.md): the toggle's own
+    // slide plays first; ~220ms later the page dissolves toward the new palette.
+    // The dissolve is a *snapshot*: grabToImage() captures the current frame once,
+    // the live palette flips to the target underneath it, and the snapshot fades out
+    // to reveal the new theme. Visually every component morphs to its target color;
+    // per-frame cost is one GPU texture blend. The earlier variants (per-token
+    // ColorAnimation Behaviors, then timer-stepped palette blends) re-evaluated the
+    // 500+ `theme.*` dependent bindings per update and saturated the UI thread.
+    readonly property alias theme: themePalette
+    readonly property int themeMorphDuration: 900
+    readonly property int themeMorphDelayMs: 300
+    // False until startup settles: the async restore of the saved theme must apply
+    // instantly, not animate.
+    property bool themeMorphArmed: false
     property bool windowControlsRevealed: false
     readonly property bool windowControlsAvailable: root.usesCustomTitleBar
         && root.visibility !== Window.FullScreen
@@ -60,6 +79,7 @@ ApplicationWindow {
         root.windowControlsRevealed = false
     }
     property var dark: ({
+        dark: true,
         bg: "#0f1217",
         surface: "#171c22",
         elevated: "#1d232b",
@@ -79,6 +99,7 @@ ApplicationWindow {
         shadow: "#66000000"
     })
     property var light: ({
+        dark: false,
         bg: "#f5f7fb",
         surface: "#ffffff",
         elevated: "#ffffff",
@@ -97,6 +118,274 @@ ApplicationWindow {
         errorText: "#a8071a",
         shadow: "#22000000"
     })
+
+    // Live palette consumed by every `theme.*` binding. Plain color properties with
+    // NO bindings: the only writer is themeApplyPalette(), so nothing can snap over
+    // an in-flight dissolve.
+    QtObject {
+        id: themePalette
+        property color bg: dark.bg
+        property color surface: dark.surface
+        property color elevated: dark.elevated
+        property color elevatedHover: dark.elevatedHover
+        property color input: dark.input
+        property color text: dark.text
+        property color muted: dark.muted
+        property color subtle: dark.subtle
+        property color border: dark.border
+        property color primary: dark.primary
+        property color primaryHover: dark.primaryHover
+        property color danger: dark.danger
+        property color success: dark.success
+        property color warning: dark.warning
+        property color errorBg: dark.errorBg
+        property color errorText: dark.errorText
+        property color shadow: dark.shadow
+    }
+
+    function themeApplyPalette(p) {
+        // Single flip point for every color in the app: palette tokens AND the
+        // bool driving all hardcoded dark/light ternaries (dialogs, banners...).
+        darkTheme = p.dark
+        themePalette.bg = p.bg
+        themePalette.surface = p.surface
+        themePalette.elevated = p.elevated
+        themePalette.elevatedHover = p.elevatedHover
+        themePalette.input = p.input
+        themePalette.text = p.text
+        themePalette.muted = p.muted
+        themePalette.subtle = p.subtle
+        themePalette.border = p.border
+        themePalette.primary = p.primary
+        themePalette.primaryHover = p.primaryHover
+        themePalette.danger = p.danger
+        themePalette.success = p.success
+        themePalette.warning = p.warning
+        themePalette.errorBg = p.errorBg
+        themePalette.errorText = p.errorText
+        themePalette.shadow = p.shadow
+        // DWM-native chrome (immersive dark-mode title bar, caption color, corner
+        // antialiasing) paints ABOVE the QML scene, so it cannot dissolve with the
+        // snapshot. It used to switch instantly on click while the content kept
+        // dissolving ~450ms longer - the title bar visibly "finishing its animation
+        // first" was the dark->light jank. Flipping it together with the palette
+        // keeps every visible surface in sync (under the cover where possible).
+        windowAppearanceController.applyTheme(appViewModel.effectiveTheme)
+    }
+
+    // One dissolve in flight: the grab token lets stale results from a superseded
+    // toggle no-op, and the pending target guarantees the palette always ends up
+    // applied even if the grab never completes.
+    property int themePendingGrabToken: -1
+    property var themePendingGrabTarget: null
+    property var themePendingFlipPalette: null
+
+    function themeCompletePendingGrab() {
+        if (!themePendingGrabTarget)
+            return
+        const target = themePendingGrabTarget
+        themePendingGrabTarget = null
+        themePendingGrabToken = -1
+        themeApplyPalette(target)
+    }
+
+    function themeAbortDissolve() {
+        themePendingGrabToken = -1
+        themePendingGrabTarget = null
+        themeDissolveFallback.stop()
+        themeDissolveFade.stop()
+        themePaletteFlipTimer.stop()
+        themeSnapshot.pendingReveal = false
+        themeSnapshot.source = ""
+        themeDissolveLayer.opacity = 0
+        // A flip armed but not yet fired must still settle the palette to whatever
+        // theme is requested now, so the aborted attempt cannot leave stale colors.
+        if (themePendingFlipPalette) {
+            themePendingFlipPalette = null
+            themeApplyPalette(vmDarkTheme ? dark : light)
+        }
+    }
+
+    function beginThemeDissolve() {
+        themeDissolveFade.stop()
+        themeSnapshot.pendingReveal = false
+        themeSnapshot.source = ""
+        themeDissolveLayer.opacity = 0
+        themePendingGrabTarget = vmDarkTheme ? dark : light
+        themeDissolveFallback.restart()
+        // QML's own grabToImage cannot run on contentItem (no QML context there),
+        // so the capture goes through ThemeSnapshotController (src/app).
+        themePendingGrabToken = themeSnapshotController.grabContent(root.contentItem)
+    }
+
+    Connections {
+        target: themeSnapshotController
+
+        function onReady(token, url) {
+            if (token !== root.themePendingGrabToken || !root.themePendingGrabTarget) {
+                return
+            }
+            themeSnapshot.pendingTarget = root.themePendingGrabTarget
+            root.themePendingGrabToken = -1
+            root.themePendingGrabTarget = null
+            themeDissolveFallback.stop()
+            // Must flip before source assignment: the Ready branch in onStatusChanged
+            // early-returns unless pendingReveal is set (this was lost in the rewire
+            // to the C++ grab controller, freezing the screen on the old palette).
+            themeSnapshot.pendingReveal = true
+            themeSnapshot.source = url
+            themeRevealFallback.restart()
+        }
+
+        function onFailed(token, reason) {
+            if (token !== root.themePendingGrabToken) {
+                return
+            }
+            console.warn("[theme-dissolve] snapshot unavailable (" + reason + "), switching instantly")
+            themeDissolveFallback.stop()
+            root.themeCompletePendingGrab()
+        }
+    }
+
+    // Dissolve cover: a solid Rectangle in the *live* background color (catches any
+    // transparent pixels of the grab) with the old-theme snapshot on top, fading out.
+    // Lives above everything in the window overlay layer.
+    //
+    // It must NOT be toggled with `visible` while the snapshot loads: Image defers
+    // decoding while its scene-graph visibility is false, so a hidden cover would
+    // never reach Ready and every switch fell through to the instant-apply fallback
+    // (observed as a long pause followed by a hard cut). Idle instead = opacity 0:
+    // an opacity-0 item still loads its textures, contributes no pixels to grabs
+    // (the offscreen buffer starts transparent), and a plain Rectangle with no
+    // mouse handlers never consumes input, so it can stay visible permanently.
+    Rectangle {
+        id: themeDissolveLayer
+        parent: Overlay.overlay
+        anchors.fill: parent
+        z: 100000
+        color: theme.bg
+        opacity: 0
+
+        Image {
+            id: themeSnapshot
+            anchors.fill: parent
+            fillMode: Image.Stretch
+            // The grab result is served from a temp URL and decodes asynchronously;
+            // hold the palette flip until Ready so the new theme never flashes first.
+            property bool pendingReveal: false
+            property var pendingTarget: null
+            onStatusChanged: {
+                if (!pendingReveal)
+                    return
+                if (status === Image.Ready) {
+                    themeRevealFallback.stop()
+                    pendingReveal = false
+                    // Cover with the frozen old frame FIRST, flip the palette only
+                    // after the snapshot has actually been presented. Applying the
+                    // palette in the same turn as the cover lets the snapshot's big
+                    // first texture upload miss the very frame the recolored UI
+                    // paints - dark->light leaked 1-2 bright frames (a harsh white
+                    // flash) before the stale snapshot landed on top, which also
+                    // read as "the finished button animation replaying".
+                    themeDissolveLayer.opacity = 1.0
+                    root.themePendingFlipPalette = pendingTarget
+                    themePaletteFlipTimer.restart()
+                } else if (status === Image.Error) {
+                    themeRevealFallback.stop()
+                    console.warn("[theme-dissolve] snapshot decode failed, applying instantly")
+                    pendingReveal = false
+                    root.themeApplyPalette(pendingTarget)
+                }
+            }
+        }
+    }
+
+    NumberAnimation {
+        id: themeDissolveFade
+        target: themeDissolveLayer
+        property: "opacity"
+        from: 1.0
+        to: 0.0
+        duration: root.themeMorphDuration
+        // Linear on purpose: with In/Out easings the early frames barely differ from
+        // the identical-to-screen snapshot, so the recolor visually bunches up at the
+        // end and reads as "snappy" no matter how long the duration is.
+        easing.type: Easing.Linear
+        onFinished: themeSnapshot.source = ""
+    }
+
+    // Armed by the Ready branch; fires after the snapshot has been on screen for a
+    // frame or two, performing the actual palette flip underneath the cover and
+    // starting the dissolve.
+    Timer {
+        id: themePaletteFlipTimer
+        interval: 50
+        onTriggered: {
+            if (!root.themePendingFlipPalette)
+                return
+            root.themeApplyPalette(root.themePendingFlipPalette)
+            root.themePendingFlipPalette = null
+            themeDissolveFade.restart()
+        }
+    }
+
+    // Final guard: if the snapshot PNG never decodes (stalled async load), still
+    // complete the theme switch.
+    Timer {
+        id: themeRevealFallback
+        interval: 1200
+        onTriggered: {
+            if (!themeSnapshot.pendingReveal)
+                return
+            console.warn("[theme-dissolve] snapshot decode stalled, applying instantly")
+            themeSnapshot.pendingReveal = false
+            themeSnapshot.source = ""
+            root.themeApplyPalette(themeSnapshot.pendingTarget)
+        }
+    }
+
+    // Delay the page dissolve until the segmented-control thumb has finished sliding
+    // (its Behavior is 200ms), so the click effect plays first and the page color
+    // morph reads as a deliberate second beat.
+    Timer {
+        id: themeMorphKickoff
+        interval: root.themeMorphDelayMs
+        onTriggered: {
+            root.beginThemeDissolve()
+        }
+    }
+
+    // Safety net: if the grab never completes (occluded window, compositor hiccup),
+    // still finish the theme switch instead of leaving the palette stale.
+    Timer {
+        id: themeDissolveFallback
+        interval: 1200
+        onTriggered: {
+            console.warn("[theme-dissolve] grab timed out, applying instantly")
+            root.themeCompletePendingGrab()
+        }
+    }
+
+    // Arms the morph once startup has settled (the saved theme is restored
+    // asynchronously by appViewModel.initialize()).
+    Timer {
+        id: themeMorphArmer
+        interval: 800
+        onTriggered: root.themeMorphArmed = true
+    }
+
+    onVmDarkThemeChanged: {
+        if (!root.visible || !root.themeMorphArmed) {
+            // Startup / pre-visible restore: instant, no animation.
+            themeApplyPalette(vmDarkTheme ? dark : light)
+            return
+        }
+        // Re-toggle at any point, including mid-dissolve: tear the current one down
+        // (or invalidate an in-flight grab) and start a fresh dissolve from whatever
+        // is on screen now.
+        themeAbortDissolve()
+        themeMorphKickoff.restart()
+    }
 
     function t(key) {
         appViewModel.translationRevision
@@ -280,7 +569,11 @@ ApplicationWindow {
     Component.onCompleted: {
         trayController.attachWindow(root)
         windowAppearanceController.attachWindow(root)
-        windowAppearanceController.applyTheme(appViewModel.effectiveTheme)
+        // Snap the live palette (and DWM chrome) to the startup theme before the
+        // first paint; the morph stays unarmed for ~800ms so async settings
+        // restore is also instant.
+        themeApplyPalette(vmDarkTheme ? dark : light)
+        themeMorphArmer.restart()
         root.visible = true
         appViewModel.initialize()
         Qt.callLater(root.showErrorDialog)
@@ -333,7 +626,8 @@ ApplicationWindow {
         }
 
         function onEffectiveThemeChanged() {
-            windowAppearanceController.applyTheme(appViewModel.effectiveTheme)
+            // Native DWM chrome follows the palette now (themeApplyPalette), so the
+            // title bar and the QML scene always flip on the same frame.
         }
 
         function onPageTransitionsEnabledChanged() {
@@ -3226,7 +3520,7 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("m3u8s.addFolder")
-                    onClicked: m3u8sFolderDialog.open()
+                    onClicked: appViewModel.chooseM3u8sFolderSources()
                 }
 
                 Item { Layout.fillWidth: true }
@@ -3446,12 +3740,6 @@ ApplicationWindow {
                 appViewModel.addM3u8sVideoSource(selectedFiles[index])
             }
         }
-    }
-
-    FolderDialog {
-        id: m3u8sFolderDialog
-        title: t("m3u8s.addFolder")
-        onAccepted: appViewModel.addM3u8sFolderSource(selectedFolder)
     }
 
     }

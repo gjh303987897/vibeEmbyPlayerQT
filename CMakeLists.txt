@@ -83,6 +83,8 @@ qt_add_executable(vibePlayerQT
     src/app/main.cpp
     src/app/TrayController.cpp
     src/app/TrayController.h
+    src/app/ThemeSnapshotController.cpp
+    src/app/ThemeSnapshotController.h
     src/app/WindowAppearanceController.cpp
     src/app/WindowAppearanceController.h
     src/services/emby/EmbyRecommendationCache.cpp

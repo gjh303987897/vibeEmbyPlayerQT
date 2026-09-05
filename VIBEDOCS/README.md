@@ -22,6 +22,7 @@
 - `GitHubActionsRelease.md`：跨平台构建、原生安装包、Flatpak 与 GitHub Release 发布流程。
 - `DialogBackdropBlur.md`：模态对话框共享的背景虚化遮罩（双源 1:1 抓取）与弹出动效约定。
 - `OptionSegmentedControl.md`：分段按钮组选择控件，选中块横向滑移、等宽分段与悬停淡入规则，用于替代短枚举下拉框。
+- `ThemeTransition.md`：明暗主题切换的快照溶解动效（themePalette 单一换色入口 + ThemeSnapshotController 场景图抓屏），按钮动画先行、DWM 窗口件同帧翻转，含启动期瞬时应用与十个已踩坑记录。
 
 调试提示（QML 布局自检）：
 
