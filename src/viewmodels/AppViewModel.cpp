@@ -10,6 +10,7 @@
 #include "utils/AppLogger.h"
 
 #include <QCoreApplication>
+#include <QAbstractItemView>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -27,6 +28,7 @@
 #include <QStorageInfo>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QtMath>
 #include <QStringList>
 #include <QStyleHints>
@@ -815,7 +817,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.createAction"), QStringLiteral("Choose videos or folders") },
         { QStringLiteral("m3u8s.sourceDialogTitle"), QStringLiteral("Choose packaging sources") },
         { QStringLiteral("m3u8s.addVideos"), QStringLiteral("Add videos") },
-        { QStringLiteral("m3u8s.addFolder"), QStringLiteral("Add folder") },
+        { QStringLiteral("m3u8s.addFolder"), QStringLiteral("Add folders") },
+        { QStringLiteral("m3u8s.chooseFolders"), QStringLiteral("Choose folders") },
         { QStringLiteral("m3u8s.startCreating"), QStringLiteral("Start creating") },
         { QStringLiteral("m3u8s.noSelectedSources"), QStringLiteral("Add one or more videos or folders. Folders are scanned recursively.") },
         { QStringLiteral("m3u8s.selectedSourceCount"), QStringLiteral("%1 selected sources") },
@@ -1373,6 +1376,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.sourceDialogTitle"), QStringLiteral("选择打包来源") },
         { QStringLiteral("m3u8s.addVideos"), QStringLiteral("添加视频") },
         { QStringLiteral("m3u8s.addFolder"), QStringLiteral("添加文件夹") },
+        { QStringLiteral("m3u8s.chooseFolders"), QStringLiteral("选择文件夹") },
         { QStringLiteral("m3u8s.startCreating"), QStringLiteral("开始创建") },
         { QStringLiteral("m3u8s.noSelectedSources"), QStringLiteral("请添加一个或多个视频或文件夹，文件夹会被递归扫描。") },
         { QStringLiteral("m3u8s.selectedSourceCount"), QStringLiteral("已选择 %1 个来源") },
@@ -6909,6 +6913,57 @@ void AppViewModel::deleteManagedTsslBatch(const QVariantList& rows)
             }
             return deletedCount;
         }));
+}
+
+void AppViewModel::chooseM3u8sFolderSources()
+{
+    clearError();
+    if (m3u8sPackaging()) {
+        return;
+    }
+
+    auto initialDirectory = QStandardPaths::writableLocation(QStandardPaths::MoviesLocation);
+    if (initialDirectory.isEmpty()) {
+        initialDirectory = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    }
+    if (!m_m3u8sSelectedSources.isEmpty()) {
+        const QFileInfo lastSource(m_m3u8sSelectedSources.constLast());
+        initialDirectory = lastSource.isDir() ? lastSource.absoluteFilePath()
+                                              : lastSource.absolutePath();
+    }
+
+    // Qt Quick FolderDialog exposes only one selectedFolder. Use the widget
+    // dialog in directory mode with an extended selection so all chosen roots
+    // can be returned in one operation on every desktop platform.
+    QFileDialog dialog(nullptr,
+                       trText(QStringLiteral("m3u8s.chooseFolders")),
+                       initialDirectory);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setFileMode(QFileDialog::Directory);
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+    dialog.setOption(QFileDialog::ShowDirsOnly, true);
+
+    const auto enableMultiSelection = [&dialog]() {
+        const auto views = dialog.findChildren<QAbstractItemView *>();
+        for (auto *view : views) {
+            view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        }
+    };
+    enableMultiSelection();
+    QTimer::singleShot(0, &dialog, enableMultiSelection);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const auto selectedFolders = dialog.selectedFiles();
+    for (const auto &folder : selectedFolders) {
+        addM3u8sFolderSource(QUrl::fromLocalFile(folder));
+    }
+    if (!selectedFolders.isEmpty()) {
+        AppLogger::info(QStringLiteral("encrypted-hls"),
+                        QStringLiteral("Added %1 M3U8S source folders").arg(selectedFolders.size()));
+    }
 }
 
 void AppViewModel::addM3u8sFolderSource(const QUrl& folder)

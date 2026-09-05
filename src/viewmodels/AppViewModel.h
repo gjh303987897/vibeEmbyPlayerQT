@@ -629,6 +629,7 @@ public:
     Q_INVOKABLE void deleteManagedTssl(const QString& rootDigest);
     Q_INVOKABLE void deleteManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void addM3u8sVideoSource(const QUrl& file);
+    Q_INVOKABLE void chooseM3u8sFolderSources();
     Q_INVOKABLE void addM3u8sFolderSource(const QUrl& folder);
     Q_INVOKABLE void removeM3u8sSource(int index);
     Q_INVOKABLE void clearM3u8sSources();

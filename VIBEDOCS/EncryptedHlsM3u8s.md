@@ -165,6 +165,11 @@ A one-file selection follows the same queue path and preserves the original
 single-package behavior.
 
 The source picker can accumulate individual videos and folders in one batch.
+Qt Quick's `FolderDialog` exposes only one `selectedFolder`, so the folder
+entry uses a non-native `QFileDialog` in directory mode and enables extended
+selection on its directory views. Every selected folder is appended to the
+ViewModel source list before discovery begins; the same implementation is used
+on Windows, macOS, and Linux.
 Folder discovery runs through `EncryptedHlsSourcePlanner` on a worker thread,
 recursively finds supported videos, and preserves each selected folder's
 relative hierarchy beneath the configured output directory. For example,
