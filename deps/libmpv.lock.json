@@ -1,0 +1,42 @@
+{
+  "$comment": [
+    "Single source of truth for the pinned libmpv development package.",
+    "Windows CI, scripts/fetch-mpv-dev.ps1 and the CMake build-info all read this file.",
+    "To upgrade: pick a release tag from https://github.com/zhongfly/mpv-winbuild/releases,",
+    "update tag/asset/assetSha256/extracted hashes, re-extract locally, commit the refreshed",
+    "git-tracked headers and libmpv.dll.a together so the tracked ABI stays in lockstep."
+  ],
+  "windows": {
+    "provider": "github-release",
+    "repository": "zhongfly/mpv-winbuild",
+    "tag": "2026-09-07-989d32716e",
+    "asset": "mpv-dev-x86_64-20260907-git-989d32716e.7z",
+    "assetSha256": "098417b1f5843727339f5db2c0e25078f22e2b4ea187c50d7ce4f1fc538fec65",
+    "extractDirectory": "third_party/mpv/dev",
+    "extracted": {
+      "libmpv.dll.a": "bef1b89f534bc86b33135e1f04fa2d5064b9d48b5de8bc9866665bbf43def793",
+      "libmpv-2.dll": "b921499ed70b47b4f0114f879d2bbf74b61fafefe34f20b07ce6e4e8a6f58ebb"
+    }
+  },
+  "baselines": {
+    "$comment": "Documented build environments that cannot be byte-pinned by this lock. The startup log records the actual runtime version, so any drift is traceable per report.",
+    "linuxCi": {
+      "runner": "ubuntu-24.04 (noble)",
+      "package": "libmpv-dev",
+      "version": "0.37.0-1ubuntu4"
+    },
+    "macosCi": {
+      "provider": "homebrew",
+      "formula": "mpv",
+      "version": "0.41.0"
+    },
+    "flatpak": {
+      "runtime": "org.gnome.Sdk 25.08",
+      "note": "libmpv comes from the Flatpak runtime; the runtime version is pinned in packaging/flatpak/build-bundle.sh."
+    }
+  },
+  "externalFfmpeg": {
+    "status": "unpinned",
+    "note": "Bundling/pinning the external ffmpeg executable used by M3U8S packaging is an explicitly deferred task (2026-07-13)."
+  }
+}

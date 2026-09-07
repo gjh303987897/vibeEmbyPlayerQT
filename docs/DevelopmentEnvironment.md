@@ -61,10 +61,15 @@ aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 `
 
 ---
 
-## 3. libmpv 开发包（Windows 专用）
+## 3. libmpv 开发包（Windows 专用，版本固定）
 
-Windows 下 CMake 从 `third_party/mpv/dev` 读取（可用 `-DMPV_ROOT=` 覆盖），
-要求三个文件缺一不可：
+> **libmpv 已通过 `deps/libmpv.lock.json` 版本固定**（tag + SHA-256）。
+> CI、CMake 配置期校验和本地拉取脚本共读这一份 lock，本地与发布产物链接
+> 字节一致的 libmpv。升级流程：改 lock 的 tag/asset/哈希 → 本地重拉 → 把
+> 刷新后的 git 跟踪文件（headers、`libmpv.dll.a`）与 lock 一起提交。
+
+Windows 下 CMake 从 `third_party/mpv/dev` 读取（可用 `-DMPV_ROOT=` 覆盖，
+但会触发“超出固定契约”的警告），要求三个文件缺一不可：
 
 ```text
 third_party/mpv/dev/include/mpv/client.h
@@ -72,16 +77,27 @@ third_party/mpv/dev/libmpv.dll.a
 third_party/mpv/dev/libmpv-2.dll
 ```
 
-本机已下载并校验（与 CI `.github/workflows/build-release.yml` 相同的来源）：
+本机已按 lock 下载并校验（当前 pin 的 release）：
 
 | 项目 | 值 |
 | --- | --- |
 | 仓库 | `zhongfly/mpv-winbuild` |
-| Release tag | `2026-09-07-989d32716e` |
+| Release tag（lock 固定） | `2026-09-07-989d32716e` |
 | 资产 | `mpv-dev-x86_64-20260907-git-989d32716e.7z` |
 | SHA-256 | `098417b1f5843727339f5db2c0e25078f22e2b4ea187c50d7ce4f1fc538fec65` |
 
-手动补装步骤：
+新克隆后唯一需要的动作：
+
+```powershell
+pwsh -NoProfile -File scripts\fetch-mpv-dev.ps1
+```
+
+脚本幂等：目标文件存在且哈希匹配 lock 时直接跳过；否则下载、校验归档
+SHA-256、解压后再逐一校验解包文件哈希。CMake 配置期也会比对
+`libmpv.dll.a` 哈希，不一致直接 FATAL 并提示运行该脚本。
+
+<details>
+<summary>手动步骤（与脚本等价）</summary>
 
 ```powershell
 # 1. 查询最新 release 资产名（CI 使用同样的正则筛选）
@@ -97,8 +113,14 @@ Get-FileHash -Algorithm SHA256 mpv-dev.7z   # 必须与 release digest 一致
 7z x mpv-dev.7z -othird_party\mpv\dev -y
 ```
 
+</details>
+
 > Linux / macOS 不需要此包，CMake 通过 `pkg-config` 查找系统 libmpv
 > （macOS: `brew install mpv pkg-config`，Linux: `libmpv-dev` 包）。
+> 这两处无法字节固定（homebrew 滚动 / apt 跟镜像），当前基线记录在
+> `deps/libmpv.lock.json` 的 `baselines`（Linux 0.37.0-1ubuntu4，
+> macOS 0.41.0）。`PlayerController` 启动时会把实际 libmpv 运行时版本与
+> 构建期 pin 信息一起写入日志，保证问题可追查。
 
 ---
 

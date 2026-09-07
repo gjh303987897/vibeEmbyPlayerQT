@@ -14,6 +14,7 @@
 #include "services/webdav/WebDavPlaybackProxy.h"
 #include "services/emby/EmbyClient.h"
 #include "services/backup/TsslBackupService.h"
+#include "services/ffmpeg/FfmpegCapability.h"
 #include "services/jellyfin/JellyfinClient.h"
 #include "services/local/LocalMediaService.h"
 #include "services/scheduler/ScheduledPlaybackManager.h"
@@ -106,7 +107,12 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString m3u8sStatus READ m3u8sStatus NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(bool m3u8sBatchExporting READ m3u8sBatchExporting NOTIFY m3u8sStatusChanged)
     Q_PROPERTY(QStringList m3u8sSelectedSources READ m3u8sSelectedSources NOTIFY m3u8sSourceSelectionChanged)
-    Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable CONSTANT)
+    Q_PROPERTY(bool m3u8sFfmpegAvailable READ m3u8sFfmpegAvailable NOTIFY ffmpegCapabilityChanged)
+    Q_PROPERTY(QString ffmpegCapabilityState READ ffmpegCapabilityState NOTIFY ffmpegCapabilityChanged)
+    Q_PROPERTY(QString ffmpegCapabilityDetail READ ffmpegCapabilityDetail NOTIFY ffmpegCapabilityChanged)
+    // True once the startup probe has answered and FFmpeg fails the M3U8S
+    // pipeline requirements; drives the one-shot startup warning dialog.
+    Q_PROPERTY(bool ffmpegWarningVisible READ ffmpegWarningVisible NOTIFY ffmpegCapabilityChanged)
     Q_PROPERTY(int m3u8sSegmentDuration READ m3u8sSegmentDuration WRITE setM3u8sSegmentDuration NOTIFY m3u8sSegmentDurationChanged)
     Q_PROPERTY(int m3u8sParallelJobs READ m3u8sParallelJobs WRITE setM3u8sParallelJobs NOTIFY m3u8sParallelJobsChanged)
     Q_PROPERTY(int m3u8sMaximumParallelJobs READ m3u8sMaximumParallelJobs CONSTANT)
@@ -361,6 +367,9 @@ public:
     bool m3u8sBatchExporting() const;
     QStringList m3u8sSelectedSources() const;
     bool m3u8sFfmpegAvailable() const;
+    QString ffmpegCapabilityState() const;
+    QString ffmpegCapabilityDetail() const;
+    bool ffmpegWarningVisible() const;
     int m3u8sSegmentDuration() const;
     void setM3u8sSegmentDuration(int value);
     int m3u8sParallelJobs() const;
@@ -618,6 +627,9 @@ public:
     Q_INVOKABLE void restoreTssl();
     Q_INVOKABLE void exportWebDavTssl(int row);
     Q_INVOKABLE void openM3u8sManager();
+    // Dismisses the startup FFmpeg warning; the next program start probes
+    // again, so installing FFmpeg needs no other acknowledgement step.
+    Q_INVOKABLE void acknowledgeFfmpegWarning();
     Q_INVOKABLE void refreshTsslPackages();
     Q_INVOKABLE void loadMoreTsslPackages();
     // The batch dialog is the only thing that needs every package parsed at once, so
@@ -756,6 +768,7 @@ signals:
     void tsslBackupChanged();
     void m3u8sPackagingChanged();
     void m3u8sStatusChanged();
+    void ffmpegCapabilityChanged();
     void m3u8sSourceSelectionChanged();
     void m3u8sSegmentDurationChanged();
     void m3u8sParallelJobsChanged();
@@ -921,6 +934,7 @@ private:
     std::optional<ServiceCard> serviceCardForHistory(const QString& serviceId);
     bool webDavHistoryTargetIsValid(const ServerConfig& server, const QUrl& target) const;
     void refreshScheduledPlaybackTasks();
+    void startFfmpegCapabilityProbe();
     void refreshScheduledEmbySources();
     std::optional<ScheduledPlaybackTask> scheduledPlaybackTaskFromEditor();
     bool saveScheduledPlaybackTaskInternal(bool runNow);
@@ -1150,6 +1164,11 @@ private:
     bool m_tsslPackagesHasMore { false };
     bool m_tsslPackagesLoading { false };
     QString m_m3u8sStatus;
+    // Startup FFmpeg probe (方案 B): resolved asynchronously after initialize()
+    // because it spawns child processes and must not touch the GUI thread.
+    FfmpegCapability m_ffmpegCapability;
+    bool m_ffmpegProbed { false };
+    bool m_ffmpegWarningVisible { false };
     bool m_m3u8sBatchExporting { false };
     QStringList m_m3u8sSelectedSources;
     std::shared_ptr<std::atomic_bool> m_m3u8sSourceScanCanceled;

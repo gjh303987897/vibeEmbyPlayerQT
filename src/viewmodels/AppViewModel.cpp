@@ -866,6 +866,14 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.jobs"), QStringLiteral("%1 jobs") },
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg ready") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("FFmpeg not found") },
+        { QStringLiteral("m3u8s.ffmpegProbing"), QStringLiteral("Checking FFmpeg") },
+        { QStringLiteral("m3u8s.ffmpegIncompatible"), QStringLiteral("FFmpeg incomplete") },
+        { QStringLiteral("m3u8s.ffmpegWarning.title"), QStringLiteral("FFmpeg is unavailable") },
+        { QStringLiteral("m3u8s.ffmpegWarning.intro"), QStringLiteral("vibePlayer could not find a usable FFmpeg, so M3U8S video packaging is disabled. Playback and every other feature keep working normally.") },
+        { QStringLiteral("m3u8s.ffmpegWarning.reason"), QStringLiteral("Reason: %1") },
+        { QStringLiteral("m3u8s.ffmpegWarning.requirement"), QStringLiteral("M3U8S packaging needs FFmpeg 5.0 or newer that includes the libx264, libx265 and aac encoders plus the HLS muxer (the standard shared builds provide all of these).") },
+        { QStringLiteral("m3u8s.ffmpegWarning.action"), QStringLiteral("Install FFmpeg and make sure ffmpeg is on your PATH, or place it next to vibePlayer. Restart the app to re-check.") },
+        { QStringLiteral("m3u8s.ffmpegWarning.download"), QStringLiteral("Open FFmpeg downloads") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("Preparing and segmenting video") },
         { QStringLiteral("m3u8s.phase.probing"), QStringLiteral("Inspecting source video") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("Encrypting and verifying TS segments") },
@@ -1424,6 +1432,14 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.jobs"), QStringLiteral("%1 个任务") },
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg 已就绪") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("未找到 FFmpeg") },
+        { QStringLiteral("m3u8s.ffmpegProbing"), QStringLiteral("正在检测 FFmpeg") },
+        { QStringLiteral("m3u8s.ffmpegIncompatible"), QStringLiteral("FFmpeg 不完整") },
+        { QStringLiteral("m3u8s.ffmpegWarning.title"), QStringLiteral("FFmpeg 不可用") },
+        { QStringLiteral("m3u8s.ffmpegWarning.intro"), QStringLiteral("vibePlayer 未检测到可用的 FFmpeg，M3U8S 视频打包功能已停用。播放及其他所有功能均可正常使用。") },
+        { QStringLiteral("m3u8s.ffmpegWarning.reason"), QStringLiteral("原因：%1") },
+        { QStringLiteral("m3u8s.ffmpegWarning.requirement"), QStringLiteral("M3U8S 打包需要 FFmpeg 5.0 或更高版本，并包含 libx264、libx265、aac 编码器与 HLS 封装器（官方标准构建均已包含）。") },
+        { QStringLiteral("m3u8s.ffmpegWarning.action"), QStringLiteral("请安装 FFmpeg 并确保 ffmpeg 在 PATH 中，或将其放在 vibePlayer 同目录下，然后重启应用重新检测。") },
+        { QStringLiteral("m3u8s.ffmpegWarning.download"), QStringLiteral("打开 FFmpeg 下载页") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("正在准备并切分视频") },
         { QStringLiteral("m3u8s.phase.probing"), QStringLiteral("正在检查源视频") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("正在加密并验证 TS 分片") },
@@ -2580,7 +2596,62 @@ QStringList AppViewModel::m3u8sSelectedSources() const
 
 bool AppViewModel::m3u8sFfmpegAvailable() const
 {
-    return !m_m3u8sPackager.ffmpegExecutable().isEmpty();
+    // Reflects the full capability probe (found + version + required
+    // encoders/muxers), not just path lookup, so the packaging UI status
+    // chip and buttons stay truthful for minimal ffmpeg builds.
+    return m_ffmpegCapability.usable();
+}
+
+QString AppViewModel::ffmpegCapabilityState() const
+{
+    if (!m_ffmpegProbed) {
+        return QStringLiteral("probing");
+    }
+    switch (m_ffmpegCapability.state) {
+    case FfmpegCapability::State::Available:
+        return QStringLiteral("available");
+    case FfmpegCapability::State::Incompatible:
+        return QStringLiteral("incompatible");
+    case FfmpegCapability::State::Unavailable:
+        return QStringLiteral("unavailable");
+    }
+    return QStringLiteral("unavailable");
+}
+
+QString AppViewModel::ffmpegCapabilityDetail() const
+{
+    return m_ffmpegCapability.detail;
+}
+
+bool AppViewModel::ffmpegWarningVisible() const
+{
+    return m_ffmpegWarningVisible;
+}
+
+void AppViewModel::acknowledgeFfmpegWarning()
+{
+    if (!m_ffmpegWarningVisible) {
+        return;
+    }
+    m_ffmpegWarningVisible = false;
+    emit ffmpegCapabilityChanged();
+}
+
+void AppViewModel::startFfmpegCapabilityProbe()
+{
+    // The probe spawns ffmpeg child processes (-version/-encoders/-muxers),
+    // so it runs on the concurrent pool and reports back through the watcher.
+    auto* watcher = new QFutureWatcher<FfmpegCapability>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+        m_ffmpegCapability = watcher->result();
+        watcher->deleteLater();
+        m_ffmpegProbed = true;
+        m_ffmpegWarningVisible = !m_ffmpegCapability.usable();
+        emit ffmpegCapabilityChanged();
+    });
+    watcher->setFuture(QtConcurrent::run([]() {
+        return FfmpegCapabilityProbe::run(EncryptedHlsPackager::locateFfmpegExecutable());
+    }));
 }
 
 int AppViewModel::m3u8sSegmentDuration() const
@@ -4108,6 +4179,10 @@ void AppViewModel::initialize()
     refreshScheduledEmbySources();
     refreshScheduledPlaybackTasks();
     setCurrentView(QStringLiteral("services"));
+    // Probe the external FFmpeg once per start (方案 B). Deferred slightly so
+    // the child processes never compete with first-paint and the warning
+    // cannot flash before the window settles.
+    QTimer::singleShot(800, this, [this]() { startFfmpegCapabilityProbe(); });
     if (automaticUpdateCheck()) {
         const auto lastChecked = m_repository.updateLastCheckedAt();
         if (!lastChecked.isValid() || lastChecked.toLocalTime().date() != QDate::currentDate()) {

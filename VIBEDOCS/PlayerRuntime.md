@@ -31,11 +31,19 @@ The current implementation does not yet cover:
 
 Windows runtime files are stored under `third_party/mpv`.
 
-- Source release: `zhongfly/mpv-winbuild`
-- Dev asset: `mpv-dev-x86_64-20260619-git-2d5dfb343a.7z`
-- Dev SHA-256: `efb530ca2b36a69c3f5be2d69fadbdf691274b48c0a3963ff771fbf7d9e0f1dd`
-- Runtime asset: `mpv-x86_64-20260619-git-2d5dfb343a.7z`
-- Runtime SHA-256: `eaa0479b67270b5a1d3f0c6d9a5b6b5749322e5e8848bba544b921669d5d207a`
+libmpv is **version-pinned** through `deps/libmpv.lock.json` (single source of
+truth: release tag, asset name, archive SHA-256 and per-file hashes of the
+git-tracked `libmpv.dll.a`). Windows CI installs from that pinned tag and
+re-hashes the extracted files; CMake configure re-checks the import library
+hash against the lock; `scripts/fetch-mpv-dev.ps1` performs the same
+verification for local clones. Do not record concrete tag/hash values in
+this document — read them from the lock file, which this paragraph used to
+duplicate until the duplication itself became the drift problem.
+
+- Provider: `zhongfly/mpv-winbuild` (see `deps/libmpv.lock.json` for the pin)
+- Fetch: `pwsh -NoProfile -File scripts/fetch-mpv-dev.ps1`
+- Upgrade: edit the lock, re-run the fetch script, commit refreshed
+  git-tracked headers + `libmpv.dll.a` together with the lock
 
 The development package provides:
 
@@ -44,6 +52,14 @@ The development package provides:
 - `libmpv-2.dll`
 
 CMake links `libmpv.dll.a` and copies `libmpv-2.dll` into the executable output directory on Windows.
+
+macOS and Linux resolve libmpv through `pkg-config` and cannot be byte-pinned
+with this mechanism (Homebrew is rolling, apt follows the runner image).
+Documented baselines live in the lock file's `baselines` section, and
+`PlayerController::initializeInternal` logs the actual `mpv-version` runtime
+string together with the build-time pin information on every start, so any
+field report is traceable to the exact library that produced it (including
+the FFmpeg embedded in that libmpv build).
 
 ## Window Embedding
 

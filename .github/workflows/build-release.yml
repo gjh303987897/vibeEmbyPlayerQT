@@ -20,8 +20,10 @@ env:
   QT_VERSION: 6.7.3
   AQT_VERSION: 3.3.0
   FLATPAK_RUNTIME_VERSION: '25.08'
-  MPV_WINBUILD_REPOSITORY: zhongfly/mpv-winbuild
-  MPV_WINBUILD_ASSET_PATTERN: '^mpv-dev-x86_64-[0-9]{8}-git-[0-9a-fA-F]+\.7z$'
+  # libmpv is pinned through deps/libmpv.lock.json (tag + SHA-256), shared with
+  # scripts/fetch-mpv-dev.ps1. The external ffmpeg executable used by M3U8S
+  # packaging stays intentionally unpinned for now (deferred task).
+  MPV_LOCK_FILE: deps/libmpv.lock.json
 
 jobs:
   metadata:
@@ -207,56 +209,19 @@ jobs:
       - name: Install Windows libmpv development package
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $apiHeaders = @{
-            Accept = "application/vnd.github+json"
-            Authorization = "Bearer $env:GH_TOKEN"
-            "Cache-Control" = "no-cache"
-            "User-Agent" = "vibePlayerQT-GitHub-Actions"
-            "X-GitHub-Api-Version" = "2022-11-28"
-          }
-          $releaseUri = "https://api.github.com/repos/$env:MPV_WINBUILD_REPOSITORY/releases/latest"
-          $release = Invoke-RestMethod -Uri $releaseUri -Headers $apiHeaders
-          $asset = $null
-          $releaseAssets = @()
-          $maxAssetAttempts = 12
-          for ($attempt = 1; $attempt -le $maxAssetAttempts; $attempt++) {
-            $assetsUri = "$($release.assets_url)?per_page=100"
-            $releaseAssetsResponse = Invoke-RestMethod -Uri $assetsUri -Headers $apiHeaders
-            $releaseAssets = @(
-              foreach ($releaseAsset in $releaseAssetsResponse) {
-                $releaseAsset
-              }
-            )
-            $assets = @($releaseAssets | Where-Object { $_.name -match $env:MPV_WINBUILD_ASSET_PATTERN })
-            if ($assets.Count -eq 1) {
-              $asset = $assets[0]
-              break
-            }
-            if ($assets.Count -gt 1) {
-              $assetNames = @($releaseAssets | ForEach-Object { $_.name }) -join ", "
-              throw "Expected exactly one x86_64 libmpv development package in release $($release.tag_name); found $($assets.Count). Assets: $assetNames"
-            }
-            if ($attempt -lt $maxAssetAttempts) {
-              Write-Warning "Release $($release.tag_name) does not expose the standard x86_64 development package yet; retrying in 10 seconds ($attempt/$maxAssetAttempts)"
-              Start-Sleep -Seconds 10
-            }
-          }
-          if ($null -eq $asset) {
-            $assetNames = @($releaseAssets | ForEach-Object { $_.name }) -join ", "
-            throw "Expected exactly one x86_64 libmpv development package in release $($release.tag_name) after $maxAssetAttempts attempts; found 0. Assets: $assetNames"
-          }
-
-          $digestMatch = [regex]::Match([string]$asset.digest, '^sha256:([0-9a-fA-F]{64})$')
-          if (!$digestMatch.Success) {
-            throw "Release asset $($asset.name) does not provide a valid SHA-256 digest"
-          }
-          $expectedHash = $digestMatch.Groups[1].Value.ToLowerInvariant()
-          $archive = Join-Path $env:RUNNER_TEMP $asset.name
-          Write-Host "Downloading $($asset.name) from release $($release.tag_name)"
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
+          # The pinned tag and hashes come from deps/libmpv.lock.json so every
+          # release links byte-identical libmpv bits; re-running a tag can no
+          # longer pick up a different upstream build. Upgrades change the lock
+          # file in a reviewable commit.
+          $lock = Get-Content -Raw $env:MPV_LOCK_FILE | ConvertFrom-Json
+          $windows = $lock.windows
+          $expectedHash = $windows.assetSha256.ToLowerInvariant()
+          $downloadUrl = "https://github.com/{0}/releases/download/{1}/{2}" -f `
+              $windows.repository, $windows.tag, $windows.asset
+          $archive = Join-Path $env:RUNNER_TEMP $windows.asset
+          Write-Host "Downloading $($windows.asset) from pinned release $($windows.tag)"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $archive
           $actualHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           if ($actualHash -ne $expectedHash) {
             throw "Unexpected libmpv package hash: expected $expectedHash, got $actualHash"
@@ -267,6 +232,15 @@ jobs:
           foreach ($requiredFile in @("include\mpv\client.h", "libmpv.dll.a", "libmpv-2.dll")) {
             if (!(Test-Path (Join-Path "third_party\mpv\dev" $requiredFile))) {
               throw "Extracted libmpv package is missing $requiredFile"
+            }
+          }
+          # Tracked files must match the lock too: CI carrying the same headers
+          # and import library as local builds is what the lock guarantees.
+          foreach ($member in $windows.extracted.PSObject.Properties) {
+            $extractedPath = Join-Path "third_party\mpv\dev" ($member.Name -replace '/', '\')
+            $extractedHash = (Get-FileHash -Algorithm SHA256 $extractedPath).Hash.ToLowerInvariant()
+            if ($extractedHash -ne $member.Value.ToLowerInvariant()) {
+              throw "Extracted $($member.Name) hash mismatch: expected $($member.Value), got $extractedHash"
             }
           }
 

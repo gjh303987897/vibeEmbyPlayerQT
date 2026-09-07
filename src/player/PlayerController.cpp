@@ -333,6 +333,21 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
     observeProperties();
     m_eventTimer.start();
     m_playbackMetricsTimer.start();
+    // Log both the pinned build-time package and the actual runtime library:
+    // Windows is byte-pinned through deps/libmpv.lock.json, while macOS/Linux
+    // resolve libmpv (and its bundled FFmpeg) from rolling system packages, so
+    // the runtime version string is what makes field reports traceable.
+    QString runtimeVersion = QStringLiteral("unknown");
+    if (const char* versionString = mpv_get_property_string(m_mpv, "mpv-version")) {
+        runtimeVersion = QString::fromUtf8(versionString);
+        mpv_free(const_cast<char*>(versionString));
+    }
+#ifndef VIBEPLAYER_MPV_BUILD_INFO
+#define VIBEPLAYER_MPV_BUILD_INFO "libmpv build info unavailable"
+#endif
+    AppLogger::info(QStringLiteral("player"),
+                    QStringLiteral("libmpv runtime %1 (%2; embedded FFmpeg follows this build)")
+                        .arg(runtimeVersion, QStringLiteral(VIBEPLAYER_MPV_BUILD_INFO)));
     AppLogger::info(QStringLiteral("player"),
                     m_headless ? QStringLiteral("libmpv initialized for headless playback")
                                : QStringLiteral("libmpv initialized with window embedding"));

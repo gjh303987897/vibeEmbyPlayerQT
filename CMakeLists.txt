@@ -44,16 +44,50 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
 )
 
 if(WIN32)
+    # The pinned libmpv dev package is described by deps/libmpv.lock.json, the
+    # same source of truth used by CI and scripts/fetch-mpv-dev.ps1.
+    set(VIBEPLAYER_MPV_LOCK "${CMAKE_CURRENT_SOURCE_DIR}/deps/libmpv.lock.json")
+    if(NOT EXISTS "${VIBEPLAYER_MPV_LOCK}")
+        message(FATAL_ERROR "Missing ${VIBEPLAYER_MPV_LOCK}: the libmpv dependency lock is required on Windows.")
+    endif()
+    file(READ "${VIBEPLAYER_MPV_LOCK}" VIBEPLAYER_MPV_LOCK_JSON)
+    string(JSON MPV_LOCK_TAG ERROR_VARIABLE _mpv_lock_err GET "${VIBEPLAYER_MPV_LOCK_JSON}" windows tag)
+    string(JSON MPV_LOCK_DLLA ERROR_VARIABLE _mpv_lock_err GET "${VIBEPLAYER_MPV_LOCK_JSON}" windows extracted "libmpv.dll.a")
+
     set(MPV_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mpv/dev" CACHE PATH "libmpv development package root")
     set(MPV_INCLUDE_DIR "${MPV_ROOT}/include")
     set(MPV_LIBRARY "${MPV_ROOT}/libmpv.dll.a")
     set(MPV_RUNTIME_DLL "${MPV_ROOT}/libmpv-2.dll")
 
     if(NOT EXISTS "${MPV_INCLUDE_DIR}/mpv/client.h")
-        message(FATAL_ERROR "libmpv headers not found at ${MPV_INCLUDE_DIR}")
+        message(FATAL_ERROR
+            "libmpv headers not found at ${MPV_INCLUDE_DIR}. "
+            "Run scripts/fetch-mpv-dev.ps1 to install the package pinned by deps/libmpv.lock.json.")
     endif()
     if(NOT EXISTS "${MPV_LIBRARY}")
-        message(FATAL_ERROR "libmpv import library not found at ${MPV_LIBRARY}")
+        message(FATAL_ERROR
+            "libmpv import library not found at ${MPV_LIBRARY}. "
+            "Run scripts/fetch-mpv-dev.ps1 to install the package pinned by deps/libmpv.lock.json.")
+    endif()
+
+    # Enforce the lock for the in-tree package; a custom MPV_ROOT is allowed
+    # but explicitly reported as outside the pinned contract.
+    get_filename_component(MPV_LOCKED_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mpv/dev" ABSOLUTE)
+    get_filename_component(MPV_ROOT_ABSOLUTE "${MPV_ROOT}" ABSOLUTE)
+    if(MPV_ROOT_ABSOLUTE STREQUAL MPV_LOCKED_ROOT)
+        file(SHA256 "${MPV_LIBRARY}" MPV_DLLA_ACTUAL)
+        string(TOLOWER "${MPV_DLLA_ACTUAL}" MPV_DLLA_ACTUAL)
+        if(NOT MPV_DLLA_ACTUAL STREQUAL "${MPV_LOCK_DLLA}")
+            message(FATAL_ERROR
+                "third_party/mpv/dev does not match deps/libmpv.lock.json (tag ${MPV_LOCK_TAG}): "
+                "libmpv.dll.a hash mismatch. Run scripts/fetch-mpv-dev.ps1 to restore the pinned package.")
+        endif()
+        set(VIBEPLAYER_MPV_BUILD_INFO "libmpv pinned ${MPV_LOCK_TAG}")
+    else()
+        message(WARNING
+            "MPV_ROOT overrides the libmpv pinned by deps/libmpv.lock.json (${MPV_LOCK_TAG}); "
+            "this build is outside the pinned dependency contract.")
+        set(VIBEPLAYER_MPV_BUILD_INFO "libmpv custom MPV_ROOT (lock tag ${MPV_LOCK_TAG})")
     endif()
 
     add_library(MPV::MPV UNKNOWN IMPORTED)
@@ -65,6 +99,9 @@ else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
     set(MPV_LINK_TARGET PkgConfig::MPV)
+    # Homebrew/apt libmpv cannot be byte-pinned; PlayerController logs the
+    # actual runtime version at startup so every report is traceable.
+    set(VIBEPLAYER_MPV_BUILD_INFO "libmpv from system pkg-config")
 endif()
 
 if(WIN32)
@@ -123,6 +160,8 @@ qt_add_executable(vibePlayerQT
     src/services/emby/EmbyClient.h
     src/services/encryptedhls/EncryptedHlsBatchPackager.cpp
     src/services/encryptedhls/EncryptedHlsBatchPackager.h
+    src/services/ffmpeg/FfmpegCapability.cpp
+    src/services/ffmpeg/FfmpegCapability.h
     src/services/encryptedhls/EncryptedHlsPackager.cpp
     src/services/encryptedhls/EncryptedHlsPackager.h
     src/services/encryptedhls/EncryptedHlsTarContainer.cpp
@@ -260,6 +299,7 @@ target_include_directories(vibePlayerQT PRIVATE
 
 target_compile_definitions(vibePlayerQT PRIVATE
     VIBEPLAYER_VERSION="${VIBEPLAYER_SEMVER_FULL}"
+    VIBEPLAYER_MPV_BUILD_INFO="${VIBEPLAYER_MPV_BUILD_INFO}"
 )
 
 target_link_libraries(vibePlayerQT PRIVATE
@@ -732,6 +772,24 @@ if(BUILD_TESTING)
 
     add_test(NAME scheduled_playback_schedule COMMAND scheduled_playback_schedule_test)
     set_tests_properties(scheduled_playback_schedule PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(ffmpeg_capability_test
+        tests/FfmpegCapabilityTest.cpp
+        src/services/ffmpeg/FfmpegCapability.cpp
+        src/services/ffmpeg/FfmpegCapability.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+    )
+    target_include_directories(ffmpeg_capability_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(ffmpeg_capability_test PRIVATE
+        Qt6::Test
+    )
+    add_test(NAME ffmpeg_capability COMMAND ffmpeg_capability_test)
+    set_tests_properties(ffmpeg_capability PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 

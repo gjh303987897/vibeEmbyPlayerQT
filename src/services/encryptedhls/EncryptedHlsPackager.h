@@ -101,6 +101,9 @@ public:
     double progress() const;
     QString phase() const;
     QString ffmpegExecutable() const;
+    // Bundle-first (next to the executable) then PATH. Public for the startup
+    // capability probe (FfmpegCapabilityProbe); keep both lookup sites shared.
+    static QString locateFfmpegExecutable();
 
     std::expected<void, QString> start(const EncryptedHlsPackageRequest& request);
     void cancel();
@@ -130,7 +133,6 @@ private:
     QString chooseOutputPath(const QString& outputDirectory,
                              QByteArrayView rootManifestDigest,
                              EncryptedHlsContainerFormat format) const;
-    static QString locateFfmpegExecutable();
 
     TsslStore& m_store;
     QProcess m_ffmpeg;

@@ -644,6 +644,14 @@ ApplicationWindow {
             downloadWarningDialog.open()
         }
 
+        function onFfmpegCapabilityChanged() {
+            if (appViewModel.ffmpegWarningVisible && !ffmpegWarningDialog.visible) {
+                ffmpegWarningDialog.open()
+            } else if (!appViewModel.ffmpegWarningVisible && ffmpegWarningDialog.visible) {
+                ffmpegWarningDialog.close()
+            }
+        }
+
         function onTsslOperationNoticeRequested(message, warning) {
             root.showTsslOperationNotice(message, warning)
         }
@@ -1628,6 +1636,96 @@ ApplicationWindow {
 
         onAccepted: appViewModel.acceptPendingDownloadWarning(true)
         onRejected: appViewModel.acceptPendingDownloadWarning(false)
+    }
+
+    // Startup FFmpeg capability warning (方案 B): the C++ probe answers once
+    // per launch; this dialog is the only presentation of its result.
+    ModernDialog {
+        id: ffmpegWarningDialog
+        title: t("m3u8s.ffmpegWarning.title")
+        standardButtons: Dialog.Ok
+        width: Math.min(root.width - 64, 540)
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                Rectangle {
+                    Layout.alignment: Qt.AlignTop
+                    Layout.preferredWidth: 38
+                    Layout.preferredHeight: 38
+                    radius: 19
+                    color: root.withAlpha(theme.warning, darkTheme ? 0.18 : 0.12)
+                    border.color: root.withAlpha(theme.warning, 0.55)
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "!"
+                        color: theme.warning
+                        font.pixelSize: 20
+                        font.bold: true
+                    }
+                }
+
+                BodyText {
+                    Layout.fillWidth: true
+                    text: t("m3u8s.ffmpegWarning.intro")
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                radius: 8
+                color: theme.input
+                border.color: theme.border
+                implicitHeight: ffmpegWarningDetail.implicitHeight + 20
+
+                MutedText {
+                    id: ffmpegWarningDetail
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.margins: 10
+                    text: t("m3u8s.ffmpegWarning.reason").arg(appViewModel.ffmpegCapabilityDetail)
+                    font.family: "monospace"
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                    elide: Text.ElideMiddle
+                    maximumLineCount: 2
+                }
+            }
+
+            MutedText {
+                Layout.fillWidth: true
+                text: t("m3u8s.ffmpegWarning.requirement")
+                wrapMode: Text.WordWrap
+            }
+
+            MutedText {
+                Layout.fillWidth: true
+                text: t("m3u8s.ffmpegWarning.action")
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ModernButton {
+                    text: t("m3u8s.ffmpegWarning.download")
+                    onClicked: Qt.openUrlExternally("https://ffmpeg.org/download.html")
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+        }
+
+        onAccepted: appViewModel.acknowledgeFfmpegWarning()
+        onRejected: appViewModel.acknowledgeFfmpegWarning()
     }
 
     ModernDialog {
@@ -16414,8 +16512,13 @@ ApplicationWindow {
                             Label {
                                 id: ffmpegStatusLabel
                                 anchors.centerIn: parent
-                                text: appViewModel.m3u8sFfmpegAvailable
-                                    ? t("m3u8s.ffmpegReady") : t("m3u8s.ffmpegMissing")
+                                text: appViewModel.ffmpegCapabilityState === "probing"
+                                    ? t("m3u8s.ffmpegProbing")
+                                    : appViewModel.m3u8sFfmpegAvailable
+                                        ? t("m3u8s.ffmpegReady")
+                                        : appViewModel.ffmpegCapabilityState === "incompatible"
+                                            ? t("m3u8s.ffmpegIncompatible")
+                                            : t("m3u8s.ffmpegMissing")
                                 color: appViewModel.m3u8sFfmpegAvailable ? theme.success : theme.danger
                                 font.pixelSize: 11
                                 font.bold: true
