@@ -59,6 +59,11 @@ WebDavPlaybackProxy::WebDavPlaybackProxy(QObject* parent)
         authenticator->setUser(reply->property("webdavUsername").toString());
         authenticator->setPassword(reply->property("webdavPassword").toString());
     });
+    // Per-chunk readyRead emissions would flood the usage bookkeeping; the
+    // coalescer batches them into one sample per interval and preserves the
+    // public signal signature.
+    connect(&m_traffic, &NetworkTrafficCoalescer::flushed,
+            this, &WebDavPlaybackProxy::networkTrafficSample);
 }
 
 QUrl WebDavPlaybackProxy::streamUrlFor(const ServerConfig& server, const QString& password, const QUrl& remoteUrl)
@@ -193,7 +198,7 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
         if (socket->state() != QAbstractSocket::UnconnectedState) {
             const auto chunk = reply->readAll();
             if (!chunk.isEmpty()) {
-                emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
+                m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
                 socket->write(chunk);
             }
         }
@@ -203,7 +208,7 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
         if (socket->state() != QAbstractSocket::UnconnectedState) {
             const auto rest = reply->readAll();
             if (!rest.isEmpty()) {
-                emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), rest.size(), 0);
+                m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), rest.size(), 0);
                 socket->write(rest);
             }
             socket->disconnectFromHost();

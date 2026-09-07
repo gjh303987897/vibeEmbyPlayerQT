@@ -38,6 +38,11 @@ std::expected<EncryptedHlsTarIndex, QString> build(const QString& directoryPath,
 std::expected<EncryptedHlsTarIndex, QString> readIndex(const QString& archivePath);
 std::expected<EncryptedHlsTarIndex, QString> readIndexPrefix(QByteArrayView prefix,
                                                              qint64 containerLength);
+// Reads the serialized index size from the leading TAR header of a prefix
+// window. Used by remote preview paths to size a follow-up range request
+// after a first probe window turned out too small. Fails when the prefix is
+// not a valid container or the declared size exceeds the index limit.
+std::expected<qint64, QString> indexSizeFromPrefix(QByteArrayView prefix);
 
 std::expected<QByteArray, QString> readEntry(const QString& archivePath,
                                              const EncryptedHlsTarIndex& index,

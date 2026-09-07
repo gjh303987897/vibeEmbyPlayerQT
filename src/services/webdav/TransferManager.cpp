@@ -134,6 +134,11 @@ TransferManager::TransferManager(QObject* parent)
         authenticator->setUser(reply->property("webdavUsername").toString());
         authenticator->setPassword(reply->property("webdavPassword").toString());
     });
+    // Progress ticks fire on every readyRead; batch traffic samples so the
+    // usage bookkeeping sees one coalesced sample per interval instead of
+    // one per chunk, while the public signal signature stays unchanged.
+    connect(&m_traffic, &NetworkTrafficCoalescer::flushed,
+            this, &TransferManager::networkTrafficSample);
 }
 
 TransferTaskListModel* TransferManager::tasks()
@@ -1171,21 +1176,21 @@ void TransferManager::updateProgress(const QString& taskId, qint64 done, qint64 
         const auto delta = done - active->queued.countedBytesSent;
         if (delta > 0) {
             active->queued.countedBytesSent = done;
-            emit networkTrafficSample(active->queued.server.id,
-                                      active->queued.server.name,
-                                      serviceTypeToString(active->queued.server.serviceType),
-                                      0,
-                                      delta);
+            m_traffic.record(active->queued.server.id,
+                             active->queued.server.name,
+                             serviceTypeToString(active->queued.server.serviceType),
+                             0,
+                             delta);
         }
     } else if (active->queued.direction == Direction::Download) {
         const auto delta = done - active->queued.countedBytesReceived;
         if (delta > 0) {
             active->queued.countedBytesReceived = done;
-            emit networkTrafficSample(active->queued.server.id,
-                                      active->queued.server.name,
-                                      serviceTypeToString(active->queued.server.serviceType),
-                                      delta,
-                                      0);
+            m_traffic.record(active->queued.server.id,
+                             active->queued.server.name,
+                             serviceTypeToString(active->queued.server.serviceType),
+                             delta,
+                             0);
         }
     }
 

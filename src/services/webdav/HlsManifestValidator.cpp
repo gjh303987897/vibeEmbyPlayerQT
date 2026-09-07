@@ -76,6 +76,111 @@ std::expected<void, QString> validateUri(const QString& uriText, const QString& 
 }
 }
 
+// Parses M3U8S metadata tags out of a manifest-head window. Lines are only
+// consumed while they match the known tag syntax, so a window that ends in
+// the middle of an unrelated payload line still yields complete metadata.
+// A `missingSourceName` result reports a window that held the identifier but
+// ran out of data before the optional source-name line could be located;
+// callers widen the window in that case instead of trusting absence.
+std::expected<HeadMetadata, QString> parseMetadataHead(QByteArrayView head)
+{
+    if (head.isEmpty()) {
+        return std::unexpected(QStringLiteral("M3U8S metadata window is empty"));
+    }
+    QStringDecoder decoder(QStringDecoder::Utf8);
+    const QString text = decoder.decode(head);
+    if (decoder.hasError() || text.startsWith(QChar::ByteOrderMark)) {
+        return std::unexpected(QStringLiteral("HLS manifest must be valid UTF-8 without a byte-order mark"));
+    }
+
+    const auto lines = text.split(QLatin1Char('\n'));
+    qsizetype firstContentLine = -1;
+    for (qsizetype index = 0; index < lines.size(); ++index) {
+        if (!lines.at(index).trimmed().isEmpty()) {
+            firstContentLine = index;
+            break;
+        }
+    }
+    if (firstContentLine < 0 || lines.at(firstContentLine).trimmed() != QStringLiteral("#EXTM3U")) {
+        return std::unexpected(QStringLiteral("HLS manifest does not begin with #EXTM3U"));
+    }
+
+    std::optional<QByteArray> identifier;
+    std::optional<QByteArray> encryptedSourceFileName;
+    qsizetype identifierLineIndex = -1;
+    qsizetype lastNonEmptyLine = -1;
+    for (qsizetype index = firstContentLine + 1; index < lines.size(); ++index) {
+        const auto line = lines.at(index).trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+        lastNonEmptyLine = index;
+        const auto isLastLine = index == lines.size() - 1;
+        if (line.startsWith(QLatin1String(identifierPrefix))) {
+            if (identifier) {
+                return std::unexpected(QStringLiteral("M3U8S manifest contains more than one identifier"));
+            }
+            const auto candidate = line.sliced(QLatin1String(identifierPrefix).size()).toLatin1();
+            const auto canonical = std::ranges::all_of(candidate, [](char character) {
+                return (character >= 'A' && character <= 'Z') ||
+                    (character >= 'a' && character <= 'z') ||
+                    (character >= '0' && character <= '9') ||
+                    character == '_' || character == '-';
+            });
+            if (isLastLine && canonical && candidate.size() != m3u8sIdentifierLength) {
+                // A pure-Base64URL run that is too short on the final line
+                // means the window cut the identifier mid-line.
+                return std::unexpected(QStringLiteral("M3U8S metadata window truncates the identifier line"));
+            }
+            if (!isValidIdentifier(candidate)) {
+                return std::unexpected(QStringLiteral("M3U8S identifier must contain exactly 4096 Base64URL characters"));
+            }
+            identifier = candidate;
+            identifierLineIndex = index;
+            continue;
+        }
+        if (line.startsWith(QLatin1String(sourceNamePrefix))) {
+            if (encryptedSourceFileName) {
+                return std::unexpected(QStringLiteral("M3U8S manifest contains more than one source filename"));
+            }
+            const auto encoded = line.sliced(QLatin1String(sourceNamePrefix).size()).toLatin1();
+            if (isLastLine) {
+                // The window edge may have cut the source name: fall back.
+                return std::unexpected(QStringLiteral("M3U8S metadata window truncates the source name line"));
+            }
+            if (auto decoded = decodeSourceName(encoded); !decoded) {
+                return std::unexpected(decoded.error());
+            } else {
+                encryptedSourceFileName = std::move(*decoded);
+            }
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("#EXT-X-KEY:")) ||
+            line.startsWith(QStringLiteral("#EXT-X-SESSION-KEY:"))) {
+            return std::unexpected(QStringLiteral("TSSL playlists must not contain HLS key tags"));
+        }
+        // Any other line (comment, tag or URI) carries no metadata; the M3U8S
+        // tags always precede the segment list, so once a non-tag line is
+        // seen a later source-name line cannot exist.
+        if (!line.startsWith(QLatin1Char('#'))) {
+            break;
+        }
+    }
+
+    if (!identifier) {
+        return std::unexpected(QStringLiteral("M3U8S metadata window does not contain an identifier"));
+    }
+    if (!encryptedSourceFileName && identifierLineIndex == lastNonEmptyLine) {
+        // Nothing complete follows the identifier line: the window edge may
+        // have cut off a source-name line, so absence is indeterminate.
+        return std::unexpected(QStringLiteral("M3U8S metadata window ends at the identifier line"));
+    }
+    return HeadMetadata {
+        .identifier = std::move(*identifier),
+        .encryptedSourceFileName = encryptedSourceFileName ? std::move(*encryptedSourceFileName) : QByteArray {},
+    };
+}
+
 std::expected<void, QString> validate(QByteArrayView manifest, const QString& manifestPath)
 {
     if (manifest.isEmpty() || manifest.size() > maximumManifestBytes) {

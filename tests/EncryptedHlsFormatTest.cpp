@@ -64,6 +64,7 @@ private slots:
     void managerModelDoesNotExposeSourceFilename();
     void managerModelFiltersPackagesBySavedDate();
     void m3u8sIdentifierIsStrictAndRoundTrips();
+    void metadataHeadParsesWindowsWithoutSourceNameAndRejectsCuts();
     void manifestValidatorAcceptsPackageRelativeUris();
     void manifestValidatorRejectsExternalUrisAndKeyTags();
     void aesGcmRequiresAValidAuthenticationTag();
@@ -359,6 +360,46 @@ void EncryptedHlsFormatTest::m3u8sIdentifierIsStrictAndRoundTrips()
 
     const auto duplicate = *inserted + QByteArrayLiteral("#M3U8S-IDENTIFIER:") + identifierBytes('Y') + '\n';
     QVERIFY(!HlsManifestValidator::validate(duplicate).has_value());
+}
+
+void EncryptedHlsFormatTest::metadataHeadParsesWindowsWithoutSourceNameAndRejectsCuts()
+{
+    const QByteArray plain = "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n";
+    auto manifest = *HlsManifestValidator::insertM3u8sIdentifier(plain, identifierBytes('Z'));
+
+    // A window that reaches the segment list resolves the identifier and
+    // concludes there is no source-name line (v2-style package).
+    auto head = HlsManifestValidator::parseMetadataHead(manifest);
+    QVERIFY(head.has_value());
+    QCOMPARE(head->identifier, identifierBytes('Z'));
+    QVERIFY(head->encryptedSourceFileName.isEmpty());
+
+    // A window cut mid-identifier line falls back instead of guessing.
+    const auto cutIdentifier = manifest.left(manifest.indexOf('\n', manifest.indexOf("#M3U8S-IDENTIFIER:")) - 100);
+    QVERIFY(!HlsManifestValidator::parseMetadataHead(cutIdentifier).has_value());
+
+    // A window ending exactly at the identifier line is indeterminate for
+    // the optional source-name line and falls back too.
+    const auto identifierLineEnd = manifest.indexOf('\n', manifest.indexOf("#M3U8S-IDENTIFIER:")) + 1;
+    QVERIFY(!HlsManifestValidator::parseMetadataHead(manifest.left(identifierLineEnd)).has_value());
+
+    // With a source-name line present inside the window it resolves.
+    const QByteArray key(32, '\x11');
+    const auto encrypted = *AesGcmDecryptor::encryptAuthenticatedData(
+        QStringLiteral("Movie.mkv").toUtf8(), key, QByteArray(16, '\x22'),
+        TsslPackage::sourceFileNameAuthenticatedData(identifierBytes('Z')));
+    manifest = *HlsManifestValidator::insertEncryptedSourceFileName(manifest, encrypted);
+    // insertEncryptedSourceFileName also places its line right after
+    // #EXTM3U, matching packaged output where the source name precedes the
+    // identifier; the parser resolves tags in either order.
+    head = HlsManifestValidator::parseMetadataHead(manifest);
+    QVERIFY(head.has_value());
+    QCOMPARE(head->identifier, identifierBytes('Z'));
+    QCOMPARE(head->encryptedSourceFileName, encrypted);
+
+    // A window that cuts the source-name line falls back.
+    const auto nameAt = manifest.indexOf("#M3U8S-SOURCE-NAME:");
+    QVERIFY(!HlsManifestValidator::parseMetadataHead(manifest.left(nameAt + 40)).has_value());
 }
 
 void EncryptedHlsFormatTest::manifestValidatorAcceptsPackageRelativeUris()

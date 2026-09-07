@@ -3,6 +3,7 @@
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
 #include "utils/AppLogger.h"
+#include "utils/NetworkTrafficCoalescer.h"
 
 #include <QAuthenticator>
 #include <QCryptographicHash>
@@ -22,7 +23,9 @@
 #include <QtConcurrentRun>
 
 #include <algorithm>
+#include <array>
 #include <memory>
+#include <ranges>
 
 namespace {
 constexpr qint64 requestTimeoutMs = 30000;
@@ -30,6 +33,23 @@ constexpr qint64 maximumManifestBytes = 4 * 1024 * 1024;
 constexpr qint64 maximumEncryptedSegmentBytes = 512 * 1024 * 1024;
 constexpr qint64 maximumResourceBytes = 128 * 1024 * 1024;
 constexpr qsizetype maximumRequestHeaderBytes = 64 * 1024;
+// M3U8S metadata lives in the manifest head: the identifier line is a fixed
+// 4096-character tag and the source-name line follows immediately after
+// #EXTM3U, so a 16 KiB Range window always contains both. Used by the
+// listing preview path to avoid downloading whole manifests. See the
+// directory-browser metadata notes in VIBEDOCS/WebDAV.md.
+constexpr qint64 m3u8sMetadataProbeBytes = 16 * 1024;
+
+// Parses a manifest-head window into M3U8S metadata. Windows end on byte
+// boundaries that the validator treats as line-safe; any truncation or
+// malformed content returns an error so callers fall back to a full read.
+std::expected<HlsManifestValidator::HeadMetadata, QString> parseManifestMetadataHead(QByteArrayView head)
+{
+    if (head.isEmpty()) {
+        return std::unexpected(QStringLiteral("Remote M3U8S manifest is empty"));
+    }
+    return HlsManifestValidator::parseMetadataHead(head);
+}
 
 QHash<QByteArray, QByteArray> parseHeaders(const QList<QByteArray>& lines)
 {
@@ -261,6 +281,11 @@ EncryptedHlsPlaybackProxy::EncryptedHlsPlaybackProxy(TsslStore& store, QObject* 
                 authenticator->setUser(reply->property("webdavUsername").toString());
                 authenticator->setPassword(reply->property("webdavPassword").toString());
             });
+    // Segment playback streams fire readyRead per chunk; coalesce the usage
+    // samples instead of emitting one signal per chunk. The public signal
+    // signature is preserved for existing consumers.
+    connect(&m_traffic, &NetworkTrafficCoalescer::flushed,
+            this, &EncryptedHlsPlaybackProxy::networkTrafficSample);
 }
 
 void EncryptedHlsPlaybackProxy::prepareStream(const ServerConfig& server,
@@ -477,53 +502,350 @@ void EncryptedHlsPlaybackProxy::resolveRootDigest(const ServerConfig& server,
     });
 }
 
+namespace {
+constexpr int maximumConcurrentPreviewJobs = 4;
+constexpr int previewSuccessCacheMs = 5 * 60 * 1000;
+constexpr int previewCacheMaxEntries = 4096;
+// Preview probes fire as a bounded burst against servers that throttle
+// concurrency (rclone/Caddy/nginx limits, cloud-back ends returning
+// sporadic 5xx/429) and against keep-alive connections the server may have
+// just closed. One transient hiccup must not blank a row for the whole
+// session, so failed transients are retried with a small backoff and
+// failures are never cached.
+constexpr int maximumPreviewRetries = 2;
+constexpr int previewRetryBaseMs = 300;
+
+// Structural/content errors are deterministic: retrying only wastes requests.
+// Everything else (transport errors, HTTP status failures, malformed
+// Content-Range) is treated as transient. Unknown signatures default to
+// transient; a misclassified permanent error costs at most the retry budget.
+bool isTransientPreviewError(const QString& error)
+{
+    static constexpr std::array<QStringView, 13> permanentNeedles = {
+        u"Invalid M3U8SP",
+        u"Unsupported M3U8SP",
+        u"M3U8SP manifest entry digest mismatch",
+        u"M3U8SP manifest entry is missing",
+        u"M3U8SP container length does not match",
+        u"M3U8SP index entry is outside",
+        u"Remote M3U8SP container is invalid",
+        u"does not support byte ranges",
+        u"M3U8S metadata",
+        u"M3U8S identifier must",
+        u"M3U8S source filename",
+        u"HLS manifest",
+        u"TSSL playlists",
+    };
+    return !std::ranges::any_of(permanentNeedles,
+                                [&error](QStringView needle) { return error.contains(needle, Qt::CaseInsensitive); });
+}
+}
+
 void EncryptedHlsPlaybackProxy::resolveIdentifierPreview(
     const ServerConfig& server,
     const QString& password,
     const QUrl& rootManifestUrl,
+    const QString& revision,
     std::function<void(EncryptedHlsIdentifierPreviewResult)> callback)
 {
-    if (rootManifestUrl.path(QUrl::FullyDecoded).endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive)) {
-        prepareStream(server, password, rootManifestUrl,
-                      [this, callback = std::move(callback)](EncryptedHlsPrepareResult prepared) mutable {
-            if (!prepared) { callback(std::unexpected(prepared.error())); return; }
-            const auto session = m_sessions.constFind(prepared->sessionId);
-            if (session == m_sessions.cend()) { callback(std::unexpected(QStringLiteral("M3U8SP session is unavailable"))); return; }
-            EncryptedHlsIdentifierPreview result {
-                .identifier = QStringLiteral("%1...%2")
-                    .arg(QString::fromLatin1(session->package.identifier.first(16)),
-                         QString::fromLatin1(session->package.identifier.last(12))),
-                .sourceFileName = prepared->displayName,
-            };
-            revoke(prepared->sessionId);
+    // Directory listings fire one preview per encrypted package; queue them
+    // with a small cap so a folder of hundreds does not open hundreds of
+    // parallel range reads, and serve repeats from the per-URL cache.
+    if (auto cached = cachedPreviewResult(rootManifestUrl, revision)) {
+        auto result = std::move(*cached);
+        QTimer::singleShot(0, this, [callback = std::move(callback), result = std::move(result)]() mutable {
             callback(std::move(result));
         });
         return;
     }
-    fetchRemoteBytes(server,
-                     password,
-                     rootManifestUrl,
-                     maximumManifestBytes,
-                     {},
-                     [this, callback = std::move(callback)](std::expected<QByteArray, QString> manifest) mutable {
-        if (!manifest) {
-            callback(std::unexpected(manifest.error()));
+    m_previewQueue.push_back(PreviewJob {
+        .server = server,
+        .password = password,
+        .url = rootManifestUrl,
+        .revision = revision,
+        .callback = std::move(callback),
+    });
+    startNextPreviewJobs();
+}
+
+void EncryptedHlsPlaybackProxy::startNextPreviewJobs()
+{
+    while (m_activePreviewJobs < maximumConcurrentPreviewJobs && !m_previewQueue.empty()) {
+        auto job = std::move(m_previewQueue.front());
+        m_previewQueue.pop_front();
+        ++m_activePreviewJobs;
+        runPreviewJob(std::move(job));
+    }
+}
+
+void EncryptedHlsPlaybackProxy::runPreviewJob(PreviewJob job)
+{
+    const bool isContainer = job.url.path(QUrl::FullyDecoded).endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive);
+    // Shared so a retry can re-dispatch the same job after its backoff.
+    auto jobPtr = std::make_shared<PreviewJob>(std::move(job));
+    auto finish = [this, jobPtr](EncryptedHlsIdentifierPreviewResult result) {
+        if (!result && jobPtr->attempt < maximumPreviewRetries && isTransientPreviewError(result.error())) {
+            // Hold the queue slot across the backoff so retrying jobs cannot
+            // stack up into a second burst against a throttling server.
+            const int delayMs = previewRetryBaseMs << jobPtr->attempt;
+            ++jobPtr->attempt;
+            QTimer::singleShot(delayMs, this, [this, jobPtr] {
+                runPreviewJob(std::move(*jobPtr));
+            });
             return;
         }
-        auto identifier = HlsManifestValidator::extractM3u8sIdentifier(*manifest);
-        if (!identifier) {
-            callback(std::unexpected(identifier.error()));
+        cachePreviewResult(jobPtr->url, jobPtr->revision, result);
+        --m_activePreviewJobs;
+        if (jobPtr->callback) {
+            jobPtr->callback(std::move(result));
+        }
+        startNextPreviewJobs();
+    };
+    if (isContainer) {
+        resolvePreviewFromContainerHead(jobPtr->server, jobPtr->password, jobPtr->url, std::move(finish));
+        return;
+    }
+    resolvePreviewFromFullManifest(jobPtr->server, jobPtr->password, jobPtr->url, std::move(finish));
+}
+
+std::optional<EncryptedHlsIdentifierPreviewResult> EncryptedHlsPlaybackProxy::cachedPreviewResult(
+    const QUrl& url, const QString& revision) const
+{
+    if (revision.isEmpty()) {
+        return std::nullopt;
+    }
+    const auto entry = m_previewCache.constFind(url);
+    if (entry == m_previewCache.cend() || entry->first != revision) {
+        return std::nullopt;
+    }
+    if (QDateTime::currentDateTimeUtc() > entry->second.expiresAt) {
+        return std::nullopt;
+    }
+    if (entry->second.value) {
+        return EncryptedHlsIdentifierPreviewResult { *entry->second.value };
+    }
+    return std::nullopt;
+}
+
+void EncryptedHlsPlaybackProxy::cachePreviewResult(const QUrl& url,
+                                                   const QString& revision,
+                                                   const EncryptedHlsIdentifierPreviewResult& result)
+{
+    if (revision.isEmpty()) {
+        return;
+    }
+    if (!result) {
+        // Never cache failures: one transient hiccup must not blank a row
+        // across refreshes. Dropping any stale entry makes the next listing
+        // read the file afresh.
+        m_previewCache.remove(url);
+        return;
+    }
+    if (m_previewCache.size() >= previewCacheMaxEntries) {
+        m_previewCache.clear();
+    }
+    m_previewCache.insert(url, {
+        revision,
+        PreviewCacheEntry {
+            .expiresAt = QDateTime::currentDateTimeUtc().addMSecs(previewSuccessCacheMs),
+            .value = std::optional<EncryptedHlsIdentifierPreview> { *result },
+        },
+    });
+}
+
+const QHash<QByteArray, QString>& EncryptedHlsPlaybackProxy::sourceFileNameIndex(bool forceRefresh)
+{
+    if (!m_sourceFileNameIndex || forceRefresh) {
+        auto index = m_store.sourceFileNameByIdentifier();
+        m_sourceFileNameIndex = index ? std::move(*index) : QHash<QByteArray, QString> {};
+    }
+    return *m_sourceFileNameIndex;
+}
+
+void EncryptedHlsPlaybackProxy::resolvePreviewFromFullManifest(
+    const ServerConfig& server,
+    const QString& password,
+    const QUrl& rootManifestUrl,
+    std::function<void(EncryptedHlsIdentifierPreviewResult)> done)
+{
+    // The identifier and (for v3+) the source name sit within the first few
+    // KiB of a manifest, so probe a 16 KiB Range window first instead of
+    // streaming up to 4 MiB per listed file. Plain GET only when the server
+    // rejects ranged reads, and full content stays as last resort so preview
+    // behaves identically on servers without Range support.
+    fetchRemoteRange(server, password, rootManifestUrl, 0, m3u8sMetadataProbeBytes - 1,
+                     m3u8sMetadataProbeBytes, {},
+                     [this, server, password, rootManifestUrl, done = std::move(done)](
+                         std::expected<RemoteRangeResult, QString> head) mutable {
+        if (head) {
+            if (auto metadata = parseManifestMetadataHead(head->bytes)) {
+                EncryptedHlsIdentifierPreview result {
+                    .identifier = QStringLiteral("%1...%2")
+                        .arg(QString::fromLatin1(metadata->identifier.first(16)),
+                             QString::fromLatin1(metadata->identifier.last(12))),
+                };
+                if (!metadata->encryptedSourceFileName.isEmpty()) {
+                    // The head window cannot yield a root digest, so the
+                    // source name resolves through the local TSSL store by
+                    // identifier; one rescan covers packages added since the
+                    // index was built.
+                    auto& index = sourceFileNameIndex();
+                    if (auto name = index.constFind(metadata->identifier); name != index.cend()) {
+                        result.sourceFileName = *name;
+                    } else {
+                        auto& refreshed = sourceFileNameIndex(true);
+                        if (auto retry = refreshed.constFind(metadata->identifier); retry != refreshed.cend()) {
+                            result.sourceFileName = *retry;
+                        }
+                    }
+                }
+                done(std::move(result));
+                return;
+            }
+            // Head rejected (odd layout, server trimmed the window, ...):
+            // fall back to the historical whole-manifest read.
+        }
+        fetchRemoteBytes(server, password, rootManifestUrl, maximumManifestBytes, {},
+                         [this, done = std::move(done)](std::expected<QByteArray, QString> manifest) mutable {
+            if (!manifest) {
+                done(std::unexpected(manifest.error()));
+                return;
+            }
+            auto identifier = HlsManifestValidator::extractM3u8sIdentifier(*manifest);
+            if (!identifier) {
+                done(std::unexpected(identifier.error()));
+                return;
+            }
+            EncryptedHlsIdentifierPreview result {
+                .identifier = QStringLiteral("%1...%2")
+                    .arg(QString::fromLatin1(identifier->first(16)),
+                         QString::fromLatin1(identifier->last(12))),
+            };
+            if (auto resolved = resolvePackageBytes(std::move(*manifest), m_store); resolved) {
+                result.sourceFileName = std::move(resolved->sourceFileName);
+            }
+            done(std::move(result));
+        });
+    });
+}
+
+void EncryptedHlsPlaybackProxy::resolvePreviewFromContainerHead(
+    const ServerConfig& server,
+    const QString& password,
+    const QUrl& containerUrl,
+    std::function<void(EncryptedHlsIdentifierPreviewResult)> done)
+{
+    // Listing previews used to run the full prepareStream() path, which
+    // streams a 16 MiB index prefix per listed .m3u8sp. The container layout
+    // puts the CBOR index right after the first TAR header, so probe a small
+    // window first: it either holds the whole index or its TAR header
+    // discloses the exact index size for one follow-up range read. The
+    // manifest entry is then fetched with a single targeted range (a few KiB).
+    constexpr qint64 containerProbeBytes = 64 * 1024;
+
+    // std::function is copyable; capturing done by move here previously left
+    // the probe-stage callback holding a moved-from function, so every
+    // container-probe failure path threw std::bad_function_call (visible as
+    // the Windows "abort() has been called" debug dialog). Each stage keeps
+    // its own copy instead.
+    auto manifestFromIndex = [this, server, password, containerUrl,
+                              done](EncryptedHlsTarIndex index) mutable {
+        const auto* manifestEntry = index.entry(index.manifestPath);
+        if (!manifestEntry || manifestEntry->size <= 0) {
+            done(std::unexpected(QStringLiteral("M3U8SP manifest entry is missing or empty")));
             return;
         }
-        EncryptedHlsIdentifierPreview result {
-            .identifier = QStringLiteral("%1...%2")
-                .arg(QString::fromLatin1(identifier->first(16)),
-                     QString::fromLatin1(identifier->last(12))),
-        };
-        if (auto resolved = resolvePackageBytes(std::move(*manifest), m_store); resolved) {
-            result.sourceFileName = std::move(resolved->sourceFileName);
+        // A packaged manifest carries the fixed 4096-char identifier tag plus
+        // the base64 source-name tag right after #EXTM3U (~10 KiB total) and
+        // then one line per segment, so real containers routinely exceed the
+        // 16 KiB window. The two metadata tags always precede the segment list
+        // and fit well within 16 KiB, so when the entry is larger we fetch only
+        // that head window. Trimming to the last complete line matters: the raw
+        // 16 KiB edge can land mid multi-byte UTF-8 sequence in a localized
+        // segment name, which would otherwise fail the strict UTF-8 check; every
+        // byte up to the last newline is complete lines and valid. The full-entry
+        // index SHA-256 is verified whenever the whole entry fits the window, and
+        // playback re-validates every byte, so the trimmed head read is safe.
+        const bool headOnly = manifestEntry->size > m3u8sMetadataProbeBytes;
+        const qint64 fetchSize = headOnly ? m3u8sMetadataProbeBytes : manifestEntry->size;
+        fetchRemoteRange(server, password, containerUrl,
+                         manifestEntry->dataOffset,
+                         manifestEntry->dataOffset + fetchSize - 1,
+                         fetchSize, {},
+                         [this, done, expectedSha256 = manifestEntry->sha256, headOnly](
+                             std::expected<RemoteRangeResult, QString> entry) mutable {
+            if (!entry) { done(std::unexpected(entry.error())); return; }
+            if (!headOnly &&
+                QCryptographicHash::hash(entry->bytes, QCryptographicHash::Sha256) != expectedSha256) {
+                done(std::unexpected(QStringLiteral("M3U8SP manifest entry digest mismatch")));
+                return;
+            }
+            // A head window ends at an arbitrary byte offset inside the segment
+            // list, which in practice cuts a multi-byte UTF-8 sequence from a
+            // localized segment/file name and makes the decoder reject the
+            // window. Drop the trailing partial line: both M3U8S metadata tags
+            // precede the segment list, so a line-aligned window is strictly
+            // safer and loses nothing the preview needs.
+            if (headOnly) {
+                const auto lastLineBreak = entry->bytes.lastIndexOf('\n');
+                if (lastLineBreak <= 0) {
+                    done(std::unexpected(QStringLiteral("M3U8SP manifest head window is not line aligned")));
+                    return;
+                }
+                entry->bytes.truncate(static_cast<qsizetype>(lastLineBreak));
+            }
+            auto metadata = parseManifestMetadataHead(entry->bytes);
+            if (!metadata) { done(std::unexpected(metadata.error())); return; }
+            EncryptedHlsIdentifierPreview result {
+                .identifier = QStringLiteral("%1...%2")
+                    .arg(QString::fromLatin1(metadata->identifier.first(16)),
+                         QString::fromLatin1(metadata->identifier.last(12))),
+            };
+            if (!metadata->encryptedSourceFileName.isEmpty()) {
+                auto& index = sourceFileNameIndex();
+                if (auto name = index.constFind(metadata->identifier); name != index.cend()) {
+                    result.sourceFileName = *name;
+                } else {
+                    auto& refreshed = sourceFileNameIndex(true);
+                    if (auto retry = refreshed.constFind(metadata->identifier); retry != refreshed.cend()) {
+                        result.sourceFileName = *retry;
+                    }
+                }
+            }
+            done(std::move(result));
+        });
+    };
+
+    fetchRemoteRange(server, password, containerUrl, 0, containerProbeBytes - 1,
+                     containerProbeBytes, {},
+                     [this, server, password, containerUrl, done, manifestFromIndex](
+                         std::expected<RemoteRangeResult, QString> probe) mutable {
+        if (!probe) { done(std::unexpected(probe.error())); return; }
+        // containerLength < 0 skips the declared-length cross-check: a probe
+        // window has no trustworthy total size yet.
+        if (auto index = EncryptedHlsTarContainer::readIndexPrefix(probe->bytes, -1)) {
+            manifestFromIndex(std::move(*index));
+            return;
         }
-        callback(std::move(result));
+        if (probe->bytes.size() == probe->totalLength) {
+            // The container is smaller than the probe window and still
+            // failed: it is genuinely not a valid package.
+            done(std::unexpected(QStringLiteral("Remote M3U8SP container is invalid")));
+            return;
+        }
+        // The index exceeded the probe; its size sits in the TAR header we
+        // already hold, so widen exactly once and retry.
+        auto indexSize = EncryptedHlsTarContainer::indexSizeFromPrefix(probe->bytes);
+        if (!indexSize) { done(std::unexpected(indexSize.error())); return; }
+        const qint64 wanted = 512 + *indexSize; // TAR header block + CBOR index
+        fetchRemoteRange(server, password, containerUrl, 0, wanted - 1, wanted, {},
+                         [done, manifestFromIndex](
+                             std::expected<RemoteRangeResult, QString> widened) mutable {
+            if (!widened) { done(std::unexpected(widened.error())); return; }
+            auto index = EncryptedHlsTarContainer::readIndexPrefix(widened->bytes, -1);
+            if (!index) { done(std::unexpected(index.error())); return; }
+            manifestFromIndex(std::move(*index));
+        });
     });
 }
 
@@ -638,11 +960,11 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteBytes(
     auto readAvailable = [this, reply, buffer, maximumBytes, server]() {
         const auto chunk = reply->readAll();
         if (!chunk.isEmpty()) {
-            emit networkTrafficSample(server.id,
-                                      server.name,
-                                      serviceTypeToString(server.serviceType),
-                                      chunk.size(),
-                                      0);
+            m_traffic.record(server.id,
+                             server.name,
+                             serviceTypeToString(server.serviceType),
+                             chunk.size(),
+                             0);
             buffer->append(chunk);
         }
         if (buffer->size() > maximumBytes && reply->isRunning()) {
@@ -703,7 +1025,7 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteRange(
     connect(reply, &QNetworkReply::readyRead, reply, [this, reply, buffer, maximumBytes, server]() {
         const auto chunk = reply->readAll();
         if (!chunk.isEmpty()) {
-            emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
+            m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
             buffer->append(chunk);
         }
         if (buffer->size() > maximumBytes && reply->isRunning()) reply->abort();

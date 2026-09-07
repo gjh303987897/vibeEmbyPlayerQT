@@ -560,6 +560,36 @@ std::expected<std::vector<TsslPackageInfo>, QString> TsslStore::listPackages() c
     return result;
 }
 
+std::expected<QHash<QByteArray, QString>, QString> TsslStore::sourceFileNameByIdentifier() const
+{
+    QHash<QByteArray, QString> result;
+    if (m_storageDirectory.isEmpty() || !QFileInfo::exists(m_storageDirectory)) {
+        return result;
+    }
+    const QDir directory(m_storageDirectory);
+    const auto files = directory.entryInfoList({ QStringLiteral("*.tssl") },
+                                               QDir::Files | QDir::Readable,
+                                               QDir::Time | QDir::Reversed);
+    result.reserve(static_cast<qsizetype>(files.size()));
+    for (const auto& fileInfo : files) {
+        if (!readPackageSummary(fileInfo)) {
+            continue;
+        }
+        QFile file(fileInfo.absoluteFilePath());
+        if (!file.open(QIODevice::ReadOnly) || file.size() <= 0 || file.size() > maximumTsslBytes) {
+            continue;
+        }
+        auto package = TsslPackage::parse(file.readAll());
+        if (!package) {
+            continue;
+        }
+        if (auto sourceFileName = package->decryptedSourceFileName(); sourceFileName && *sourceFileName) {
+            result.insert(package->identifier, **sourceFileName);
+        }
+    }
+    return result;
+}
+
 std::expected<std::vector<TsslPackageSummary>, QString> TsslStore::listPackageSummaries() const
 {
     std::vector<TsslPackageSummary> result;

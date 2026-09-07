@@ -7141,6 +7141,7 @@ ApplicationWindow {
         property int iconSize: 26
         property color accentColor: theme.primary
         property bool backgroundVisible: true
+        property int step: 0
 
         width: iconSize
         height: iconSize
@@ -7157,20 +7158,25 @@ ApplicationWindow {
             border.color: darkTheme ? "#4dffffff" : "#99d8e0ea"
         }
 
+        // A 900 ms RotationAnimator per row keeps the render loop at display
+        // refresh for every loading row at once, and a directory of pending
+        // M3U8S rows multiplies that into constant full-rate redraws. A step
+        // timer turns each spinner into 8 discrete rotations per cycle: the
+        // scene graph only updates when a step lands and the render loop
+        // stays idle in between. The timer only runs while visible.
+        Timer {
+            interval: 900 / 8
+            running: loadingIcon.visible && loadingIcon.running
+            repeat: true
+            onTriggered: loadingIcon.step += 1
+        }
+
         Item {
             id: spinnerDots
             anchors.centerIn: parent
             width: Math.max(12, loadingIcon.width - 10)
             height: width
-
-            RotationAnimator on rotation {
-                running: loadingIcon.running
-                from: 0
-                to: 360
-                duration: 900
-                loops: Animation.Infinite
-                easing.type: Easing.Linear
-            }
+            rotation: loadingIcon.step * 45
 
             Repeater {
                 model: 8

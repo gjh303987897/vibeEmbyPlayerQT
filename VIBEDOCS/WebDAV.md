@@ -20,6 +20,35 @@ Settings persist two independent visibility switches for these fields. Both
 switches default to enabled; hiding either field affects presentation only and
 does not change manifest verification or playback behavior.
 
+Listing previews must never download whole manifests: `.m3u8s` rows probe a
+16 KiB head Range window (`HlsManifestValidator::parseMetadataHead`) and
+`.m3u8sp` rows probe the leading 64 KiB container window, widen once to the
+TAR-declared index size if needed, then range-read just the manifest entry
+(SHA-256 verified). Windows that end ambiguously (a tag line cut at the edge)
+fall back to the historical full-manifest read, so servers without Range
+support behave identically to before. Real packaged manifests almost always
+exceed the 16 KiB window (fixed 4096-char identifier tag, base64 source-name
+tag, one line per segment); container previews therefore fetch only the head
+window for oversized entries, trim it back to the last complete line (a raw
+window edge can land mid multi-byte UTF-8 sequence in localized segment
+names), and skip the whole-entry SHA-256, which is only defined over the
+complete entry. Playback (`prepareStream`) still re-reads and verifies every
+byte, and both M3U8S tags always precede the segment list, so the trimmed
+head read stays correct. Regression coverage:
+`EncryptedHlsPlaybackProxyTest::containerPreviewSurvivesOversizedManifestWithUtf8Head`. Previews are queued with at most four
+concurrent requests and cached per URL + `size|lastModified` revision (5 min
+success; failures are never cached and transient ones are retried up to twice
+with 300/600 ms backoff while holding the queue slot, so one throttled or
+reset connection — sporadic 5xx/429, closed keep-alives — no longer blanks a
+row across refreshes). Deterministic errors (invalid container/manifest
+signatures) are classified as permanent and never retried; everything else
+is treated as transient. Re-entering a directory costs no traffic. The
+source filename for head-window previews resolves through
+`TsslStore::sourceFileNameByIdentifier()` because the window yields no root
+digest; the proxy keeps a lazily built index and rescans once on a miss.
+See `bugFix/2026-07-13-16.05.00.md` for the bandwidth/GPU analysis this
+replaced (per-file full reads, 16 MiB index prefixes, unbounded concurrency).
+
 ## 模块边界
 
 WebDAV 下载相关功能拆成五层：

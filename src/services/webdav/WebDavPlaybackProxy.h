@@ -1,6 +1,7 @@
 #pragma once
 
 #include "models/ServerConfig.h"
+#include "utils/NetworkTrafficCoalescer.h"
 
 #include <QHash>
 #include <QNetworkAccessManager>
@@ -49,4 +50,5 @@ private:
     QTcpServer m_server;
     QNetworkAccessManager m_manager;
     QHash<QString, Stream> m_streams;
+    NetworkTrafficCoalescer m_traffic;
 };

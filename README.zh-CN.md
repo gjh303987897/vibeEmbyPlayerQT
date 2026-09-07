@@ -144,6 +144,7 @@ Linux 和 macOS 上，CMake 通过 `pkg-config` 查找 libmpv。
 建议从这些文件开始：
 
 - `docs/BuildWindows.md`
+- `docs/DevelopmentEnvironment.md`（本机已验证的开发环境清单）
 - `VIBEDOCS/MediaServices.md`
 - `VIBEDOCS/PlayerRuntime.md`
 - `VIBEDOCS/WebDAV.md`

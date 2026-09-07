@@ -10049,9 +10049,15 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
             return;
         }
         std::vector<QUrl> encryptedManifestUrls;
+        QHash<QUrl, QString> encryptedRevisions;
         for (const auto& item : *result) {
             if (item.encryptedHls) {
                 encryptedManifestUrls.push_back(item.url);
+                // Size + timestamp fingerprint: re-resolves metadata after
+                // the remote file changed and lets unchanged rows hit the
+                // proxy-side preview cache instead of re-downloading.
+                encryptedRevisions.insert(item.url,
+                                          QStringLiteral("%1|%2").arg(item.size).arg(item.lastModified));
             }
         }
         m_webDavCurrentUrl = directoryUrl;
@@ -10070,6 +10076,7 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
                 server,
                 password,
                 manifestUrl,
+                encryptedRevisions.value(manifestUrl),
                 [this, requestGeneration, serverId, directoryUrl, manifestUrl](EncryptedHlsIdentifierPreviewResult preview) {
                     if (requestGeneration != m_webDavDirectoryRequestGeneration ||
                         !m_currentWebDavCard || m_currentWebDavCard->server.id != serverId ||
@@ -10078,7 +10085,8 @@ void AppViewModel::loadWebDavDirectory(const QUrl& url)
                     }
                     if (!preview) {
                         AppLogger::warning(QStringLiteral("encrypted-hls"),
-                                           QStringLiteral("Unable to read a WebDAV M3U8S identifier"));
+                                           QStringLiteral("Unable to read a WebDAV M3U8S identifier for %1: %2")
+                                               .arg(manifestUrl.toString(), preview.error()));
                         // Still report the read as answered: an unreadable manifest leaves
                         // both fields empty, but the row must stop showing a loading icon.
                         m_webDavItems.setM3u8sMetadata(manifestUrl, QString {}, QString {});

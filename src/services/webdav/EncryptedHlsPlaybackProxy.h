@@ -3,16 +3,20 @@
 #include "models/ServerConfig.h"
 #include "services/webdav/TsslStore.h"
 #include "services/encryptedhls/EncryptedHlsTarContainer.h"
+#include "utils/NetworkTrafficCoalescer.h"
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QTcpServer>
 #include <QUrl>
 
+#include <deque>
 #include <expected>
 #include <functional>
+#include <optional>
 
 class QNetworkReply;
 class QTcpSocket;
@@ -51,6 +55,17 @@ public:
     void resolveIdentifierPreview(const ServerConfig& server,
                                   const QString& password,
                                   const QUrl& rootManifestUrl,
+                                  std::function<void(EncryptedHlsIdentifierPreviewResult)> callback) {
+        resolveIdentifierPreview(server, password, rootManifestUrl, QString {}, std::move(callback));
+    }
+    // Listing rows call this for every encrypted package in a directory, so
+    // requests are queued with a small concurrency cap and results are cached
+    // per URL + revision (size/last-modified fingerprint supplied by the
+    // caller; an empty revision disables caching).
+    void resolveIdentifierPreview(const ServerConfig& server,
+                                  const QString& password,
+                                  const QUrl& rootManifestUrl,
+                                  const QString& revision,
                                   std::function<void(EncryptedHlsIdentifierPreviewResult)> callback);
     void revoke(const QString& sessionId);
 
@@ -74,6 +89,41 @@ private:
         QByteArray etag;
         qint64 totalLength { 0 };
     };
+
+    struct PreviewJob final {
+        ServerConfig server;
+        QString password;
+        QUrl url;
+        QString revision;
+        std::function<void(EncryptedHlsIdentifierPreviewResult)> callback;
+        int attempt { 0 }; // transient-failure retries already spent
+    };
+
+    struct PreviewCacheEntry final {
+        QDateTime expiresAt;
+        std::optional<EncryptedHlsIdentifierPreview> value; // successes only; failures are never cached
+    };
+
+    void startNextPreviewJobs();
+    void runPreviewJob(PreviewJob job);
+    void resolvePreviewFromFullManifest(const ServerConfig& server,
+                                        const QString& password,
+                                        const QUrl& rootManifestUrl,
+                                        std::function<void(EncryptedHlsIdentifierPreviewResult)> done);
+    void resolvePreviewFromContainerHead(const ServerConfig& server,
+                                         const QString& password,
+                                         const QUrl& containerUrl,
+                                         std::function<void(EncryptedHlsIdentifierPreviewResult)> done);
+    std::optional<EncryptedHlsIdentifierPreviewResult> cachedPreviewResult(const QUrl& url,
+                                                                           const QString& revision) const;
+    void cachePreviewResult(const QUrl& url,
+                            const QString& revision,
+                            const EncryptedHlsIdentifierPreviewResult& result);
+    // Source names for the manifest-head path, resolved locally: a head
+    // window never yields a root digest, so identifier -> name comes from the
+    // TSSL store instead of the manifest. Backed by a lazily built index;
+    // misses rescan once so packages imported during the session appear.
+    const QHash<QByteArray, QString>& sourceFileNameIndex(bool forceRefresh = false);
 
     struct Session {
         bool localSource { false };
@@ -154,5 +204,14 @@ private:
     TsslStore& m_store;
     QTcpServer m_server;
     QNetworkAccessManager m_manager;
+    NetworkTrafficCoalescer m_traffic;
     QHash<QString, Session> m_sessions;
+    std::deque<PreviewJob> m_previewQueue;
+    int m_activePreviewJobs { 0 };
+    struct PreviewCacheKey {
+        QUrl url;
+        QString revision;
+    };
+    QHash<QUrl, QPair<QString, PreviewCacheEntry>> m_previewCache;
+    std::optional<QHash<QByteArray, QString>> m_sourceFileNameIndex;
 };

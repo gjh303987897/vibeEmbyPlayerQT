@@ -2,6 +2,7 @@
 
 #include "models/ServerConfig.h"
 #include "models/TransferTask.h"
+#include "utils/NetworkTrafficCoalescer.h"
 #include "viewmodels/TransferTaskListModel.h"
 
 #include <QFile>
@@ -153,6 +154,7 @@ private:
     qint64 rateForDirection(const QString& direction, bool average) const;
 
     QNetworkAccessManager m_manager;
+    NetworkTrafficCoalescer m_traffic;
     TransferTaskListModel m_model;
     TransferTaskListModel m_detailModel;
     std::vector<TransferTask> m_topLevelTasks;

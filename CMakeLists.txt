@@ -171,6 +171,8 @@ qt_add_executable(vibePlayerQT
     src/settings/AppSettings.h
     src/utils/AppLogger.cpp
     src/utils/AppLogger.h
+    src/utils/NetworkTrafficCoalescer.cpp
+    src/utils/NetworkTrafficCoalescer.h
     src/utils/ErrorPresentation.cpp
     src/utils/ErrorPresentation.h
     src/utils/JsonUtils.cpp
@@ -572,6 +574,8 @@ if(BUILD_TESTING)
         src/services/webdav/TsslStore.h
         src/utils/AppLogger.cpp
         src/utils/AppLogger.h
+        src/utils/NetworkTrafficCoalescer.cpp
+        src/utils/NetworkTrafficCoalescer.h
     )
     target_include_directories(encrypted_hls_playback_proxy_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -649,6 +653,8 @@ if(BUILD_TESTING)
         src/viewmodels/TransferTaskListModel.h
         src/utils/AppLogger.cpp
         src/utils/AppLogger.h
+        src/utils/NetworkTrafficCoalescer.cpp
+        src/utils/NetworkTrafficCoalescer.h
     )
     target_include_directories(transfer_manager_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src

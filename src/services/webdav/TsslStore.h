@@ -67,6 +67,11 @@ public:
     std::expected<std::vector<TsslPackageInfo>, QString> listPackages() const;
     // Enumerates package files without opening any of them.
     std::expected<std::vector<TsslPackageSummary>, QString> listPackageSummaries() const;
+    // Maps each package identifier to its decrypted source filename, for the
+    // manifest-head preview path which resolves an identifier without ever
+    // downloading a full manifest (so it cannot compute a root digest).
+    // Packages without a recoverable source name are omitted.
+    std::expected<QHash<QByteArray, QString>, QString> sourceFileNameByIdentifier() const;
     // Parses exactly the listed files, which must come from this store.
     std::expected<std::vector<TsslPackageInfo>, QString> packageInfosForPaths(const QStringList& paths) const;
     std::expected<QByteArray, QString> restoreFromFile(const QString& sourcePath) const;

@@ -144,6 +144,7 @@ Design notes and implementation records live in `VIBEDOCS/`.
 Useful starting points:
 
 - `docs/BuildWindows.md`
+- `docs/DevelopmentEnvironment.md` (verified local toolchain inventory)
 - `VIBEDOCS/MediaServices.md`
 - `VIBEDOCS/PlayerRuntime.md`
 - `VIBEDOCS/WebDAV.md`

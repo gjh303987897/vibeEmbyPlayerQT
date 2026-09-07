@@ -358,10 +358,33 @@ std::expected<EncryptedHlsTarIndex, QString> readIndex(const QString& archivePat
     return index;
 }
 
+std::expected<qint64, QString> indexSizeFromPrefix(QByteArrayView prefix)
+{
+    if (prefix.size() < blockSize) {
+        return std::unexpected(QStringLiteral("Incomplete M3U8SP TAR header"));
+    }
+    const auto header = QByteArray(prefix.data(), blockSize);
+    if (QByteArrayView(header).sliced(257, 5) != QByteArrayView("ustar", 5) ||
+        QByteArrayView(header).sliced(0, 17) != QByteArrayView(".vibe/index.cbor", 17) ||
+        header.at(156) != '0' || !validChecksum(header)) {
+        return std::unexpected(QStringLiteral("Invalid M3U8SP TAR header"));
+    }
+    const auto size = parseOctalField(QByteArrayView(header).sliced(124, 12));
+    if (!size || *size <= 0 || *size > maximumIndexBytes) {
+        return std::unexpected(QStringLiteral("Invalid M3U8SP index size"));
+    }
+    return *size;
+}
+
 std::expected<EncryptedHlsTarIndex, QString> readIndexPrefix(QByteArrayView prefix,
                                                              qint64 containerLength)
 {
-    if (prefix.size() < blockSize || containerLength < blockSize * 3) {
+    // containerLength < 0 skips the cross-check against the CBOR-declared
+    // length: the listing preview path range-reads just the header + index
+    // window and has not seen the full container size yet. Every other
+    // structural check still runs.
+    const bool checkLength = containerLength >= 0;
+    if (prefix.size() < blockSize || (checkLength && containerLength < blockSize * 3)) {
         return std::unexpected(QStringLiteral("Incomplete M3U8SP TAR header"));
     }
     const auto header = QByteArray(prefix.data(), blockSize);
@@ -376,7 +399,7 @@ std::expected<EncryptedHlsTarIndex, QString> readIndexPrefix(QByteArrayView pref
     const auto bytes = QByteArray(prefix.data() + blockSize, *size);
     auto index = decodeIndex(bytes);
     if (!index) return index;
-    if (index->containerLength != containerLength) {
+    if (checkLength && index->containerLength != containerLength) {
         return std::unexpected(QStringLiteral("M3U8SP container length does not match TAR"));
     }
     qint64 previousEnd = blockSize + aligned(*size);
