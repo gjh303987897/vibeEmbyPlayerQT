@@ -1924,6 +1924,18 @@ void SessionRepository::setM3u8sOutputDirectory(const QString& directory)
     m_settings.setValue(QStringLiteral("m3u8s/outputDirectory"), directory);
 }
 
+// Empty means "auto-detect" (bundled copy, then PATH). Stored as an absolute
+// path so a later PATH change cannot silently swap the binary the user picked.
+QString SessionRepository::m3u8sFfmpegExecutable() const
+{
+    return m_settings.value(QStringLiteral("m3u8s/ffmpegExecutable")).toString();
+}
+
+void SessionRepository::setM3u8sFfmpegExecutable(const QString& executablePath)
+{
+    m_settings.setValue(QStringLiteral("m3u8s/ffmpegExecutable"), executablePath);
+}
+
 QString SessionRepository::m3u8sOutputMode() const
 {
     return m_settings.value(QStringLiteral("m3u8s/outputMode"), QStringLiteral("local")).toString();

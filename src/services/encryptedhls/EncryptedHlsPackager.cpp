@@ -11,6 +11,8 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -570,7 +572,7 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
     }
     const auto ffmpeg = locateFfmpegExecutable();
     if (ffmpeg.isEmpty()) {
-        return std::unexpected(QStringLiteral("FFmpeg was not found. Install FFmpeg or place it next to the application"));
+        return std::unexpected(QStringLiteral("FFmpeg was not found. Install FFmpeg, place it next to the application, or select it on the M3U8S page"));
     }
 
     m_outputDirectory = output.absoluteFilePath();
@@ -995,6 +997,44 @@ QString EncryptedHlsPackager::chooseOutputPath(const QString& outputDirectory,
     return candidate;
 }
 
+namespace {
+
+// Process-wide user-configured FFmpeg path (M3U8S settings). Written by the GUI
+// thread, read from QtConcurrent probe workers and packaging worker threads,
+// hence the mutex instead of a bare static QString.
+QMutex& configuredFfmpegPathMutex()
+{
+    static QMutex mutex;
+    return mutex;
+}
+
+QString& configuredFfmpegPathStorage()
+{
+    static QString path;
+    return path;
+}
+
+} // namespace
+
+void EncryptedHlsPackager::setConfiguredExecutablePath(const QString& executablePath)
+{
+    const auto normalized = executablePath.trimmed();
+    {
+        const QMutexLocker locker(&configuredFfmpegPathMutex());
+        configuredFfmpegPathStorage() = normalized;
+    }
+    AppLogger::info(QStringLiteral("encrypted-hls"),
+                    normalized.isEmpty()
+                        ? QStringLiteral("FFmpeg path override cleared; falling back to the bundled copy and PATH")
+                        : QStringLiteral("FFmpeg path override set to %1").arg(normalized));
+}
+
+QString EncryptedHlsPackager::configuredExecutablePath()
+{
+    const QMutexLocker locker(&configuredFfmpegPathMutex());
+    return configuredFfmpegPathStorage();
+}
+
 QString EncryptedHlsPackager::locateFfmpegExecutable()
 {
 #if defined(Q_OS_WIN)
@@ -1002,6 +1042,16 @@ QString EncryptedHlsPackager::locateFfmpegExecutable()
 #else
     constexpr auto executableName = "ffmpeg";
 #endif
+    const auto configured = configuredExecutablePath();
+    if (!configured.isEmpty()) {
+        const QFileInfo configuredInfo(configured);
+        if (configuredInfo.exists() && configuredInfo.isFile() && configuredInfo.isExecutable()) {
+            return configuredInfo.absoluteFilePath();
+        }
+        AppLogger::warning(QStringLiteral("encrypted-hls"),
+                           QStringLiteral("Configured FFmpeg path %1 is not a usable executable; using the bundled copy and PATH instead")
+                               .arg(configured));
+    }
     const auto bundled = QDir(QCoreApplication::applicationDirPath()).filePath(QLatin1String(executableName));
     if (QFileInfo(bundled).isExecutable()) {
         return QFileInfo(bundled).absoluteFilePath();

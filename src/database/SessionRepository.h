@@ -149,6 +149,8 @@ public:
     void setTsslBackupS3AccessKey(const QString& accessKey);
     QString m3u8sOutputDirectory() const;
     void setM3u8sOutputDirectory(const QString& directory);
+    QString m3u8sFfmpegExecutable() const;
+    void setM3u8sFfmpegExecutable(const QString& executablePath);
     QString m3u8sOutputMode() const;
     void setM3u8sOutputMode(const QString& mode);
     QString m3u8sWebDavServiceId() const;

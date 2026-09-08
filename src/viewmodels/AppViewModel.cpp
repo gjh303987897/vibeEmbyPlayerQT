@@ -867,13 +867,25 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg ready") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("FFmpeg not found") },
         { QStringLiteral("m3u8s.ffmpegProbing"), QStringLiteral("Checking FFmpeg") },
-        { QStringLiteral("m3u8s.ffmpegIncompatible"), QStringLiteral("FFmpeg incomplete") },
+        { QStringLiteral("m3u8s.ffmpegIncompatible"), QStringLiteral("FFmpeg unusable") },
         { QStringLiteral("m3u8s.ffmpegWarning.title"), QStringLiteral("FFmpeg is unavailable") },
         { QStringLiteral("m3u8s.ffmpegWarning.intro"), QStringLiteral("vibePlayer could not find a usable FFmpeg, so M3U8S video packaging is disabled. Playback and every other feature keep working normally.") },
         { QStringLiteral("m3u8s.ffmpegWarning.reason"), QStringLiteral("Reason: %1") },
-        { QStringLiteral("m3u8s.ffmpegWarning.requirement"), QStringLiteral("M3U8S packaging needs FFmpeg 5.0 or newer that includes the libx264, libx265 and aac encoders plus the HLS muxer (the standard shared builds provide all of these).") },
-        { QStringLiteral("m3u8s.ffmpegWarning.action"), QStringLiteral("Install FFmpeg and make sure ffmpeg is on your PATH, or place it next to vibePlayer. Restart the app to re-check.") },
+        { QStringLiteral("m3u8s.ffmpegWarning.requirement"), QStringLiteral("M3U8S packaging only requires FFmpeg 5.0 or newer; any current shared build works. Missing encoders are reported by the packaging job itself.") },
+        { QStringLiteral("m3u8s.ffmpegWarning.action"), QStringLiteral("Install FFmpeg and make sure ffmpeg is on your PATH, place it next to vibePlayer, or pick the executable yourself on the M3U8S page.") },
         { QStringLiteral("m3u8s.ffmpegWarning.download"), QStringLiteral("Open FFmpeg downloads") },
+        { QStringLiteral("m3u8s.ffmpegPath"), QStringLiteral("FFmpeg path") },
+        { QStringLiteral("m3u8s.ffmpegPathAuto"), QStringLiteral("Auto-detect (application folder and PATH)") },
+        { QStringLiteral("m3u8s.chooseFfmpeg"), QStringLiteral("Select FFmpeg") },
+        { QStringLiteral("m3u8s.ffmpegPathClear"), QStringLiteral("Auto-detect") },
+        { QStringLiteral("m3u8s.ffmpegReprobe"), QStringLiteral("Re-check") },
+        { QStringLiteral("m3u8s.ffmpegPathEffective"), QStringLiteral("In use: %1") },
+        { QStringLiteral("m3u8s.ffmpegPathLast"), QStringLiteral("Last probed binary: %1") },
+        { QStringLiteral("m3u8s.ffmpegPathLocked"), QStringLiteral("The FFmpeg path cannot change while a packaging job is running.") },
+        { QStringLiteral("m3u8s.ffmpegPathIgnored"), QStringLiteral("The selected FFmpeg is missing or not executable, so auto-detection is used instead: %1") },
+        { QStringLiteral("m3u8s.ffmpegPathNone"), QStringLiteral("No usable FFmpeg found") },
+        { QStringLiteral("m3u8s.ffmpegFilterWindows"), QStringLiteral("FFmpeg (ffmpeg.exe *.exe)") },
+        { QStringLiteral("m3u8s.ffmpegFilter"), QStringLiteral("FFmpeg (ffmpeg*)") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("Preparing and segmenting video") },
         { QStringLiteral("m3u8s.phase.probing"), QStringLiteral("Inspecting source video") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("Encrypting and verifying TS segments") },
@@ -1433,13 +1445,25 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("m3u8s.ffmpegReady"), QStringLiteral("FFmpeg 已就绪") },
         { QStringLiteral("m3u8s.ffmpegMissing"), QStringLiteral("未找到 FFmpeg") },
         { QStringLiteral("m3u8s.ffmpegProbing"), QStringLiteral("正在检测 FFmpeg") },
-        { QStringLiteral("m3u8s.ffmpegIncompatible"), QStringLiteral("FFmpeg 不完整") },
+        { QStringLiteral("m3u8s.ffmpegIncompatible"), QStringLiteral("FFmpeg 不可用") },
         { QStringLiteral("m3u8s.ffmpegWarning.title"), QStringLiteral("FFmpeg 不可用") },
         { QStringLiteral("m3u8s.ffmpegWarning.intro"), QStringLiteral("vibePlayer 未检测到可用的 FFmpeg，M3U8S 视频打包功能已停用。播放及其他所有功能均可正常使用。") },
         { QStringLiteral("m3u8s.ffmpegWarning.reason"), QStringLiteral("原因：%1") },
-        { QStringLiteral("m3u8s.ffmpegWarning.requirement"), QStringLiteral("M3U8S 打包需要 FFmpeg 5.0 或更高版本，并包含 libx264、libx265、aac 编码器与 HLS 封装器（官方标准构建均已包含）。") },
-        { QStringLiteral("m3u8s.ffmpegWarning.action"), QStringLiteral("请安装 FFmpeg 并确保 ffmpeg 在 PATH 中，或将其放在 vibePlayer 同目录下，然后重启应用重新检测。") },
+        { QStringLiteral("m3u8s.ffmpegWarning.requirement"), QStringLiteral("M3U8S 打包只要求 FFmpeg 5.0 或更高版本，当前的通用构建都满足；缺编码器等情况由打包任务自身报错。") },
+        { QStringLiteral("m3u8s.ffmpegWarning.action"), QStringLiteral("请安装 FFmpeg 并确保 ffmpeg 在 PATH 中，将其放在 vibePlayer 同目录下，或直接在 M3U8S 页面手动选择 FFmpeg 可执行文件。") },
         { QStringLiteral("m3u8s.ffmpegWarning.download"), QStringLiteral("打开 FFmpeg 下载页") },
+        { QStringLiteral("m3u8s.ffmpegPath"), QStringLiteral("FFmpeg 路径") },
+        { QStringLiteral("m3u8s.ffmpegPathAuto"), QStringLiteral("自动检测（程序目录与 PATH）") },
+        { QStringLiteral("m3u8s.chooseFfmpeg"), QStringLiteral("选择 FFmpeg") },
+        { QStringLiteral("m3u8s.ffmpegPathClear"), QStringLiteral("恢复自动检测") },
+        { QStringLiteral("m3u8s.ffmpegReprobe"), QStringLiteral("重新检测") },
+        { QStringLiteral("m3u8s.ffmpegPathEffective"), QStringLiteral("实际使用：%1") },
+        { QStringLiteral("m3u8s.ffmpegPathLast"), QStringLiteral("上次检测到的程序：%1") },
+        { QStringLiteral("m3u8s.ffmpegPathLocked"), QStringLiteral("打包进行中不能修改 FFmpeg 路径。") },
+        { QStringLiteral("m3u8s.ffmpegPathIgnored"), QStringLiteral("所选 FFmpeg 不存在或不可执行，已改用自动检测：%1") },
+        { QStringLiteral("m3u8s.ffmpegPathNone"), QStringLiteral("未找到可用的 FFmpeg") },
+        { QStringLiteral("m3u8s.ffmpegFilterWindows"), QStringLiteral("FFmpeg (ffmpeg.exe *.exe)") },
+        { QStringLiteral("m3u8s.ffmpegFilter"), QStringLiteral("FFmpeg (ffmpeg*)") },
         { QStringLiteral("m3u8s.phase.segmenting"), QStringLiteral("正在准备并切分视频") },
         { QStringLiteral("m3u8s.phase.probing"), QStringLiteral("正在检查源视频") },
         { QStringLiteral("m3u8s.phase.encrypting"), QStringLiteral("正在加密并验证 TS 分片") },
@@ -2596,10 +2620,10 @@ QStringList AppViewModel::m3u8sSelectedSources() const
 
 bool AppViewModel::m3u8sFfmpegAvailable() const
 {
-    // Reflects the full capability probe (found + version + required
-    // encoders/muxers), not just path lookup, so the packaging UI status
-    // chip and buttons stay truthful for minimal ffmpeg builds.
-    return m_ffmpegCapability.usable();
+    // Requires a completed probe, not just the last verdict: once the path
+    // override changed, the previous answer describes a binary the next job would
+    // not use, so a re-probe in flight must gate the packaging controls.
+    return m_ffmpegProbed && m_ffmpegCapability.usable();
 }
 
 QString AppViewModel::ffmpegCapabilityState() const
@@ -2634,20 +2658,43 @@ void AppViewModel::acknowledgeFfmpegWarning()
         return;
     }
     m_ffmpegWarningVisible = false;
+    // Remember the dismissal: re-configuring the path re-runs the probe, and a
+    // modal that reappeared on every failed attempt would be unusable. The next
+    // usable answer clears it, so a later real regression still warns.
+    m_ffmpegWarningAcknowledged = true;
     emit ffmpegCapabilityChanged();
 }
 
 void AppViewModel::startFfmpegCapabilityProbe()
 {
-    // The probe spawns ffmpeg child processes (-version/-encoders/-muxers),
-    // so it runs on the concurrent pool and reports back through the watcher.
+    // The probe spawns an ffmpeg child process (-version), so it runs on the
+    // concurrent pool and reports back through the watcher.
+    if (m_ffmpegProbeInFlight) {
+        // Re-configuring the path while a probe still runs must not let two
+        // answers interleave; remember it and re-probe once this one lands.
+        m_ffmpegReprobeRequested = true;
+        return;
+    }
+    m_ffmpegProbeInFlight = true;
+    m_ffmpegProbed = false;
+    // The warning keeps its previous state until the new answer arrives, so
+    // fixing the path does not make the dialog blink.
+    emit ffmpegCapabilityChanged();
     auto* watcher = new QFutureWatcher<FfmpegCapability>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
         m_ffmpegCapability = watcher->result();
         watcher->deleteLater();
+        m_ffmpegProbeInFlight = false;
         m_ffmpegProbed = true;
-        m_ffmpegWarningVisible = !m_ffmpegCapability.usable();
+        m_ffmpegWarningVisible = !m_ffmpegCapability.usable() && !m_ffmpegWarningAcknowledged;
+        if (m_ffmpegCapability.usable()) {
+            m_ffmpegWarningAcknowledged = false;
+        }
         emit ffmpegCapabilityChanged();
+        if (m_ffmpegReprobeRequested) {
+            m_ffmpegReprobeRequested = false;
+            startFfmpegCapabilityProbe();
+        }
     });
     watcher->setFuture(QtConcurrent::run([]() {
         return FfmpegCapabilityProbe::run(EncryptedHlsPackager::locateFfmpegExecutable());
@@ -2693,6 +2740,43 @@ int AppViewModel::m3u8sMaximumParallelJobs() const
 QString AppViewModel::m3u8sOutputDirectory() const
 {
     return m_m3u8sOutputDirectory;
+}
+
+QString AppViewModel::m3u8sFfmpegPath() const
+{
+    return m_m3u8sFfmpegPath;
+}
+
+void AppViewModel::setM3u8sFfmpegPath(const QString& executablePath)
+{
+    if (m3u8sPackaging()) {
+        // A running job already resolved the binary it uses; changing it here
+        // would leave the status chip describing something the job is not using.
+        AppLogger::warning(QStringLiteral("m3u8s"),
+                           QStringLiteral("FFmpeg path change rejected while packaging runs: %1")
+                               .arg(executablePath));
+        setError(trText(QStringLiteral("m3u8s.ffmpegPathLocked")));
+        return;
+    }
+    const auto trimmed = executablePath.trimmed();
+    const auto next = trimmed.isEmpty() ? QString() : QFileInfo(trimmed).absoluteFilePath();
+    if (next == m_m3u8sFfmpegPath) {
+        return;
+    }
+    m_m3u8sFfmpegPath = next;
+    m_repository.setM3u8sFfmpegExecutable(m_m3u8sFfmpegPath);
+    EncryptedHlsPackager::setConfiguredExecutablePath(m_m3u8sFfmpegPath);
+    emit m3u8sSettingsChanged();
+    // Re-probe immediately: the user picked this path precisely because the
+    // automatic answer was wrong, so making them restart to see the effect
+    // would defeat the override. A path that turns out to be unusable is kept
+    // (and reported by the probe) rather than silently dropped.
+    startFfmpegCapabilityProbe();
+}
+
+QString AppViewModel::ffmpegEffectivePath() const
+{
+    return m_ffmpegCapability.executable;
 }
 
 QString AppViewModel::m3u8sOutputMode() const
@@ -4118,6 +4202,15 @@ void AppViewModel::initialize()
     m_m3u8sOutputDirectory = savedM3u8sOutputDirectory.isEmpty()
         ? defaultM3u8sOutputDirectory()
         : QFileInfo(savedM3u8sOutputDirectory).absoluteFilePath();
+    // Push the saved FFmpeg override into the shared lookup before the deferred
+    // capability probe runs, so the first answer already reflects the choice.
+    // Normalized exactly like setM3u8sFfmpegPath: a relative value (hand-edited
+    // settings) must not reach locateFfmpegExecutable() and be resolved against
+    // whatever the current working directory happens to be.
+    const auto savedFfmpegPath = m_repository.m3u8sFfmpegExecutable().trimmed();
+    m_m3u8sFfmpegPath = savedFfmpegPath.isEmpty() ? QString()
+                                                  : QFileInfo(savedFfmpegPath).absoluteFilePath();
+    EncryptedHlsPackager::setConfiguredExecutablePath(m_m3u8sFfmpegPath);
     m_m3u8sOutputMode = m_repository.m3u8sOutputMode() == QStringLiteral("webdav")
         ? QStringLiteral("webdav") : QStringLiteral("local");
     m_m3u8sWebDavServiceId = m_repository.m3u8sWebDavServiceId();
@@ -7211,6 +7304,40 @@ bool AppViewModel::createM3u8sFromSelectedSources()
             return EncryptedHlsSourcePlanner::plan(selectedSources, outputRoot, *cancelFlag);
         }));
     return true;
+}
+
+void AppViewModel::chooseFfmpegExecutable()
+{
+    if (m3u8sPackaging()) {
+        return;
+    }
+#ifdef Q_OS_WIN
+    const auto filter = trText(QStringLiteral("m3u8s.ffmpegFilterWindows"));
+#else
+    const auto filter = trText(QStringLiteral("m3u8s.ffmpegFilter"));
+#endif
+    const auto startDirectory = m_m3u8sFfmpegPath.isEmpty()
+        ? QDir::homePath()
+        : QFileInfo(m_m3u8sFfmpegPath).absolutePath();
+    const auto executable = QFileDialog::getOpenFileName(
+        nullptr,
+        trText(QStringLiteral("m3u8s.chooseFfmpeg")),
+        startDirectory,
+        filter);
+    if (executable.isEmpty()) {
+        return;
+    }
+    setM3u8sFfmpegPath(executable);
+}
+
+void AppViewModel::clearFfmpegExecutablePath()
+{
+    setM3u8sFfmpegPath(QString());
+}
+
+void AppViewModel::reprobeFfmpeg()
+{
+    startFfmpegCapabilityProbe();
 }
 
 void AppViewModel::chooseM3u8sOutputDirectory()

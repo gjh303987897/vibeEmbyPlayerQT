@@ -117,6 +117,11 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(int m3u8sParallelJobs READ m3u8sParallelJobs WRITE setM3u8sParallelJobs NOTIFY m3u8sParallelJobsChanged)
     Q_PROPERTY(int m3u8sMaximumParallelJobs READ m3u8sMaximumParallelJobs CONSTANT)
     Q_PROPERTY(QString m3u8sOutputDirectory READ m3u8sOutputDirectory NOTIFY m3u8sSettingsChanged)
+    // User override for the external FFmpeg; empty = auto-detect (bundled copy, then PATH).
+    Q_PROPERTY(QString m3u8sFfmpegPath READ m3u8sFfmpegPath WRITE setM3u8sFfmpegPath NOTIFY m3u8sSettingsChanged)
+    // Path the last capability probe actually resolved, so the UI can show what
+    // is in effect (and flag an override that got ignored).
+    Q_PROPERTY(QString ffmpegEffectivePath READ ffmpegEffectivePath NOTIFY ffmpegCapabilityChanged)
     Q_PROPERTY(QString m3u8sOutputMode READ m3u8sOutputMode WRITE setM3u8sOutputMode NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sWebDavServiceId READ m3u8sWebDavServiceId WRITE setM3u8sWebDavServiceId NOTIFY m3u8sSettingsChanged)
     Q_PROPERTY(QString m3u8sWebDavPath READ m3u8sWebDavPath NOTIFY m3u8sSettingsChanged)
@@ -376,6 +381,9 @@ public:
     void setM3u8sParallelJobs(int value);
     int m3u8sMaximumParallelJobs() const;
     QString m3u8sOutputDirectory() const;
+    QString m3u8sFfmpegPath() const;
+    void setM3u8sFfmpegPath(const QString& executablePath);
+    QString ffmpegEffectivePath() const;
     QString m3u8sOutputMode() const;
     void setM3u8sOutputMode(const QString& value);
     QString m3u8sWebDavServiceId() const;
@@ -630,6 +638,12 @@ public:
     // Dismisses the startup FFmpeg warning; the next program start probes
     // again, so installing FFmpeg needs no other acknowledgement step.
     Q_INVOKABLE void acknowledgeFfmpegWarning();
+    // Points the packaging pipeline at an FFmpeg outside PATH and re-runs the
+    // capability probe, so the status chip and the startup warning follow the
+    // choice immediately instead of waiting for the next program start.
+    Q_INVOKABLE void chooseFfmpegExecutable();
+    Q_INVOKABLE void clearFfmpegExecutablePath();
+    Q_INVOKABLE void reprobeFfmpeg();
     Q_INVOKABLE void refreshTsslPackages();
     Q_INVOKABLE void loadMoreTsslPackages();
     // The batch dialog is the only thing that needs every package parsed at once, so
@@ -1169,6 +1183,16 @@ private:
     FfmpegCapability m_ffmpegCapability;
     bool m_ffmpegProbed { false };
     bool m_ffmpegWarningVisible { false };
+    // Set when the user dismisses the startup warning. Re-probing (which the path
+    // override makes routine) must not re-open a modal on every failed attempt;
+    // the next usable answer clears it so a later regression still warns.
+    bool m_ffmpegWarningAcknowledged { false };
+    // The probe spawns a child process, so a path change that arrives while a
+    // probe is still running must not interleave two answers: the second one is
+    // remembered and run once the first lands.
+    bool m_ffmpegProbeInFlight { false };
+    bool m_ffmpegReprobeRequested { false };
+    QString m_m3u8sFfmpegPath;
     bool m_m3u8sBatchExporting { false };
     QStringList m_m3u8sSelectedSources;
     std::shared_ptr<std::atomic_bool> m_m3u8sSourceScanCanceled;

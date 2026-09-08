@@ -20,7 +20,7 @@
 - `GlobalPlaybackHistory.md`：六类播放来源的统一历史、SQLite 数据模型、进度更新、隐私隔离与重播路由。
 - `WebDAV.md`：WebDAV 协议边界、下载规划、总任务/文件明细模型与传输统计口径。
 - `NetworkTrafficCoalescer.md`：逐块网络字节计数合并为周期样本的公共组件，供各 WebDAV 宿主转发 `networkTrafficSample`。
-- `FfmpegCapability.md`：启动时对未捆绑的外部 FFmpeg 做一次性能力探测（版本 + 必需编解码器/muxer），驱动 M3U8S 页状态彽标与启动警告弹窗。
+- `FfmpegCapability.md`：启动时对未捆绑的外部 FFmpeg 做一次性能力探测（只卡版本下限，外加横幅身份校验），驱动 M3U8S 页状态徽标、路径选择行与启动警告弹窗。
 - `GitHubActionsRelease.md`：跨平台构建、原生安装包、Flatpak 与 GitHub Release 发布流程。
 - `DialogBackdropBlur.md`：模态对话框共享的背景虚化遮罩（双源 1:1 抓取）与弹出动效约定。
 - `OptionSegmentedControl.md`：分段按钮组选择控件，选中块横向滑移、等宽分段与悬停淡入规则，用于替代短枚举下拉框。

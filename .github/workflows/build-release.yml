@@ -211,9 +211,12 @@ jobs:
         shell: pwsh
         run: |
           # The pinned tag and hashes come from deps/libmpv.lock.json so every
-          # release links byte-identical libmpv bits; re-running a tag can no
-          # longer pick up a different upstream build. Upgrades change the lock
-          # file in a reviewable commit.
+          # release links byte-identical libmpv bits. The digests below are what
+          # makes that true: GitHub release assets are mutable, so the same tag can
+          # start pointing at different bytes when upstream re-publishes (it did for
+          # 2026-09-07-989d32716e). These hash checks are the only thing that
+          # catches such a drift on a re-run. Upgrades change the lock file in a
+          # reviewable commit.
           $lock = Get-Content -Raw $env:MPV_LOCK_FILE | ConvertFrom-Json
           $windows = $lock.windows
           $expectedHash = $windows.assetSha256.ToLowerInvariant()

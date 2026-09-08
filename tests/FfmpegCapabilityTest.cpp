@@ -10,7 +10,6 @@ private slots:
     void parsesNumericBanners();
     void parsesTaggedAndPrefixedBanners();
     void rejectsDateStampedAndGarbageBanners();
-    void featureScanReportsMissingEncodersAndMuxers();
 };
 
 void FfmpegCapabilityTest::parsesNumericBanners()
@@ -43,32 +42,13 @@ void FfmpegCapabilityTest::parsesTaggedAndPrefixedBanners()
 
 void FfmpegCapabilityTest::rejectsDateStampedAndGarbageBanners()
 {
-    // A date-stamped git build carries no comparable numeric version: the
-    // probe must return an error (callers then trust the feature scan).
+    // A date-stamped git build carries no comparable numeric version: the probe
+    // must return an error (the caller then skips the version floor, since such a
+    // build post-dates it by construction).
     QVERIFY(!FfmpegCapabilityProbe::parseVersionBanner(
         QStringLiteral("ffmpeg version git-2024-05-01-abcdef Copyright (c)\n")).has_value());
     QVERIFY(!FfmpegCapabilityProbe::parseVersionBanner(QStringLiteral("not ffmpeg")).has_value());
     QVERIFY(!FfmpegCapabilityProbe::parseVersionBanner(QString {}).has_value());
-}
-
-void FfmpegCapabilityTest::featureScanReportsMissingEncodersAndMuxers()
-{
-    const QStringList fullEncoders { QStringLiteral("libx264"), QStringLiteral("libx265"),
-                                     QStringLiteral("aac"), QStringLiteral("hevc") };
-    const QStringList hlsMuxers { QStringLiteral("hls"), QStringLiteral("mpegts") };
-    QVERIFY(FfmpegCapabilityProbe::missingRequiredFeatures(fullEncoders, hlsMuxers).isEmpty());
-
-    // A --disable-gpl build has no libx264/libx265: the pipeline needs both.
-    const QStringList lgplEncoders { QStringLiteral("aac") };
-    const auto missing = FfmpegCapabilityProbe::missingRequiredFeatures(lgplEncoders, hlsMuxers);
-    QCOMPARE(missing.size(), 2);
-    QVERIFY(missing.contains(QStringLiteral("encoder:libx264")));
-    QVERIFY(missing.contains(QStringLiteral("encoder:libx265")));
-
-    // Missing HLS muxer is fatal on its own even with every encoder present.
-    const QStringList noHls { QStringLiteral("mp4"), QStringLiteral("mpegts") };
-    const auto muxerMissing = FfmpegCapabilityProbe::missingRequiredFeatures(fullEncoders, noHls);
-    QCOMPARE(muxerMissing, QStringList { QStringLiteral("muxer:hls") });
 }
 
 QTEST_GUILESS_MAIN(FfmpegCapabilityTest)

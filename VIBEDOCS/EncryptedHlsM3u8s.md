@@ -144,9 +144,11 @@ options are persisted with `SessionRepository` and restored on the next launch.
 The manager can open the configured output root directly; after a package is
 created, a separate action opens that package's final digest-named directory.
 FFmpeg is started with separate program and argument values through `QProcess`.
-The application checks its executable directory first and then `PATH` for
-`ffmpeg` (`ffmpeg.exe` on Windows). A missing executable is reported before a
-job starts.
+The application honours a user-configured absolute path first (M3U8S page, see
+`VIBEDOCS/FfmpegCapability.md`), then checks its executable directory and then
+`PATH` for `ffmpeg` (`ffmpeg.exe` on Windows). A configured path that is no
+longer a usable executable is logged and skipped, so auto-detection still
+applies. A missing executable is reported before a job starts.
 
 The Qt Quick file picker accepts one or more source videos asynchronously. The
 selection is validated in the ViewModel after the dialog closes, then

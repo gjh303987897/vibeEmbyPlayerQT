@@ -567,5 +567,5 @@
 
 ## 依赖版本固定
 - [x] libmpv（Windows）通过 deps/libmpv.lock.json 版本固定：CI/本地/CMake 共读同一 lock，启动日志记录实际运行时版本（PlayerRuntime.md）。
-- [ ] 未来任务：固定 M3U8S 打包使用的外部 ffmpeg 可执行文件版本（捆绑版本化构建）；启动能力探测已实现（方案 B，见 VIBEDOCS/FfmpegCapability.md：缺失/过旧/缺组件时启动警告弹窗 + 状态徽标），尚余的是把 ffmpeg 升级为一等锁定依赖并考虑锁定后移除版本门槛提示。
+- [ ] 未来任务：固定 M3U8S 打包使用的外部 ffmpeg 可执行文件版本（捆绑版本化构建）；启动能力探测已实现（方案 B，见 VIBEDOCS/FfmpegCapability.md：缺失/版本过低/选错程序时启动警告弹窗 + 状态徽标，已不再检查必需编码器与 muxer），M3U8S 页手动指定 FFmpeg 路径也已实现（同样见 VIBEDOCS/FfmpegCapability.md），尚余的是把 ffmpeg 升级为一等锁定依赖并考虑锁定后移除版本门槛提示。
 - [ ] 未来任务（可选）：macOS CI 从固定 mpv 源码 tag 构建 libmpv；Linux AppImage 在容器内构建固定 libmpv；Flatpak manifest pin mpv module。

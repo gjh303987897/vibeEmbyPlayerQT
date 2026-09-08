@@ -101,9 +101,22 @@ public:
     double progress() const;
     QString phase() const;
     QString ffmpegExecutable() const;
-    // Bundle-first (next to the executable) then PATH. Public for the startup
-    // capability probe (FfmpegCapabilityProbe); keep both lookup sites shared.
+    // User-configured path first (see below), then the bundle copy next to the
+    // executable, then PATH. Public for the startup capability probe
+    // (FfmpegCapabilityProbe); keep both lookup sites shared.
     static QString locateFfmpegExecutable();
+    // Optional user-configured absolute FFmpeg path, exposed on the M3U8S page
+    // because auto-detection cannot see installs that are off PATH (portable
+    // copies, a shell whose PATH got truncated at launch, ...). The value is
+    // process-wide settings state: the GUI thread writes it while the concurrent
+    // capability probe reads it, so it lives behind a mutex instead of a plain
+    // static. Packaging resolves it once on the GUI thread in start() and hands
+    // the copy to its workers, so a running job never re-reads it. An empty value restores bundle + PATH detection; a non-empty
+    // value that is not a usable executable is logged and skipped, so moving or
+    // deleting the chosen file degrades to auto-detection instead of breaking
+    // packaging outright.
+    static void setConfiguredExecutablePath(const QString& executablePath);
+    static QString configuredExecutablePath();
 
     std::expected<void, QString> start(const EncryptedHlsPackageRequest& request);
     void cancel();

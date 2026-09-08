@@ -16501,13 +16501,19 @@ ApplicationWindow {
                         }
 
                         Rectangle {
+                            id: ffmpegStatusChip
                             Layout.preferredWidth: ffmpegStatusLabel.implicitWidth + 26
                             Layout.preferredHeight: 30
                             radius: 8
-                            color: root.withAlpha(appViewModel.m3u8sFfmpegAvailable
-                                ? theme.success : theme.danger, darkTheme ? 0.16 : 0.09)
-                            border.color: root.withAlpha(appViewModel.m3u8sFfmpegAvailable
-                                ? theme.success : theme.danger, 0.52)
+                            // While a (re-)probe runs the answer is unknown, not negative,
+                            // so the chip must not wear the error colour.
+                            readonly property bool probing:
+                                appViewModel.ffmpegCapabilityState === "probing"
+                            readonly property color stateColor: probing
+                                ? theme.muted
+                                : (appViewModel.m3u8sFfmpegAvailable ? theme.success : theme.danger)
+                            color: root.withAlpha(stateColor, darkTheme ? 0.16 : 0.09)
+                            border.color: root.withAlpha(stateColor, 0.52)
 
                             Label {
                                 id: ffmpegStatusLabel
@@ -16519,11 +16525,83 @@ ApplicationWindow {
                                         : appViewModel.ffmpegCapabilityState === "incompatible"
                                             ? t("m3u8s.ffmpegIncompatible")
                                             : t("m3u8s.ffmpegMissing")
-                                color: appViewModel.m3u8sFfmpegAvailable ? theme.success : theme.danger
+                                color: ffmpegStatusChip.stateColor
                                 font.pixelSize: 11
                                 font.bold: true
                             }
                         }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
+                            Layout.preferredWidth: 112
+                            text: t("m3u8s.ffmpegPath")
+                            color: theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredHeight: 38
+                            radius: 8
+                            color: theme.input
+                            border.color: theme.border
+                            Label {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                text: appViewModel.m3u8sFfmpegPath.length > 0
+                                    ? appViewModel.m3u8sFfmpegPath
+                                    : t("m3u8s.ffmpegPathAuto")
+                                color: appViewModel.m3u8sFfmpegPath.length > 0
+                                    ? theme.text : theme.muted
+                                font.pixelSize: 13
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideMiddle
+                            }
+                        }
+
+                        ModernButton {
+                            enabled: !appViewModel.m3u8sPackaging
+                            text: t("m3u8s.chooseFfmpeg")
+                            onClicked: appViewModel.chooseFfmpegExecutable()
+                        }
+
+                        ModernButton {
+                            enabled: !appViewModel.m3u8sPackaging
+                                && appViewModel.m3u8sFfmpegPath.length > 0
+                            text: t("m3u8s.ffmpegPathClear")
+                            onClicked: appViewModel.clearFfmpegExecutablePath()
+                        }
+
+                        ModernButton {
+                            enabled: !appViewModel.m3u8sPackaging
+                                && appViewModel.ffmpegCapabilityState !== "probing"
+                            text: t("m3u8s.ffmpegReprobe")
+                            onClicked: appViewModel.reprobeFfmpeg()
+                        }
+                    }
+
+                    // Shows the binary that is really in use, so an override that
+                    // went stale (moved or deleted) is visible instead of silent.
+                    MutedText {
+                        Layout.fillWidth: true
+                        visible: appViewModel.ffmpegCapabilityState !== "probing"
+                        text: appViewModel.ffmpegEffectivePath.length === 0
+                            ? t("m3u8s.ffmpegPathNone")
+                            : appViewModel.ffmpegCapabilityState !== "available"
+                                // Not usable: naming it "in use" would contradict the chip.
+                                ? t("m3u8s.ffmpegPathLast").arg(appViewModel.ffmpegEffectivePath)
+                                : (appViewModel.m3u8sFfmpegPath.length > 0
+                                        && appViewModel.ffmpegEffectivePath !== appViewModel.m3u8sFfmpegPath)
+                                    ? t("m3u8s.ffmpegPathIgnored").arg(appViewModel.ffmpegEffectivePath)
+                                    : t("m3u8s.ffmpegPathEffective").arg(appViewModel.ffmpegEffectivePath)
+                        wrapMode: Text.WordWrap
                     }
 
                     RowLayout {

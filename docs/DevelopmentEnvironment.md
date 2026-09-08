@@ -84,7 +84,7 @@ third_party/mpv/dev/libmpv-2.dll
 | 仓库 | `zhongfly/mpv-winbuild` |
 | Release tag（lock 固定） | `2026-09-07-989d32716e` |
 | 资产 | `mpv-dev-x86_64-20260907-git-989d32716e.7z` |
-| SHA-256 | `098417b1f5843727339f5db2c0e25078f22e2b4ea187c50d7ce4f1fc538fec65` |
+| SHA-256 | 以 `deps/libmpv.lock.json` 的 `windows.assetSha256` 为准（本文不复制副本，副本会过期） |
 
 新克隆后唯一需要的动作：
 
