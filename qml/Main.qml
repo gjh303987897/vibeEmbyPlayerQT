@@ -17408,6 +17408,16 @@ ApplicationWindow {
         implicitHeight: 40
         font.pixelSize: 14
 
+        // The Fusion base style stacks both arrows on the right and therefore
+        // reserves indicator space on the right only (leftPadding is just
+        // `padding`). This control moves down to the left edge instead, so without
+        // an explicit left reservation the z:2 contentItem spans straight over the
+        // minus indicator and swallows its clicks (the plus column, being outside
+        // the content item, still worked). Reserve both columns; deliberately not
+        // mirrored-aware, because the indicators above keep their sides either way.
+        leftPadding: padding + (down.indicator ? down.indicator.width : 0)
+        rightPadding: padding + (up.indicator ? up.indicator.width : 0)
+
         contentItem: TextInput {
             z: 2
             text: spin.textFromValue(spin.value, spin.locale)
