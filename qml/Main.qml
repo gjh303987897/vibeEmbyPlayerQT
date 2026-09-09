@@ -9788,6 +9788,7 @@ ApplicationWindow {
                     return t("transfers.statusCreatingFolder")
                 }
                 return t("transfers.statusRunning")
+            case "retrying": return t("transfers.statusRetrying")
             case "paused": return t("transfers.statusPaused")
             case "done": return t("transfers.statusDone")
             case "failed": return t("transfers.statusFailed")
@@ -9803,6 +9804,7 @@ ApplicationWindow {
             case "canceled": return theme.subtle
             case "paused": return theme.warning
             case "running": return theme.primary
+            case "retrying": return theme.warning
             default: return theme.warning
             }
         }
@@ -9907,8 +9909,12 @@ ApplicationWindow {
 
                 MutedText {
                     Layout.fillWidth: true
-                    text: taskRow.status === "failed" ? taskRow.detail : taskRow.target
-                    color: taskRow.status === "failed" ? theme.danger : theme.muted
+                    text: taskRow.status === "failed" || taskRow.status === "retrying"
+                        ? taskRow.detail
+                        : taskRow.target
+                    color: taskRow.status === "failed"
+                        ? theme.danger
+                        : taskRow.status === "retrying" ? theme.warning : theme.muted
                     elide: Text.ElideMiddle
                 }
 

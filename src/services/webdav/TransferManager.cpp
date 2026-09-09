@@ -20,6 +20,10 @@ constexpr auto maxConcurrentDownloads = 3;
 constexpr auto transferIdleTimeoutMs = 60000;
 constexpr auto progressPublishIntervalMs = 120;
 constexpr auto speedSampleIntervalMs = 500;
+constexpr auto maxAutomaticRetryCount = 3;
+constexpr auto automaticRetryInitialDelayMs = 1000;
+constexpr auto automaticRetryMaxDelayMs = 30000;
+constexpr auto maxTransferErrorLength = 256;
 
 QString makeTaskId()
 {
@@ -101,6 +105,11 @@ QString statusRunning()
     return QStringLiteral("running");
 }
 
+QString statusRetrying()
+{
+    return QStringLiteral("retrying");
+}
+
 QString statusPaused()
 {
     return QStringLiteral("paused");
@@ -124,6 +133,69 @@ QString statusCanceled()
 bool finishedStatus(const QString& status)
 {
     return status == statusDone() || status == statusFailed() || status == statusCanceled();
+}
+
+bool isTransientNetworkError(QNetworkReply::NetworkError error)
+{
+    switch (error) {
+    case QNetworkReply::ConnectionRefusedError:
+    case QNetworkReply::RemoteHostClosedError:
+    case QNetworkReply::TimeoutError:
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::NetworkSessionFailedError:
+    case QNetworkReply::ProxyConnectionRefusedError:
+    case QNetworkReply::ProxyConnectionClosedError:
+    case QNetworkReply::ProxyTimeoutError:
+    case QNetworkReply::ProxyNotFoundError:
+    case QNetworkReply::ContentReSendError:
+    case QNetworkReply::UnknownNetworkError:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isTransientHttpStatus(int statusCode)
+{
+    // A generic 500 response is kept as a manual failure because WebDAV
+    // backends also use it for deterministic application errors. Gateway,
+    // rate-limit and timeout responses are safe to retry.
+    switch (statusCode) {
+    case 408: // Request Timeout
+    case 425: // Too Early
+    case 429: // Too Many Requests
+    case 502: // Bad Gateway
+    case 503: // Service Unavailable
+    case 504: // Gateway Timeout
+        return true;
+    default:
+        return false;
+    }
+}
+
+qint64 automaticRetryDelayMs(int retryCount)
+{
+    auto delay = static_cast<qint64>(automaticRetryInitialDelayMs);
+    for (auto index = 1; index < retryCount; ++index) {
+        if (delay >= automaticRetryMaxDelayMs / 2) {
+            return automaticRetryMaxDelayMs;
+        }
+        delay *= 2;
+    }
+    return std::min(delay, static_cast<qint64>(automaticRetryMaxDelayMs));
+}
+
+QString normalizedErrorMessage(const QString& message)
+{
+    auto normalized = message.simplified();
+    if (normalized.isEmpty()) {
+        return QStringLiteral("Unknown network error");
+    }
+    if (normalized.size() > maxTransferErrorLength) {
+        normalized.truncate(maxTransferErrorLength - 3);
+        normalized += QStringLiteral("...");
+    }
+    return normalized;
 }
 }
 
@@ -224,7 +296,8 @@ qint64 TransferManager::rateForDirection(const QString& direction, bool average)
     qint64 total = 0;
     for (const auto& task : m_topLevelTasks) {
         const auto included = average
-            ? task.status == statusQueued() || task.status == statusRunning()
+            ? task.status == statusQueued() || task.status == statusRunning() ||
+                task.status == statusRetrying()
             : task.status == statusRunning();
         if (included && task.direction == direction) {
             saturatingAddBytes(total, average ? task.averageBytesPerSecond : task.bytesPerSecond);
@@ -732,7 +805,8 @@ void TransferManager::resumeDownloadGroup(const QString& groupId)
         return;
     }
     if (std::ranges::any_of(group->taskIds, [this](const QString& taskId) {
-            return m_active.contains(taskId);
+            const auto active = m_active.value(taskId);
+            return active && active->reply;
         })) {
         return;
     }
@@ -905,7 +979,12 @@ void TransferManager::startTask(QueuedTask task)
     for (auto& existing : m_tasks) {
         if (existing.id == taskId) {
             existing.status = statusRunning();
-            existing.detail = QStringLiteral("Running");
+            const auto attempt = active->queued.automaticRetryCount + 1;
+            existing.detail = attempt > 1
+                ? QStringLiteral("Retry attempt %1/%2")
+                      .arg(attempt)
+                      .arg(maxAutomaticRetryCount + 1)
+                : QStringLiteral("Running");
             existing.canPause = isPausableTransfer(active->queued.direction);
             existing.canResume = false;
             existing.retryable = false;
@@ -992,15 +1071,30 @@ void TransferManager::startTask(QueuedTask task)
         const auto canceled = reply->error() == QNetworkReply::OperationCanceledError && !timedOut && writeError.isEmpty();
         const auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const auto existingDirectory = direction == Direction::CreateDirectory && statusCode == 405;
+        const auto transientHttpError = isTransientHttpStatus(statusCode);
+        const auto transientNetworkError = statusCode < 400 && isTransientNetworkError(reply->error());
+        const auto error = !writeError.isEmpty()
+            ? normalizedErrorMessage(writeError)
+            : timedOut
+            ? QStringLiteral("Transfer timed out")
+            : statusCode >= 400
+            ? QStringLiteral("HTTP %1").arg(statusCode)
+            : normalizedErrorMessage(reply->errorString());
+
+        if (writeError.isEmpty() && !existingDirectory &&
+            (timedOut || transientNetworkError || transientHttpError)) {
+            if (scheduleAutomaticRetry(taskId, error, statusCode)) {
+                reply->deleteLater();
+                return;
+            }
+        }
 
         if (!writeError.isEmpty()) {
-            finishActive(taskId, false, writeError);
+            finishActive(taskId, false, error);
         } else if (timedOut) {
             finishActive(taskId, false, QStringLiteral("Transfer timed out"));
-        } else if (reply->error() != QNetworkReply::NoError && !existingDirectory) {
-            const auto error = statusCode >= 400
-                ? QStringLiteral("HTTP %1").arg(statusCode)
-                : reply->errorString();
+        } else if ((reply->error() != QNetworkReply::NoError || statusCode >= 400) &&
+                   !existingDirectory) {
             finishActive(taskId, false, canceled ? QStringLiteral("Canceled") : error);
         } else {
             finishActive(taskId, true, QStringLiteral("Completed"));
@@ -1009,8 +1103,11 @@ void TransferManager::startTask(QueuedTask task)
     });
 
     AppLogger::info(QStringLiteral("webdav-transfer"),
-                    QStringLiteral("Started %1 task: %2")
-                        .arg(active->queued.task.direction, active->queued.task.title));
+                    QStringLiteral("Started %1 task: %2 (attempt %3/%4)")
+                        .arg(active->queued.task.direction,
+                             active->queued.task.title)
+                        .arg(active->queued.automaticRetryCount + 1)
+                        .arg(maxAutomaticRetryCount + 1));
 }
 
 void TransferManager::publishTask(const TransferTask& task)
@@ -1053,6 +1150,7 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
     auto failedFiles = 0;
     auto canceledFiles = 0;
     auto runningFiles = 0;
+    auto retryingFiles = 0;
     auto queuedFiles = 0;
     auto pausedFiles = 0;
     auto hasPausableTask = false;
@@ -1081,6 +1179,8 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
             ++finishedFiles;
         } else if (task.status == statusRunning()) {
             ++runningFiles;
+        } else if (task.status == statusRetrying()) {
+            ++retryingFiles;
         } else if (task.status == statusQueued()) {
             ++queuedFiles;
         } else if (task.status == statusPaused()) {
@@ -1091,7 +1191,7 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
     }
 
     if (finishedFiles == summary->fileCount ||
-        (runningFiles == 0 && queuedFiles == 0 && pausedFiles > 0)) {
+        (runningFiles == 0 && queuedFiles == 0 && (retryingFiles > 0 || pausedFiles > 0))) {
         stopDownloadGroupTimer(group);
     }
 
@@ -1123,6 +1223,11 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
             : 1.0;
     } else if (runningFiles > 0) {
         summary->status = statusRunning();
+        summary->progress = byteProgressKnown && bytesTotal > 0
+            ? std::clamp(static_cast<double>(bytesDone) / static_cast<double>(bytesTotal), 0.0, 1.0)
+            : static_cast<double>(finishedFiles) / static_cast<double>(summary->fileCount);
+    } else if (retryingFiles > 0) {
+        summary->status = statusRetrying();
         summary->progress = byteProgressKnown && bytesTotal > 0
             ? std::clamp(static_cast<double>(bytesDone) / static_cast<double>(bytesTotal), 0.0, 1.0)
             : static_cast<double>(finishedFiles) / static_cast<double>(summary->fileCount);
@@ -1166,7 +1271,7 @@ void TransferManager::updateDownloadGroup(const QString& groupId)
 void TransferManager::updateProgress(const QString& taskId, qint64 done, qint64 total)
 {
     const auto active = m_active.value(taskId);
-    if (!active) {
+    if (!active || active->retryTimer) {
         return;
     }
 
@@ -1236,6 +1341,11 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
         return;
     }
 
+    if (active->retryTimer) {
+        active->retryTimer->stop();
+        active->retryTimer->deleteLater();
+        active->retryTimer = nullptr;
+    }
     if (active->file && active->queued.direction == Direction::Download) {
         active->file->close();
     }
@@ -1276,12 +1386,24 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
 
     if (ok) {
         AppLogger::info(QStringLiteral("webdav-transfer"),
-                        QStringLiteral("Completed %1 task: %2")
-                            .arg(active->queued.task.direction, active->queued.task.title));
+                        QStringLiteral("Completed %1 task: %2 (attempt %3/%4)")
+                            .arg(active->queued.task.direction,
+                                 active->queued.task.title)
+                            .arg(active->queued.automaticRetryCount + 1)
+                            .arg(maxAutomaticRetryCount + 1));
+    } else if (status == statusCanceled()) {
+        AppLogger::info(QStringLiteral("webdav-transfer"),
+                        QStringLiteral("Canceled %1 task: %2 after %3 attempt(s)")
+                            .arg(active->queued.task.direction,
+                                 active->queued.task.title)
+                            .arg(active->queued.automaticRetryCount + 1));
     } else {
         AppLogger::warning(QStringLiteral("webdav-transfer"),
-                           QStringLiteral("%1 task failed: %2")
-                               .arg(active->queued.task.direction, message));
+                           QStringLiteral("%1 task '%2' failed after %3 attempt(s): %4")
+                               .arg(active->queued.task.direction,
+                                    active->queued.task.title)
+                               .arg(active->queued.automaticRetryCount + 1)
+                               .arg(normalizedErrorMessage(message)));
     }
 
     emit taskFinished(taskId, ok, message);
@@ -1300,6 +1422,11 @@ void TransferManager::finishPaused(const QString& taskId)
         return;
     }
 
+    if (active->retryTimer) {
+        active->retryTimer->stop();
+        active->retryTimer->deleteLater();
+        active->retryTimer = nullptr;
+    }
     if (active->file && active->queued.direction == Direction::Download) {
         active->file->close();
     }
@@ -1333,6 +1460,129 @@ void TransferManager::finishPaused(const QString& taskId)
     QTimer::singleShot(0, this, [this]() {
         startNext();
     });
+}
+
+bool TransferManager::scheduleAutomaticRetry(const QString& taskId,
+                                              const QString& errorMessage,
+                                              int statusCode)
+{
+    const auto active = m_active.value(taskId);
+    if (!active || active->requestedStop != RequestedStop::None || !active->reply) {
+        return false;
+    }
+
+    const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
+        return existing.id == taskId;
+    });
+    if (task == m_tasks.end()) {
+        return false;
+    }
+
+    const auto retryCount = active->queued.automaticRetryCount;
+    if (retryCount >= maxAutomaticRetryCount) {
+        AppLogger::warning(
+            QStringLiteral("webdav-transfer"),
+            QStringLiteral("Automatic retry limit reached for %1 task '%2' after %3 attempt(s)%4: %5")
+                .arg(active->queued.task.direction,
+                     active->queued.task.title)
+                .arg(retryCount + 1)
+                .arg(statusCode > 0 ? QStringLiteral(" (HTTP %1)").arg(statusCode) : QString {},
+                     normalizedErrorMessage(errorMessage)));
+        return false;
+    }
+
+    const auto nextRetryCount = retryCount + 1;
+    const auto delayMs = automaticRetryDelayMs(nextRetryCount);
+    const auto reason = normalizedErrorMessage(errorMessage);
+
+    // QNetworkReply cannot resume a PUT body. Releasing the old device makes
+    // the next attempt reopen the source file and issue a complete PUT.
+    if (active->file) {
+        active->file->close();
+    }
+    active->reply = nullptr;
+    active->file = nullptr;
+    if (active->queued.direction == Direction::Download) {
+        QFile::remove(active->queued.localPath);
+    }
+    active->queued.automaticRetryCount = nextRetryCount;
+    active->queued.countedBytesReceived = 0;
+    active->queued.countedBytesSent = 0;
+
+    task->status = statusRetrying();
+    task->detail = QStringLiteral("Retrying in %1 s (attempt %2/%3): %4")
+                       .arg(delayMs / 1000)
+                       .arg(nextRetryCount + 1)
+                       .arg(maxAutomaticRetryCount + 1)
+                       .arg(reason);
+    task->bytesDone = 0;
+    task->bytesPerSecond = 0;
+    task->averageBytesPerSecond = 0;
+    task->bytesRemaining = task->bytesTotal;
+    task->progress = 0.0;
+    emit taskProgress(taskId, 0, task->bytesTotal);
+    task->cancellable = true;
+    task->canPause = isPausableTransfer(active->queued.direction);
+    task->canResume = false;
+    task->retryable = false;
+    active->queued.task = *task;
+    m_taskDefinitions.insert(taskId, active->queued);
+    publishTask(*task);
+
+    auto* timer = new QTimer(this);
+    timer->setSingleShot(true);
+    timer->setInterval(static_cast<int>(delayMs));
+    active->retryTimer = timer;
+    connect(timer, &QTimer::timeout, this, [this, taskId, timer]() {
+        const auto active = m_active.value(taskId);
+        if (!active || active->retryTimer.data() != timer) {
+            timer->deleteLater();
+            return;
+        }
+        active->retryTimer = nullptr;
+        timer->deleteLater();
+
+        if (active->requestedStop == RequestedStop::Pause) {
+            finishPaused(taskId);
+            return;
+        }
+        if (active->requestedStop == RequestedStop::Cancel) {
+            finishActive(taskId, false, QStringLiteral("Canceled"));
+            return;
+        }
+        const auto task = std::ranges::find_if(m_tasks, [&taskId](const TransferTask& existing) {
+            return existing.id == taskId;
+        });
+        if (task == m_tasks.end() || task->status != statusRetrying()) {
+            m_active.remove(taskId);
+            startNext();
+            return;
+        }
+
+        auto queued = active->queued;
+        const auto attempt = queued.automaticRetryCount + 1;
+        const auto title = queued.task.title;
+        m_active.remove(taskId);
+        AppLogger::info(QStringLiteral("webdav-transfer"),
+                        QStringLiteral("Retry backoff elapsed; restarting task %1 for attempt %2/%3")
+                            .arg(title)
+                            .arg(attempt)
+                            .arg(maxAutomaticRetryCount + 1));
+        startTask(std::move(queued));
+    });
+    timer->start();
+
+    AppLogger::warning(
+        QStringLiteral("webdav-transfer"),
+        QStringLiteral("%1 task '%2' failed with a transient transfer error; attempt %3/%4 starts in %5 ms%6: %7")
+            .arg(active->queued.task.direction,
+                 active->queued.task.title)
+            .arg(nextRetryCount + 1)
+            .arg(maxAutomaticRetryCount + 1)
+            .arg(delayMs)
+            .arg(statusCode > 0 ? QStringLiteral(" (HTTP %1)").arg(statusCode) : QString {},
+                 reason));
+    return true;
 }
 
 bool TransferManager::requeueTask(const QString& taskId)
@@ -1379,6 +1629,9 @@ bool TransferManager::requeueTask(const QString& taskId)
     queued.task = *task;
     queued.countedBytesReceived = 0;
     queued.countedBytesSent = 0;
+    queued.automaticRetryCount = 0;
+    m_taskDefinitions.insert(taskId, queued);
+    emit taskProgress(taskId, 0, task->bytesTotal);
     m_queue.enqueue(std::move(queued));
     publishTask(*task);
     return true;

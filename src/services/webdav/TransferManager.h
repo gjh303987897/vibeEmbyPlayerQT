@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QQueue>
+#include <QTimer>
 #include <QUrl>
 
 #include <functional>
@@ -99,6 +100,7 @@ private:
         Direction direction { Direction::Download };
         qint64 countedBytesReceived { 0 };
         qint64 countedBytesSent { 0 };
+        int automaticRetryCount { 0 };
     };
 
     enum class RequestedStop {
@@ -116,6 +118,7 @@ private:
         qint64 speedSampleElapsedMs { 0 };
         qint64 lastPublishedElapsedMs { 0 };
         RequestedStop requestedStop { RequestedStop::None };
+        QPointer<QTimer> retryTimer;
     };
 
     struct DownloadGroupState {
@@ -145,6 +148,9 @@ private:
     void finishActive(const QString& taskId, bool ok, const QString& message);
     void finishPaused(const QString& taskId);
     void wireReply(QNetworkReply* reply, const ServerConfig& server);
+    bool scheduleAutomaticRetry(const QString& taskId,
+                                const QString& errorMessage,
+                                int statusCode);
     bool requeueTask(const QString& taskId);
     bool prepareDownloadGroupRetry(const QString& groupId);
     void cleanupDownloadGroupFiles(const QString& groupId);

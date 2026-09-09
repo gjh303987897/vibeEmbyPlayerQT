@@ -211,6 +211,7 @@ bool TransferTaskListModel::acceptsTask(const TransferTask& task) const
     if (m_statusFilter == QStringLiteral("incomplete")) {
         return task.status == QStringLiteral("queued") ||
             task.status == QStringLiteral("running") ||
+            task.status == QStringLiteral("retrying") ||
             task.status == QStringLiteral("paused");
     }
     if (m_statusFilter == QStringLiteral("failed")) {

@@ -735,6 +735,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("transfers.statusUploading"), QStringLiteral("Uploading") },
         { QStringLiteral("transfers.statusCreatingFolder"), QStringLiteral("Creating folder") },
         { QStringLiteral("transfers.statusPaused"), QStringLiteral("Paused") },
+        { QStringLiteral("transfers.statusRetrying"), QStringLiteral("Retrying") },
         { QStringLiteral("transfers.statusDone"), QStringLiteral("Completed") },
         { QStringLiteral("transfers.statusFailed"), QStringLiteral("Failed") },
         { QStringLiteral("transfers.statusCanceled"), QStringLiteral("Canceled") },
@@ -1831,6 +1832,7 @@ const QHash<QString, QString>& transferChineseTexts()
         { QStringLiteral("transfers.statusUploading"), QStringLiteral("上传中") },
         { QStringLiteral("transfers.statusCreatingFolder"), QStringLiteral("创建文件夹") },
         { QStringLiteral("transfers.statusPaused"), QStringLiteral("已暂停") },
+        { QStringLiteral("transfers.statusRetrying"), QStringLiteral("重试中") },
         { QStringLiteral("transfers.statusDone"), QStringLiteral("已完成") },
         { QStringLiteral("transfers.statusFailed"), QStringLiteral("失败") },
         { QStringLiteral("transfers.statusCanceled"), QStringLiteral("已取消") },
@@ -2139,8 +2141,14 @@ AppViewModel::AppViewModel(QObject* parent)
             return;
         }
         const auto previous = m_m3u8sUploadTaskDone.value(taskId, 0);
-        m_m3u8sUploadDoneBytes += std::max<qint64>(0, done - previous);
-        m_m3u8sUploadTaskDone.insert(taskId, std::max<qint64>(0, done));
+        const auto normalizedDone = std::max<qint64>(0, done);
+        if (normalizedDone >= previous) {
+            m_m3u8sUploadDoneBytes += normalizedDone - previous;
+        } else {
+            m_m3u8sUploadDoneBytes = std::max<qint64>(0,
+                                                       m_m3u8sUploadDoneBytes - (previous - normalizedDone));
+        }
+        m_m3u8sUploadTaskDone.insert(taskId, normalizedDone);
         if (total > 0) {
             m_m3u8sUploadTaskTotals.insert(taskId, total);
         }
