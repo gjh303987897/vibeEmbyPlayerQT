@@ -5820,13 +5820,17 @@ ApplicationWindow {
 
                 SettingsPage {}
             }
+        }
 
-            WebDavAudioMiniPlayer {
-                id: webDavAudioMiniPlayer
-                playerPage: playerPageInstance
-                visible: appViewModel.webDavAudioPlaybackActive && appViewModel.currentView !== "player"
-                z: 200
-            }
+        // The mini player is a floating overlay (z: 200, imperative x/y placement):
+        // it must NOT be a ColumnLayout child, or the bar would reserve a 94px row
+        // below the page stack once minimized, shaving that height off every page —
+        // the WebDAV audio list then ended early with a blank band beneath it.
+        WebDavAudioMiniPlayer {
+            id: webDavAudioMiniPlayer
+            playerPage: playerPageInstance
+            visible: appViewModel.webDavAudioPlaybackActive && appViewModel.currentView !== "player"
+            z: 200
         }
     }
 
