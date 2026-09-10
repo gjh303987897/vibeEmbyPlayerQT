@@ -9428,40 +9428,71 @@ ApplicationWindow {
         }
     }
 
-    component WebDavDisplayModeSwitch: Rectangle {
-        implicitWidth: 318
-        implicitHeight: 38
-        radius: 8
-        color: theme.input
-        border.color: theme.border
+    // Reuses the shared segmented control (see VIBEDOCS/OptionSegmentedControl.md) so the
+    // three display modes switch with the sliding-thumb animation instead of per-button
+    // background repaints. Geometry matches the old hand-rolled switch (318 x 38).
+    //
+    // Writing `appViewModel.webDavDisplayMode` rebuilds the whole visible list/grid on
+    // the GUI thread, which made the 200 ms thumb slide stutter. The switch therefore
+    // previews the picked segment locally and, once the slide finished, emits
+    // `commitRequested` instead of writing the ViewModel itself: the WebDAV page runs
+    // the content slide and performs the actual write in the hidden slot where the
+    // rebuild jank cannot be seen (see VIBEDOCS/WebDAV.md "目录显示模式").
+    component WebDavDisplayModeSwitch: OptionSegmentedControl {
+        id: displayModeSwitch
+        property string pendingMode: ""
+        signal commitRequested(string mode)
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.margins: 3
-            spacing: 3
+        Layout.preferredWidth: 318
+        Layout.preferredHeight: 38
+        options: [
+            { label: "\u25a4  " + t("webdav.modeDefault"), value: "default" },
+            { label: "\u25b6  " + t("webdav.modeVideo"), value: "video" },
+            { label: "\u266B  " + t("webdav.modeAudio"), value: "audio" }
+        ]
+        selectedValue: pendingMode.length > 0 ? pendingMode : appViewModel.webDavDisplayMode
 
-            TransferFilterButton {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                selected: appViewModel.webDavDisplayMode === "default"
-                text: "\u25a4  " + t("webdav.modeDefault")
-                onClicked: appViewModel.webDavDisplayMode = "default"
+        Timer {
+            id: modeCommitTimer
+            // Slightly past the 200 ms thumb slide so the heavy list rebuild never
+            // competes with the animation for GUI-thread time.
+            interval: 230
+            onTriggered: {
+                var mode = displayModeSwitch.pendingMode
+                if (mode.length === 0) {
+                    return
+                }
+                if (appViewModel.webDavDisplayMode === mode) {
+                    // The user clicked back to the live mode; nothing to commit.
+                    displayModeSwitch.pendingMode = ""
+                } else {
+                    // The page owns the actual write. The pending preview is dropped
+                    // by the changed handler once the ViewModel converges on it.
+                    displayModeSwitch.commitRequested(mode)
+                }
             }
+        }
 
-            TransferFilterButton {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                selected: appViewModel.webDavDisplayMode === "video"
-                text: "\u25b6  " + t("webdav.modeVideo")
-                onClicked: appViewModel.webDavDisplayMode = "video"
-            }
+        onChosen: {
+            displayModeSwitch.pendingMode = value
+            modeCommitTimer.restart()
+        }
 
-            TransferFilterButton {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                selected: appViewModel.webDavDisplayMode === "audio"
-                text: "\u266B  " + t("webdav.modeAudio")
-                onClicked: appViewModel.webDavDisplayMode = "audio"
+        Connections {
+            target: appViewModel
+            function onWebDavDisplayModeChanged() {
+                if (displayModeSwitch.pendingMode === appViewModel.webDavDisplayMode) {
+                    // Committed (the page wrote the mode) or converged: drop the preview.
+                    modeCommitTimer.stop()
+                    displayModeSwitch.pendingMode = ""
+                } else if (modeCommitTimer.running) {
+                    // An external write arrived before the commit (none today): cancel
+                    // the preview and snap the thumb to the authoritative value.
+                    modeCommitTimer.stop()
+                    displayModeSwitch.pendingMode = ""
+                }
+                // Any other intermediate write (the page landing a superseded commit)
+                // must not touch the pending preview.
             }
         }
     }
@@ -15210,7 +15241,9 @@ ApplicationWindow {
                     font.bold: true
                 }
 
-                WebDavDisplayModeSwitch {}
+                WebDavDisplayModeSwitch {
+                    onCommitRequested: webDavListArea.commitDisplayMode(mode)
+                }
 
                 MutedText {
                     visible: (appViewModel.webDavDisplayMode === "video" || appViewModel.webDavDisplayMode === "audio")
@@ -15272,147 +15305,315 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 clip: true
 
-                ListView {
-                    anchors.fill: parent
-                    visible: !webDavListArea.videoMode && !webDavListArea.audioMode
-                    enabled: !appViewModel.loading
-                    opacity: appViewModel.loading ? 0.34 : 1
-                    spacing: 10
-                    model: visible ? appViewModel.webDavItems : null
-                    delegate: WebDavFileRow {
-                        width: ListView.view.width
-                        title: model.name
-                        subtitle: model.directory
-                            ? t("webdav.folder")
-                            : (model.contentType.length > 0 ? model.contentType + "  " : "")
-                                + (model.bytes >= 0 ? root.formatBytes(model.bytes) : "")
-                        directory: model.directory
-                        playable: model.playable
-                        encryptedHls: model.encryptedHls
-                        identifierPreview: model.identifierPreview
-                        sourceFileName: model.sourceFileName
-                        m3u8sMetadataPending: model.m3u8sMetadataPending
-                        onActivated: appViewModel.openWebDavItem(index)
-                        onDownloadRequested: appViewModel.downloadWebDavItem(index)
-                        onExportTsslRequested: appViewModel.exportWebDavTssl(index)
+                // Directional handoff between display modes. The switch commits the
+                // clicked mode here once its thumb slide finished: this stack slides
+                // out to one side, the ViewModel write (filter-model rebuild plus the
+                // swap between list/grid/audio views) runs in the hidden slot where the
+                // cost cannot be seen, and the fresh content slides in from the other
+                // side. Direction follows the mode order default → video → audio.
+                property string pendingDisplayMode: ""
+                property string pendingEnterMode: ""
+                property int modeSwipeDir: 1
+                readonly property int modeSwipeShift: Math.max(64, Math.round(width * 0.16))
+
+                function viewForMode(mode) {
+                    if (mode === "video") {
+                        return webDavVideoGrid
                     }
-                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    if (mode === "audio") {
+                        return webDavAudioList
+                    }
+                    return webDavDefaultList
                 }
 
-                GridView {
-                    id: webDavVideoGrid
-                    anchors.fill: parent
-                    visible: webDavListArea.videoMode
-                    enabled: !appViewModel.loading
-                    opacity: appViewModel.loading ? 0.34 : 1
-                    cellWidth: webDavListArea.gridCellWidth
-                    cellHeight: webDavListArea.gridCellHeight
-                    model: visible ? appViewModel.webDavItems : null
-                    delegate: WebDavMediaCard {
-                        width: webDavVideoGrid.cellWidth - 12
-                        height: 214
-                        title: model.name
-                        contentType: model.contentType
-                        bytes: model.bytes
-                        directory: model.directory
-                        encryptedHls: model.encryptedHls
-                        identifierPreview: model.identifierPreview
-                        sourceFileName: model.sourceFileName
-                        m3u8sMetadataPending: model.m3u8sMetadataPending
-                        onActivated: appViewModel.openWebDavItem(index)
-                        onDownloadRequested: appViewModel.downloadWebDavItem(index)
-                        onExportTsslRequested: appViewModel.exportWebDavTssl(index)
-                    }
-                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                function beginEnterAfterRender(mode) {
+                    webDavListArea.pendingEnterMode = mode
+                    modeEnterWatchTimer.restart()
                 }
 
-                ListView {
-                    id: webDavAudioList
-                    anchors.fill: parent
-                    visible: webDavListArea.audioMode
-                    enabled: !appViewModel.loading
-                    opacity: appViewModel.loading ? 0.34 : 1
-                    spacing: 8
-                    clip: true
-                    model: visible ? appViewModel.webDavItems : null
-                    delegate: Rectangle {
-                        width: webDavAudioList.width
-                        height: 70
-                        radius: 8
-                        color: index === appViewModel.webDavAudioCurrentIndex
-                            ? root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
-                            : (audioMouse.containsMouse ? theme.elevatedHover : theme.elevated)
-                        border.color: index === appViewModel.webDavAudioCurrentIndex
-                            ? root.withAlpha(theme.primary, 0.72)
-                            : theme.border
+                function startEnterAnimation() {
+                    webDavListArea.pendingEnterMode = ""
+                    modeContentEnter.restart()
+                }
 
-                        MouseArea {
-                            id: audioMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: appViewModel.openWebDavItem(index)
+                function commitDisplayMode(mode) {
+                    if (modeContentTransition.running || modeContentEnter.running
+                            || webDavListArea.pendingEnterMode.length > 0) {
+                        // A newer click supersedes the in-flight handoff: land the
+                        // previous commit instantly, then animate from the live mode.
+                        modeContentTransition.stop()
+                        modeContentEnter.stop()
+                        modeEnterWatchTimer.stop()
+                        webDavListArea.pendingEnterMode = ""
+                        if (webDavListArea.pendingDisplayMode.length > 0
+                                && appViewModel.webDavDisplayMode !== webDavListArea.pendingDisplayMode) {
+                            appViewModel.webDavDisplayMode = webDavListArea.pendingDisplayMode
                         }
+                        webDavListArea.pendingDisplayMode = ""
+                        var liveView = webDavListArea.viewForMode(appViewModel.webDavDisplayMode)
+                        var liveReady = !liveView || liveView.count === 0
+                            || (liveView.contentItem && liveView.contentItem.children.length > 0)
+                        // A still-populating live view stays hidden; revealing it now
+                        // would show a blank page mid-slide.
+                        webDavModeStack.opacity = liveReady ? 1 : 0
+                        webDavModeSlide.x = 0
+                    }
+                    if (appViewModel.webDavDisplayMode === mode) {
+                        if (webDavModeStack.opacity < 1) {
+                            // The handoff into this very mode was still waiting for
+                            // content: re-arm the reveal instead of stranding it.
+                            webDavListArea.beginEnterAfterRender(mode)
+                        }
+                        return
+                    }
+                    var order = ["default", "video", "audio"]
+                    webDavListArea.modeSwipeDir = order.indexOf(mode)
+                        >= order.indexOf(appViewModel.webDavDisplayMode) ? 1 : -1
+                    webDavListArea.pendingDisplayMode = mode
+                    modeContentTransition.start()
+                }
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 16
-                            anchors.rightMargin: 16
-                            spacing: 14
+                Item {
+                    id: webDavModeStack
+                    anchors.fill: parent
+                    transform: Translate { id: webDavModeSlide }
 
-                            Rectangle {
-                                Layout.preferredWidth: 38
-                                Layout.preferredHeight: 38
-                                radius: 19
-                                color: root.withAlpha(theme.primary, index === appViewModel.webDavAudioCurrentIndex ? 0.9 : 0.16)
+                    ListView {
+                        id: webDavDefaultList
+                        anchors.fill: parent
+                        visible: !webDavListArea.videoMode && !webDavListArea.audioMode
+                        enabled: !appViewModel.loading
+                        opacity: appViewModel.loading ? 0.34 : 1
+                        spacing: 10
+                        model: visible ? appViewModel.webDavItems : null
+                        delegate: WebDavFileRow {
+                            width: ListView.view.width
+                            title: model.name
+                            subtitle: model.directory
+                                ? t("webdav.folder")
+                                : (model.contentType.length > 0 ? model.contentType + "  " : "")
+                                    + (model.bytes >= 0 ? root.formatBytes(model.bytes) : "")
+                            directory: model.directory
+                            playable: model.playable
+                            encryptedHls: model.encryptedHls
+                            identifierPreview: model.identifierPreview
+                            sourceFileName: model.sourceFileName
+                            m3u8sMetadataPending: model.m3u8sMetadataPending
+                            onActivated: appViewModel.openWebDavItem(index)
+                            onDownloadRequested: appViewModel.downloadWebDavItem(index)
+                            onExportTsslRequested: appViewModel.exportWebDavTssl(index)
+                        }
+                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    }
+
+                    GridView {
+                        id: webDavVideoGrid
+                        anchors.fill: parent
+                        visible: webDavListArea.videoMode
+                        enabled: !appViewModel.loading
+                        opacity: appViewModel.loading ? 0.34 : 1
+                        cellWidth: webDavListArea.gridCellWidth
+                        cellHeight: webDavListArea.gridCellHeight
+                        model: visible ? appViewModel.webDavItems : null
+                        delegate: WebDavMediaCard {
+                            width: webDavVideoGrid.cellWidth - 12
+                            height: 214
+                            title: model.name
+                            contentType: model.contentType
+                            bytes: model.bytes
+                            directory: model.directory
+                            encryptedHls: model.encryptedHls
+                            identifierPreview: model.identifierPreview
+                            sourceFileName: model.sourceFileName
+                            m3u8sMetadataPending: model.m3u8sMetadataPending
+                            onActivated: appViewModel.openWebDavItem(index)
+                            onDownloadRequested: appViewModel.downloadWebDavItem(index)
+                            onExportTsslRequested: appViewModel.exportWebDavTssl(index)
+                        }
+                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    }
+
+                    ListView {
+                        id: webDavAudioList
+                        anchors.fill: parent
+                        visible: webDavListArea.audioMode
+                        enabled: !appViewModel.loading
+                        opacity: appViewModel.loading ? 0.34 : 1
+                        spacing: 8
+                        clip: true
+                        model: visible ? appViewModel.webDavItems : null
+                        delegate: Rectangle {
+                            width: webDavAudioList.width
+                            height: 70
+                            radius: 8
+                            color: index === appViewModel.webDavAudioCurrentIndex
+                                ? root.withAlpha(theme.primary, darkTheme ? 0.24 : 0.12)
+                                : (audioMouse.containsMouse ? theme.elevatedHover : theme.elevated)
+                            border.color: index === appViewModel.webDavAudioCurrentIndex
+                                ? root.withAlpha(theme.primary, 0.72)
+                                : theme.border
+
+                            MouseArea {
+                                id: audioMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: appViewModel.openWebDavItem(index)
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 16
+                                anchors.rightMargin: 16
+                                spacing: 14
+
+                                Rectangle {
+                                    Layout.preferredWidth: 38
+                                    Layout.preferredHeight: 38
+                                    radius: 19
+                                    color: root.withAlpha(theme.primary, index === appViewModel.webDavAudioCurrentIndex ? 0.9 : 0.16)
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: index === appViewModel.webDavAudioCurrentIndex ? "\u266B" : "\u266A"
+                                        color: index === appViewModel.webDavAudioCurrentIndex ? "#ffffff" : theme.primary
+                                        font.pixelSize: 18
+                                        font.bold: true
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: model.name
+                                        color: theme.text
+                                        font.pixelSize: 14
+                                        font.bold: index === appViewModel.webDavAudioCurrentIndex
+                                        elide: Text.ElideRight
+                                    }
+
+                                    MutedText {
+                                        Layout.fillWidth: true
+                                        text: model.contentType.length > 0
+                                            ? model.contentType
+                                            : (model.bytes >= 0 ? root.formatBytes(model.bytes) : t("webdav.audio"))
+                                        elide: Text.ElideRight
+                                    }
+                                }
 
                                 Label {
-                                    anchors.centerIn: parent
-                                    text: index === appViewModel.webDavAudioCurrentIndex ? "\u266B" : "\u266A"
-                                    color: index === appViewModel.webDavAudioCurrentIndex ? "#ffffff" : theme.primary
-                                    font.pixelSize: 18
-                                    font.bold: true
+                                    visible: index === appViewModel.webDavAudioCurrentIndex
+                                    text: "\u25B6"
+                                    color: theme.primary
+                                    font.pixelSize: 16
                                 }
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 3
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: model.name
-                                    color: theme.text
-                                    font.pixelSize: 14
-                                    font.bold: index === appViewModel.webDavAudioCurrentIndex
-                                    elide: Text.ElideRight
-                                }
-
-                                MutedText {
-                                    Layout.fillWidth: true
-                                    text: model.contentType.length > 0
-                                        ? model.contentType
-                                        : (model.bytes >= 0 ? root.formatBytes(model.bytes) : t("webdav.audio"))
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            Label {
-                                visible: index === appViewModel.webDavAudioCurrentIndex
-                                text: "\u25B6"
-                                color: theme.primary
-                                font.pixelSize: 16
                             }
                         }
+                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                     }
-                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                    MutedText {
+                        anchors.centerIn: parent
+                        visible: appViewModel.webDavItems.count === 0 && !appViewModel.loading
+                        text: webDavListArea.audioMode
+                            ? t("webdav.audioEmpty")
+                            : webDavListArea.videoMode ? t("webdav.videoEmpty") : t("webdav.empty")
+                    }
                 }
 
-                MutedText {
-                    anchors.centerIn: parent
-                    visible: appViewModel.webDavItems.count === 0 && !appViewModel.loading
-                    text: webDavListArea.audioMode
-                        ? t("webdav.audioEmpty")
-                        : webDavListArea.videoMode ? t("webdav.videoEmpty") : t("webdav.empty")
+                SequentialAnimation {
+                    id: modeContentTransition
+
+                    ParallelAnimation {
+                        NumberAnimation {
+                            target: webDavModeSlide
+                            property: "x"
+                            to: -webDavListArea.modeSwipeDir * webDavListArea.modeSwipeShift
+                            duration: 130
+                            easing.type: Easing.OutQuad
+                        }
+                        NumberAnimation {
+                            target: webDavModeStack
+                            property: "opacity"
+                            to: 0
+                            duration: 130
+                            easing.type: Easing.OutQuad
+                        }
+                    }
+
+                    // Hidden slot: the mode write plus the view swap happen here,
+                    // while nothing is on screen.
+                    ScriptAction {
+                        script: {
+                            var committedMode = webDavListArea.pendingDisplayMode
+                            appViewModel.webDavDisplayMode = committedMode
+                            webDavListArea.pendingDisplayMode = ""
+                            webDavModeSlide.x = webDavListArea.modeSwipeDir
+                                * webDavListArea.modeSwipeShift
+                            // Do not reveal yet: the incoming view only gets its
+                            // delegates on later frames, and sliding in before they
+                            // were drawn showed a blank page that then flashed into
+                            // the real list.
+                            webDavListArea.beginEnterAfterRender(committedMode)
+                        }
+                    }
+                }
+
+                ParallelAnimation {
+                    id: modeContentEnter
+
+                    NumberAnimation {
+                        target: webDavModeSlide
+                        property: "x"
+                        to: 0
+                        duration: 170
+                        easing.type: Easing.OutCubic
+                    }
+                    NumberAnimation {
+                        target: webDavModeStack
+                        property: "opacity"
+                        to: 1
+                        duration: 170
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
+                // Gate for the reveal: after the hidden-slot commit the stack stays
+                // hidden until the incoming view has delegates and has had extra
+                // ticks to polish and draw them, so the slide-in starts on a fully
+                // drawn page instead of a blank one. The timeout guarantees a reveal
+                // even if population behaves unexpectedly.
+                Timer {
+                    id: modeEnterWatchTimer
+                    interval: 16
+                    repeat: true
+                    property int elapsedMs: 0
+                    property int settledTicks: 0
+                    // Timer has no stopped() signal (that is Animation's); reset the
+                    // counters whenever the watch stops for any reason.
+                    onRunningChanged: {
+                        if (!running) {
+                            elapsedMs = 0
+                            settledTicks = 0
+                        }
+                    }
+                    onTriggered: {
+                        elapsedMs += interval
+                        var view = webDavListArea.viewForMode(webDavListArea.pendingEnterMode)
+                        var populated = !view || view.count === 0
+                            || (view.contentItem && view.contentItem.children.length > 0)
+                        if (populated) {
+                            settledTicks += 1
+                        } else {
+                            settledTicks = 0
+                        }
+                        if (settledTicks >= 3 || elapsedMs >= 800) {
+                            modeEnterWatchTimer.stop()
+                            webDavListArea.startEnterAnimation()
+                        }
+                    }
                 }
             }
         }

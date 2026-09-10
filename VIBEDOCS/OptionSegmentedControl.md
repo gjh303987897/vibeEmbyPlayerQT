@@ -57,6 +57,8 @@ SettingRow {
 ## 当前使用者
 
 - 设置页 → 外观 → 主题（`system` / `dark` / `light`）
+- WebDAV 文件页 → 显示模式切换（`default` / `video` / `audio`，内联组件
+  `WebDavDisplayModeSwitch` 直接继承本控件，尺寸覆盖为 318 x 38）
 
 ## 后续可收敛
 
