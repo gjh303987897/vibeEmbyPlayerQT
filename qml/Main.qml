@@ -9953,13 +9953,55 @@ ApplicationWindow {
                     elide: Text.ElideMiddle
                 }
 
-                ProgressBar {
+                // Custom transfer progress bar (see VIBEDOCS/WebDAV.md):
+                // rounded capsule track with a status-tinted gradient fill that ramps
+                // smoothly between updates, plus a right-aligned percentage readout.
+                RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: taskRow.direction === "mkdir" ? 0 : 4
+                    spacing: 8
                     visible: taskRow.direction !== "mkdir"
-                    from: 0
-                    to: 1
-                    value: taskRow.progress
+
+                    Rectangle {
+                        id: transferProgressTrack
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 7
+                        Layout.alignment: Qt.AlignVCenter
+                        radius: height / 2
+                        color: theme.input
+                        border.color: theme.border
+                        border.width: 1
+
+                        Rectangle {
+                            id: transferProgressFill
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 1
+                            // One inset pixel each side keeps the fill inside the track
+                            // border; a tiny nub while running shows a stalled-but-alive
+                            // transfer instead of an empty track.
+                            width: Math.max(taskRow.status === "running" ? 5 : 0,
+                                            (transferProgressTrack.width - 2) * Math.max(0, Math.min(1, taskRow.progress)))
+                            height: transferProgressTrack.height - 2
+                            radius: height / 2
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0.0; color: root.withAlpha(taskRow.statusColor(), 0.45) }
+                                GradientStop { position: 1.0; color: taskRow.statusColor() }
+                            }
+
+                            Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                        }
+                    }
+
+                    Label {
+                        Layout.preferredWidth: 40
+                        Layout.alignment: Qt.AlignVCenter
+                        text: Math.round(Math.max(0, Math.min(1, taskRow.progress)) * 100) + "%"
+                        color: taskRow.statusColor()
+                        font.pixelSize: 11
+                        font.bold: true
+                        horizontalAlignment: Text.AlignRight
+                    }
                 }
 
                 RowLayout {

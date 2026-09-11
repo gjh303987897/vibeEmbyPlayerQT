@@ -1761,7 +1761,7 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("action.upload"), QStringLiteral("上传") },
         { QStringLiteral("action.uploadFolder"), QStringLiteral("上传文件夹") },
         { QStringLiteral("action.download"), QStringLiteral("下载") },
-        { QStringLiteral("action.transfers"), QStringLiteral("下载任务") },
+        { QStringLiteral("action.transfers"), QStringLiteral("传输任务") },
         { QStringLiteral("action.choose"), QStringLiteral("选择") },
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV 文件") },
         { QStringLiteral("webdav.empty"), QStringLiteral("当前文件夹为空") },
@@ -1802,10 +1802,10 @@ const QHash<QString, QString>& webDavChineseTexts()
 const QHash<QString, QString>& transferChineseTexts()
 {
     static const QHash<QString, QString> texts {
-        { QStringLiteral("transfers.title"), QStringLiteral("下载任务") },
+        { QStringLiteral("transfers.title"), QStringLiteral("传输任务") },
         { QStringLiteral("transfers.subtitle"), QStringLiteral("下载队列与最近传输记录") },
         { QStringLiteral("transfers.detailsSubtitle"), QStringLiteral("查看本次下载中每个文件的进度") },
-        { QStringLiteral("transfers.empty"), QStringLiteral("暂无下载任务") },
+        { QStringLiteral("transfers.empty"), QStringLiteral("暂无传输任务") },
         { QStringLiteral("transfers.emptyHint"), QStringLiteral("下载和上传任务会显示在这里") },
         { QStringLiteral("transfers.emptyDetails"), QStringLiteral("本次下载没有文件任务") },
         { QStringLiteral("transfers.emptyFiltered"), QStringLiteral("当前状态下没有文件") },
