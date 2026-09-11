@@ -1210,6 +1210,14 @@ void PlayerController::updateAudioCoverTrack(bool available)
         m_audioCoverCapturePending = true;
         m_audioCoverCaptureAttempts = 0;
     }
+    // Every capture entry point is event driven (video-reconfig / playback-restart),
+    // and those events can all fire before the album-art track gets flagged in the
+    // track list — most visibly on WebDAV streams. A later track-list update that
+    // arms the capture would then wait for an event that never comes again, so kick
+    // one attempt directly as well.
+    if (m_audioCoverCapturePending && m_audioCoverCaptureAttempts == 0) {
+        QTimer::singleShot(120, this, [this]() { captureAudioCover(); });
+    }
 }
 
 void PlayerController::captureAudioCover()
@@ -1310,9 +1318,20 @@ void PlayerController::captureAudioCover()
 
 void PlayerController::handleAudioCoverCaptureFailure(const QString& reason)
 {
-    constexpr auto maxAttempts = 3;
-    if (m_audioCoverCaptureAttempts < maxAttempts) {
+    // The embedded art of a streamed file only becomes capturable once the image
+    // track actually decodes. Giving up after one short burst lost that race on
+    // slow WebDAV responses and left the cover empty for the rest of the track
+    // (exhausted blocks both event-driven retries and re-arming), which is why
+    // covers loaded only sometimes. Keep retrying at a slower cadence within a
+    // bounded total budget instead.
+    constexpr auto fastBurstAttempts = 3;
+    constexpr auto maxTotalAttempts = 18;
+    if (m_audioCoverCaptureAttempts < fastBurstAttempts) {
         QTimer::singleShot(140, this, [this]() { captureAudioCover(); });
+        return;
+    }
+    if (m_audioCoverCaptureAttempts < maxTotalAttempts) {
+        QTimer::singleShot(600, this, [this]() { captureAudioCover(); });
         return;
     }
     m_audioCoverCapturePending = false;
