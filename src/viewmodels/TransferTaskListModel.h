@@ -3,6 +3,7 @@
 #include "models/TransferTask.h"
 
 #include <QAbstractListModel>
+#include <QSet>
 
 #include <vector>
 
@@ -48,6 +49,9 @@ public:
     void setTasks(std::vector<TransferTask> tasks);
     void appendTasks(std::vector<TransferTask> tasks);
     void updateTask(const TransferTask& task);
+    // Remove by id in contiguous batches (removeRows, not a model reset) so
+    // ListView can play remove/removeDisplaced transitions when rows vanish.
+    void removeTasks(const QSet<QString>& ids);
 
 signals:
     void countChanged();

@@ -1,5 +1,7 @@
 #include "viewmodels/TransferTaskListModel.h"
 
+#include <QSet>
+
 #include <algorithm>
 #include <iterator>
 
@@ -168,6 +170,39 @@ void TransferTaskListModel::appendTasks(std::vector<TransferTask> tasks)
                    std::make_move_iterator(visibleTasks.end()));
     endInsertRows();
     emit countChanged();
+}
+
+void TransferTaskListModel::removeTasks(const QSet<QString>& ids)
+{
+    if (ids.isEmpty()) {
+        return;
+    }
+
+    auto removedAny = false;
+    auto row = 0;
+    while (row < static_cast<int>(m_tasks.size())) {
+        if (!ids.contains(m_tasks[static_cast<size_t>(row)].id)) {
+            ++row;
+            continue;
+        }
+        auto last = row;
+        while (last + 1 < static_cast<int>(m_tasks.size())
+               && ids.contains(m_tasks[static_cast<size_t>(last + 1)].id)) {
+            ++last;
+        }
+        beginRemoveRows({}, row, last);
+        m_tasks.erase(m_tasks.begin() + row, m_tasks.begin() + last + 1);
+        endRemoveRows();
+        removedAny = true;
+    }
+
+    const auto sourceBefore = m_sourceTasks.size();
+    std::erase_if(m_sourceTasks, [&ids](const TransferTask& task) {
+        return ids.contains(task.id);
+    });
+    if (removedAny || m_sourceTasks.size() != sourceBefore) {
+        emit countChanged();
+    }
 }
 
 void TransferTaskListModel::updateTask(const TransferTask& task)

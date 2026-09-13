@@ -9813,6 +9813,10 @@ ApplicationWindow {
 
     component TransferTaskRow: Rectangle {
         id: taskRow
+        // Set by the list's remove transition; drives a Behavior-based height
+        // collapse (animating `height` directly would fight the implicitHeight
+        // binding and snap back when the animation finishes).
+        property bool collapsingToZero: false
         property string taskId: ""
         property string title: ""
         property string direction: ""
@@ -9928,7 +9932,10 @@ ApplicationWindow {
         color: taskRow.isGroup && groupHover.hovered ? theme.elevatedHover : theme.elevated
         border.color: taskRow.isGroup && groupHover.hovered ? theme.primary : theme.border
         implicitHeight: taskRow.isGroup ? 154 : 116
-        height: implicitHeight
+        height: taskRow.collapsingToZero ? 0 : implicitHeight
+        Behavior on height {
+            NumberAnimation { duration: 190; easing.type: Easing.InCubic }
+        }
 
         Behavior on color { ColorAnimation { duration: 120 } }
         Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -16040,13 +16047,42 @@ ApplicationWindow {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         spacing: 10
-                        reuseItems: true
+                        // reuseItems would pool removed delegates instead of destroying
+                        // them, which silently kills the remove transition below.
+                        reuseItems: false
                         cacheBuffer: 300
                         model: appViewModel.transferTasks
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                         delegate: TransferListDelegate {
                             width: ListView.view.width
+                        }
+
+                        // "Clear finished" collapses the cleared rows (fade + height
+                        // collapse) while the rest glide up (removeRows-driven, so
+                        // every removed row animates, not just a reset).
+                        remove: Transition {
+                            SequentialAnimation {
+                                PropertyAction { property: "collapsingToZero"; value: true }
+                                NumberAnimation { property: "opacity"; to: 0; duration: 140 }
+                                PauseAnimation { duration: 190 }
+                            }
+                        }
+                        removeDisplaced: Transition {
+                            NumberAnimation {
+                                property: "y"
+                                duration: 280
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                        add: Transition {
+                            NumberAnimation {
+                                property: "opacity"
+                                from: 0
+                                to: 1
+                                duration: 200
+                                easing.type: Easing.OutCubic
+                            }
                         }
 
                         Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }

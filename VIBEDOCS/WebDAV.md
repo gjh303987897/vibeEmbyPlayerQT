@@ -166,6 +166,14 @@ SQLite 不保存 WebDAV 密码。
   全色），宽度过渡用 240ms `OutCubic` Behavior 避免逐次进度回调造成的跳变，
   运行中至少保留 5px 小胶囊表示“活着但 stalled”，右侧紧跟状态色百分比读数；
   `mkdir` 任务不显示进度条。
+- 上传的字节量在入队前就全部已知（本地 stat），因此上传总量/剩余量永不用 -1 哨兵值：
+  单文件与组总任务都把负值钳为 0、溢出饱和，多文件上传的“剩余上传量”不会因某个请求
+  大小溢出而长时间显示“计算中”（下载保留 -1 未知语义，因为远端大小可能真未知）。
+- “清除已结束”不用全量 reset：`TransferTaskListModel::removeTasks()` 按连续段发
+  removeRows，列表 `remove` 过渡先淡出再用 `collapsingToZero` 标志把行高压到 0（行内
+  Behavior 动画，避免直接动画 height 与 implicitHeight 绑定互斥导致回弹），其余行经
+  `removeDisplaced` 平滑上移；因 reuseItems 会缓存 delegate 使 remove 过渡失效，任务
+  列表已关闭 reuseItems。
 - 只有**文件夹**才会成为可展开的总任务（多文件组）；单文件上传与单文件下载都是平铺
   行，不能进入子页面。`enqueueDownload`/`enqueueDownloads` 对单文件请求直接走
   `enqueue()` 平铺路径（不再包一层单子项组），`enqueueUploads` 对单文件上传同样如此。

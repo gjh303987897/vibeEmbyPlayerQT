@@ -197,6 +197,21 @@ QString normalizedErrorMessage(const QString& message)
     }
     return normalized;
 }
+
+// Upload sizes are known up front (stat of each local file), so an unknown or
+// overflowing size must not poison the whole batch: clamp negatives to zero
+// and saturate instead of reporting “unknown” for every upload.
+qint64 uploadsGroupTotalBytes(const std::vector<TransferManager::TaskRequest>& requests)
+{
+    qint64 totalBytes = 0;
+    for (const auto& request : requests) {
+        if (request.directory) {
+            continue;
+        }
+        saturatingAddBytes(totalBytes, std::max<qint64>(0, request.totalBytes));
+    }
+    return totalBytes;
+}
 }
 
 TransferManager::TransferManager(QObject* parent)
@@ -358,7 +373,8 @@ QString TransferManager::enqueueUpload(const ServerConfig& server,
         .detail = QStringLiteral("Waiting"),
         .source = localPath,
         .target = remoteUrl.toString(),
-        .bytesTotal = totalBytes,
+        .bytesTotal = std::max<qint64>(0, totalBytes),
+        .bytesRemaining = std::max<qint64>(0, totalBytes),
         .canPause = true,
     };
     const auto id = queued.task.id;
@@ -512,15 +528,7 @@ QString TransferManager::enqueueUploads(const ServerConfig& server,
     group->targetIsDirectory = true;
     group->taskIds.reserve(requests.size());
 
-    qint64 totalBytes = 0;
-    for (const auto& request : requests) {
-        if (request.directory) {
-            continue;
-        }
-        if (!checkedAddBytes(totalBytes, std::max<qint64>(0, request.totalBytes))) {
-            break;
-        }
-    }
+    const auto groupTotalBytes = uploadsGroupTotalBytes(requests);
 
     TransferTask summary {
         .id = groupId,
@@ -529,8 +537,8 @@ QString TransferManager::enqueueUploads(const ServerConfig& server,
         .status = requests.empty() ? statusDone() : statusQueued(),
         .detail = QStringLiteral("0 / %1 files").arg(requests.size()),
         .target = groupTarget,
-        .bytesTotal = totalBytes,
-        .bytesRemaining = totalBytes,
+        .bytesTotal = groupTotalBytes,
+        .bytesRemaining = groupTotalBytes,
         .progress = requests.empty() ? 1.0 : 0.0,
         .fileCount = static_cast<int>(requests.size()),
         .isGroup = true,
@@ -1016,7 +1024,9 @@ void TransferManager::clearFinished()
         m_downloadGroups.remove(id);
         m_uploadGroups.remove(id);
     }
-    m_model.setTasks(m_topLevelTasks);
+    // Remove rows individually (not a full reset) so the list can animate the
+    // rows collapsing and the remaining ones sliding up.
+    m_model.removeTasks(removedIds);
 
     if (removedIds.contains(m_selectedGroupId)) {
         m_selectedGroupId.clear();
