@@ -161,6 +161,9 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(qint64 transferAverageDownloadBytesPerSecond READ transferAverageDownloadBytesPerSecond NOTIFY transferTasksChanged)
     Q_PROPERTY(qint64 transferAverageUploadBytesPerSecond READ transferAverageUploadBytesPerSecond NOTIFY transferTasksChanged)
     Q_PROPERTY(qint64 transferRemainingBytes READ transferRemainingBytes NOTIFY transferTasksChanged)
+    Q_PROPERTY(qint64 transferRemainingUploadBytes READ transferRemainingUploadBytes NOTIFY transferTasksChanged)
+    Q_PROPERTY(bool transferHasActiveDownloads READ transferHasActiveDownloads NOTIFY transferTasksChanged)
+    Q_PROPERTY(bool transferHasActiveUploads READ transferHasActiveUploads NOTIFY transferTasksChanged)
     Q_PROPERTY(QString playbackHttpUsername READ playbackHttpUsername NOTIFY playbackChanged)
     Q_PROPERTY(QString playbackHttpPassword READ playbackHttpPassword NOTIFY playbackChanged)
     Q_PROPERTY(bool playbackAllowInsecureTls READ playbackAllowInsecureTls NOTIFY playbackChanged)
@@ -436,6 +439,9 @@ public:
     qint64 transferAverageDownloadBytesPerSecond() const;
     qint64 transferAverageUploadBytesPerSecond() const;
     qint64 transferRemainingBytes() const;
+    qint64 transferRemainingUploadBytes() const;
+    bool transferHasActiveDownloads() const;
+    bool transferHasActiveUploads() const;
     QString playbackHttpUsername() const;
     QString playbackHttpPassword() const;
     bool playbackAllowInsecureTls() const;

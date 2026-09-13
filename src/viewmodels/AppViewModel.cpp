@@ -726,8 +726,20 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("transfers.averageSpeed"), QStringLiteral("Average speed") },
         { QStringLiteral("transfers.downloadRate"), QStringLiteral("Download") },
         { QStringLiteral("transfers.uploadRate"), QStringLiteral("Upload") },
-        { QStringLiteral("transfers.remaining"), QStringLiteral("Remaining download") },
+        { QStringLiteral("transfers.remainingDownload"), QStringLiteral("Remaining download") },
+        { QStringLiteral("transfers.remainingUpload"), QStringLiteral("Remaining upload") },
+        { QStringLiteral("transfers.remainingSwitchHint"), QStringLiteral("Click to switch between remaining download and upload") },
+        // Humanized copies of TransferManager's machine detail strings; the raw
+        // English values stay in the model for logs and as the regex source.
+        { QStringLiteral("transfers.detailWaiting"), QStringLiteral("Waiting") },
+        { QStringLiteral("transfers.detailRunning"), QStringLiteral("Running") },
+        { QStringLiteral("transfers.detailPaused"), QStringLiteral("Paused") },
+        { QStringLiteral("transfers.detailCanceled"), QStringLiteral("Canceled") },
+        { QStringLiteral("transfers.retryAttempt"), QStringLiteral("Retry attempt %1/%2") },
+        { QStringLiteral("transfers.retryingIn"), QStringLiteral("Retrying in %1 s (attempt %2/%3): %4") },
+        { QStringLiteral("transfers.filesProgress"), QStringLiteral("%1 / %2 files") },
         { QStringLiteral("transfers.unknown"), QStringLiteral("Calculating") },
+        { QStringLiteral("transfers.finishAt"), QStringLiteral("finish at %1") },
         { QStringLiteral("transfers.openDetails"), QStringLiteral("View file progress") },
         { QStringLiteral("transfers.clearFinished"), QStringLiteral("Clear finished") },
         { QStringLiteral("transfers.statusQueued"), QStringLiteral("Queued") },
@@ -1823,8 +1835,18 @@ const QHash<QString, QString>& transferChineseTexts()
         { QStringLiteral("transfers.averageSpeed"), QStringLiteral("平均速度") },
         { QStringLiteral("transfers.downloadRate"), QStringLiteral("下载") },
         { QStringLiteral("transfers.uploadRate"), QStringLiteral("上传") },
-        { QStringLiteral("transfers.remaining"), QStringLiteral("剩余下载量") },
+        { QStringLiteral("transfers.remainingDownload"), QStringLiteral("剩余下载量") },
+        { QStringLiteral("transfers.remainingUpload"), QStringLiteral("剩余上传量") },
+        { QStringLiteral("transfers.remainingSwitchHint"), QStringLiteral("点击切换剩余下载量 / 剩余上传量") },
+        { QStringLiteral("transfers.detailWaiting"), QStringLiteral("等待中") },
+        { QStringLiteral("transfers.detailRunning"), QStringLiteral("传输中") },
+        { QStringLiteral("transfers.detailPaused"), QStringLiteral("已暂停") },
+        { QStringLiteral("transfers.detailCanceled"), QStringLiteral("已取消") },
+        { QStringLiteral("transfers.retryAttempt"), QStringLiteral("第 %1/%2 次重试") },
+        { QStringLiteral("transfers.retryingIn"), QStringLiteral("%1 秒后重试（第 %2/%3 次）：%4") },
+        { QStringLiteral("transfers.filesProgress"), QStringLiteral("%1 / %2 个文件") },
         { QStringLiteral("transfers.unknown"), QStringLiteral("计算中") },
+        { QStringLiteral("transfers.finishAt"), QStringLiteral("预计 %1 完成") },
         { QStringLiteral("transfers.openDetails"), QStringLiteral("查看文件进度") },
         { QStringLiteral("transfers.clearFinished"), QStringLiteral("清除已结束") },
         { QStringLiteral("transfers.statusQueued"), QStringLiteral("等待中") },
@@ -3196,6 +3218,23 @@ qint64 AppViewModel::transferAverageUploadBytesPerSecond() const
 qint64 AppViewModel::transferRemainingBytes() const
 {
     return m_transferManager.remainingBytes();
+}
+
+// Direction split for the remaining-bytes summary tile: the QML tile rotates
+// between download and upload when both directions have unfinished tasks.
+qint64 AppViewModel::transferRemainingUploadBytes() const
+{
+    return m_transferManager.remainingBytesForDirection(QStringLiteral("upload"));
+}
+
+bool AppViewModel::transferHasActiveDownloads() const
+{
+    return m_transferManager.hasActiveDirection(QStringLiteral("download"));
+}
+
+bool AppViewModel::transferHasActiveUploads() const
+{
+    return m_transferManager.hasActiveDirection(QStringLiteral("upload"));
 }
 
 QString AppViewModel::playbackHttpUsername() const

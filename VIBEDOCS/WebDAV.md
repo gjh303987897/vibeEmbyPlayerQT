@@ -146,6 +146,20 @@ SQLite 不保存 WebDAV 密码。
 - 支持进度、状态、单文件/总任务暂停与恢复、失败或取消重试、取消。
 - 页面命名为“传输任务”（中文文案 `action.transfers` / `transfers.title` /
   `transfers.empty`；英文对应 Transfers），覆盖下载与上传两类任务。
+- 剩余量瓦片（`TransferRemainingSummaryBlock`）自动识别当前活动方向：只有下载时显
+  示“剩余下载量”，只有上传时显示“剩余上传量”；两者同时在跑时每 4s 左右横滑轮换
+  （下载向左滑出、上传从右滑入，反之对称，240ms `OutCubic`），并允许鼠标点击立即切
+  换且重置轮换节奏；活动方向由 `TransferManager::hasActiveDirection`（未完成的顶层
+  任务）判定，上传剩余量走 `remainingBytesForDirection("upload")`。任务行内的分组剩
+  余量标签同样按 `direction` 使用两个独立键。
+- `TransferManager` 写入模型的 `detail` 是机读英文（同时供日志使用）：行组件用
+  `localizedDetail()` 把已知字面量（Waiting/Running/Paused/Canceled）与模式（Retry
+  attempt、Retrying in N s、x / y files）映射到 `transfers.detail*`/`retryAttempt`/
+  `retryingIn`/`filesProgress` 文案键，修复中文界面局部显示英文的问题；自由格式的
+  网络错误文本无映射，保持原样。
+- 上传任务行不展示 WebDAV 目标 URL：传输中显示由剩余字节与实时速度推算的预计完成
+  时刻（`transfers.finishAt`，速度未知时显示计算中），其它状态回退到 detail 文本；
+  单文件传输速率按方向显示↑/↓箭头。
 - 任务行进度条为 `TransferTaskRow` 内的自定义胶囊条，不用默认 `ProgressBar`：
   圆形轨道（theme.input 底 + 描边），填充按任务状态色水平渐变（左 45% 透明→右
   全色），宽度过渡用 240ms `OutCubic` Behavior 避免逐次进度回调造成的跳变，

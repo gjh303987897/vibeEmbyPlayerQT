@@ -308,9 +308,14 @@ qint64 TransferManager::rateForDirection(const QString& direction, bool average)
 
 qint64 TransferManager::remainingBytes() const
 {
+    return remainingBytesForDirection(QStringLiteral("download"));
+}
+
+qint64 TransferManager::remainingBytesForDirection(const QString& direction) const
+{
     qint64 total = 0;
     for (const auto& task : m_topLevelTasks) {
-        if (task.direction != QStringLiteral("download") || finishedStatus(task.status)) {
+        if (task.direction != direction || finishedStatus(task.status)) {
             continue;
         }
         if (task.bytesRemaining < 0) {
@@ -321,6 +326,16 @@ qint64 TransferManager::remainingBytes() const
         }
     }
     return total;
+}
+
+bool TransferManager::hasActiveDirection(const QString& direction) const
+{
+    for (const auto& task : m_topLevelTasks) {
+        if (task.direction == direction && !finishedStatus(task.status)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QString TransferManager::enqueueUpload(const ServerConfig& server,

@@ -9844,6 +9844,50 @@ ApplicationWindow {
             }
         }
 
+        // TransferManager writes machine-readable English detail strings (they also
+        // feed the logs); map the known literals and patterns to localized text so
+        // the Chinese UI never shows bare "Waiting"/"Retrying in ..." lines. Free
+        // form network error text has no mapping and stays as-is.
+        function localizedDetail() {
+            var text = taskRow.detail
+            switch (text) {
+            case "Waiting": return t("transfers.detailWaiting")
+            case "Running": return t("transfers.detailRunning")
+            case "Paused": return t("transfers.detailPaused")
+            case "Canceled": return t("transfers.detailCanceled")
+            default: break
+            }
+            var match = text.match(/^Retry attempt (\d+)\/(\d+)$/)
+            if (match) {
+                return t("transfers.retryAttempt").arg(match[1]).arg(match[2])
+            }
+            match = text.match(/^Retrying in (\d+) s \(attempt (\d+)\/(\d+)\): ([\s\S]*)$/)
+            if (match) {
+                return t("transfers.retryingIn")
+                    .arg(match[1]).arg(match[2]).arg(match[3]).arg(match[4])
+            }
+            match = text.match(/^(\d+) \/ (\d+) files$/)
+            if (match) {
+                return t("transfers.filesProgress").arg(match[1]).arg(match[2])
+            }
+            return text
+        }
+
+        // Upload rows never surface the WebDAV target URL (see VIBEDOCS/WebDAV.md):
+        // while running they show the estimated finish time derived from the live
+        // remaining bytes and rate; otherwise they fall back to the detail line.
+        function uploadStatusText() {
+            if (taskRow.status !== "running") {
+                return taskRow.localizedDetail()
+            }
+            if (taskRow.bytesPerSecond > 0 && taskRow.bytesRemaining > 0) {
+                var finish = new Date(Date.now()
+                    + taskRow.bytesRemaining / taskRow.bytesPerSecond * 1000)
+                return t("transfers.finishAt").arg(Qt.formatTime(finish, "hh:mm"))
+            }
+            return t("transfers.unknown")
+        }
+
         radius: 8
         color: taskRow.isGroup && groupHover.hovered ? theme.elevatedHover : theme.elevated
         border.color: taskRow.isGroup && groupHover.hovered ? theme.primary : theme.border
@@ -9945,8 +9989,8 @@ ApplicationWindow {
                 MutedText {
                     Layout.fillWidth: true
                     text: taskRow.status === "failed" || taskRow.status === "retrying"
-                        ? taskRow.detail
-                        : taskRow.target
+                        ? taskRow.localizedDetail()
+                        : taskRow.direction === "upload" ? taskRow.uploadStatusText() : taskRow.target
                     color: taskRow.status === "failed"
                         ? theme.danger
                         : taskRow.status === "retrying" ? theme.warning : theme.muted
@@ -10013,7 +10057,7 @@ ApplicationWindow {
                             ? taskRow.completedFileCount + " / " + taskRow.fileCount + " " + t("transfers.files")
                             : taskRow.bytesTotal > 0
                                 ? root.formatBytes(taskRow.bytesDone) + " / " + root.formatBytes(taskRow.bytesTotal)
-                                : taskRow.detail
+                                : taskRow.localizedDetail()
                         elide: Text.ElideRight
                     }
 
@@ -10029,7 +10073,8 @@ ApplicationWindow {
                         visible: !taskRow.isGroup
                             && taskRow.status === "running"
                             && taskRow.bytesPerSecond > 0
-                        text: "\u2193 " + root.formatBytes(taskRow.bytesPerSecond) + "/s"
+                        text: (taskRow.direction === "upload" ? "\u2191 " : "\u2193 ")
+                            + root.formatBytes(taskRow.bytesPerSecond) + "/s"
                         color: theme.text
                     }
                 }
@@ -10072,7 +10117,8 @@ ApplicationWindow {
 
                     Label {
                         Layout.fillWidth: true
-                        text: t("transfers.remaining") + "  "
+                        text: (taskRow.direction === "upload"
+                                ? t("transfers.remainingUpload") : t("transfers.remainingDownload")) + "  "
                             + (taskRow.bytesRemaining >= 0
                                 ? root.formatBytes(taskRow.bytesRemaining)
                                 : t("transfers.unknown"))
@@ -10182,6 +10228,114 @@ ApplicationWindow {
             font.bold: true
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
+        }
+    }
+
+    // One slide-in/out half of the remaining-bytes tile (see below).
+    component TransferRemainingVariant: ColumnLayout {
+        id: remainingVariant
+        property string label: ""
+        property string value: ""
+        property color valueColor: theme.text
+        property bool shown: true
+        // Where the variant parks while hidden: the download half exits to the
+        // left, the upload half exits to the right, so the swap reads as one
+        // continuous carousel pass instead of two independent fades.
+        property real hiddenOffset: 16
+
+        width: parent ? parent.width : 0
+        x: shown ? 0 : hiddenOffset
+        opacity: shown ? 1 : 0
+        visible: opacity > 0.001
+        spacing: 4
+
+        Behavior on x { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+        MutedText {
+            Layout.fillWidth: true
+            text: label
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: remainingVariant.value
+            color: remainingVariant.valueColor
+            font.pixelSize: 20
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+        }
+    }
+
+    // Remaining-bytes summary tile: detects the live direction mix from the
+    // unfinished top-level tasks (see VIBEDOCS/WebDAV.md). Downloads-only or
+    // uploads-only shows that reading; when both run, the readings cross-slide
+    // every 4 s and a click flips them immediately (restarting the rotation).
+    component TransferRemainingSummaryBlock: Item {
+        id: remainingTile
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        Layout.preferredWidth: 0
+        Layout.horizontalStretchFactor: 2
+        // Matches the other summary blocks' implicit content height so RowLayout
+        // vertical centering stays aligned across the row.
+        implicitHeight: 48
+        clip: true
+
+        readonly property bool hasDownloads: appViewModel.transferHasActiveDownloads
+        readonly property bool hasUploads: appViewModel.transferHasActiveUploads
+        readonly property bool rotating: hasDownloads && hasUploads
+        property bool flipState: false
+        readonly property bool showUpload: rotating
+            ? flipState
+            : (hasUploads && !hasDownloads)
+
+        onRotatingChanged: remainingTile.flipState = false
+
+        Timer {
+            id: remainingRotateTimer
+            interval: 4000
+            repeat: true
+            running: remainingTile.rotating
+            onTriggered: remainingTile.flipState = !remainingTile.flipState
+        }
+
+        TransferRemainingVariant {
+            label: t("transfers.remainingDownload")
+            value: appViewModel.transferRemainingBytes >= 0
+                ? root.formatBytes(appViewModel.transferRemainingBytes)
+                : t("transfers.unknown")
+            valueColor: appViewModel.transferRemainingBytes > 0 ? theme.warning : theme.text
+            shown: !remainingTile.showUpload
+            hiddenOffset: -16
+            height: remainingTile.height
+        }
+
+        TransferRemainingVariant {
+            label: t("transfers.remainingUpload")
+            value: appViewModel.transferRemainingUploadBytes >= 0
+                ? root.formatBytes(appViewModel.transferRemainingUploadBytes)
+                : t("transfers.unknown")
+            valueColor: appViewModel.transferRemainingUploadBytes > 0 ? theme.warning : theme.text
+            shown: remainingTile.showUpload
+            hiddenOffset: 16
+            height: remainingTile.height
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: remainingTile.rotating
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                remainingTile.flipState = !remainingTile.showUpload
+                remainingRotateTimer.restart()
+            }
+            ToolTip.visible: containsMouse && remainingTile.rotating
+            ToolTip.text: t("transfers.remainingSwitchHint")
         }
     }
 
@@ -15798,12 +15952,7 @@ ApplicationWindow {
                     uploadRate: appViewModel.transferAverageUploadBytesPerSecond
                 }
                 Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 40; color: theme.border }
-                TransferSummaryBlock {
-                    label: t("transfers.remaining")
-                    value: appViewModel.transferRemainingBytes >= 0
-                        ? root.formatBytes(appViewModel.transferRemainingBytes)
-                        : t("transfers.unknown")
-                    valueColor: appViewModel.transferRemainingBytes > 0 ? theme.warning : theme.text
+                TransferRemainingSummaryBlock {
                 }
             }
 

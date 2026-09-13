@@ -51,6 +51,10 @@ public:
     qint64 averageDownloadBytesPerSecond() const;
     qint64 averageUploadBytesPerSecond() const;
     qint64 remainingBytes() const;
+    qint64 remainingBytesForDirection(const QString& direction) const;
+    // True while at least one top-level task of the direction is unfinished; drives
+    // the remaining-bytes tile's download/upload rotation.
+    bool hasActiveDirection(const QString& direction) const;
 
     QString enqueueUpload(const ServerConfig& server,
                           const QString& password,
