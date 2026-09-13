@@ -6217,8 +6217,18 @@ void AppViewModel::chooseWebDavUploadFolder()
     }
     const QFileInfo rootInfo(folder);
     const auto rootRemote = childWebDavUrl(rootInfo.fileName(), true);
-    m_transferManager.enqueueCreateDirectory(m_currentWebDavCard->server, m_webDavPassword, rootRemote);
+    // One grouped upload row: the root MKCOL becomes the first child so the
+    // queue still creates it before any file PUT, and every child carries a
+    // relative title instead of leaking the remote URL.
+    std::vector<TransferManager::TaskRequest> requests;
+    requests.push_back(TransferManager::TaskRequest {
+        .remoteUrl = rootRemote,
+        .title = QStringLiteral("%1/").arg(rootInfo.fileName()),
+        .directory = true,
+    });
 
+    std::vector<TransferManager::TaskRequest> directoryRequests;
+    std::vector<TransferManager::TaskRequest> fileRequests;
     QDirIterator iterator(folder, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
     while (iterator.hasNext()) {
         iterator.next();
@@ -6227,11 +6237,35 @@ void AppViewModel::chooseWebDavUploadFolder()
         auto remoteUrl = rootRemote.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(relative))));
         if (info.isDir()) {
             remoteUrl = ensureDirectoryUrl(remoteUrl);
-            m_transferManager.enqueueCreateDirectory(m_currentWebDavCard->server, m_webDavPassword, remoteUrl);
+            directoryRequests.push_back(TransferManager::TaskRequest {
+                .remoteUrl = std::move(remoteUrl),
+                .title = relative + QLatin1Char('/'),
+                .directory = true,
+            });
         } else if (info.isFile()) {
-            enqueueWebDavUploadFile(info.absoluteFilePath(), remoteUrl);
+            fileRequests.push_back(TransferManager::TaskRequest {
+                .remoteUrl = std::move(remoteUrl),
+                .localPath = info.absoluteFilePath(),
+                .totalBytes = info.size(),
+                .title = relative,
+            });
         }
     }
+    // The queue runs non-download tasks strictly in order, so every MKCOL must
+    // precede its children: directories first (lexicographic path order puts
+    // each parent before its children), then the files.
+    std::ranges::sort(directoryRequests, {}, [](const auto& request) { return request.title; });
+    requests.insert(requests.end(),
+                    std::make_move_iterator(directoryRequests.begin()),
+                    std::make_move_iterator(directoryRequests.end()));
+    requests.insert(requests.end(),
+                    std::make_move_iterator(fileRequests.begin()),
+                    std::make_move_iterator(fileRequests.end()));
+    m_transferManager.enqueueUploads(m_currentWebDavCard->server,
+                                     m_webDavPassword,
+                                     rootInfo.fileName(),
+                                     rootRemote.toString(),
+                                     std::move(requests));
     openTransfers();
 }
 
@@ -6282,10 +6316,10 @@ void AppViewModel::downloadWebDavItem(int row)
                 }
             }
 
-            std::vector<TransferManager::DownloadRequest> requests;
+            std::vector<TransferManager::TaskRequest> requests;
             requests.reserve(plan.files.size());
             for (auto& file : plan.files) {
-                requests.push_back(TransferManager::DownloadRequest {
+                requests.push_back(TransferManager::TaskRequest {
                     .remoteUrl = std::move(file.remoteUrl),
                     .localPath = std::move(file.localPath),
                     .totalBytes = file.bytesTotal,

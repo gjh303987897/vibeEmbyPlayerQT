@@ -418,7 +418,7 @@ private slots:
             .name = QStringLiteral("WebDAV test"),
             .serviceType = ServiceType::WebDAV,
         };
-        std::vector<TransferManager::DownloadRequest> requests {
+        std::vector<TransferManager::TaskRequest> requests {
             {
                 .remoteUrl = server.url(QStringLiteral("/first.bin")),
                 .localPath = firstPath,
@@ -491,26 +491,24 @@ private slots:
             .name = QStringLiteral("WebDAV pause item"),
             .serviceType = ServiceType::WebDAV,
         };
-        const auto groupId = manager.enqueueDownload(serverConfig,
-                                                     {},
-                                                     server.url(QStringLiteral("/paused-item.bin")),
-                                                     targetPath,
-                                                     payload.size());
-        QVERIFY(manager.selectGroup(groupId));
-        auto* details = manager.detailTasks();
-        QCOMPARE(details->rowCount(), 1);
-        const auto childId = taskData(details, 0, TransferTaskListModel::IdRole).toString();
+        const auto taskId = manager.enqueueDownload(serverConfig,
+                                                    {},
+                                                    server.url(QStringLiteral("/paused-item.bin")),
+                                                    targetPath,
+                                                    payload.size());
+        // Single files stay flat top-level rows (not groups, no detail page).
+        QCOMPARE(manager.tasks()->rowCount(), 1);
+        QVERIFY(!taskData(manager.tasks(), 0, TransferTaskListModel::IsGroupRole).toBool());
 
-        QTRY_VERIFY_WITH_TIMEOUT(taskData(details, 0, TransferTaskListModel::BytesDoneRole).toLongLong() > 0, 3000);
-        manager.pauseTask(childId);
-        QTRY_COMPARE_WITH_TIMEOUT(taskData(details, 0, TransferTaskListModel::StatusRole).toString(),
+        QTRY_VERIFY_WITH_TIMEOUT(taskData(manager.tasks(), 0, TransferTaskListModel::BytesDoneRole).toLongLong() > 0, 3000);
+        manager.pauseTask(taskId);
+        QTRY_COMPARE_WITH_TIMEOUT(taskData(manager.tasks(), 0, TransferTaskListModel::StatusRole).toString(),
                                   QStringLiteral("paused"),
                                   3000);
-        QVERIFY(taskData(details, 0, TransferTaskListModel::CanResumeRole).toBool());
+        QVERIFY(taskData(manager.tasks(), 0, TransferTaskListModel::CanResumeRole).toBool());
         QVERIFY(!QFileInfo::exists(targetPath));
-        QCOMPARE(taskData(manager.tasks(), 0, TransferTaskListModel::StatusRole).toString(), QStringLiteral("paused"));
 
-        manager.resumeTask(childId);
+        manager.resumeTask(taskId);
         QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 8000);
         QCOMPARE(QFileInfo(targetPath).size(), qint64 { payload.size() });
         QCOMPARE(server.requestCount("/paused-item.bin"), 2);
@@ -539,7 +537,7 @@ private slots:
             .name = QStringLiteral("WebDAV pause group"),
             .serviceType = ServiceType::WebDAV,
         };
-        std::vector<TransferManager::DownloadRequest> requests {
+        std::vector<TransferManager::TaskRequest> requests {
             { server.url(QStringLiteral("/group-first.bin")), firstPath, firstPayload.size() },
             { server.url(QStringLiteral("/group-second.bin")), secondPath, secondPayload.size() },
         };
@@ -567,7 +565,7 @@ private slots:
         QCOMPARE(QFileInfo(secondPath).size(), qint64 { secondPayload.size() });
     }
 
-    void retriesFailedDownloadGroup()
+    void retriesFailedSingleDownload()
     {
         DownloadServer server;
         QVERIFY(server.listen());
@@ -586,16 +584,19 @@ private slots:
             .name = QStringLiteral("WebDAV retry"),
             .serviceType = ServiceType::WebDAV,
         };
-        const auto groupId = manager.enqueueDownload(serverConfig,
-                                                     {},
-                                                     server.url(QStringLiteral("/retry.bin")),
-                                                     targetPath,
-                                                     payload.size());
+        const auto taskId = manager.enqueueDownload(serverConfig,
+                                                    {},
+                                                    server.url(QStringLiteral("/retry.bin")),
+                                                    targetPath,
+                                                    payload.size());
+        // A single download file is a flat row, never an expandable group.
+        QCOMPARE(manager.tasks()->rowCount(), 1);
+        QVERIFY(!taskData(manager.tasks(), 0, TransferTaskListModel::IsGroupRole).toBool());
         QTRY_COMPARE_WITH_TIMEOUT(manager.failedCount(), 1, 3000);
         QVERIFY(taskData(manager.tasks(), 0, TransferTaskListModel::RetryableRole).toBool());
         QVERIFY(!QFileInfo::exists(targetPath));
 
-        manager.retryTask(groupId);
+        manager.retryTask(taskId);
         QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 5000);
         QCOMPARE(QFileInfo(targetPath).size(), qint64 { payload.size() });
         QCOMPARE(server.requestCount("/retry.bin"), 2);
@@ -624,7 +625,7 @@ private slots:
             .name = QStringLiteral("WebDAV retry file"),
             .serviceType = ServiceType::WebDAV,
         };
-        std::vector<TransferManager::DownloadRequest> requests {
+        std::vector<TransferManager::TaskRequest> requests {
             { server.url(QStringLiteral("/retry-first.bin")), firstPath, firstPayload.size() },
             { server.url(QStringLiteral("/retry-second.bin")), secondPath, secondPayload.size() },
         };
@@ -675,26 +676,24 @@ private slots:
             .name = QStringLiteral("WebDAV cancel item"),
             .serviceType = ServiceType::WebDAV,
         };
-        const auto groupId = manager.enqueueDownload(serverConfig,
-                                                     {},
-                                                     server.url(QStringLiteral("/cancel-item.bin")),
-                                                     targetPath,
-                                                     payload.size());
-        QVERIFY(manager.selectGroup(groupId));
-        auto* details = manager.detailTasks();
-        QCOMPARE(details->rowCount(), 1);
-        const auto childId = taskData(details, 0, TransferTaskListModel::IdRole).toString();
+        const auto taskId = manager.enqueueDownload(serverConfig,
+                                                    {},
+                                                    server.url(QStringLiteral("/cancel-item.bin")),
+                                                    targetPath,
+                                                    payload.size());
+        // Single files stay flat top-level rows (not groups, no detail page).
+        QCOMPARE(manager.tasks()->rowCount(), 1);
+        QVERIFY(!taskData(manager.tasks(), 0, TransferTaskListModel::IsGroupRole).toBool());
 
-        QTRY_VERIFY_WITH_TIMEOUT(taskData(details, 0, TransferTaskListModel::BytesDoneRole).toLongLong() > 0, 3000);
-        manager.cancelTask(childId);
-        QTRY_COMPARE_WITH_TIMEOUT(taskData(details, 0, TransferTaskListModel::StatusRole).toString(),
+        QTRY_VERIFY_WITH_TIMEOUT(taskData(manager.tasks(), 0, TransferTaskListModel::BytesDoneRole).toLongLong() > 0, 3000);
+        manager.cancelTask(taskId);
+        QTRY_COMPARE_WITH_TIMEOUT(taskData(manager.tasks(), 0, TransferTaskListModel::StatusRole).toString(),
                                   QStringLiteral("canceled"),
                                   3000);
         QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(targetPath), 3000);
-        QVERIFY(taskData(details, 0, TransferTaskListModel::RetryableRole).toBool());
         QVERIFY(taskData(manager.tasks(), 0, TransferTaskListModel::RetryableRole).toBool());
 
-        manager.retryTask(childId);
+        manager.retryTask(taskId);
         QTRY_COMPARE_WITH_TIMEOUT(manager.completedCount(), 1, 8000);
         QCOMPARE(QFileInfo(targetPath).size(), qint64 { payload.size() });
         QCOMPARE(server.requestCount("/cancel-item.bin"), 2);
@@ -723,7 +722,7 @@ private slots:
             .name = QStringLiteral("WebDAV cancel"),
             .serviceType = ServiceType::WebDAV,
         };
-        std::vector<TransferManager::DownloadRequest> requests {
+        std::vector<TransferManager::TaskRequest> requests {
             { server.url(QStringLiteral("/completed.bin")), completedPath, completedPayload.size() },
             { server.url(QStringLiteral("/active.bin")), activePath, activePayload.size() },
         };

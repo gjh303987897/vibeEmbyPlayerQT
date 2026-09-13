@@ -23,10 +23,15 @@ class TransferManager final : public QObject {
     Q_OBJECT
 
 public:
-    struct DownloadRequest {
+    struct TaskRequest {
         QUrl remoteUrl;
         QString localPath;
         qint64 totalBytes { -1 };
+        // Child title inside a group; empty falls back to the local file name.
+        // Upload rows must carry a title because their target is a URL.
+        QString title;
+        // MKCOL child for directory-creating entries in an upload batch.
+        bool directory { false };
     };
 
     enum class Direction {
@@ -70,7 +75,17 @@ public:
                              const QString& password,
                              const QString& groupTitle,
                              const QString& groupTarget,
-                             std::vector<DownloadRequest> requests);
+                             std::vector<TaskRequest> requests);
+    // Batch upload: each request uploads to `remoteUrl` and carries its own
+    // `title` (used verbatim for children, so upload rows never leak the URL);
+    // `directory` requests become MKCOL children. One file request behaves
+    // exactly like enqueueUpload(); several form a folder group (summary +
+    // expandable children) just like download groups.
+    QString enqueueUploads(const ServerConfig& server,
+                           const QString& password,
+                           const QString& groupTitle,
+                           const QString& groupTarget,
+                           std::vector<TaskRequest> requests);
     QString enqueueCreateDirectory(const ServerConfig& server,
                                    const QString& password,
                                    const QUrl& remoteUrl);
@@ -125,8 +140,12 @@ private:
         QPointer<QTimer> retryTimer;
     };
 
-    struct DownloadGroupState {
+    // One group state per folder task (download or upload). Upload groups reuse
+    // the whole cancel/pause/resume/retry/aggregate pipeline; the isUpload flag
+    // only guards local-file cleanup (an upload must never delete its source).
+    struct GroupState {
         QString id;
+        bool isUpload { false };
         QString targetPath;
         std::vector<QString> taskIds;
         QElapsedTimer elapsed;
@@ -140,14 +159,15 @@ private:
     };
 
     void enqueue(QueuedTask task);
-    void cancelDownloadGroup(const QString& groupId);
-    void pauseDownloadGroup(const QString& groupId);
-    void resumeDownloadGroup(const QString& groupId);
-    void retryDownloadGroup(const QString& groupId);
+    std::shared_ptr<GroupState> groupById(const QString& groupId) const;
+    void cancelGroup(const QString& groupId);
+    void pauseGroup(const QString& groupId);
+    void resumeGroup(const QString& groupId);
+    void retryGroup(const QString& groupId);
     void startNext();
     void startTask(QueuedTask task);
     void publishTask(const TransferTask& task);
-    void updateDownloadGroup(const QString& groupId);
+    void updateGroup(const QString& groupId);
     void updateProgress(const QString& taskId, qint64 done, qint64 total);
     void finishActive(const QString& taskId, bool ok, const QString& message);
     void finishPaused(const QString& taskId);
@@ -156,11 +176,11 @@ private:
                                 const QString& errorMessage,
                                 int statusCode);
     bool requeueTask(const QString& taskId);
-    bool prepareDownloadGroupRetry(const QString& groupId);
-    void cleanupDownloadGroupFiles(const QString& groupId);
-    void startDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group);
-    void stopDownloadGroupTimer(const std::shared_ptr<DownloadGroupState>& group);
-    qint64 downloadGroupElapsedMs(const std::shared_ptr<DownloadGroupState>& group) const;
+    bool prepareGroupRetry(const QString& groupId);
+    void cleanupGroupFiles(const QString& groupId);
+    void startGroupTimer(const std::shared_ptr<GroupState>& group);
+    void stopGroupTimer(const std::shared_ptr<GroupState>& group);
+    qint64 groupElapsedMs(const std::shared_ptr<GroupState>& group) const;
     qint64 rateForDirection(const QString& direction, bool average) const;
 
     QNetworkAccessManager m_manager;
@@ -172,6 +192,7 @@ private:
     QQueue<QueuedTask> m_queue;
     QHash<QString, std::shared_ptr<ActiveTask>> m_active;
     QHash<QString, QueuedTask> m_taskDefinitions;
-    QHash<QString, std::shared_ptr<DownloadGroupState>> m_downloadGroups;
+    QHash<QString, std::shared_ptr<GroupState>> m_downloadGroups;
+    QHash<QString, std::shared_ptr<GroupState>> m_uploadGroups;
     QString m_selectedGroupId;
 };

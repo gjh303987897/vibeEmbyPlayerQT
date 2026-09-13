@@ -9779,6 +9779,38 @@ ApplicationWindow {
         }
     }
 
+    // Shared row delegate for both transfer list pages. Binds explicitly through
+    // the implicit `model` context: redeclaring `required property taskId` here
+    // would shadow TransferTaskRow's own properties of the same name and leave
+    // every field empty (see VIBEDOCS/WebDAV.md).
+    component TransferListDelegate: TransferTaskRow {
+        taskId: model.taskId
+        title: model.title
+        direction: model.direction
+        status: model.status
+        detail: model.detail
+        target: model.target
+        bytesDone: model.bytesDone
+        bytesTotal: model.bytesTotal
+        bytesPerSecond: model.bytesPerSecond
+        averageBytesPerSecond: model.averageBytesPerSecond
+        bytesRemaining: model.bytesRemaining
+        progress: model.progress
+        fileCount: model.fileCount
+        completedFileCount: model.completedFileCount
+        isGroup: model.isGroup
+        cancellable: model.cancellable
+        canPause: model.canPause
+        canResume: model.canResume
+        retryable: model.retryable
+
+        onActivated: {
+            if (model.isGroup) {
+                appViewModel.openTransferGroup(model.taskId)
+            }
+        }
+    }
+
     component TransferTaskRow: Rectangle {
         id: taskRow
         property string taskId: ""
@@ -9874,8 +9906,9 @@ ApplicationWindow {
         }
 
         // Upload rows never surface the WebDAV target URL (see VIBEDOCS/WebDAV.md):
-        // while running they show the estimated finish time derived from the live
-        // remaining bytes and rate; otherwise they fall back to the detail line.
+        // folder groups report file progress, single files show the estimated
+        // finish time derived from the live remaining bytes and rate; other
+        // states fall back to the (localized) detail line.
         function uploadStatusText() {
             if (taskRow.status !== "running") {
                 return taskRow.localizedDetail()
@@ -9884,6 +9917,9 @@ ApplicationWindow {
                 var finish = new Date(Date.now()
                     + taskRow.bytesRemaining / taskRow.bytesPerSecond * 1000)
                 return t("transfers.finishAt").arg(Qt.formatTime(finish, "hh:mm"))
+            }
+            if (taskRow.isGroup) {
+                return taskRow.completedFileCount + " / " + taskRow.fileCount + " " + t("transfers.files")
             }
             return t("transfers.unknown")
         }
@@ -9990,7 +10026,8 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: taskRow.status === "failed" || taskRow.status === "retrying"
                         ? taskRow.localizedDetail()
-                        : taskRow.direction === "upload" ? taskRow.uploadStatusText() : taskRow.target
+                        : taskRow.direction === "upload" ? taskRow.uploadStatusText()
+                            : taskRow.direction === "mkdir" ? taskRow.localizedDetail() : taskRow.target
                     color: taskRow.status === "failed"
                         ? theme.danger
                         : taskRow.status === "retrying" ? theme.warning : theme.muted
@@ -15986,43 +16023,57 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
-                ListView {
-                    id: transferList
+                // Two stacked list pages (tasks / group children). Showing details
+                // slides the task list out to the left and the folder's children in
+                // from the right; leaving slides them back (see VIBEDOCS/WebDAV.md).
+                Item {
                     anchors.fill: parent
                     clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    spacing: 10
-                    reuseItems: true
-                    cacheBuffer: 300
-                    model: transfersPage.visibleModel
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                    delegate: TransferTaskRow {
-                        width: ListView.view.width
-                        taskId: model.taskId
-                        title: model.title
-                        direction: model.direction
-                        status: model.status
-                        detail: model.detail
-                        target: model.target
-                        bytesDone: model.bytesDone
-                        bytesTotal: model.bytesTotal
-                        bytesPerSecond: model.bytesPerSecond
-                        averageBytesPerSecond: model.averageBytesPerSecond
-                        bytesRemaining: model.bytesRemaining
-                        progress: model.progress
-                        fileCount: model.fileCount
-                        completedFileCount: model.completedFileCount
-                        isGroup: model.isGroup
-                        cancellable: model.cancellable
-                        canPause: model.canPause
-                        canResume: model.canResume
-                        retryable: model.retryable
-                        onActivated: {
-                            if (model.isGroup) {
-                                appViewModel.openTransferGroup(model.taskId)
-                            }
+                    ListView {
+                        id: transferList
+                        width: parent.width
+                        height: parent.height
+                        x: transfersPage.showingDetails ? -width : 0
+                        opacity: transfersPage.showingDetails ? 0 : 1
+                        enabled: !transfersPage.showingDetails
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: 10
+                        reuseItems: true
+                        cacheBuffer: 300
+                        model: appViewModel.transferTasks
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                        delegate: TransferListDelegate {
+                            width: ListView.view.width
                         }
+
+                        Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    }
+
+                    ListView {
+                        id: transferDetailList
+                        width: parent.width
+                        height: parent.height
+                        x: transfersPage.showingDetails ? 0 : width
+                        opacity: transfersPage.showingDetails ? 1 : 0
+                        enabled: transfersPage.showingDetails
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        spacing: 10
+                        reuseItems: true
+                        cacheBuffer: 300
+                        model: appViewModel.transferDetailTasks
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                        delegate: TransferListDelegate {
+                            width: ListView.view.width
+                        }
+
+                        Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                     }
                 }
 
