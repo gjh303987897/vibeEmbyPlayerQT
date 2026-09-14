@@ -161,7 +161,13 @@ bool isTransientHttpStatus(int statusCode)
     // backends also use it for deterministic application errors. Gateway,
     // rate-limit and timeout responses are safe to retry.
     switch (statusCode) {
+    // 423 Locked is transient for us: a canceled PUT/MKCOL keeps running
+    // server-side until the handler notices the disconnect, and x/net/webdav
+    // holds a per-request temporary lock on the target path that whole time.
+    // Re-uploading the same path immediately races that stale lock; backing
+    // off lets it clear on its own.
     case 408: // Request Timeout
+    case 423: // Locked
     case 425: // Too Early
     case 429: // Too Many Requests
     case 502: // Bad Gateway
