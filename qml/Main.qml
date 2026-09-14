@@ -10438,43 +10438,6 @@ ApplicationWindow {
         }
     }
 
-    component DetailOverlayButton: Button {
-        id: overlayButton
-        readonly property color foregroundColor: darkTheme ? "#17191d" : theme.text
-        readonly property color surfaceColor: darkTheme ? "#f3eee4" : theme.surface
-        implicitWidth: 54
-        implicitHeight: 54
-        hoverEnabled: true
-        leftPadding: 0
-        rightPadding: 0
-        font.pixelSize: 25
-        font.bold: false
-
-        contentItem: Label {
-            text: overlayButton.text
-            color: overlayButton.enabled
-                ? overlayButton.foregroundColor
-                : root.withAlpha(overlayButton.foregroundColor, 0.42)
-            font: overlayButton.font
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-
-        background: Rectangle {
-            radius: height / 2
-            color: overlayButton.down
-                ? (darkTheme ? "#ddd8cc" : theme.elevatedHover)
-                : overlayButton.hovered
-                    ? (darkTheme ? "#ffffff" : theme.elevated)
-                    : overlayButton.surfaceColor
-            border.color: darkTheme ? "#24ffffff" : theme.border
-            border.width: 1
-        }
-
-        scale: overlayButton.down ? 0.96 : overlayButton.hovered ? 1.04 : 1.0
-        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
-    }
-
     component DetailThumbnailCorner: Canvas {
         property color fillColor: theme.bg
         implicitWidth: 12
@@ -10665,8 +10628,6 @@ ApplicationWindow {
         readonly property color pageBackground: theme.bg
         readonly property color heroPrimaryText: theme.text
         readonly property color heroSecondaryText: darkTheme ? "#d9dde3" : theme.muted
-        readonly property color floatingSurface: darkTheme ? "#f3eee4" : theme.surface
-        readonly property color floatingForeground: darkTheme ? "#17191d" : theme.text
         readonly property color primaryActionSurface: darkTheme ? "#f5f3ef" : theme.primary
         readonly property color primaryActionHover: darkTheme ? "#ffffff" : theme.primaryHover
         readonly property color primaryActionPressed: darkTheme ? "#d9d7d2" : Qt.darker(theme.primary, 1.12)
@@ -10819,22 +10780,100 @@ ApplicationWindow {
 
         Popup {
             id: detailSearchPopup
-            x: Math.max(22, detailPage.width - width - 28)
-            y: 26
-            width: Math.min(460, detailPage.width - 44)
-            height: 76
-            padding: 14
+            // Same expand-from-button transition as the home search popup:
+            // the panel grows out of the search pill and collapses back into it.
+            x: {
+                if (!detailSearchButton) {
+                    return Math.max(22, detailPage.width - width - 28)
+                }
+                var buttonPosition = detailSearchButton.mapToItem(detailPage, 0, 0)
+                return Math.max(16, buttonPosition.x + detailSearchButton.width - width)
+            }
+            y: {
+                if (!detailSearchButton) {
+                    return 26
+                }
+                var buttonPosition = detailSearchButton.mapToItem(detailPage, 0, 0)
+                return buttonPosition.y + (detailSearchButton.height - height) / 2
+            }
+            readonly property real expandedWidth: Math.min(460,
+                Math.max(240, detailPage.width - 48))
+            readonly property real expandedHeight: 66
+            width: expandedWidth
+            height: expandedHeight
+            padding: 12
+            clip: true
             modal: false
             focus: true
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            z: 30
+
+            enter: Transition {
+                ParallelAnimation {
+                    NumberAnimation {
+                        property: "opacity"
+                        from: 0
+                        to: 1
+                        duration: 220
+                        easing.type: Easing.OutCubic
+                    }
+                    NumberAnimation {
+                        property: "width"
+                        from: detailSearchButton ? detailSearchButton.width : 46
+                        to: detailSearchPopup.expandedWidth
+                        duration: 220
+                        easing.type: Easing.OutCubic
+                    }
+                    NumberAnimation {
+                        property: "height"
+                        from: detailSearchButton ? detailSearchButton.height : 46
+                        to: detailSearchPopup.expandedHeight
+                        duration: 220
+                        easing.type: Easing.OutCubic
+                    }
+                }
+            }
+
+            exit: Transition {
+                ParallelAnimation {
+                    NumberAnimation {
+                        property: "opacity"
+                        from: 1
+                        to: 0
+                        duration: 170
+                        easing.type: Easing.InCubic
+                    }
+                    NumberAnimation {
+                        property: "width"
+                        from: detailSearchPopup.expandedWidth
+                        to: detailSearchButton ? detailSearchButton.width : 46
+                        duration: 150
+                        easing.type: Easing.InCubic
+                    }
+                    NumberAnimation {
+                        property: "height"
+                        from: detailSearchPopup.expandedHeight
+                        to: detailSearchButton ? detailSearchButton.height : 46
+                        duration: 150
+                        easing.type: Easing.InCubic
+                    }
+                }
+            }
 
             background: Rectangle {
-                radius: 18
-                color: theme.surface
-                border.color: theme.border
+                radius: 14
+                color: root.withAlpha(theme.surface, darkTheme ? 0.97 : 0.99)
+                border.color: root.withAlpha(theme.primary, 0.52)
+                border.width: 1
             }
 
             contentItem: MediaServerSearchBar {}
+
+            onOpened: Qt.callLater(function() {
+                if (detailSearchPopup.contentItem) {
+                    detailSearchPopup.contentItem.focusInput()
+                }
+            })
         }
 
         Flickable {
@@ -11339,77 +11378,51 @@ ApplicationWindow {
             }
         }
 
-        DetailOverlayButton {
+        // Emby home-style translucent toolbar pills (shared HeroToolbarButton
+        // from the home hero toolbar): back on the left, search + more on the
+        // right (see VIBEDOCS/MediaHomeUi.md).
+        RowLayout {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: 26
-            text: "\u2190"
+            spacing: 8
             z: 20
-            onClicked: appViewModel.mediaDetailsBack()
+
+            HeroToolbarButton {
+                iconText: "\u2190"
+                text: t("action.back")
+                ToolTip.visible: hovered
+                ToolTip.text: t("action.back")
+                Accessible.name: t("action.back")
+                onClicked: appViewModel.mediaDetailsBack()
+            }
         }
 
-        Rectangle {
-            anchors.top: parent.top
+        RowLayout {
             anchors.right: parent.right
+            anchors.top: parent.top
             anchors.topMargin: 26
             anchors.rightMargin: 26
-            width: 146
-            height: 56
-            radius: height / 2
-            color: detailPage.floatingSurface
-            border.color: darkTheme ? "#24ffffff" : theme.border
+            spacing: 8
             z: 20
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 10
-                spacing: 2
+            HeroToolbarButton {
+                id: detailSearchButton
+                iconText: "\uD83D\uDD0D"
+                text: t("search.action")
+                ToolTip.visible: hovered
+                ToolTip.text: t("search.action")
+                Accessible.name: t("search.action")
+                onClicked: detailSearchPopup.open()
+            }
 
-                Button {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    hoverEnabled: true
-                    onClicked: detailSearchPopup.open()
-
-                    contentItem: Label {
-                        text: "\uD83D\uDD0D"
-                        color: detailPage.floatingForeground
-                        font.pixelSize: 23
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        radius: height / 2
-                        color: parent.hovered
-                            ? (darkTheme ? "#18ffffff" : root.withAlpha(theme.primary, 0.08))
-                            : "transparent"
-                    }
-                }
-
-                Button {
-                    Layout.preferredWidth: 56
-                    Layout.fillHeight: true
-                    hoverEnabled: true
-                    onClicked: overviewDialog.open()
-
-                    contentItem: Label {
-                        text: "\u2026"
-                        color: detailPage.floatingForeground
-                        font.pixelSize: 28
-                        font.bold: true
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        radius: height / 2
-                        color: parent.hovered
-                            ? (darkTheme ? "#18ffffff" : root.withAlpha(theme.primary, 0.08))
-                            : "transparent"
-                    }
-                }
+            HeroToolbarButton {
+                iconText: "\u2026"
+                text: t("action.more")
+                ToolTip.visible: hovered
+                ToolTip.text: t("action.more")
+                Accessible.name: t("action.more")
+                onClicked: overviewDialog.open()
             }
         }
     }

@@ -15,7 +15,13 @@ The trendy home follows a cinematic, vertically scrollable structure:
    from the active Emby or Jellyfin server, with continue-watching as the
    fallback data source.
 2. A floating toolbar with an explicit return-to-services action, service
-   identity, and translucent icon-and-text search and refresh controls.
+   identity, and translucent icon-and-text search and refresh controls
+   (`HeroToolbarButton`: translucent white pill, radius 8, hover/press tints).
+   The detail page reuses the same pills for its floating overlay actions
+   (back at top-left; search and more at top-right), replacing the earlier
+   solid circular back button and icon-only capsule. The detail search popup
+   replays the home search expand-from-button transition (220ms grow out of
+   the pill, 150ms collapse back, x/y anchored to the button via mapToItem).
 3. A landscape continue-watching rail with playback progress.
 4. A landscape library rail using the server-provided library artwork.
 
