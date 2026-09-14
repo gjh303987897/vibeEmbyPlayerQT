@@ -742,7 +742,7 @@ public:
     Q_INVOKABLE void downloadUpdate(const QString& assetName);
     Q_INVOKABLE void cancelUpdateDownload();
     Q_INVOKABLE void setEmbyRecommendationGenreExcluded(const QString& genre, bool excluded);
-    Q_INVOKABLE void refreshLibraries();
+    Q_INVOKABLE void refreshLibraries(bool quiet = false);
     Q_INVOKABLE void searchMediaServer();
     Q_INVOKABLE void clearServerSearch();
     Q_INVOKABLE void loadMoreServerSearchResults();
@@ -968,8 +968,8 @@ private:
     void finishPlaybackUsageTracking();
     void applyReportedPlaybackProgress(const QString& itemId, qint64 positionTicks);
     void mergeRecentPlaybackProgress(std::vector<MediaItem>& items) const;
-    void refreshContinueWatching();
-    void refreshRecommendations(bool force = false);
+    void refreshContinueWatching(bool quiet = false);
+    void refreshRecommendations(bool force = false, bool quiet = false);
     void applyEmbyRecommendationFilter();
     bool mergeEmbyRecommendationGenres(const QStringList& genres);
     bool mergeEmbyRecommendationGenresFromItems();
@@ -993,6 +993,9 @@ private:
     void beginHomeLoading();
     void endHomeLoading();
     void invalidateHomeLoading();
+    bool reuseCachedHomeData() const;
+    void enterHomeWithCachedData();
+    void backgroundRefreshHome();
     void setLibraryItemsLoading(bool value);
     bool failInitialServiceLoad(const QString& message);
     void completeInitialServiceLoad();
@@ -1042,6 +1045,13 @@ private:
     bool m_initialServiceHasValidData { false };
     QString m_initialServiceError;
     std::vector<MediaItem> m_unfilteredEmbyRecommendations;
+    // Cache-first home: when re-entering the home view with a session that
+    // still has populated home models and the last refresh is fresh, the
+    // existing data is shown immediately and a quiet background refresh runs
+    // after a short delay instead of the loading panel.
+    QDateTime m_lastHomeRefreshAt;
+    QTimer m_homeCacheWarmTimer;
+    bool m_homeCacheRefreshing { false };
     QDateTime m_embyRecommendationUpdatedAt;
     QString m_embyRecommendationStatus { QStringLiteral("idle") };
     bool m_embyRecommendationRefreshing { false };

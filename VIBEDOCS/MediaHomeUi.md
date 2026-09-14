@@ -72,6 +72,24 @@ and the existing details/navigation commands.
 
 ## Interaction Rules
 
+- The home page is cache-first. `AppViewModel` stamps `m_lastHomeRefreshAt` on
+  every real `refreshHome()`; re-entering the home view within 2 minutes with
+  the same session and populated rails (`reuseCachedHomeData()`) keeps the
+  in-memory data on screen, skips the loading panel, and schedules a quiet
+  `backgroundRefreshHome()` after 650 ms (one transition beat). The quiet pass
+  (`m_homeCacheRefreshing`, single-shot) routes the three home fetches through
+  the same network calls but with `quiet = true`: callbacks swap models in
+  place, never touch `homeLoading`/spinner, and failures only log (cached
+  rails stay). `invalidateHomeLoading()` (leaving home) and `openLibrary()`
+  stop the warm timer and drop the flag so responses can never swap rails
+  while another page or server is visible; the quiet pass also bumps
+  `m_homeRequestGeneration` so its own stale callbacks self-cancel.
+- The trendy/traditional home Loaders stay `active` while logged in (not only
+  while visible) so returning from details/library/search is a plain reveal
+  instead of an asynchronous delegate rebuild that flashed the loading panel
+  over perfectly good cached data. The loading panel still covers the first
+  incubation (`status !== Ready`) and the empty-models first fetch.
+
 - The featured entry advances every ten seconds and is limited to eight dots.
 - Featured backdrop images use Qt's shared image cache so the same URL can be
   reused when the carousel returns to an entry.

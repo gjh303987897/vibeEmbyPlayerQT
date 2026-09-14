@@ -5114,7 +5114,13 @@ ApplicationWindow {
                     Loader {
                         id: trendyHomeLoader
                         anchors.fill: parent
-                        active: homePage.visible && homePage.trendyLayout
+                        // Stay alive while logged in (not only while visible):
+                        // returning from details/library/search used to destroy
+                        // and asynchronously rebuild the whole home tree, which
+                        // flashed the loading panel on top of cached data. The
+                        // cache-first VM flow now revalidates in the background
+                        // instead (see AppViewModel::setCurrentView).
+                        active: appViewModel.loggedIn && homePage.trendyLayout
                         asynchronous: true
                         visible: status === Loader.Ready
                         onStatusChanged: serviceTransitionOverlay.maybeRelease()
@@ -5669,7 +5675,7 @@ ApplicationWindow {
                     Loader {
                         id: traditionalHomeLoader
                         anchors.fill: parent
-                        active: homePage.visible && !homePage.trendyLayout
+                        active: appViewModel.loggedIn && !homePage.trendyLayout
                         asynchronous: true
                         onStatusChanged: serviceTransitionOverlay.maybeRelease()
                         sourceComponent: TraditionalMediaHome {}
@@ -5677,7 +5683,11 @@ ApplicationWindow {
 
                     PageLoadingPanel {
                         anchors.centerIn: parent
-                        visible: homePage.trendyLayout
+                        // Only cover the home page itself; the loaders stay
+                        // alive across visits now, so the not-yet-Ready case
+                        // only occurs on the very first incubation.
+                        visible: homePage.visible
+                            && homePage.trendyLayout
                             && (homePage.showInitialLoading
                                 || trendyHomeLoader.status !== Loader.Ready)
                         title: t("loading.home")

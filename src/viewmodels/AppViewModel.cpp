@@ -62,6 +62,13 @@ constexpr int serviceActivationCommitDelayMs = 16;
 // The destination loader gets one frame before the home requests start.  A
 // longer fixed pause directly increases every Emby/Jellyfin opening time.
 constexpr int homeDataStartDelayMs = 16;
+// Cache-first home: re-entering the home view within this window renders the
+// models that are already in memory immediately and revalidates them quietly
+// in the background instead of replaying the loading panel.
+constexpr int homeCacheFreshMs = 120000;
+// Quiet revalidation delay after a cached home entry: one card/page transition
+// so the network fan-out cannot rebuild delegates mid-animation.
+constexpr int homeCacheWarmDelayMs = 650;
 // M3U8S and global-history pages contain comparatively large delegate trees.
 // Let the card-to-page geometry and opacity transition finish before applying
 // their first model refresh, otherwise a fast local read can rebuild dozens of
@@ -8391,12 +8398,21 @@ void AppViewModel::refreshHome()
     if (!m_session) {
         return;
     }
+
+    // The quiet cache-refresh pass bypasses the visible-request counter so a
+    // late callback can never consume the next visit's loading state. The
+    // flag is single-shot: only the warm revalidation scheduled right after a
+    // cached home entry is quiet; a manual refresh shows the spinner.
+    const auto quiet = std::exchange(m_homeCacheRefreshing, false);
+    // Stamp both paths: freshly (re)validated data is fresh enough to serve
+    // the next cached-entry window too.
+    m_lastHomeRefreshAt = QDateTime::currentDateTimeUtc();
     // Libraries and resume items are the essential home payload.  Start them
     // first so the initial visit can be released as soon as either collection
     // contains usable data; recommendations continue in the background.
-    refreshLibraries();
-    refreshContinueWatching();
-    refreshRecommendations();
+    refreshLibraries(quiet);
+    refreshContinueWatching(quiet);
+    refreshRecommendations(false, quiet);
 }
 
 void AppViewModel::refreshEmbyRecommendations()
@@ -8422,13 +8438,15 @@ void AppViewModel::refreshEmbyRecommendations()
     emit embyRecommendationSettingsChanged();
 }
 
-void AppViewModel::refreshLibraries()
+void AppViewModel::refreshLibraries(bool quiet)
 {
     if (!m_session) {
         return;
     }
 
-    clearError();
+    if (!quiet) {
+        clearError();
+    }
     m_currentLibrary.reset();
     clearMediaDirectoryState();
     m_items.clear();
@@ -8437,20 +8455,27 @@ void AppViewModel::refreshLibraries()
     const auto serverId = m_session->server.id;
     const auto requestGeneration = m_homeRequestGeneration;
     auto* client = clientFor(m_session->server.serviceType);
-    beginHomeLoading();
-    setLoading(true);
+    if (!quiet) {
+        beginHomeLoading();
+        setLoading(true);
+    }
     AppLogger::info(QStringLiteral("library"),
                     QStringLiteral("Fetching libraries from %1").arg(QUrl(m_session->server.baseUrl).host()));
-    client->fetchLibraries(*m_session, [this, serverId, requestGeneration](LibraryResult result) {
+    client->fetchLibraries(*m_session, [this, serverId, requestGeneration, quiet](LibraryResult result) {
         if (requestGeneration != m_homeRequestGeneration) {
             return;
         }
         if (!m_session || m_session->server.id != serverId) {
-            endHomeLoading();
+            if (!quiet) {
+                endHomeLoading();
+            }
             return;
         }
         if (!result) {
             AppLogger::warning(QStringLiteral("library"), QStringLiteral("Fetch libraries failed: %1").arg(displayNetworkError(result.error())));
+            if (quiet) {
+                return;   // Keep the cached rails; log-only failure.
+            }
             const auto message = displayNetworkError(result.error());
             if (m_initialServiceLoadActive) {
                 m_initialServiceError = message;
@@ -8463,10 +8488,13 @@ void AppViewModel::refreshLibraries()
             return;
         }
         AppLogger::info(QStringLiteral("library"), QStringLiteral("Fetched %1 libraries").arg(result->size()));
-        if (m_initialServiceLoadActive && !result->empty()) {
+        if (m_initialServiceLoadActive && !quiet && !result->empty()) {
             m_initialServiceHasValidData = true;
         }
         m_libraries.setLibraries(std::move(*result));
+        if (quiet) {
+            return;
+        }
         endHomeLoading();
         if (!m_initialServiceLoadActive) {
             setLoading(false);
@@ -8522,7 +8550,7 @@ void AppViewModel::openServerSearchItem(int row)
     openMediaItemDetails(*item, true);
 }
 
-void AppViewModel::refreshContinueWatching()
+void AppViewModel::refreshContinueWatching(bool quiet)
 {
     if (!m_session) {
         return;
@@ -8531,19 +8559,26 @@ void AppViewModel::refreshContinueWatching()
     const auto serverId = m_session->server.id;
     const auto requestGeneration = m_homeRequestGeneration;
     auto* client = clientFor(m_session->server.serviceType);
-    beginHomeLoading();
+    if (!quiet) {
+        beginHomeLoading();
+    }
     AppLogger::info(QStringLiteral("continue"), QStringLiteral("Fetching resume items from %1").arg(QUrl(m_session->server.baseUrl).host()));
-    client->fetchContinueWatching(*m_session, 24, [this, serverId, requestGeneration](ItemResult result) {
+    client->fetchContinueWatching(*m_session, 24, [this, serverId, requestGeneration, quiet](ItemResult result) {
         if (requestGeneration != m_homeRequestGeneration) {
             return;
         }
         if (!m_session || m_session->server.id != serverId) {
-            endHomeLoading();
+            if (!quiet) {
+                endHomeLoading();
+            }
             return;
         }
         if (!result) {
             AppLogger::warning(QStringLiteral("continue"), QStringLiteral("Fetch resume items failed: %1").arg(displayNetworkError(result.error())));
             const auto message = displayNetworkError(result.error());
+            if (quiet) {
+                return;
+            }
             if (m_initialServiceLoadActive) {
                 m_initialServiceError = message;
                 endHomeLoading();
@@ -8555,15 +8590,17 @@ void AppViewModel::refreshContinueWatching()
         }
         auto items = std::move(*result);
         mergeRecentPlaybackProgress(items);
-        if (m_initialServiceLoadActive && !items.empty()) {
+        if (m_initialServiceLoadActive && !quiet && !items.empty()) {
             m_initialServiceHasValidData = true;
         }
         m_continueItems.setItems(std::move(items));
-        endHomeLoading();
+        if (!quiet) {
+            endHomeLoading();
+        }
     });
 }
 
-void AppViewModel::refreshRecommendations(bool force)
+void AppViewModel::refreshRecommendations(bool force, bool quiet)
 {
     if (!m_session
         || (m_session->server.serviceType != ServiceType::Emby
@@ -8619,7 +8656,9 @@ void AppViewModel::refreshRecommendations(bool force)
         }
     }
 
-    beginHomeLoading();
+    if (!quiet) {
+        beginHomeLoading();
+    }
     if (serviceType == ServiceType::Emby) {
         refreshEmbyRecommendationGenres();
         m_embyRecommendationRefreshing = true;
@@ -8630,12 +8669,14 @@ void AppViewModel::refreshRecommendations(bool force)
                     QStringLiteral("Fetching %1 suggested series from %2")
                         .arg(serviceType == ServiceType::Emby ? QStringLiteral("Emby") : QStringLiteral("Jellyfin"),
                              QUrl(m_session->server.baseUrl).host()));
-    auto handleResult = [this, serverId, userId, serviceType, requestGeneration](ItemResult result) {
+    auto handleResult = [this, serverId, userId, serviceType, requestGeneration, quiet](ItemResult result) {
         if (requestGeneration != m_homeRequestGeneration) {
             return;
         }
         if (!m_session || m_session->server.id != serverId || m_session->userId != userId) {
-            endHomeLoading();
+            if (!quiet) {
+                endHomeLoading();
+            }
             return;
         }
         if (serviceType == ServiceType::Emby) {
@@ -8645,10 +8686,16 @@ void AppViewModel::refreshRecommendations(bool force)
             if (serviceType == ServiceType::Emby) {
                 m_embyRecommendationStatus = QStringLiteral("failed");
                 emit embyRecommendationSettingsChanged();
-            } else {
+            } else if (!quiet) {
                 m_recommendedItems.clear();
             }
             const auto message = displayNetworkError(result.error());
+            if (quiet) {
+                AppLogger::warning(QStringLiteral("recommendations"),
+                                   QStringLiteral("Background suggestion refresh failed: %1")
+                                       .arg(message));
+                return;
+            }
             if (m_initialServiceLoadActive) {
                 m_initialServiceError = message;
                 endHomeLoading();
@@ -8661,7 +8708,7 @@ void AppViewModel::refreshRecommendations(bool force)
             return;
         }
         if (serviceType == ServiceType::Emby) {
-            if (m_initialServiceLoadActive && !result->empty()) {
+            if (m_initialServiceLoadActive && !quiet && !result->empty()) {
                 m_initialServiceHasValidData = true;
             }
             m_unfilteredEmbyRecommendations = std::move(*result);
@@ -8676,14 +8723,18 @@ void AppViewModel::refreshRecommendations(bool force)
             mergeEmbyRecommendationGenresFromItems();
             applyEmbyRecommendationFilter();
             emit embyRecommendationSettingsChanged();
-            endHomeLoading();
+            if (!quiet) {
+                endHomeLoading();
+            }
             return;
         }
-        if (m_initialServiceLoadActive && !result->empty()) {
+        if (m_initialServiceLoadActive && !quiet && !result->empty()) {
             m_initialServiceHasValidData = true;
         }
         m_recommendedItems.setItems(std::move(*result));
-        endHomeLoading();
+        if (!quiet) {
+            endHomeLoading();
+        }
     };
 
     if (serviceType == ServiceType::Emby) {
@@ -8694,7 +8745,7 @@ void AppViewModel::refreshRecommendations(bool force)
 
     // A stale but usable cache may already have populated the home rail.  It
     // is safe to enter home now while the network refresh updates that rail.
-    if (m_initialServiceLoadActive && m_initialServiceHasValidData) {
+    if (m_initialServiceLoadActive && !quiet && m_initialServiceHasValidData) {
         completeInitialServiceLoad();
     }
 }
@@ -9143,6 +9194,12 @@ void AppViewModel::openLibrary(int row)
     if (!m_session) {
         return;
     }
+
+    // A quiet background home revalidation still belongs to the previous
+    // session's server; rebuilding a new server's rails would drop the new
+    // session's first-page items.
+    m_homeCacheWarmTimer.stop();
+    m_homeCacheRefreshing = false;
 
     const auto library = m_libraries.libraryAt(row);
     if (!library) {
@@ -11019,6 +11076,12 @@ void AppViewModel::setCurrentView(QString view)
     }
     m_currentView = std::move(view);
     emit currentViewChanged();
+    if (m_currentView == QStringLiteral("home")) {
+        // Cache-first home: when a recent refresh already populated the
+        // models for this session, keep showing them and revalidate quietly
+        // after the enter transition instead of replaying the loading panel.
+        enterHomeWithCachedData();
+    }
 }
 
 void AppViewModel::setLoading(bool value)
@@ -11048,6 +11111,55 @@ void AppViewModel::beginHomeLoading()
     }
 }
 
+bool AppViewModel::reuseCachedHomeData() const
+{
+    if (!m_session || m_currentView != QStringLiteral("home")
+        || m_lastHomeRefreshAt.isNull() || homeLoading()) {
+        // homeLoading() also covers the activation path: loadServiceHome
+        // reserves a loading request before publishing the view, and that
+        // visit already refreshes everything itself.
+        return false;
+    }
+    if (m_lastHomeRefreshAt.msecsTo(QDateTime::currentDateTimeUtc()) >= homeCacheFreshMs) {
+        return false;
+    }
+    return m_libraries.rowCount() > 0 || m_continueItems.count() > 0
+        || m_recommendedItems.count() > 0;
+}
+
+void AppViewModel::backgroundRefreshHome()
+{
+    if (!m_session || m_currentView != QStringLiteral("home") || homeLoading()) {
+        return;
+    }
+
+    // Quiet pass: callbacks swap models in place; the loading counter and
+    // spinner stay untouched. Bumping the shared generation cancels any
+    // in-flight visible visit's requests, and leaving home (which invalidates
+    // that counter again) also silences this pass.
+    ++m_homeRequestGeneration;
+    m_homeCacheRefreshing = true;
+    refreshHome();
+}
+
+void AppViewModel::enterHomeWithCachedData()
+{
+    if (!reuseCachedHomeData()) {
+        return;
+    }
+
+    m_initialServiceLoadActive = false;
+    m_initialServiceHasValidData = false;
+    m_initialServiceError.clear();
+    setLoading(false);
+    AppLogger::info(QStringLiteral("home"),
+                    QStringLiteral("Serving cached home data for %1; revalidating in background")
+                        .arg(QUrl(m_session->server.baseUrl).host()));
+    if (!m_homeCacheRefreshing) {
+        m_homeCacheWarmTimer.start(homeCacheWarmDelayMs);
+    }
+}
+
 void AppViewModel::endHomeLoading()
 {
     if (m_homeLoadingRequests <= 0) {
@@ -11068,6 +11180,15 @@ void AppViewModel::endHomeLoading()
 void AppViewModel::invalidateHomeLoading()
 {
     ++m_homeRequestGeneration;
+    // Leaving home also silences the quiet cache-refresh pass: a response
+    // arriving while another page is visible must never swap the home rails
+    // (the same rule the visible-request guard enforces), and openLibrary()
+    // relies on this to stop a pending warm refresh before switching servers.
+    m_homeCacheWarmTimer.stop();
+    if (m_homeCacheRefreshing) {
+        m_homeCacheRefreshing = false;
+        emit homeLoadingChanged();
+    }
     const auto recommendationStateChanged = m_embyRecommendationRefreshing
         || m_embyRecommendationGenresLoading;
     m_embyRecommendationRefreshing = false;
