@@ -523,6 +523,15 @@ ApplicationWindow {
         openAction()
     }
 
+    // Media-card equivalent of openServiceFromCard(): the same grow-to-full-
+    // window transition, but sourced from a poster (artwork fills the growing
+    // surface instead of the brand tile). Used by the continue-watching rails
+    // so opening an item expands outward from its thumbnail.
+    function openMediaCardFromCard(sourcePoster, title, subtitle, openAction) {
+        serviceTransitionOverlay.openFromPoster(sourcePoster, title, subtitle)
+        openAction()
+    }
+
     function prepareExternalServiceFromCard(sourceCard, openAction) {
         if (appViewModel.loading) {
             return
@@ -4107,6 +4116,44 @@ ApplicationWindow {
         property string sourceTitle: ""
         property string sourceSubtitle: ""
         property string sourceType: ""
+        // Poster mode (media cards): the growing surface is filled with the
+        // source artwork instead of the brand tile, and the brand chrome
+        // (halo/emblem/title column/wait spinner) stays hidden.
+        property bool posterMode: false
+        property url sourceImageUrl: ""
+
+        function capturePoster(sourcePoster, title, subtitle) {
+            if (!appViewModel.pageTransitionsEnabled || !sourcePoster
+                    || !sourcePoster.visible) {
+                return false
+            }
+            var topLeft = sourcePoster.mapToItem(serviceTransitionOverlay, 0, 0)
+            sourceX = topLeft.x
+            sourceY = topLeft.y
+            sourceWidth = Math.max(1, sourcePoster.width)
+            sourceHeight = Math.max(1, sourcePoster.height)
+            sourceRadius = sourcePoster.radius !== undefined ? sourcePoster.radius : 12
+            sourceAccent = theme.primary
+            sourceTitle = title !== undefined ? title : ""
+            sourceSubtitle = subtitle !== undefined ? subtitle : ""
+            sourceImageUrl = sourcePoster.imageUrl
+            posterMode = true
+            hasSource = true
+            return true
+        }
+
+        function openFromPoster(sourcePoster, title, subtitle) {
+            if (!capturePoster(sourcePoster, title, subtitle)) {
+                return false
+            }
+            openPending = false
+            holdOpen = false
+            openFinished = false
+            releaseRequested = false
+            suppressPageTransition = false
+            openPrepared()
+            return true
+        }
 
         function captureSource(sourceCard) {
             if (!appViewModel.pageTransitionsEnabled || !sourceCard || !sourceCard.visible) {
@@ -4174,6 +4221,7 @@ ApplicationWindow {
             closeAnimation.stop()
             releaseAnimation.stop()
             openFinished = false
+            expansionPoster.opacity = serviceTransitionOverlay.posterMode ? 1 : 0
             expansionSurface.x = sourceX
             expansionSurface.y = sourceY
             expansionSurface.width = sourceWidth
@@ -4260,6 +4308,14 @@ ApplicationWindow {
             visible = false
             expansionSurface.opacity = 0
             suppressPageTransition = false
+            // Poster transitions are one-shot: unlike service cards they must
+            // survive no longer, or a later "back to services" would shrink
+            // the surface into a stale poster rectangle.
+            if (posterMode) {
+                hasSource = false
+                posterMode = false
+                sourceImageUrl = ""
+            }
         }
 
         function cancelTransition() {
@@ -4273,6 +4329,7 @@ ApplicationWindow {
             releaseRequested = false
             suppressPageTransition = false
             hasSource = false
+            posterMode = false
         }
 
         Rectangle {
@@ -4281,9 +4338,22 @@ ApplicationWindow {
 
             color: root.darkTheme ? "#191c20" : theme.surface
             radius: cornerRadius
-            border.width: 1
+            border.width: serviceTransitionOverlay.posterMode ? 0 : 1
             border.color: root.withAlpha(serviceTransitionOverlay.sourceAccent, 0.62)
             clip: true
+
+            // Poster mode: the source artwork fills the growing surface (clipped
+            // by the rounded Rectangle), so the click reads as the thumbnail
+            // itself expanding outward toward the new page.
+            Image {
+                id: expansionPoster
+                anchors.fill: parent
+                source: serviceTransitionOverlay.sourceImageUrl
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: false
+                visible: serviceTransitionOverlay.posterMode && opacity > 0.001
+                opacity: 0
+            }
 
             // Mirrors ServiceCard: horizontal brand sheen plus the lower falloff, so the growing
             // tile keeps the wallet-card proportions all the way to the full-window surface.
@@ -4291,6 +4361,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 anchors.margins: 1
                 radius: Math.max(0, expansionSurface.cornerRadius - 1)
+                visible: !serviceTransitionOverlay.posterMode
                 color: "transparent"
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -4312,6 +4383,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 anchors.margins: 1
                 radius: Math.max(0, expansionSurface.cornerRadius - 1)
+                visible: !serviceTransitionOverlay.posterMode
                 color: "transparent"
                 gradient: Gradient {
                     orientation: Gradient.Vertical
@@ -4326,6 +4398,7 @@ ApplicationWindow {
             // transparent before the canvas edge, so it cannot poke past the rounded surface corner.
             Canvas {
                 id: expansionHalo
+                visible: !serviceTransitionOverlay.posterMode
                 width: 340
                 height: 340
                 x: expansionEmblem.x + expansionEmblem.width / 2 - width / 2
@@ -4359,6 +4432,7 @@ ApplicationWindow {
 
             ServiceTypeIcon {
                 id: expansionEmblem
+                visible: !serviceTransitionOverlay.posterMode
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: Math.round(parent.height * 0.09)
@@ -4371,6 +4445,7 @@ ApplicationWindow {
             }
 
             Column {
+                visible: !serviceTransitionOverlay.posterMode
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.right: expansionEmblem.left
@@ -5440,6 +5515,7 @@ ApplicationWindow {
                                             model: appViewModel.continueItems
 
                                             delegate: ContinueWatchingCard {
+                                                id: continueRailCard
                                                 width: Math.min(306, Math.max(252, continueList.width * 0.28))
                                                 height: 204
                                                 title: model.name.length > 0 ? model.name : model.seriesName
@@ -5450,7 +5526,9 @@ ApplicationWindow {
                                                 imageUrl: model.continueImageUrl
                                                 backdropUrl: model.backdropImageUrl
                                                 progress: model.playedPercentage
-                                                onActivated: appViewModel.openContinueItem(index)
+                                                onActivated: root.openMediaCardFromCard(
+                                                    continueRailCard.posterItem, model.name, "",
+                                                    function() { appViewModel.openContinueItem(index) })
                                             }
 
                                             WheelHandler {
@@ -8553,6 +8631,7 @@ ApplicationWindow {
                             model: appViewModel.continueItems
 
                             delegate: TraditionalContinueWatchingCard {
+                                id: traditionalRailCard
                                 width: 172
                                 height: 306
                                 title: model.name.length > 0 ? model.name : model.seriesName
@@ -8566,7 +8645,9 @@ ApplicationWindow {
                                 progressText: appViewModel.formatContinueProgress(model.playedPercentage)
                                 imageUrl: model.continueImageUrl
                                 progress: model.playedPercentage
-                                onActivated: appViewModel.openContinueItem(index)
+                                onActivated: root.openMediaCardFromCard(
+                                    traditionalRailCard.posterItem, model.name, "",
+                                    function() { appViewModel.openContinueItem(index) })
                             }
 
                             WheelHandler {
@@ -8688,6 +8769,7 @@ ApplicationWindow {
     component TraditionalContinueWatchingCard: Rectangle {
         id: traditionalContinueCard
         signal activated()
+        property alias posterItem: traditionalContinuePoster
         property string title: ""
         property string metadata: ""
         property string progressText: ""
@@ -8710,6 +8792,7 @@ ApplicationWindow {
         }
 
         PosterImage {
+            id: traditionalContinuePoster
             anchors.fill: parent
             imageUrl: traditionalContinueCard.imageUrl
             fallbackText: traditionalContinueCard.title.length > 0
@@ -8946,6 +9029,9 @@ ApplicationWindow {
     component ContinueWatchingCard: Rectangle {
         id: continueCard
         signal activated()
+        // Exposed so the click handler can source the expand-from-poster
+        // transition (root.openMediaCardFromCard).
+        property alias posterItem: continueImage
         property string title: ""
         property string seriesName: ""
         property string seasonEpisode: ""

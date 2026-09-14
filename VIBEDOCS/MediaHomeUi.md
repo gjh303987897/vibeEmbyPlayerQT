@@ -28,6 +28,14 @@ The trendy home follows a cinematic, vertically scrollable structure:
 The normal application toolbar is hidden on the trendy media home. Library,
 search, settings, traditional home, and other views use the shared toolbar.
 
+Clicking a continue-watching card (trendy and traditional rails) expands the
+poster itself to full window via the shared `serviceTransitionOverlay` in
+poster mode (`root.openMediaCardFromCard(card.posterItem, …)`): the growing
+surface is filled with the card artwork (no brand tile/halo/emblem/title),
+then releases onto the detail page like a service-card transition. Poster
+transitions are one-shot (`finishTransition` clears `hasSource`) so a later
+“back to services” shrink never reuses a stale poster rectangle.
+
 The traditional media home restores the standard application toolbar and page
 spacing for either Emby or Jellyfin. It presents portrait continue-watching
 cards in a horizontal rail and libraries in a responsive grid. Traditional
