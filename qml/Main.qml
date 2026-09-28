@@ -57,6 +57,20 @@ ApplicationWindow {
     readonly property alias theme: themePalette
     readonly property int themeMorphDuration: 900
     readonly property int themeMorphDelayMs: 300
+    
+    // 性能优化组件
+    ImageCacheManager {
+        id: imageCacheManager
+        maxCacheSizeMB: 100
+    }
+    
+    DataProcessManager {
+        id: dataProcessManager
+    }
+    
+    BindingOptimizer {
+        id: bindingOptimizer
+    }
     // False until startup settles: the async restore of the saved theme must apply
     // instantly, not animate.
     property bool themeMorphArmed: false
@@ -1151,6 +1165,9 @@ ApplicationWindow {
                 clip: true
                 spacing: 8
                 model: appViewModel.privacyCards
+                cacheBuffer: 200
+                reuseItems: true
+                pixelAligned: true
 
                 delegate: Rectangle {
                     width: privacyCardsList.width
@@ -1854,6 +1871,9 @@ ApplicationWindow {
                         model: appViewModel.tsslBatchPackages.availableDates
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollIndicator.vertical: ScrollIndicator {}
+                        cacheBuffer: 300
+                        reuseItems: true
+                        pixelAligned: true
 
                         delegate: Rectangle {
                             required property string modelData
@@ -1951,6 +1971,8 @@ ApplicationWindow {
                         boundsBehavior: Flickable.StopAtBounds
                         clip: true
                         ScrollIndicator.vertical: ScrollIndicator {}
+                        reuseItems: true
+                        pixelAligned: true
 
                         delegate: CheckBox {
                                     id: tsslBatchManageChoice
@@ -2381,6 +2403,9 @@ ApplicationWindow {
                         model: appViewModel.globalHistoryDates
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollIndicator.vertical: ScrollIndicator {}
+                        cacheBuffer: 300
+                        reuseItems: true
+                        pixelAligned: true
 
                         delegate: Rectangle {
                             required property string modelData
@@ -2460,6 +2485,9 @@ ApplicationWindow {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollIndicator.vertical: ScrollIndicator {}
+                        cacheBuffer: 400
+                        reuseItems: true
+                        pixelAligned: true
 
                         delegate: Rectangle {
                             id: globalHistoryManagementRow
@@ -3663,6 +3691,9 @@ ApplicationWindow {
                     clip: true
                     spacing: 4
                     model: appViewModel.m3u8sSelectedSources
+                    cacheBuffer: 220
+                    reuseItems: true
+                    pixelAligned: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     delegate: Rectangle {
@@ -3806,6 +3837,9 @@ ApplicationWindow {
                     clip: true
                     model: appViewModel.m3u8sWebDavDirectories
                     spacing: 4
+                    cacheBuffer: 200
+                    reuseItems: true
+                    pixelAligned: true
                     delegate: ModernButton {
                         required property int index
                         required property string name
@@ -4757,8 +4791,12 @@ ApplicationWindow {
 
                 Flickable {
                     id: servicePage
-                    readonly property int cardColumnCount: width < 700 ? 2
-                        : width < 1000 ? 3 : width < 1400 ? 4 : 5
+                    readonly property int cardColumnCount: bindingOptimizer.calculateColumns(width, [
+                        {width: 700, columns: 2},
+                        {width: 1000, columns: 3},
+                        {width: 1400, columns: 4},
+                        {width: 9999, columns: 5}
+                    ])
                     readonly property real cardSpacing: 18
                     readonly property real cardRowSpacing: 28
                     readonly property real cardCellWidth: (width + cardSpacing) / cardColumnCount
@@ -4893,6 +4931,9 @@ ApplicationWindow {
                                 model: appViewModel.services
                                 cellWidth: servicePage.cardCellWidth
                                 cellHeight: servicePage.cardHeight + servicePage.cardRowSpacing
+                                cacheBuffer: cellHeight * 2
+                                reuseItems: true
+                                pixelAligned: true
                                 displaced: Transition {
                                     NumberAnimation { properties: "x,y"; duration: 160; easing.type: Easing.OutCubic }
                                 }
@@ -5159,6 +5200,8 @@ ApplicationWindow {
                                     model: homePage.featuredModel
                                     currentIndex: homePage.featuredIndex
                                     cacheBuffer: width
+                                    reuseItems: true
+                                    pixelAligned: true
                                     onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Beginning)
 
                                     delegate: Item {
@@ -5519,6 +5562,9 @@ ApplicationWindow {
                                             boundsBehavior: Flickable.StopAtBounds
                                             spacing: 16
                                             model: appViewModel.continueItems
+                                            cacheBuffer: 1000
+                                            reuseItems: true
+                                            pixelAligned: true
 
                                             delegate: ContinueWatchingCard {
                                                 id: continueRailCard
@@ -5707,6 +5753,9 @@ ApplicationWindow {
                         cellWidth: Math.max(172, width / Math.max(1, Math.floor(width / 186)))
                         cellHeight: 292
                         opacity: libraryPage.showInitialLoading ? 0.24 : 1
+                        cacheBuffer: cellHeight * 3
+                        reuseItems: true
+                        pixelAligned: true
 
                         Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
@@ -5798,6 +5847,9 @@ ApplicationWindow {
                                 cellWidth: Math.max(172, width / Math.max(1, Math.floor(width / 186)))
                                 cellHeight: 292
                                 opacity: serverSearchPage.showInitialLoading ? 0.24 : 1
+                                cacheBuffer: cellHeight * 3
+                                reuseItems: true
+                                pixelAligned: true
 
                                 Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
@@ -6043,7 +6095,13 @@ ApplicationWindow {
                 }
                 background: Rectangle {
                     radius: 8
-                    color: dialogButton.down ? theme.primary : dialogButton.hovered ? theme.elevatedHover : theme.elevated
+                    color: bindingOptimizer.stateColor(
+                        dialogButton.down,
+                        dialogButton.hovered,
+                        theme.primary,
+                        theme.elevatedHover,
+                        theme.elevated
+                    )
                     border.color: dialogButton.hovered ? theme.primary : theme.border
                 }
             }
@@ -6071,10 +6129,14 @@ ApplicationWindow {
         }
         background: Rectangle {
             radius: 8
-            color: modernButton.danger ? (modernButton.hovered ? theme.danger : theme.danger)
-                : modernButton.down ? theme.primary
-                : modernButton.hovered ? theme.elevatedHover
-                : theme.elevated
+            color: modernButton.danger ? theme.danger
+                : bindingOptimizer.stateColor(
+                    modernButton.down,
+                    modernButton.hovered,
+                    theme.primary,
+                    theme.elevatedHover,
+                    theme.elevated
+                )
             border.color: modernButton.danger ? theme.danger : modernButton.hovered ? theme.primary : theme.border
         }
     }
@@ -6355,86 +6417,36 @@ ApplicationWindow {
         }
     }
 
-    component RoundedCoverImage: Canvas {
+    component RoundedCoverImage: Item {
         id: roundedCoverImage
         property url source
         property real cornerRadius: 0
-        property url loadedSource
-        property bool imageReady: false
-        readonly property int status: imageReady
-            ? Image.Ready
-            : coverProbe.status === Image.Error ? Image.Error
-            : source.toString().length === 0 ? Image.Null : Image.Loading
-
-        renderTarget: Canvas.Image
-
-        function reloadSource() {
-            if (loadedSource.toString().length > 0) {
-                unloadImage(loadedSource)
-            }
-            imageReady = false
-            loadedSource = source
-            requestPaint()
-            if (loadedSource.toString().length > 0) {
-                loadImage(loadedSource)
-            }
-        }
-
-        onSourceChanged: reloadSource()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        onCornerRadiusChanged: requestPaint()
-        onImageLoaded: {
-            imageReady = loadedSource.toString().length > 0 && isImageLoaded(loadedSource)
-            requestPaint()
-        }
-
-        onPaint: {
-            var ctx = getContext("2d")
-            ctx.reset()
-            ctx.clearRect(0, 0, width, height)
-            if (!imageReady || width <= 0 || height <= 0) {
-                return
-            }
-
-            var sourceWidth = Math.max(1, coverProbe.implicitWidth)
-            var sourceHeight = Math.max(1, coverProbe.implicitHeight)
-            var targetRatio = width / height
-            var sourceRatio = sourceWidth / sourceHeight
-            var cropX = 0
-            var cropY = 0
-            var cropWidth = sourceWidth
-            var cropHeight = sourceHeight
-            if (sourceRatio > targetRatio) {
-                cropWidth = sourceHeight * targetRatio
-                cropX = (sourceWidth - cropWidth) / 2
-            } else if (sourceRatio < targetRatio) {
-                cropHeight = sourceWidth / targetRatio
-                cropY = (sourceHeight - cropHeight) / 2
-            }
-
-            var radius = Math.max(0, Math.min(cornerRadius, width / 2, height / 2))
-            ctx.beginPath()
-            ctx.moveTo(radius, 0)
-            ctx.lineTo(width - radius, 0)
-            ctx.quadraticCurveTo(width, 0, width, radius)
-            ctx.lineTo(width, height - radius)
-            ctx.quadraticCurveTo(width, height, width - radius, height)
-            ctx.lineTo(radius, height)
-            ctx.quadraticCurveTo(0, height, 0, height - radius)
-            ctx.lineTo(0, radius)
-            ctx.quadraticCurveTo(0, 0, radius, 0)
-            ctx.closePath()
-            ctx.clip()
-            ctx.drawImage(loadedSource,
-                          cropX, cropY, cropWidth, cropHeight,
-                          0, 0, width, height)
-        }
+        readonly property int status: coverImage.status
 
         Image {
-            id: coverProbe
+            id: coverImage
+            anchors.fill: parent
             source: roundedCoverImage.source
+            fillMode: Image.PreserveAspectCrop
             asynchronous: true
+            cache: true
+            smooth: true
+            visible: false
+        }
+
+        Rectangle {
+            id: coverMask
+            anchors.fill: parent
+            radius: roundedCoverImage.cornerRadius
+            visible: false
+        }
+
+        MultiEffect {
+            anchors.fill: parent
+            source: coverImage
+            maskEnabled: true
+            maskSource: coverMask
+            autoPaddingEnabled: false
             cache: false
             visible: false
             onStatusChanged: {
@@ -7284,10 +7296,20 @@ ApplicationWindow {
                 height: windowButton.height - 2 * windowButton.platePadding
                 radius: windowButton.plateRadius
                 color: windowButton.closeButton
-                    ? (windowButton.down ? "#b91c2b" : windowButton.hovered ? "#d9363e" : "transparent")
-                    : windowButton.down ? root.withAlpha(theme.text, darkTheme ? 0.18 : 0.12)
-                        : windowButton.hovered || windowButton.activeFocus
-                            ? root.withAlpha(theme.text, darkTheme ? 0.10 : 0.06) : "transparent"
+                    ? bindingOptimizer.stateColor(
+                        windowButton.down,
+                        windowButton.hovered,
+                        "#b91c2b",
+                        "#d9363e",
+                        "transparent"
+                    )
+                    : bindingOptimizer.stateColor(
+                        windowButton.down,
+                        windowButton.hovered || windowButton.activeFocus,
+                        root.withAlpha(theme.text, darkTheme ? 0.18 : 0.12),
+                        root.withAlpha(theme.text, darkTheme ? 0.10 : 0.06),
+                        "transparent"
+                    )
 
                 Behavior on color {
                     ColorAnimation { duration: 110; easing.type: Easing.OutCubic }
@@ -8639,6 +8661,8 @@ ApplicationWindow {
                             boundsBehavior: Flickable.StopAtBounds
                             spacing: 14
                             model: appViewModel.continueItems
+                            cacheBuffer: 344
+                            reuseItems: true
 
                             delegate: TraditionalContinueWatchingCard {
                                 id: traditionalRailCard
@@ -8706,6 +8730,9 @@ ApplicationWindow {
                     model: appViewModel.libraries
                     cellWidth: Math.max(190, width / Math.max(1, Math.floor(width / 214)))
                     cellHeight: 230
+                    cacheBuffer: cellHeight * 4
+                    reuseItems: true
+                    pixelAligned: true
 
                     delegate: TraditionalLibraryCard {
                         width: traditionalLibraryGrid.cellWidth - 16
@@ -11307,6 +11334,8 @@ ApplicationWindow {
                         spacing: 10
                         model: appViewModel.seriesSeasons
                         clip: true
+                        cacheBuffer: 190
+                        reuseItems: true
 
                         delegate: SeasonPill {
                             width: Math.min(190, Math.max(104, model.name.length * 9 + 34))
@@ -11326,6 +11355,8 @@ ApplicationWindow {
                         spacing: 10
                         model: appViewModel.seriesEpisodes
                         clip: true
+                        cacheBuffer: 190
+                        reuseItems: true
 
                         delegate: Rectangle {
                             readonly property bool currentEpisode: model.itemId === appViewModel.selectedItemId
@@ -11401,6 +11432,8 @@ ApplicationWindow {
                         spacing: 20
                         model: appViewModel.seriesEpisodes
                         clip: true
+                        cacheBuffer: episodeCardWidth * 2
+                        reuseItems: true
 
                         onCountChanged: {
                             if (count === 0) {
@@ -13283,6 +13316,9 @@ ApplicationWindow {
                         cellWidth: width / 3
                         cellHeight: 68
                         model: playerPage.playbackSpeedOptions
+                        cacheBuffer: cellHeight * 2
+                        reuseItems: true
+                        pixelAligned: true
 
                         delegate: Item {
                             width: speedMenuGrid.cellWidth
@@ -13350,6 +13386,11 @@ ApplicationWindow {
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         spacing: 6
+                        cacheBuffer: 400
+                        reuseItems: true
+                        pixelAligned: true
+                        cacheBuffer: 240
+                        reuseItems: true
                         model: playerPage.trackMenuMode === "subtitle"
                             ? mpvVideo.subtitleTracks
                             : mpvVideo.audioTracks
@@ -13677,6 +13718,9 @@ ApplicationWindow {
                         boundsBehavior: Flickable.StopAtBounds
                         spacing: 8
                         model: appViewModel.iptvGroups
+                        cacheBuffer: 500
+                        reuseItems: true
+                        pixelAligned: true
 
                         delegate: SeasonPill {
                             width: Math.min(160, Math.max(76, modelData.length * 8 + 32))
@@ -13704,6 +13748,9 @@ ApplicationWindow {
                             boundsBehavior: Flickable.StopAtBounds
                             spacing: 6
                             model: appViewModel.iptvChannels
+                            cacheBuffer: 400
+                            reuseItems: true
+                            pixelAligned: true
 
                             delegate: Button {
                                 id: iptvChannelItem
@@ -14606,6 +14653,9 @@ ApplicationWindow {
                     model: visible ? appViewModel.localMediaItems : null
                     spacing: 8
                     clip: true
+                    cacheBuffer: 500
+                    reuseItems: true
+                    pixelAligned: true
 
                     delegate: Rectangle {
                         width: localItemList.width
@@ -15516,8 +15566,9 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                cacheBuffer: cellHeight * 2
+                cacheBuffer: cellHeight * 3
                 reuseItems: true
+                pixelAligned: true
                 model: appViewModel.iptvChannels
                 cellWidth: Math.max(196, width / Math.max(1, Math.floor(width / 214)))
                 cellHeight: 176
@@ -15738,6 +15789,10 @@ ApplicationWindow {
                         enabled: !appViewModel.loading
                         opacity: appViewModel.loading ? 0.34 : 1
                         spacing: 10
+                        clip: true
+                        cacheBuffer: 500
+                        reuseItems: true
+                        pixelAligned: true
                         model: visible ? appViewModel.webDavItems : null
                         delegate: WebDavFileRow {
                             width: ListView.view.width
@@ -15768,6 +15823,9 @@ ApplicationWindow {
                         cellWidth: webDavListArea.gridCellWidth
                         cellHeight: webDavListArea.gridCellHeight
                         model: visible ? appViewModel.webDavItems : null
+                        cacheBuffer: cellHeight * 3
+                        reuseItems: true
+                        pixelAligned: true
                         delegate: WebDavMediaCard {
                             width: webDavVideoGrid.cellWidth - 12
                             height: 214
@@ -15795,6 +15853,9 @@ ApplicationWindow {
                         spacing: 8
                         clip: true
                         model: visible ? appViewModel.webDavItems : null
+                        cacheBuffer: 400
+                        reuseItems: true
+                        pixelAligned: true
                         delegate: Rectangle {
                             width: webDavAudioList.width
                             height: 70
@@ -16591,7 +16652,11 @@ ApplicationWindow {
 
             GridLayout {
                 Layout.fillWidth: true
-                columns: historyFlick.width < 760 ? 1 : historyFlick.width < 1180 ? 2 : 3
+                columns: bindingOptimizer.calculateColumns(historyFlick.width, [
+                    {width: 760, columns: 1},
+                    {width: 1180, columns: 2},
+                    {width: 9999, columns: 3}
+                ])
                 columnSpacing: 12
                 rowSpacing: 12
 
@@ -17402,7 +17467,10 @@ ApplicationWindow {
 
                     GridLayout {
                         Layout.fillWidth: true
-                        columns: width < 760 ? 1 : 4
+                        columns: bindingOptimizer.calculateColumns(width, [
+                            {width: 760, columns: 1},
+                            {width: 9999, columns: 4}
+                        ])
                         columnSpacing: 12
                         rowSpacing: 10
 
