@@ -87,30 +87,6 @@ void keepSeriesItems(std::vector<MediaItem>& items)
         return item.itemType.compare(QStringLiteral("Series"), Qt::CaseInsensitive) != 0;
     });
 }
-
-std::vector<MediaItem> keepLatestContinueItems(std::vector<MediaItem> items)
-{
-    QSet<QString> seenSeries;
-    std::vector<MediaItem> filtered;
-    filtered.reserve(items.size());
-
-    for (auto& item : items) {
-        if (item.itemType.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0) {
-            const auto seriesKey = !item.seriesId.isEmpty()
-                ? item.seriesId
-                : item.seriesName.trimmed().toCaseFolded();
-            if (!seriesKey.isEmpty() && seenSeries.contains(seriesKey)) {
-                continue;
-            }
-            if (!seriesKey.isEmpty()) {
-                seenSeries.insert(seriesKey);
-            }
-        }
-        filtered.push_back(std::move(item));
-    }
-
-    return filtered;
-}
 }
 
 EmbyClient::EmbyClient(NetworkClient& networkClient, QObject* parent)
@@ -263,14 +239,10 @@ void EmbyClient::searchVideoItems(const UserSession& session,
 
 void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, std::function<void(ItemResult)> callback)
 {
-    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Items").arg(session.userId));
+    auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Items/Resume").arg(session.userId));
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
-    query.addQueryItem(QStringLiteral("Filters"), QStringLiteral("IsResumable"));
-    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Episode"));
-    query.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("DatePlayed"));
-    query.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Descending"));
     query.addQueryItem(QStringLiteral("Limit"), QString::number(limit));
+    query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Episode"));
     query.addQueryItem(QStringLiteral("Fields"),
                        QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,People,DateCreated,RunTimeTicks,SeriesPrimaryImageTag,ParentId"));
     query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
@@ -285,13 +257,7 @@ void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, st
         }
 
         parseItemsAsync(result->body, session.server.baseUrl, session.accessToken,
-                        [callback = std::move(callback)](ItemResult parsed) mutable {
-            if (!parsed) {
-                callback(std::unexpected(parsed.error()));
-                return;
-            }
-            callback(keepLatestContinueItems(std::move(*parsed)));
-        });
+                        std::move(callback));
     });
 }
 
