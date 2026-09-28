@@ -94,42 +94,45 @@ ApplicationWindow {
     }
     property var dark: ({
         dark: true,
-        bg: "#0f1217",
-        surface: "#171c22",
-        elevated: "#1d232b",
-        elevatedHover: "#252d36",
+        // 现代化深色色阶 - 更深的背景层次
+        bg: "#05070C",           // 最深背景 - 3% lightness
+        surface: "#0A0D12",      // 表面层 - 5% lightness  
+        elevated: "#0F131C",     // 提升层 - 7% lightness
+        elevatedHover: "#161D2B", // 悬停层 - 10% lightness
         input: "#121820",
-        text: "#f4f7fb",
-        muted: "#9aa7b5",
-        subtle: "#6f7b89",
+        // 优化的文本对比度
+        text: "#F4F7FB",         // 主文本 - 96% lightness
+        muted: "#9AA7B5",        // 弱化文本 - 68% lightness
+        subtle: "#6F7B89",       // 极弱文本 - 52% lightness
         border: "#303945",
-        primary: "#4f8cff",
-        primaryHover: "#6aa0ff",
-        danger: "#f45f74",
-        success: "#72d88f",
-        warning: "#f0b46b",
-        errorBg: "#3a2026",
-        errorText: "#ffdce3",
-        shadow: "#66000000"
+        // 现代化品牌色 - 高饱和度
+        primary: "#38BDF8",      // 天蓝色
+        primaryHover: "#56C9FB",
+        danger: "#F87171",       // 珊瑚红
+        success: "#72D88F",      // 翠绿
+        warning: "#FBBF24",      // 琥珀黄
+        errorBg: "#3A2026",
+        errorText: "#FFDCE3",
+        shadow: "#CC000000"      // 80% 黑色阴影
     })
     property var light: ({
         dark: false,
-        bg: "#f5f7fb",
-        surface: "#ffffff",
-        elevated: "#ffffff",
-        elevatedHover: "#f1f5fb",
-        input: "#ffffff",
-        text: "#151922",
-        muted: "#5d6978",
-        subtle: "#8792a1",
-        border: "#d8e0ea",
-        primary: "#1677ff",
-        primaryHover: "#4096ff",
-        danger: "#d9363e",
-        success: "#389e0d",
-        warning: "#d48806",
-        errorBg: "#fff1f0",
-        errorText: "#a8071a",
+        bg: "#F5F7FB",
+        surface: "#FFFFFF",
+        elevated: "#FFFFFF",
+        elevatedHover: "#F1F5FB",
+        input: "#FFFFFF",
+        text: "#0F1419",
+        muted: "#5D6978",
+        subtle: "#8792A1",
+        border: "#E0E8F0",
+        primary: "#0EA5E9",
+        primaryHover: "#0284C7",
+        danger: "#EF4444",
+        success: "#10B981",
+        warning: "#F59E0B",
+        errorBg: "#FFF1F0",
+        errorText: "#A8071A",
         shadow: "#22000000"
     })
 
@@ -4650,11 +4653,11 @@ ApplicationWindow {
                 // instantly and an Item cannot animate itself away (it has no exit
                 // transition), so the movement has to live on the stack itself and be
                 // re-tuned per destination.
-                property real slideDistance: 26
-                property int slideDuration: 280
-                property real slideStartOpacity: 0.22
-                property real slideVertical: 6
-                property real slideScale: 0.992
+                property real slideDistance: 40
+                property int slideDuration: 360
+                property real slideStartOpacity: 0.15
+                property real slideVertical: 8
+                property real slideScale: 0.985
                 currentIndex: appViewModel.currentView === "services" ? 0
                     : appViewModel.currentView === "home" ? 1
                     : appViewModel.currentView === "library" ? 2
@@ -4738,11 +4741,11 @@ ApplicationWindow {
                         pageStack.slideVertical = 0
                         pageStack.slideScale = 1
                     } else {
-                        pageStack.slideDistance = 26
-                        pageStack.slideDuration = 280
-                        pageStack.slideStartOpacity = 0.22
-                        pageStack.slideVertical = 6
-                        pageStack.slideScale = 0.992
+                        pageStack.slideDistance = 40
+                        pageStack.slideDuration = 360
+                        pageStack.slideStartOpacity = 0.15
+                        pageStack.slideVertical = 8
+                        pageStack.slideScale = 0.985
                     }
 
                     pageEnterAnimation.stop()
@@ -4777,7 +4780,8 @@ ApplicationWindow {
                         properties: "x,y"
                         to: 0
                         duration: pageStack.slideDuration
-                        easing.type: Easing.OutQuint
+                        easing.type: Easing.OutBack
+                        easing.overshoot: 1.0
                     }
 
                     NumberAnimation {
@@ -8149,7 +8153,7 @@ ApplicationWindow {
         border.width: dropArea.containsDrag ? 2 : 1
         scale: cardMouse.drag.active ? 0.97
             : loading ? 1.004
-            : (emphasized && !editing ? 1.02 : 1.0)
+            : (emphasized && !editing ? 1.04 : 1.0)
         opacity: cardMouse.drag.active ? 0.94 : 1.0
         z: cardMouse.drag.active ? 10 : 0
         Drag.active: cardMouse.drag.active && editing
@@ -8157,8 +8161,18 @@ ApplicationWindow {
         Drag.hotSpot.x: width / 2
         Drag.hotSpot.y: height / 2
 
-        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
-        Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowBlur: card.emphasized ? 1.0 : 0.7
+            shadowOpacity: card.emphasized ? 0.35 : 0.20
+            shadowVerticalOffset: card.emphasized ? 8 : 4
+            shadowHorizontalOffset: 0
+            shadowColor: "#000000"
+        }
+
+        Behavior on color { ColorAnimation { duration: 250; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 250; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 120 } }
         // Scale around the card's top edge instead of the center: the grid
         // cells sit flush against the content top, so a center-based hover
@@ -8166,7 +8180,7 @@ ApplicationWindow {
         // page clip cuts it off.
         transformOrigin: Item.Top
 
-        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
 
         function beginDrag() {
             dragStartX = x
