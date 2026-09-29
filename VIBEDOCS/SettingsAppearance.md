@@ -11,7 +11,7 @@ Current settings:
 - Emby home layout: `trendy`, `traditional`; `trendy` is the default
 - Jellyfin home layout: `trendy`, `traditional`; `trendy` is the default
 - Player layout: `trendy`, `traditional`; `trendy` is the default
-- Service card size: 80% to 150% in 5% steps; 100% is the default
+- Service card size: 50% to 150% in 5% steps; 100% is the default
 - Page transition animations: enabled or disabled, enabled by default
 - Desktop: minimize to tray
 
@@ -113,15 +113,20 @@ The animation is deliberately brief and does not move navigation or persistence 
 The Appearance page slider controls the size of all cards on the services page,
 including built-in entries and saved media services. `AppViewModel` validates
 the percentage and `SessionRepository` persists it under
-`appearance/serviceCardSizePercent`, clamped to 80–150. The absent-key default is
+`appearance/serviceCardSizePercent`, clamped to 50–150. The absent-key default is
 100, so existing users see the original responsive card size without migration.
 
 At 100%, the original column thresholds are preserved: 2 columns below 700px,
 3 below 1000px, 4 below 1400px, and 5 at larger widths. A custom percentage
 scales each card's width and height from that viewport-specific baseline, then
 recomputes the number of columns that fit. The grid and built-in card row share
-the same card dimensions and column count. QML handles only the layout and slider
-interaction; persistence stays in C++.
+the same card dimensions and column count; when smaller cards allow more
+columns, the built-in cards remain contiguous and start at the saved grid's
+first column. The service page extends 16px into
+its surrounding margin on each side to leave room for hover shadows without
+shrinking the default cards. First and last cards in each row scale inward;
+the saved-card container leaves this bleed area visible. QML handles only the
+layout and slider interaction; persistence stays in C++.
 
 ## I18n
 

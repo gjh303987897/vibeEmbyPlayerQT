@@ -3566,7 +3566,7 @@ int AppViewModel::serviceCardSizePercent() const
 
 void AppViewModel::setServiceCardSizePercent(int value)
 {
-    const auto normalized = std::clamp(value, 80, 150);
+    const auto normalized = std::clamp(value, 50, 150);
     if (serviceCardSizePercent() == normalized) {
         return;
     }

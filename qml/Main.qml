@@ -4793,21 +4793,29 @@ ApplicationWindow {
                     }
                 }
 
-                Flickable {
+                Item {
+                    Flickable {
                     id: servicePage
+                    // The page has outer margins, so a small bleed area lets edge-card
+                    // shadows render without changing the original card dimensions.
+                    readonly property real hoverBleed: 16
+                    readonly property real layoutWidth: Math.max(0, width - 2 * hoverBleed)
+                    x: -hoverBleed
+                    width: parent.width + 2 * hoverBleed
+                    height: parent.height
                     // 100% retains the original responsive card geometry. Other values change
                     // the tile size directly, then fit as many whole tiles as the page allows.
-                    readonly property int baseCardColumnCount: width < 700 ? 2
-                        : width < 1000 ? 3 : width < 1400 ? 4 : 5
+                    readonly property int baseCardColumnCount: layoutWidth < 700 ? 2
+                        : layoutWidth < 1000 ? 3 : layoutWidth < 1400 ? 4 : 5
                     readonly property real cardSpacing: 18
                     readonly property real cardRowSpacing: 28
                     readonly property real baseCardWidth: Math.max(0,
-                        (width + cardSpacing) / baseCardColumnCount - cardSpacing)
-                    readonly property real cardWidth: Math.min(width,
+                        (layoutWidth + cardSpacing) / baseCardColumnCount - cardSpacing)
+                    readonly property real cardWidth: Math.min(layoutWidth,
                         baseCardWidth * appViewModel.serviceCardSizePercent / 100)
                     readonly property int cardColumnCount: appViewModel.serviceCardSizePercent === 100
                         ? baseCardColumnCount
-                        : Math.max(1, Math.floor((width + cardSpacing + 0.01)
+                        : Math.max(1, Math.floor((layoutWidth + cardSpacing + 0.01)
                             / (cardWidth + cardSpacing)))
                     readonly property real cardCellWidth: cardWidth + cardSpacing
                     readonly property real cardsRowWidth: cardColumnCount * cardCellWidth - cardSpacing
@@ -4831,18 +4839,24 @@ ApplicationWindow {
 
                     ColumnLayout {
                         id: serviceHomeColumn
-                        width: servicePage.width
+                        x: servicePage.hoverBleed
+                        width: servicePage.layoutWidth
                         height: Math.max(implicitHeight, servicePage.height)
                         spacing: servicePage.cardRowSpacing
 
                         GridLayout {
-                            Layout.preferredWidth: servicePage.cardsRowWidth
-                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: Math.min(4, servicePage.cardColumnCount)
+                                * servicePage.cardCellWidth - servicePage.cardSpacing
+                            Layout.leftMargin: Math.max(0,
+                                (servicePage.layoutWidth - servicePage.cardsRowWidth) / 2)
+                            Layout.alignment: Qt.AlignLeft
                             columns: servicePage.cardColumnCount
                             columnSpacing: servicePage.cardSpacing
                             rowSpacing: servicePage.cardRowSpacing
 
                             ServiceCard {
+                                hoverColumn: 0
+                                hoverColumnCount: servicePage.cardColumnCount
                                 Layout.minimumWidth: servicePage.cardWidth
                                 Layout.preferredWidth: servicePage.cardWidth
                                 Layout.maximumWidth: servicePage.cardWidth
@@ -4863,6 +4877,8 @@ ApplicationWindow {
                             }
 
                             ServiceCard {
+                                hoverColumn: 1 % servicePage.cardColumnCount
+                                hoverColumnCount: servicePage.cardColumnCount
                                 Layout.minimumWidth: servicePage.cardWidth
                                 Layout.preferredWidth: servicePage.cardWidth
                                 Layout.maximumWidth: servicePage.cardWidth
@@ -4883,6 +4899,8 @@ ApplicationWindow {
                             }
 
                             ServiceCard {
+                                hoverColumn: 2 % servicePage.cardColumnCount
+                                hoverColumnCount: servicePage.cardColumnCount
                                 Layout.minimumWidth: servicePage.cardWidth
                                 Layout.preferredWidth: servicePage.cardWidth
                                 Layout.maximumWidth: servicePage.cardWidth
@@ -4903,6 +4921,8 @@ ApplicationWindow {
                             }
 
                             ServiceCard {
+                                hoverColumn: 3 % servicePage.cardColumnCount
+                                hoverColumnCount: servicePage.cardColumnCount
                                 Layout.minimumWidth: servicePage.cardWidth
                                 Layout.preferredWidth: servicePage.cardWidth
                                 Layout.maximumWidth: servicePage.cardWidth
@@ -4928,7 +4948,6 @@ ApplicationWindow {
                             Layout.fillHeight: true
                             Layout.minimumHeight: serviceGrid.contentHeight
                             Layout.preferredHeight: serviceGrid.contentHeight
-                            clip: true
 
                             GridView {
                                 id: serviceGrid
@@ -4949,6 +4968,8 @@ ApplicationWindow {
                                 }
 
                                 delegate: ServiceCard {
+                                    hoverColumn: index % servicePage.cardColumnCount
+                                    hoverColumnCount: servicePage.cardColumnCount
                                     width: servicePage.cardWidth
                                     height: servicePage.cardHeight
                                     editing: appViewModel.editingServices
@@ -5013,6 +5034,7 @@ ApplicationWindow {
                             }
                         }
                     }
+                }
                 }
 
                 Item {
@@ -8120,6 +8142,8 @@ ApplicationWindow {
         property int dragIndex: -1
         property real dragStartX: 0
         property real dragStartY: 0
+        property int hoverColumn: 0
+        property int hoverColumnCount: 1
         readonly property color accentColor: root.serviceAccentColor(serviceType)
 
         // Wallet-card look: every measurement is a ratio of the tile itself, so the layout keeps the
@@ -8175,11 +8199,10 @@ ApplicationWindow {
         Behavior on color { ColorAnimation { duration: 250; easing.type: Easing.OutCubic } }
         Behavior on border.color { ColorAnimation { duration: 250; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 120 } }
-        // Scale around the card's top edge instead of the center: the grid
-        // cells sit flush against the content top, so a center-based hover
-        // scale pushes the enlarged card above the scroll area where the
-        // page clip cuts it off.
-        transformOrigin: Item.Top
+        // Edge cards grow inward. All cards grow downward so the page clip
+        // does not cut off their top edge during the hover animation.
+        transformOrigin: hoverColumn === 0 ? Item.TopLeft
+            : hoverColumn === hoverColumnCount - 1 ? Item.TopRight : Item.Top
 
         Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
 
@@ -18449,7 +18472,7 @@ ApplicationWindow {
                         Slider {
                             id: serviceCardSizeSlider
                             Layout.fillWidth: true
-                            from: 80
+                            from: 50
                             to: 150
                             stepSize: 5
                             snapMode: Slider.SnapAlways

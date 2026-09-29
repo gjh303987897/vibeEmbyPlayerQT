@@ -1767,12 +1767,12 @@ void SessionRepository::setPlayerLayout(const QString& layout)
 int SessionRepository::serviceCardSizePercent() const
 {
     const auto configured = m_settings.value(QStringLiteral("appearance/serviceCardSizePercent"), 100).toInt();
-    return std::clamp(configured, 80, 150);
+    return std::clamp(configured, 50, 150);
 }
 
 void SessionRepository::setServiceCardSizePercent(int percent)
 {
-    m_settings.setValue(QStringLiteral("appearance/serviceCardSizePercent"), std::clamp(percent, 80, 150));
+    m_settings.setValue(QStringLiteral("appearance/serviceCardSizePercent"), std::clamp(percent, 50, 150));
 }
 
 bool SessionRepository::pageTransitionsEnabled() const
