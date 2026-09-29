@@ -117,6 +117,8 @@ public:
     void setJellyfinHomeLayout(const QString& layout);
     QString playerLayout() const;
     void setPlayerLayout(const QString& layout);
+    int serviceCardSizePercent() const;
+    void setServiceCardSizePercent(int percent);
     bool pageTransitionsEnabled() const;
     void setPageTransitionsEnabled(bool enabled);
     QStringList embyRecommendationExcludedGenres() const;

@@ -253,6 +253,12 @@ qt_add_qml_module(vibePlayerQT
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/ImageCacheManager.qml
+        qml/ImagePreloader.qml
+        qml/DataProcessManager.qml
+        qml/BindingOptimizer.qml
+    RESOURCES
+        qml/DataWorker.mjs
 )
 
 qt_add_resources(vibePlayerQT "app_icons"

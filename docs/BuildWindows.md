@@ -82,6 +82,18 @@ The script creates `build-clang` with:
 .\build-clang\vibePlayerQT.exe
 ```
 
+## QML Runtime Packaging
+
+`qt_add_qml_module` must include every QML type instantiated by `Main.qml` in
+`QML_FILES`. The current module includes `ImageCacheManager`, its dynamically
+loaded `ImagePreloader`, `DataProcessManager`, and `BindingOptimizer`.
+`DataWorker.mjs` is embedded as a resource at the same relative path as
+`DataProcessManager.qml` so `WorkerScript` can load it.
+
+If the GUI executable exits before a window appears, set `VIBEPLAYER_LOG_FILE`
+to a writable absolute path before launching it. Startup QML warnings and root
+creation failures are written there.
+
 ## Verification
 
 The Debug build was compiled successfully and the deployed executable was smoke-tested by launching it for several seconds. The process remained running, which confirms the executable can start and load its Qt/QML runtime dependencies.

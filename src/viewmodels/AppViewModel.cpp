@@ -1094,6 +1094,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby home layout") },
         { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin home layout") },
         { QStringLiteral("settings.playerLayout"), QStringLiteral("Player layout") },
+        { QStringLiteral("settings.serviceCardSize"), QStringLiteral("Service card size") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("Page transition animations") },
         { QStringLiteral("settings.recommendations"), QStringLiteral("Emby recommendations") },
         { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("Recommendation updates") },
@@ -1659,6 +1660,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("settings.embyHomeLayout"), QStringLiteral("Emby 首页样式") },
         { QStringLiteral("settings.jellyfinHomeLayout"), QStringLiteral("Jellyfin 首页样式") },
         { QStringLiteral("settings.playerLayout"), QStringLiteral("播放器样式") },
+        { QStringLiteral("settings.serviceCardSize"), QStringLiteral("服务卡片大小") },
         { QStringLiteral("settings.pageTransitions"), QStringLiteral("页面切换动画") },
         { QStringLiteral("settings.recommendations"), QStringLiteral("Emby 推荐") },
         { QStringLiteral("settings.embyRecommendationRefresh"), QStringLiteral("推荐更新") },
@@ -3555,6 +3557,21 @@ void AppViewModel::setPlayerLayout(const QString& value)
     }
     m_repository.setPlayerLayout(normalized);
     emit playerLayoutChanged();
+}
+
+int AppViewModel::serviceCardSizePercent() const
+{
+    return m_repository.serviceCardSizePercent();
+}
+
+void AppViewModel::setServiceCardSizePercent(int value)
+{
+    const auto normalized = std::clamp(value, 80, 150);
+    if (serviceCardSizePercent() == normalized) {
+        return;
+    }
+    m_repository.setServiceCardSizePercent(normalized);
+    emit serviceCardSizePercentChanged();
 }
 
 bool AppViewModel::pageTransitionsEnabled() const

@@ -193,6 +193,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QVariantList updateAssets READ updateAssets NOTIFY updateStateChanged)
     Q_PROPERTY(QString jellyfinHomeLayout READ jellyfinHomeLayout WRITE setJellyfinHomeLayout NOTIFY jellyfinHomeLayoutChanged)
     Q_PROPERTY(QString playerLayout READ playerLayout WRITE setPlayerLayout NOTIFY playerLayoutChanged)
+    Q_PROPERTY(int serviceCardSizePercent READ serviceCardSizePercent WRITE setServiceCardSizePercent NOTIFY serviceCardSizePercentChanged)
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
@@ -483,6 +484,8 @@ public:
     void setJellyfinHomeLayout(const QString& value);
     QString playerLayout() const;
     void setPlayerLayout(const QString& value);
+    int serviceCardSizePercent() const;
+    void setServiceCardSizePercent(int value);
     bool pageTransitionsEnabled() const;
     void setPageTransitionsEnabled(bool value);
     int translationRevision() const;
@@ -813,6 +816,7 @@ signals:
     void updateStateChanged();
     void jellyfinHomeLayoutChanged();
     void playerLayoutChanged();
+    void serviceCardSizePercentChanged();
     void pageTransitionsEnabledChanged();
     void translationsChanged();
     void loadingChanged();

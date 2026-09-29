@@ -4795,19 +4795,24 @@ ApplicationWindow {
 
                 Flickable {
                     id: servicePage
-                    readonly property int cardColumnCount: bindingOptimizer.calculateColumns(width, [
-                        {width: 700, columns: 2},
-                        {width: 1000, columns: 3},
-                        {width: 1400, columns: 4},
-                        {width: 9999, columns: 5}
-                    ])
+                    // 100% retains the original responsive card geometry. Other values change
+                    // the tile size directly, then fit as many whole tiles as the page allows.
+                    readonly property int baseCardColumnCount: width < 700 ? 2
+                        : width < 1000 ? 3 : width < 1400 ? 4 : 5
                     readonly property real cardSpacing: 18
                     readonly property real cardRowSpacing: 28
-                    readonly property real cardCellWidth: (width + cardSpacing) / cardColumnCount
-                    readonly property real cardWidth: Math.max(0, cardCellWidth - cardSpacing)
-                    // Wallet-card proportions: the reference tiles measure 1.70:1, which also keeps
-                    // two stacked rows plus the built-in row inside a 780px window.
-                    readonly property real cardHeight: Math.round(Math.max(150, cardWidth / 1.7))
+                    readonly property real baseCardWidth: Math.max(0,
+                        (width + cardSpacing) / baseCardColumnCount - cardSpacing)
+                    readonly property real cardWidth: Math.min(width,
+                        baseCardWidth * appViewModel.serviceCardSizePercent / 100)
+                    readonly property int cardColumnCount: appViewModel.serviceCardSizePercent === 100
+                        ? baseCardColumnCount
+                        : Math.max(1, Math.floor((width + cardSpacing + 0.01)
+                            / (cardWidth + cardSpacing)))
+                    readonly property real cardCellWidth: cardWidth + cardSpacing
+                    readonly property real cardsRowWidth: cardColumnCount * cardCellWidth - cardSpacing
+                    readonly property real cardHeight: Math.round(Math.max(150,
+                        baseCardWidth / 1.7) * appViewModel.serviceCardSizePercent / 100)
 
                     // Two rows of poster tiles already exceed a 780px window, so the whole home
                     // flow scrolls instead of clipping the last row.
@@ -4831,7 +4836,8 @@ ApplicationWindow {
                         spacing: servicePage.cardRowSpacing
 
                         GridLayout {
-                            Layout.fillWidth: true
+                            Layout.preferredWidth: servicePage.cardsRowWidth
+                            Layout.alignment: Qt.AlignHCenter
                             columns: servicePage.cardColumnCount
                             columnSpacing: servicePage.cardSpacing
                             rowSpacing: servicePage.cardRowSpacing
@@ -4926,9 +4932,9 @@ ApplicationWindow {
 
                             GridView {
                                 id: serviceGrid
-                                anchors.left: parent.left
+                                x: (parent.width - servicePage.cardsRowWidth) / 2
                                 anchors.top: parent.top
-                                width: parent.width + servicePage.cardSpacing
+                                width: servicePage.cardColumnCount * servicePage.cardCellWidth
                                 height: contentHeight
                                 interactive: false
                                 boundsBehavior: Flickable.StopAtBounds
@@ -6451,11 +6457,6 @@ ApplicationWindow {
             maskEnabled: true
             maskSource: coverMask
             autoPaddingEnabled: false
-            cache: false
-            visible: false
-            onStatusChanged: {
-                roundedCoverImage.requestPaint()
-            }
         }
     }
 
@@ -13403,8 +13404,6 @@ ApplicationWindow {
                         cacheBuffer: 400
                         reuseItems: true
                         pixelAligned: true
-                        cacheBuffer: 240
-                        reuseItems: true
                         model: playerPage.trackMenuMode === "subtitle"
                             ? mpvVideo.subtitleTracks
                             : mpvVideo.audioTracks
@@ -18436,6 +18435,35 @@ ApplicationWindow {
                         traditionalLabel: t("option.playerTraditional")
                         onLayoutChosen: function(value) {
                             appViewModel.playerLayout = value
+                        }
+                    }
+                }
+
+                SettingRow {
+                    label: t("settings.serviceCardSize")
+
+                    RowLayout {
+                        Layout.preferredWidth: 220
+                        spacing: 8
+
+                        Slider {
+                            id: serviceCardSizeSlider
+                            Layout.fillWidth: true
+                            from: 80
+                            to: 150
+                            stepSize: 5
+                            snapMode: Slider.SnapAlways
+                            value: appViewModel.serviceCardSizePercent
+                            Accessible.name: t("settings.serviceCardSize")
+                            onMoved: appViewModel.serviceCardSizePercent = Math.round(value)
+                        }
+
+                        Label {
+                            Layout.preferredWidth: 44
+                            text: Math.round(serviceCardSizeSlider.value) + "%"
+                            color: theme.text
+                            font.pixelSize: 14
+                            horizontalAlignment: Text.AlignRight
                         }
                     }
                 }
