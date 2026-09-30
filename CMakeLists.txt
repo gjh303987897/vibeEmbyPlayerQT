@@ -59,6 +59,25 @@ if(WIN32)
     set(MPV_LIBRARY "${MPV_ROOT}/libmpv.dll.a")
     set(MPV_RUNTIME_DLL "${MPV_ROOT}/libmpv-2.dll")
 
+    # The pinned libmpv DLL imports vulkan-1.dll even for headless playback.
+    # CI supplies the official runtime; developer machines can use their driver
+    # installation. Copy the loader beside each consumer instead of relying on
+    # a GPU driver being installed on the runner or the user's computer.
+    set(VIBEPLAYER_VULKAN_RUNTIME_DIR "" CACHE PATH "Directory containing the x64 Vulkan runtime loader")
+    if(VIBEPLAYER_VULKAN_RUNTIME_DIR)
+        set(MPV_VULKAN_RUNTIME_DLL "${VIBEPLAYER_VULKAN_RUNTIME_DIR}/vulkan-1.dll")
+    else()
+        find_file(MPV_VULKAN_RUNTIME_DLL NAMES vulkan-1.dll
+            HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{WINDIR}/System32"
+            NO_CACHE
+        )
+    endif()
+    if(NOT EXISTS "${MPV_VULKAN_RUNTIME_DLL}")
+        message(FATAL_ERROR
+            "libmpv requires vulkan-1.dll. Install the official Vulkan runtime or set "
+            "VIBEPLAYER_VULKAN_RUNTIME_DIR to the runtime components' x64 directory.")
+    endif()
+
     if(NOT EXISTS "${MPV_INCLUDE_DIR}/mpv/client.h")
         message(FATAL_ERROR
             "libmpv headers not found at ${MPV_INCLUDE_DIR}. "
@@ -338,6 +357,9 @@ if(WIN32)
             "${MPV_RUNTIME_DLL}"
             "$<TARGET_FILE_DIR:vibePlayerQT>/libmpv-2.dll"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MPV_VULKAN_RUNTIME_DLL}"
+            "$<TARGET_FILE_DIR:vibePlayerQT>/vulkan-1.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:Qt6::Xml>"
             "$<TARGET_FILE_DIR:vibePlayerQT>/$<TARGET_FILE_NAME:Qt6::Xml>"
         VERBATIM
@@ -366,7 +388,8 @@ install(TARGETS vibePlayerQT
 )
 
 if(WIN32)
-    install(FILES "${MPV_RUNTIME_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES "${MPV_RUNTIME_DLL}" "${MPV_VULKAN_RUNTIME_DLL}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES "packaging/licenses/VulkanRT-License.txt" DESTINATION "licenses")
 endif()
 
 if(UNIX AND NOT APPLE)
@@ -663,6 +686,8 @@ if(BUILD_TESTING)
         add_custom_command(TARGET encrypted_hls_playback_proxy_test POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${MPV_RUNTIME_DLL}" "$<TARGET_FILE_DIR:encrypted_hls_playback_proxy_test>/libmpv-2.dll"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MPV_VULKAN_RUNTIME_DLL}" "$<TARGET_FILE_DIR:encrypted_hls_playback_proxy_test>/vulkan-1.dll"
             VERBATIM
         )
     endif()

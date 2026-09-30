@@ -15,6 +15,7 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -26,6 +27,7 @@
 #include <QStringDecoder>
 
 #include <optional>
+#include <clocale>
 
 namespace {
 bool writeFile(const QString& path, const QByteArray& bytes)
@@ -187,6 +189,7 @@ class EncryptedHlsPlaybackProxyTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void playerInitializesWithNonCNumericLocale();
     void remoteIdentifierPreviewIsResolvedWithoutTssl();
     void remoteMetadataRestoresSourceFileNameWithTssl();
     void previewUsesSingleRangedProbeAndCachesResult();
@@ -200,6 +203,26 @@ private slots:
     void localEncryptedPlaybackLimitsReadAheadAndRestoresNetworkDefaults();
     void mismatchedIdentifierIsRejectedBeforePlayback();
 };
+
+void EncryptedHlsPlaybackProxyTest::playerInitializesWithNonCNumericLocale()
+{
+    const QByteArray previousLocale = std::setlocale(LC_NUMERIC, nullptr);
+    const auto restoreLocale = qScopeGuard([&]() { std::setlocale(LC_NUMERIC, previousLocale.constData()); });
+    bool nonCLocaleAvailable = false;
+    for (const auto* locale : { "de_DE.UTF-8", "fr_FR.UTF-8", "en_US.UTF-8", "German_Germany.1252" }) {
+        if (std::setlocale(LC_NUMERIC, locale)) {
+            nonCLocaleAvailable = true;
+            break;
+        }
+    }
+    if (!nonCLocaleAvailable) QSKIP("No non-C numeric locale is installed");
+    QVERIFY(QByteArray(std::setlocale(LC_NUMERIC, nullptr)) != QByteArrayLiteral("C"));
+    PlayerController player;
+    QSignalSpy errors(&player, &PlayerController::errorOccurred);
+    QVERIFY(player.initializeHeadless());
+    QCOMPARE(QByteArray(std::setlocale(LC_NUMERIC, nullptr)), QByteArrayLiteral("C"));
+    QVERIFY(errors.isEmpty());
+}
 
 void EncryptedHlsPlaybackProxyTest::remoteIdentifierPreviewIsResolvedWithoutTssl()
 {
@@ -672,6 +695,10 @@ void EncryptedHlsPlaybackProxyTest::localEncryptedPlaybackLimitsReadAheadAndRest
         QVERIFY(localPlayer.initializeHeadless());
         localPlayer.playUrl(QUrl::fromLocalFile(temporary.filePath(QStringLiteral("plain.m3u8"))).toString());
         QTRY_VERIFY_WITH_TIMEOUT(localPlayer.position() > 0.1, 10000);
+        QVERIFY(localErrors.isEmpty());
+        // Resume also uses per-file options without the encrypted cache profile.
+        localPlayer.playUrl(QUrl::fromLocalFile(temporary.filePath(QStringLiteral("plain.m3u8"))).toString(), 12.0);
+        QTRY_VERIFY_WITH_TIMEOUT(localPlayer.position() >= 12.0, 10000);
         QVERIFY(localErrors.isEmpty());
         localPlayer.shutdown();
     }

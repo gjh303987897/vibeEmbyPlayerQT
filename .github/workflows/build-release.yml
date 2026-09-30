@@ -24,6 +24,9 @@ env:
   # scripts/fetch-mpv-dev.ps1. The external ffmpeg executable used by M3U8S
   # packaging stays intentionally unpinned for now (deferred task).
   MPV_LOCK_FILE: deps/libmpv.lock.json
+  # Official LunarG runtime ZIP; libmpv directly imports its Vulkan loader.
+  VULKAN_RUNTIME_VERSION: '1.4.357.0'
+  VULKAN_RUNTIME_SHA256: a14672efed15aafc7f5a16572d35cd3a3416eadf670aeee3cdf50ee32d5fbf83
 
 jobs:
   metadata:
@@ -247,6 +250,26 @@ jobs:
             }
           }
 
+      - name: Fetch Windows Vulkan runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:VULKAN_RUNTIME_VERSION
+          $asset = "VulkanRT-X64-$version-Components.zip"
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/$asset" -OutFile $archive -TimeoutSec 60
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:VULKAN_RUNTIME_SHA256) {
+            throw "Unexpected Vulkan runtime hash: $actualHash"
+          }
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP "vulkan-runtime"
+          Expand-Archive -LiteralPath $archive -DestinationPath $runtimeRoot -Force
+          $runtimeDir = Join-Path $runtimeRoot "VulkanRT-X64-$version-Components/x64"
+          if (!(Test-Path -LiteralPath (Join-Path $runtimeDir 'vulkan-1.dll'))) {
+            throw "The official runtime archive is missing the x64 Vulkan loader"
+          }
+          "VULKAN_RUNTIME_DIR=$runtimeDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Configure CMake on Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -259,6 +282,7 @@ jobs:
             "-G", "Ninja",
             "-DCMAKE_BUILD_TYPE=$($env:BUILD_TYPE)",
             "-DCMAKE_PREFIX_PATH=$($env:QT_ROOT)",
+            "-DVIBEPLAYER_VULKAN_RUNTIME_DIR=$($env:VULKAN_RUNTIME_DIR)",
             "-DCMAKE_C_COMPILER=$clang",
             "-DCMAKE_CXX_COMPILER=$clang",
             "-DCMAKE_LINKER=$lldLink"
@@ -331,6 +355,7 @@ jobs:
         run: |
           if (!(Test-Path "$env:PACKAGE_DIR\bin\vibePlayerQT.exe")) { throw "Missing vibePlayerQT.exe" }
           if (!(Test-Path "$env:PACKAGE_DIR\bin\libmpv-2.dll")) { throw "Missing libmpv-2.dll" }
+          if (!(Test-Path "$env:PACKAGE_DIR\bin\vulkan-1.dll")) { throw "Missing vulkan-1.dll" }
           Get-ChildItem -Recurse "$env:PACKAGE_DIR" | Select-Object FullName, Length
 
       - name: Validate macOS package

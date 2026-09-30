@@ -53,6 +53,19 @@ The development package provides:
 
 CMake links `libmpv.dll.a` and copies `libmpv-2.dll` into the executable output directory on Windows.
 
+The pinned DLL also directly imports `vulkan-1.dll`, including in headless mode.
+Windows CI downloads the official LunarG runtime components ZIP, using the
+version and SHA-256 recorded in `build-release.yml`, and passes its `x64`
+directory as `VIBEPLAYER_VULKAN_RUNTIME_DIR`. Local builds can supply the same
+directory or use a loader already installed under `VULKAN_SDK/Bin` or
+`Windows/System32`. CMake fails with an explicit setup instruction if it cannot
+find the loader. It copies both DLLs beside the application and the libmpv test,
+installs both into `bin`, and includes `licenses/VulkanRT-License.txt`. This
+avoids relying on a GPU driver on CI or on the destination computer. The loader
+does not supply a GPU driver; headless tests continue using null outputs.
+
+Official runtime downloads: <https://vulkan.lunarg.com/sdk/home/>.
+
 macOS and Linux resolve libmpv through `pkg-config` and cannot be byte-pinned
 with this mechanism (Homebrew is rolling, apt follows the runner image).
 Documented baselines live in the lock file's `baselines` section, and
@@ -102,6 +115,16 @@ Reference: <https://mpv.io/manual/master/#video-synchronization>
 
 No other module should include `mpv/client.h`.
 
+Before `mpv_create`, `PlayerController::initializeInternal` resets only the C
+runtime's `LC_NUMERIC` category to `C`, as required by libmpv. Qt application
+startup can select a different numeric locale, especially on macOS, so this
+requirement belongs at the shared initialization boundary for embedded,
+headless and test callers. UI translation and Qt's `QLocale` remain independent.
+`playerInitializesWithNonCNumericLocale` verifies initialization after selecting
+a non-C locale and restores the test process's original locale afterward.
+
+Reference: [libmpv client API requirements](https://github.com/mpv-player/mpv/blob/master/include/mpv/client.h).
+
 ## Local Encrypted HLS Cache
 
 Local `.m3u8s` and `.m3u8sp` playback reaches libmpv through the authenticated
@@ -118,6 +141,13 @@ replaced, so subsequent HTTP, WebDAV, SMB and other playback retains its
 existing behavior. Decoder and video-output memory are separate from these
 approximate demuxer cache limits; an entire encrypted segment must still be
 authenticated before it can be exposed to the player.
+
+Calls with per-file options use `mpv_command_node` with the named `url`,
+`flags` and `options` arguments. The command name uses the compatible `name`
+key. mpv 0.38 added a positional insertion index before the options argument;
+named arguments avoid that version-dependent ordering and work with Ubuntu
+24.04's mpv 0.37 and newer Windows/macOS runtimes. The regression fixture also
+checks ordinary local-file resume, which uses the same options path.
 
 `EncryptedHlsPlaybackProxyTest` generates a temporary 30-second HLS fixture
 with FFmpeg and verifies ordinary local HLS playback, encrypted container

@@ -6,6 +6,7 @@
 #include <mpv/client.h>
 
 #include <algorithm>
+#include <array>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
@@ -13,6 +14,7 @@
 #include <QVariant>
 #include <QStringList>
 #include <cmath>
+#include <clocale>
 #include <cstring>
 #include <initializer_list>
 #include <utility>
@@ -271,6 +273,9 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
 
     m_windowId = windowId;
     m_headless = headless;
+    // Qt application startup can change the C locale. libmpv requires C
+    // numeric parsing even when the UI uses the user's regional settings.
+    std::setlocale(LC_NUMERIC, "C");
     m_mpv = mpv_create();
     if (!m_mpv) {
         emit errorOccurred(QStringLiteral("Unable to create libmpv handle"));
@@ -559,9 +564,25 @@ void PlayerController::playUrl(const QString& url,
     }
     bool requested = false;
     if (!fileOptions.isEmpty()) {
-        const auto options = fileOptions.join(',');
-        const char* args[] = { "loadfile", encoded.constData(), "replace", "-1", options.constData(), nullptr };
-        requested = command(args);
+        // mpv 0.38 inserted a positional index before options. Named arguments
+        // work with both 0.37 (Ubuntu 24.04) and newer runtimes. The command key
+        // "name" is also supported by 0.37, unlike the newer "_name" spelling.
+        QByteArrayList names { "name", "url", "flags", "options" };
+        QByteArrayList arguments { "loadfile", encoded, "replace", fileOptions.join(',') };
+        std::array<char*, 4> keys {};
+        std::array<mpv_node, 4> values {};
+        for (std::size_t index = 0; index < values.size(); ++index) {
+            keys[index] = names[index].data();
+            values[index].format = MPV_FORMAT_STRING;
+            values[index].u.string = arguments[index].data();
+        }
+        mpv_node_list list { .num = static_cast<int>(values.size()), .values = values.data(), .keys = keys.data() };
+        mpv_node args { .u = { .list = &list }, .format = MPV_FORMAT_NODE_MAP };
+        const auto status = mpv_command_node(m_mpv, &args, nullptr);
+        requested = status >= 0;
+        if (!requested) {
+            emit errorOccurred(QString::fromUtf8(mpv_error_string(status)));
+        }
     } else {
         const char* args[] = { "loadfile", encoded.constData(), "replace", nullptr };
         requested = command(args);

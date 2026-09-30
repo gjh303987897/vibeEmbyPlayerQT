@@ -37,6 +37,28 @@ recorded because both broke the matrix:
 - History fixtures must not use calendar dates; see `GlobalPlaybackHistory.md`. They pruned themselves
   out of the retention window and `ctest` failed once the build got past the link errors.
 
+`encrypted_hls_playback_proxy` also exercises the real `PlayerController`, so
+its runtime dependencies and libmpv initialization requirements are CI gates:
+
+- Windows `0xc0000135` indicates a missing DLL before the test can run. The
+  pinned `libmpv-2.dll` directly imports `vulkan-1.dll`; copying libmpv alone is
+  insufficient on a runner without a Vulkan runtime. The workflow fetches the
+  official LunarG components ZIP, verifies `VULKAN_RUNTIME_SHA256`, and passes
+  the extracted x64 directory to CMake. Both DLLs are copied beside the test and
+  application and installed into the Windows package. Package validation checks
+  the Vulkan loader too. Its license is included under `licenses`.
+- macOS Qt startup can change the C numeric locale. PlayerController resets
+  `LC_NUMERIC` to `C` before `mpv_create`, as required by the client API. Tests
+  check this boundary rather than relying on the runner's locale environment.
+- Ubuntu 24.04 supplies mpv 0.37, whose positional `loadfile` arguments differ
+  from mpv 0.38 and later. PlayerController uses named client API arguments for
+  cache and resume options, preserving compatibility without disabling playback
+  assertions or dropping the local cache limits.
+
+References: [official Vulkan runtime](https://vulkan.lunarg.com/sdk/home/),
+[libmpv client API](https://github.com/mpv-player/mpv/blob/master/include/mpv/client.h),
+[mpv loadfile contract](https://mpv.io/manual/stable/#command-interface).
+
 Main commands:
 
 ```bash
@@ -77,9 +99,15 @@ Windows and macOS use Qt's platform deployment tools underneath. Linux uses Qt's
 
 ## libmpv Dependency
 
-Windows resolves the latest standard x86_64 development package from the official `zhongfly/mpv-winbuild` GitHub Releases API. The API request uses the workflow's automatic GitHub token to avoid the low shared-IP limit applied to unauthenticated requests. PowerShell explicitly enumerates the returned JSON asset array before applying the filename filter, ensuring one selected asset cannot accidentally represent the complete response array. The asset must match `mpv-dev-x86_64-YYYYMMDD-git-HASH.7z`; the CPU-specific `-v3` package is intentionally excluded so the application remains compatible with older x86_64 processors. Upstream release assets can be replaced or uploaded incrementally after a release becomes visible through the API, so the workflow polls that release's asset endpoint for up to two minutes before treating the standard development package as missing.
-
-The upstream project periodically removes old daily release tags, so the workflow does not keep a direct URL to a dated asset. GitHub's release asset metadata supplies a SHA-256 digest. The Windows job verifies the downloaded archive against that digest, extracts it into `third_party/mpv/dev`, checks for `include/mpv/client.h`, `libmpv.dll.a`, and `libmpv-2.dll`, then links the import library and installs the runtime DLL.
+Windows resolves the standard x86_64 development package pinned by
+`deps/libmpv.lock.json` from `zhongfly/mpv-winbuild`. The Windows job verifies
+the archive SHA-256 and extracted file hashes from that lock, extracts into
+`third_party/mpv/dev`, then links the import library and installs the runtime
+DLL. `scripts/fetch-mpv-dev.ps1` uses the same lock for local development.
+The Vulkan loader is fetched separately from the official LunarG runtime ZIP;
+its version and archive SHA-256 are pinned in the workflow environment. CMake
+copies and installs both runtime DLLs, and the package includes the Vulkan
+runtime license.
 
 Windows CI configures CMake with `clang-cl` and `lld-link`, matching the local `scripts/configure-clang.cmd` flow while still using the MSVC-compatible Qt package.
 
