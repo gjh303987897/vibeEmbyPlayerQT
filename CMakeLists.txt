@@ -713,6 +713,27 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 
+    add_executable(tssl_backup_service_test
+        tests/TsslBackupServiceTest.cpp
+        src/services/backup/TsslBackupService.cpp
+        src/services/backup/TsslBackupService.h
+        src/services/webdav/TsslStore.cpp
+        src/services/webdav/TsslStore.h
+        src/services/webdav/AesGcmDecryptor.cpp
+        src/services/webdav/AesGcmDecryptor.h
+    )
+    target_include_directories(tssl_backup_service_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(tssl_backup_service_test PRIVATE
+        Qt6::Concurrent Qt6::Network Qt6::Test Qt6::Xml ${VIBE_CRYPTO_LIBRARIES}
+    )
+    add_test(NAME tssl_backup_service COMMAND tssl_backup_service_test
+        -o "${CMAKE_CURRENT_BINARY_DIR}/tssl-backup-service-results.txt,txt"
+    )
+    set_tests_properties(tssl_backup_service PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
     add_executable(encrypted_hls_packager_test
         tests/EncryptedHlsPackagerTest.cpp
         src/services/encryptedhls/EncryptedHlsBatchPackager.cpp

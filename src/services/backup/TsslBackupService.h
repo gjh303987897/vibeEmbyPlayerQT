@@ -1,7 +1,9 @@
 #pragma once
 
 #include "models/ServerConfig.h"
+#include "services/webdav/TsslStore.h"
 
+#include <QFuture>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QTemporaryDir>
@@ -30,12 +32,19 @@ struct TsslBackupTarget final {
 using TsslBackupResult = std::expected<int, QString>;
 using TsslBackupRestoreResult = std::expected<QStringList, QString>;
 
+struct TsslBackupPackages final {
+    QStringList files;
+    std::vector<QByteArray> digests;
+};
+using TsslBackupPackagesResult = std::expected<TsslBackupPackages, QString>;
+
 class TsslBackupService final : public QObject {
     Q_OBJECT
 
 public:
     explicit TsslBackupService(QObject* parent = nullptr);
 
+    static QFuture<TsslBackupPackagesResult> preparePackages(TsslStore store);
     bool isRunning() const;
     void backup(const TsslBackupTarget& target,
                 QStringList localFiles,
@@ -52,7 +61,7 @@ private:
     void uploadNext();
     void finish(TsslBackupResult result);
     void uploadWebDav(const QString& localPath, const QByteArray& payload);
-    void uploadS3(const QString& localPath, const QByteArray& payload);
+    void uploadS3(const QString& localPath, const QByteArray& payload, const QByteArray& payloadHash);
     void listRemoteFiles();
     void listWebDavFiles();
     void listS3Files();

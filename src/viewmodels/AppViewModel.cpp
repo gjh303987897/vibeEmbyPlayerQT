@@ -1197,6 +1197,7 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("tsslBackup.cancel"), QStringLiteral("Cancel backup") },
         { QStringLiteral("tsslBackup.inProgress"), QStringLiteral("Working...") },
         { QStringLiteral("tsslBackup.statusPreparing"), QStringLiteral("Preparing %1 TSSL packages...") },
+        { QStringLiteral("tsslBackup.statusScanning"), QStringLiteral("Checking TSSL packages for backup...") },
         { QStringLiteral("tsslBackup.statusProgress"), QStringLiteral("Uploading %1/%2 TSSL packages...") },
         { QStringLiteral("tsslBackup.statusDone"), QStringLiteral("Backed up %1 TSSL packages") },
         { QStringLiteral("tsslBackup.statusLocalDone"), QStringLiteral("Copied %1 TSSL packages to the local folder") },
@@ -1741,6 +1742,7 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("tsslBackup.cancel"), QStringLiteral("取消备份") },
         { QStringLiteral("tsslBackup.inProgress"), QStringLiteral("正在处理……") },
         { QStringLiteral("tsslBackup.statusPreparing"), QStringLiteral("正在准备 %1 个 TSSL 包……") },
+        { QStringLiteral("tsslBackup.statusScanning"), QStringLiteral("正在检查需要备份的 TSSL 包……") },
         { QStringLiteral("tsslBackup.statusProgress"), QStringLiteral("正在上传 %1/%2 个 TSSL 包……") },
         { QStringLiteral("tsslBackup.statusDone"), QStringLiteral("已备份 %1 个 TSSL 包") },
         { QStringLiteral("tsslBackup.statusLocalDone"), QStringLiteral("已复制 %1 个 TSSL 包到本地文件夹") },
@@ -6853,72 +6855,14 @@ void AppViewModel::backupTsslToConfiguredTarget()
     clearError();
     if (m_tsslBackupRunning) return;
 
-    const auto packages = m_tsslStore.listPackages();
-    if (!packages) {
-        setError(packages.error());
-        return;
-    }
-    QStringList files;
-    std::vector<QByteArray> digests;
-    digests.reserve(static_cast<size_t>(packages->size()));
-    for (const auto& package : *packages) {
-        if (package.valid && QFileInfo::exists(package.filePath)) {
-            files.append(package.filePath);
-            digests.push_back(package.rootManifestDigest);
-        }
-    }
-    if (files.isEmpty()) {
-        setError(trText(QStringLiteral("tsslBackup.noPackages")));
-        return;
-    }
-
-    if (m_tsslBackupTarget == QStringLiteral("local")) {
-        const QFileInfo destinationInfo(m_tsslBackupLocalPath);
+    const auto localBackup = m_tsslBackupTarget == QStringLiteral("local");
+    TsslBackupTarget target;
+    if (localBackup) {
         if (m_tsslBackupLocalPath.trimmed().isEmpty()) {
             setError(trText(QStringLiteral("tsslBackup.noLocalPath")));
             return;
         }
-        if (!destinationInfo.exists() || !destinationInfo.isDir() || !destinationInfo.isWritable()) {
-            setError(trText(QStringLiteral("tsslBackup.invalidLocalPath")));
-            return;
-        }
-
-        m_tsslBackupRunning = true;
-        m_tsslBackupCancelable = false;
-        m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusCopying")).arg(digests.size());
-        emit tsslBackupChanged();
-
-        using LocalBackupResult = std::expected<int, QString>;
-        auto* watcher = new QFutureWatcher<LocalBackupResult>(this);
-        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
-            const auto result = watcher->future().takeResult();
-            watcher->deleteLater();
-            m_tsslBackupRunning = false;
-            m_tsslBackupCancelable = false;
-            if (result) {
-                m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusLocalDone")).arg(*result);
-                emit tsslBackupChanged();
-                emit tsslOperationNoticeRequested(m_tsslBackupStatus, false);
-                AppLogger::info(QStringLiteral("encrypted-hls"),
-                                QStringLiteral("Copied %1 managed TSSL packages to a local backup folder")
-                                    .arg(*result));
-            } else {
-                m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusFailed"));
-                emit tsslBackupChanged();
-                setError(result.error());
-            }
-        });
-        watcher->setFuture(QtConcurrent::run(
-            [store = m_tsslStore,
-             digests = std::move(digests),
-             destination = destinationInfo.absoluteFilePath()]() mutable {
-                return store.exportByRootDigests(digests, destination);
-            }));
-        return;
-    }
-
-    TsslBackupTarget target;
-    if (m_tsslBackupTarget == QStringLiteral("webdav")) {
+    } else if (m_tsslBackupTarget == QStringLiteral("webdav")) {
         std::optional<ServiceCard> selected;
         for (int row = 0; row < m_services.count(); ++row) {
             const auto card = m_services.cardAt(row);
@@ -6932,53 +6876,110 @@ void AppViewModel::backupTsslToConfiguredTarget()
             setError(trText(QStringLiteral("tsslBackup.noWebDavService")));
             return;
         }
-        const auto password = loadWebDavPassword(selected->server);
-        if (!password) {
-            setError(trText(QStringLiteral("tsslBackup.webDavPasswordRequired")));
-            return;
-        }
         target.type = TsslBackupTarget::Type::WebDav;
         target.webDavServer = selected->server;
-        target.webDavPassword = *password;
         target.webDavPath = m_tsslBackupWebDavPath;
     } else if (m_tsslBackupTarget == QStringLiteral("s3")) {
-        const auto secret = CredentialStore::loadSecret(QStringLiteral("tsslBackupS3Secret"));
-        if (!secret || !*secret || (*secret)->isEmpty()) {
-            setError(secret ? trText(QStringLiteral("tsslBackup.s3SecretRequired")) : secret.error());
-            return;
-        }
         target.type = TsslBackupTarget::Type::S3;
         target.s3Endpoint = QUrl(m_tsslBackupS3Endpoint.trimmed());
         target.s3Bucket = m_tsslBackupS3Bucket.trimmed();
         target.s3Region = m_tsslBackupS3Region.trimmed();
         target.s3Prefix = m_tsslBackupS3Prefix.trimmed();
         target.s3AccessKey = m_tsslBackupS3AccessKey.trimmed();
-        target.s3SecretKey = **secret;
     } else {
         setError(trText(QStringLiteral("tsslBackup.noTarget")));
         return;
     }
 
+    // Snapshot the target before preparing files; editing Settings while the
+    // scan runs must not redirect the pending backup to a different location.
     m_tsslBackupRunning = true;
-    m_tsslBackupCancelable = true;
-    m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusPreparing")).arg(files.size());
+    m_tsslBackupCancelable = false;
+    m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusScanning"));
     emit tsslBackupChanged();
-    m_tsslBackupService.backup(target, std::move(files), [this](TsslBackupResult result) {
-        m_tsslBackupRunning = false;
-        m_tsslBackupCancelable = false;
-        if (result) {
+
+    auto* watcher = new QFutureWatcher<TsslBackupPackagesResult>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, localBackup, destination = m_tsslBackupLocalPath,
+             target = std::move(target)]() mutable {
+        auto prepared = watcher->future().takeResult();
+        watcher->deleteLater();
+        const auto fail = [this](const QString& error) {
+            m_tsslBackupRunning = false;
+            m_tsslBackupCancelable = false;
+            m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusFailed"));
+            emit tsslBackupChanged();
+            setError(error);
+        };
+        if (!prepared || prepared->files.isEmpty()) {
+            fail(prepared ? trText(QStringLiteral("tsslBackup.noPackages")) : prepared.error());
+            return;
+        }
+
+        if (localBackup) {
+            m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusCopying")).arg(prepared->digests.size());
+            emit tsslBackupChanged();
+            auto* copyWatcher = new QFutureWatcher<TsslBackupResult>(this);
+            connect(copyWatcher, &QFutureWatcherBase::finished, this, [this, copyWatcher, fail]() {
+                const auto result = copyWatcher->future().takeResult();
+                copyWatcher->deleteLater();
+                if (!result) {
+                    fail(result.error());
+                    return;
+                }
+                m_tsslBackupRunning = false;
+                m_tsslBackupCancelable = false;
+                m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusLocalDone")).arg(*result);
+                emit tsslBackupChanged();
+                emit tsslOperationNoticeRequested(m_tsslBackupStatus, false);
+                AppLogger::info(QStringLiteral("encrypted-hls"),
+                                QStringLiteral("Copied %1 managed TSSL packages to a local backup folder").arg(*result));
+            });
+            copyWatcher->setFuture(QtConcurrent::run(
+                [store = m_tsslStore, digests = std::move(prepared->digests), destination,
+                 invalidPathError = trText(QStringLiteral("tsslBackup.invalidLocalPath"))]() -> TsslBackupResult {
+                    const QFileInfo destinationInfo(destination);
+                    if (!destinationInfo.exists() || !destinationInfo.isDir() || !destinationInfo.isWritable()) {
+                        return std::unexpected(invalidPathError);
+                    }
+                    return store.exportByRootDigests(digests, destinationInfo.absoluteFilePath());
+                }));
+            return;
+        }
+
+        if (target.type == TsslBackupTarget::Type::WebDav) {
+            const auto password = loadWebDavPassword(target.webDavServer);
+            if (!password) {
+                fail(trText(QStringLiteral("tsslBackup.webDavPasswordRequired")));
+                return;
+            }
+            target.webDavPassword = *password;
+        } else {
+            const auto secret = CredentialStore::loadSecret(QStringLiteral("tsslBackupS3Secret"));
+            if (!secret || !*secret || (*secret)->isEmpty()) {
+                fail(secret ? trText(QStringLiteral("tsslBackup.s3SecretRequired")) : secret.error());
+                return;
+            }
+            target.s3SecretKey = **secret;
+        }
+        m_tsslBackupCancelable = true;
+        m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusPreparing")).arg(prepared->files.size());
+        emit tsslBackupChanged();
+        m_tsslBackupService.backup(target, std::move(prepared->files), [this, fail](TsslBackupResult result) {
+            if (!result) {
+                fail(result.error());
+                return;
+            }
+            m_tsslBackupRunning = false;
+            m_tsslBackupCancelable = false;
             m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusDone")).arg(*result);
             emit tsslBackupChanged();
             emit tsslOperationNoticeRequested(m_tsslBackupStatus, false);
             AppLogger::info(QStringLiteral("encrypted-hls"),
-                            QStringLiteral("Backed up %1 managed TSSL packages to a remote target")
-                                .arg(*result));
-        } else {
-            m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusFailed"));
-            emit tsslBackupChanged();
-            setError(result.error());
-        }
+                            QStringLiteral("Backed up %1 managed TSSL packages to a remote target").arg(*result));
+        });
     });
+    watcher->setFuture(TsslBackupService::preparePackages(m_tsslStore));
 }
 
 void AppViewModel::restoreTsslBackupFiles(QStringList sourcePaths)

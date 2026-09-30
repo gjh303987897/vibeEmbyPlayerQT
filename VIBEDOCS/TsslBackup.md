@@ -7,9 +7,16 @@ Settings page can copy valid `.tssl` packages to one configured backup target:
 - an existing WebDAV service card; or
 - an S3-compatible object-storage endpoint.
 
-Backups are manual. Local-folder backups and restores run off the UI thread so
-large packages do not block the settings page. The local packages are never
-removed after a successful backup.
+Backups are manual. Clicking **Back up TSSL now** immediately reports that package
+checking is in progress and prevents duplicate starts. `TsslBackupService::preparePackages`
+enumerates and validates the managed packages in a worker using a value copy of
+`TsslStore`; neither directory scanning nor JSON parsing runs on the UI thread.
+Invalid packages are excluded, and an empty result is reported in Settings.
+
+The selected destination is captured when the operation starts. Local destination
+checks and package exports also run in a worker, including checks on slow or
+network-mounted folders. Local-folder restores run off the UI thread. The local
+packages are never removed after a successful backup.
 
 ## Local-folder target
 
@@ -58,6 +65,28 @@ region, access key, and secret key are required.
 
 Packages larger than 256 MiB are rejected before upload to avoid unbounded memory
 use in the network request body. Network requests have a 60-second timeout.
+
+Each remote upload reads its file and calculates the S3 payload SHA-256 in a worker.
+Only one package is prepared/uploaded at a time. The completed payload is handed
+back through `QFutureWatcher`; the network manager, replies, and request-body buffers
+stay on the service's owning thread. Request signing reuses the same SigV4 helper
+as remote restore, with the precomputed payload hash.
+
+Cancellation during upload preparation discards the worker result before sending
+a request. The service remains busy until that result has been handled, preventing
+an old preparation from affecting a new backup. Worker functions capture paths and
+store values, without capturing the service or ViewModel; watcher connections use
+the owner's QObject context so closing the application cannot invoke a destroyed
+owner. The initial managed-package scan and local copy are not cancelable.
+
+## Verification
+
+`tests/TsslBackupServiceTest.cpp` holds the Qt worker pool to verify that package
+preparation and upload reads are asynchronous while UI events continue to be
+delivered. A local HTTP endpoint verifies sequential WebDAV uploads and the S3
+payload hash. Tests also cover invalid/empty stores, duplicate starts, cancellation
+and restart, destruction during preparation, and unreadable/empty/oversized files.
+Existing encrypted-HLS format tests cover stable local backup names and exports.
 
 ## Extension points
 

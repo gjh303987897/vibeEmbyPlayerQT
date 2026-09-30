@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QMessageAuthenticationCode>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -18,12 +19,19 @@
 #include <QTimer>
 #include <QUrlQuery>
 #include <QUuid>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 
 namespace {
 constexpr auto requestTimeoutMs = 60'000;
 constexpr qint64 maxPackageBytes = 256LL * 1024LL * 1024LL;
+
+struct UploadPayload final {
+    QByteArray contents;
+    QByteArray hash;
+};
+using UploadPayloadResult = std::expected<UploadPayload, QString>;
 
 QByteArray hmac(const QByteArray& key, const QByteArray& data)
 {
@@ -32,7 +40,7 @@ QByteArray hmac(const QByteArray& key, const QByteArray& data)
 
 QByteArray hexHash(QByteArrayView value)
 {
-    return QCryptographicHash::hash(QByteArray(value.data(), value.size()), QCryptographicHash::Sha256).toHex();
+    return QCryptographicHash::hash(value, QCryptographicHash::Sha256).toHex();
 }
 
 QString encodedSegment(const QString& value)
@@ -332,6 +340,26 @@ TsslBackupService::TsslBackupService(QObject* parent)
 bool TsslBackupService::isRunning() const
 {
     return m_running;
+}
+
+QFuture<TsslBackupPackagesResult> TsslBackupService::preparePackages(TsslStore store)
+{
+    return QtConcurrent::run([store = std::move(store)]() -> TsslBackupPackagesResult {
+        const auto packages = store.listPackages();
+        if (!packages) {
+            return std::unexpected(packages.error());
+        }
+        TsslBackupPackages prepared;
+        prepared.files.reserve(static_cast<qsizetype>(packages->size()));
+        prepared.digests.reserve(packages->size());
+        for (const auto& package : *packages) {
+            if (package.valid && QFileInfo::exists(package.filePath)) {
+                prepared.files.append(package.filePath);
+                prepared.digests.push_back(package.rootManifestDigest);
+            }
+        }
+        return prepared;
+    });
 }
 
 void TsslBackupService::backup(const TsslBackupTarget& target,
@@ -636,25 +664,40 @@ void TsslBackupService::uploadNext()
         return;
     }
     const auto localPath = m_localFiles.at(m_nextIndex++);
-    QFile file(localPath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        finish(std::unexpected(QStringLiteral("Unable to read TSSL package: %1").arg(file.errorString())));
-        return;
-    }
-    if (file.size() <= 0 || file.size() > maxPackageBytes) {
-        finish(std::unexpected(QStringLiteral("TSSL package size is invalid or exceeds 256 MiB")));
-        return;
-    }
-    const auto payload = file.readAll();
-    if (payload.size() != file.size()) {
-        finish(std::unexpected(QStringLiteral("Unable to read the complete TSSL package")));
-        return;
-    }
-    if (m_target.type == TsslBackupTarget::Type::WebDav) {
-        uploadWebDav(localPath, payload);
-    } else {
-        uploadS3(localPath, payload);
-    }
+    auto* watcher = new QFutureWatcher<UploadPayloadResult>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, localPath]() {
+        auto result = watcher->future().takeResult();
+        watcher->deleteLater();
+        // The operation stays running until this preparation completes, so a
+        // canceled read cannot dispatch a request or affect a later backup.
+        if (m_cancelRequested) {
+            finish(std::unexpected(QStringLiteral("TSSL backup canceled")));
+        } else if (!result) {
+            finish(std::unexpected(result.error()));
+        } else if (m_target.type == TsslBackupTarget::Type::WebDav) {
+            uploadWebDav(localPath, result->contents);
+        } else {
+            uploadS3(localPath, result->contents, result->hash);
+        }
+    });
+    watcher->setFuture(QtConcurrent::run(
+        [localPath, needsHash = m_target.type == TsslBackupTarget::Type::S3]() -> UploadPayloadResult {
+            QFile file(localPath);
+            if (!file.open(QIODevice::ReadOnly)) {
+                return std::unexpected(QStringLiteral("Unable to read TSSL package: %1").arg(file.errorString()));
+            }
+            const auto size = file.size();
+            if (size <= 0 || size > maxPackageBytes) {
+                return std::unexpected(QStringLiteral("TSSL package size is invalid or exceeds 256 MiB"));
+            }
+            UploadPayload payload;
+            payload.contents = file.read(size);
+            if (payload.contents.size() != size || !file.atEnd()) {
+                return std::unexpected(QStringLiteral("Unable to read the complete TSSL package"));
+            }
+            if (needsHash) payload.hash = hexHash(payload.contents);
+            return payload;
+        }));
 }
 
 void TsslBackupService::uploadWebDav(const QString& localPath, const QByteArray& payload)
@@ -685,37 +728,16 @@ void TsslBackupService::uploadWebDav(const QString& localPath, const QByteArray&
     wireReply(reply);
 }
 
-void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& payload)
+void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& payload,
+                                const QByteArray& payloadHash)
 {
-    const auto now = QDateTime::currentDateTimeUtc();
-    const auto date = now.toString(QStringLiteral("yyyyMMdd"));
-    const auto timestamp = now.toString(QStringLiteral("yyyyMMdd'T'HHmmss'Z'"));
     const auto prefix = cleanPrefix(m_target.s3Prefix);
     QStringList keySegments;
     if (!prefix.isEmpty()) keySegments.append(prefix.split(QLatin1Char('/'), Qt::SkipEmptyParts));
     keySegments.append(fileNameFor(localPath));
     const auto url = appendPath(appendPath(m_target.s3Endpoint, { m_target.s3Bucket }), keySegments);
-    const auto payloadHash = QString::fromLatin1(hexHash(payload));
-    const auto host = url.host() + (url.port() > 0 ? QStringLiteral(":%1").arg(url.port()) : QString());
-    const auto canonicalHeaders = QStringLiteral("host:%1\nx-amz-content-sha256:%2\nx-amz-date:%3\n")
-        .arg(host, payloadHash, timestamp);
-    const auto signedHeaders = QStringLiteral("host;x-amz-content-sha256;x-amz-date");
-    const auto canonicalRequest = QStringLiteral("PUT\n%1\n\n%2\n%3\n%4")
-        .arg(url.path(QUrl::FullyEncoded), canonicalHeaders, signedHeaders, payloadHash);
-    const auto credentialScope = QStringLiteral("%1/%2/%3/aws4_request").arg(date, m_target.s3Region, QStringLiteral("s3"));
-    const auto stringToSign = QStringLiteral("AWS4-HMAC-SHA256\n%1\n%2\n%3")
-        .arg(timestamp, credentialScope, QString::fromLatin1(hexHash(canonicalRequest.toUtf8())));
-    const auto dateKey = hmac(QByteArrayLiteral("AWS4") + m_target.s3SecretKey.toUtf8(), date.toUtf8());
-    const auto regionKey = hmac(dateKey, m_target.s3Region.toUtf8());
-    const auto serviceKey = hmac(regionKey, QByteArrayLiteral("s3"));
-    const auto signingKey = hmac(serviceKey, QByteArrayLiteral("aws4_request"));
-    const auto signature = QString::fromLatin1(hmac(signingKey, stringToSign.toUtf8()).toHex());
-    QNetworkRequest request(url);
-    request.setRawHeader("Host", host.toUtf8());
-    request.setRawHeader("x-amz-content-sha256", payloadHash.toUtf8());
-    request.setRawHeader("x-amz-date", timestamp.toUtf8());
-    request.setRawHeader("Authorization", QStringLiteral("AWS4-HMAC-SHA256 Credential=%1/%2, SignedHeaders=%3, Signature=%4")
-        .arg(m_target.s3AccessKey, credentialScope, signedHeaders, signature).toUtf8());
+    const auto request = signedS3Request(m_target, QStringLiteral("PUT"), url,
+                                        payloadHash, QDateTime::currentDateTimeUtc());
     auto* body = new QBuffer(this);
     body->setData(payload);
     body->open(QIODevice::ReadOnly);
