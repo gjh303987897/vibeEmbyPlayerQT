@@ -26,7 +26,8 @@ The feature follows the existing UI/ViewModel/service/repository split:
 
 QML never scans the filesystem or invokes libmpv directly.
 
-The add-folder flow uses the non-blocking Qt Quick `FolderDialog`. After the
+The add-folder flow uses the shared asynchronous, native-preferred
+`FileDialogController` (see `FileSelection.md`). After the
 user accepts a folder, canonical-path resolution, readability checks, root
 boundary validation, and directory enumeration all run on the worker pool.
 The UI thread only persists the validated root and updates the list models.

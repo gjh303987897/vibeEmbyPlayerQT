@@ -118,6 +118,8 @@ qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(vibePlayerQT
     src/app/main.cpp
+    src/app/FileDialogController.cpp
+    src/app/FileDialogController.h
     src/app/TrayController.cpp
     src/app/TrayController.h
     src/app/ThemeSnapshotController.cpp
@@ -410,6 +412,21 @@ install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+    add_executable(file_dialog_controller_test
+        tests/FileDialogControllerTest.cpp
+        src/app/FileDialogController.cpp
+        src/app/FileDialogController.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+    )
+    target_include_directories(file_dialog_controller_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(file_dialog_controller_test PRIVATE Qt6::Widgets Qt6::Test)
+    add_test(NAME file_dialog_controller COMMAND file_dialog_controller_test)
+    set_tests_properties(file_dialog_controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
 
     add_test(
         NAME semantic_version

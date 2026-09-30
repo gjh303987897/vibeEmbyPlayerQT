@@ -150,7 +150,7 @@ The application honours a user-configured absolute path first (M3U8S page, see
 longer a usable executable is logged and skipped, so auto-detection still
 applies. A missing executable is reported before a job starts.
 
-The Qt Quick file picker accepts one or more source videos asynchronously. The
+The shared native-preferred file picker accepts one or more source videos asynchronously. The
 selection is validated in the ViewModel after the dialog closes, then
 `EncryptedHlsBatchPackager` queues the resulting requests. The `parallelJobs`
 setting controls how many independent single-file packagers may be active at
@@ -167,11 +167,12 @@ A one-file selection follows the same queue path and preserves the original
 single-package behavior.
 
 The source picker can accumulate individual videos and folders in one batch.
-Qt Quick's `FolderDialog` exposes only one `selectedFolder`, so the folder
-entry uses a non-native `QFileDialog` in directory mode and enables extended
-selection on its directory views. Every selected folder is appended to the
-ViewModel source list before discovery begins; the same implementation is used
-on Windows, macOS, and Linux.
+`FileDialogController` centralizes asynchronous selection for files and
+folders (see `FileSelection.md`). Qt's public native dialog API has no
+multiple-directory mode, so only this batch folder entry uses its widget
+fallback and enables extended selection on the directory views. Every selected
+folder is appended to the ViewModel source list before discovery begins; the
+same compatibility implementation is used on Windows, macOS, and Linux.
 Folder discovery runs through `EncryptedHlsSourcePlanner` on a worker thread,
 recursively finds supported videos, and preserves each selected folder's
 relative hierarchy beneath the configured output directory. For example,

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "app/FileDialogController.h"
+
 #include "database/SessionRepository.h"
 #include "models/IptvChannel.h"
 #include "models/IptvPlaylist.h"
@@ -619,10 +621,13 @@ public:
     Q_INVOKABLE void serviceCardTransitionCanceled();
     Q_INVOKABLE void editServiceCard(int row);
     Q_INVOKABLE void loginSelectedService(const QString& password);
+    Q_INVOKABLE void attachFileDialogWindow(QObject* window);
     Q_INVOKABLE void chooseIptvPlaylistFile();
+    Q_INVOKABLE void chooseExternalSubtitle();
     Q_INVOKABLE void selectIptvGroup(const QString& groupName);
     Q_INVOKABLE void playIptvChannel(int row);
     Q_INVOKABLE void openLocalMedia();
+    Q_INVOKABLE void chooseLocalMediaFolder();
     Q_INVOKABLE void addLocalMediaRoot(const QUrl& folderUrl);
     Q_INVOKABLE void openLocalMediaRoot(int row);
     Q_INVOKABLE void deleteLocalMediaRoot(int row);
@@ -642,6 +647,8 @@ public:
     Q_INVOKABLE void restoreWebDavAudioPlayer();
     Q_INVOKABLE void webDavBack();
     Q_INVOKABLE void refreshWebDavDirectory();
+    Q_INVOKABLE void chooseWebDavUploadFiles();
+    Q_INVOKABLE void chooseWebDavUploadFolder();
     Q_INVOKABLE void uploadWebDavFiles(const QList<QUrl>& files);
     Q_INVOKABLE void uploadWebDavFolder(const QUrl& folder);
     Q_INVOKABLE void downloadWebDavItem(int row);
@@ -667,6 +674,7 @@ public:
     Q_INVOKABLE void exportManagedTsslBatch(const QVariantList& rows);
     Q_INVOKABLE void deleteManagedTssl(const QString& rootDigest);
     Q_INVOKABLE void deleteManagedTsslBatch(const QVariantList& rows);
+    Q_INVOKABLE void chooseM3u8sVideoSources();
     Q_INVOKABLE void addM3u8sVideoSource(const QUrl& file);
     Q_INVOKABLE void chooseM3u8sFolderSources();
     Q_INVOKABLE void addM3u8sFolderSource(const QUrl& folder);
@@ -774,6 +782,8 @@ public:
     void openLocalPlaybackForVerification(const QUrl& url);
 
 signals:
+    void externalSubtitleSelected(const QUrl& file);
+    void externalSubtitleSelectionCanceled();
     void serverUrlChanged();
     void serverNameChanged();
     void usernameChanged();
@@ -1172,6 +1182,7 @@ private:
     EncryptedHlsBatchPackager m_m3u8sPackager;
     LocalMediaService m_localMediaService;
     TransferManager m_transferManager;
+    FileDialogController m_fileDialogs;
     SessionRepository m_repository;
     UpdateService m_updateService;
     ScheduledPlaybackManager m_scheduledPlaybackManager;

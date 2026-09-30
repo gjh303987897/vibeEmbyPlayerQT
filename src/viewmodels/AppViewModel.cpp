@@ -10,14 +10,12 @@
 #include "utils/AppLogger.h"
 
 #include <QCoreApplication>
-#include <QAbstractItemView>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QGuiApplication>
@@ -1998,6 +1996,7 @@ const QHash<QString, QString>& scheduledPlaybackChineseTexts()
 
 AppViewModel::AppViewModel(QObject* parent)
     : QObject(parent)
+    , m_fileDialogs(this)
     , m_embyClient(m_embyNetworkClient, this)
     , m_jellyfinClient(m_jellyfinNetworkClient, this)
     , m_webDavDownloadPlanner(m_webDavClient)
@@ -2006,6 +2005,8 @@ AppViewModel::AppViewModel(QObject* parent)
     , m_updateService(this)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
+    connect(this, &AppViewModel::currentViewChanged, &m_fileDialogs, &FileDialogController::cancel);
+    connect(this, &AppViewModel::currentServerChanged, &m_fileDialogs, &FileDialogController::cancel);
     wireUsageSignals();
     m_usageFlushTimer.setInterval(usageFlushIntervalMs);
     m_usageFlushTimer.setSingleShot(false);
@@ -4769,19 +4770,23 @@ void AppViewModel::loginSelectedService(const QString& password)
     startLogin(m_pendingServiceCard->server, password);
 }
 
+void AppViewModel::attachFileDialogWindow(QObject* window)
+{
+    m_fileDialogs.attachWindow(qobject_cast<QWindow*>(window));
+}
+
 void AppViewModel::chooseIptvPlaylistFile()
 {
-    const auto selected = QFileDialog::getOpenFileName(nullptr,
-                                                       trText(QStringLiteral("iptv.selectFile")),
-                                                       m_iptvFilePath,
-                                                       QStringLiteral("IPTV playlists (*.m3u *.m3u8);;All files (*)"));
-    if (!selected.isEmpty()) {
+    m_fileDialogs.openFile(trText(QStringLiteral("iptv.selectFile")), m_iptvFilePath,
+                          QStringLiteral("IPTV playlists (*.m3u *.m3u8);;All files (*)"),
+                          [this](const QString& selected) {
+        if (selected.isEmpty()) return;
         setIptvFilePath(selected);
         if (m_serverName.trimmed().isEmpty()) {
             const QFileInfo fileInfo(selected);
             setServerName(fileInfo.completeBaseName());
         }
-    }
+    });
 }
 
 void AppViewModel::selectIptvGroup(const QString& groupName)
@@ -6225,6 +6230,29 @@ void AppViewModel::refreshWebDavDirectory()
     }
 }
 
+void AppViewModel::chooseWebDavUploadFiles()
+{
+    if (!m_currentWebDavCard || m_currentView != QStringLiteral("webdav") || m_webDavUploadPreparing) return;
+    m_fileDialogs.openFiles(trText(QStringLiteral("action.upload")), {}, {},
+                           [this, serverId = m_currentWebDavCard->server.id, directory = m_webDavCurrentUrl](const QStringList& paths) {
+        if (!m_currentWebDavCard || m_currentWebDavCard->server.id != serverId || m_webDavCurrentUrl != directory) return;
+        QList<QUrl> files;
+        files.reserve(paths.size());
+        for (const auto& path : paths) files.append(QUrl::fromLocalFile(path));
+        uploadWebDavFiles(files);
+    });
+}
+
+void AppViewModel::chooseWebDavUploadFolder()
+{
+    if (!m_currentWebDavCard || m_currentView != QStringLiteral("webdav") || m_webDavUploadPreparing) return;
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("action.uploadFolder")), {},
+                                 [this, serverId = m_currentWebDavCard->server.id, directory = m_webDavCurrentUrl](const QString& path) {
+        if (path.isEmpty() || !m_currentWebDavCard || m_currentWebDavCard->server.id != serverId || m_webDavCurrentUrl != directory) return;
+        uploadWebDavFolder(QUrl::fromLocalFile(path));
+    });
+}
+
 void AppViewModel::uploadWebDavFiles(const QList<QUrl>& files)
 {
     if (!m_currentWebDavCard || m_currentView != QStringLiteral("webdav") ||
@@ -6248,6 +6276,30 @@ void AppViewModel::uploadWebDavFiles(const QList<QUrl>& files)
                         QStringLiteral("Queued %1 selected upload files").arg(uploadCount));
         openTransfers();
     }
+}
+
+void AppViewModel::chooseExternalSubtitle()
+{
+    if (m_currentView != QStringLiteral("player")) return;
+    m_fileDialogs.openFile(trText(QStringLiteral("player.selectSubtitleFile")), {},
+                          trText(QStringLiteral("player.subtitleFiles")) +
+                              QStringLiteral(" (*.srt *.ass *.ssa *.vtt *.sub *.idx *.sup *.smi *.sami *.lrc *.ttml *.dfxp);;") +
+                              trText(QStringLiteral("player.allFiles")) + QStringLiteral(" (*)"),
+                          [this, playbackUrl = m_currentPlaybackUrl](const QString& selected) {
+        if (m_currentView != QStringLiteral("player")) return;
+        if (selected.isEmpty() || playbackUrl != m_currentPlaybackUrl) {
+            emit externalSubtitleSelectionCanceled();
+            return;
+        }
+        emit externalSubtitleSelected(QUrl::fromLocalFile(selected));
+    });
+}
+
+void AppViewModel::chooseLocalMediaFolder()
+{
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("local.addFolder")), {}, [this](const QString& directory) {
+        if (!directory.isEmpty()) addLocalMediaRoot(QUrl::fromLocalFile(directory));
+    });
 }
 
 void AppViewModel::uploadWebDavFolder(const QUrl& folderUrl)
@@ -6349,111 +6401,113 @@ void AppViewModel::downloadWebDavItem(int row)
         return;
     }
 
-    QString directory = m_defaultDownloadDirectory;
-    if (directory.isEmpty()) {
-        directory = QFileDialog::getExistingDirectory(nullptr, trText(QStringLiteral("webdav.defaultDownload")));
-    }
-    if (directory.isEmpty()) {
-        return;
-    }
-
-    const auto targetPath = uniqueLocalPath(directory, item->name);
-    const auto available = QStorageInfo(directory).bytesAvailable();
-    const auto server = m_currentWebDavCard->server;
-    const auto password = m_webDavPassword;
-    const auto downloadTitle = item->name;
-    const auto directoryDownload = item->directory;
-    if (directoryDownload) {
-        setLoading(true);
-    }
-
-    m_webDavDownloadPlanner.buildPlan(server,
-                                      password,
-                                      *item,
-                                      targetPath,
-                                      [this, server, password, available, directoryDownload, downloadTitle, targetPath](WebDavDownloadPlanResult result) mutable {
+    // Snapshot the selected item and service before asynchronous selection;
+    // list refreshes cannot change which item this download refers to.
+    auto startDownload = [this, item = *item, server = m_currentWebDavCard->server,
+                          password = m_webDavPassword](const QString& directory) {
+        if (directory.isEmpty()) return;
+        const auto targetPath = uniqueLocalPath(directory, item.name);
+        const auto available = QStorageInfo(directory).bytesAvailable();
+        const auto downloadTitle = item.name;
+        const auto directoryDownload = item.directory;
         if (directoryDownload) {
-            setLoading(false);
-        }
-        if (!result) {
-            setError(displayNetworkError(result.error()));
-            return;
+            setLoading(true);
         }
 
-        auto launchDownload = [this, server, password, downloadTitle, targetPath](WebDavDownloadPlan plan) mutable {
-            for (const auto& localDirectory : plan.directories) {
-                if (!QDir().mkpath(localDirectory)) {
-                    setError(QStringLiteral("Unable to create local download directory"));
-                    return;
+        m_webDavDownloadPlanner.buildPlan(server,
+                                          password,
+                                          item,
+                                          targetPath,
+                                          [this, server, password, available, directoryDownload, downloadTitle, targetPath](WebDavDownloadPlanResult result) mutable {
+            if (directoryDownload) {
+                setLoading(false);
+            }
+            if (!result) {
+                setError(displayNetworkError(result.error()));
+                return;
+            }
+
+            auto launchDownload = [this, server, password, downloadTitle, targetPath](WebDavDownloadPlan plan) mutable {
+                for (const auto& localDirectory : plan.directories) {
+                    if (!QDir().mkpath(localDirectory)) {
+                        setError(QStringLiteral("Unable to create local download directory"));
+                        return;
+                    }
                 }
-            }
 
-            std::vector<TransferManager::TaskRequest> requests;
-            requests.reserve(plan.files.size());
-            for (auto& file : plan.files) {
-                requests.push_back(TransferManager::TaskRequest {
-                    .remoteUrl = std::move(file.remoteUrl),
-                    .localPath = std::move(file.localPath),
-                    .totalBytes = file.bytesTotal,
-                });
-            }
-            m_transferManager.enqueueDownloads(server,
-                                               password,
-                                               downloadTitle,
-                                               targetPath,
-                                               std::move(requests));
-            openTransfers();
-        };
+                std::vector<TransferManager::TaskRequest> requests;
+                requests.reserve(plan.files.size());
+                for (auto& file : plan.files) {
+                    requests.push_back(TransferManager::TaskRequest {
+                        .remoteUrl = std::move(file.remoteUrl),
+                        .localPath = std::move(file.localPath),
+                        .totalBytes = file.bytesTotal,
+                    });
+                }
+                m_transferManager.enqueueDownloads(server,
+                                                   password,
+                                                   downloadTitle,
+                                                   targetPath,
+                                                   std::move(requests));
+                openTransfers();
+            };
 
-        auto plan = std::move(*result);
-        const auto shouldWarn = !plan.sizeComplete ||
-            (available > 0 && plan.bytesTotal > available);
-        if (!shouldWarn) {
-            launchDownload(std::move(plan));
-            return;
-        }
-
-        const auto title = trText(QStringLiteral("webdav.spaceWarningTitle"));
-        const auto message = !plan.sizeComplete
-            ? trText(QStringLiteral("webdav.unknownSizeWarning"))
-            : trText(QStringLiteral("webdav.spaceWarning")).arg(sizeText(plan.bytesTotal), sizeText(available));
-        m_pendingDownloadWarningReply = [launchDownload, plan = std::move(plan)](bool accepted) mutable {
-            if (accepted) {
+            auto plan = std::move(*result);
+            const auto shouldWarn = !plan.sizeComplete ||
+                (available > 0 && plan.bytesTotal > available);
+            if (!shouldWarn) {
                 launchDownload(std::move(plan));
+                return;
             }
-        };
-        emit downloadSpaceWarningRequested(title, message);
-    });
+
+            const auto title = trText(QStringLiteral("webdav.spaceWarningTitle"));
+            const auto message = !plan.sizeComplete
+                ? trText(QStringLiteral("webdav.unknownSizeWarning"))
+                : trText(QStringLiteral("webdav.spaceWarning")).arg(sizeText(plan.bytesTotal), sizeText(available));
+            m_pendingDownloadWarningReply = [launchDownload, plan = std::move(plan)](bool accepted) mutable {
+                if (accepted) {
+                    launchDownload(std::move(plan));
+                }
+            };
+            emit downloadSpaceWarningRequested(title, message);
+        });
+    };
+    if (m_defaultDownloadDirectory.isEmpty()) {
+        m_fileDialogs.selectDirectory(trText(QStringLiteral("webdav.defaultDownload")), {}, std::move(startDownload));
+    } else {
+        startDownload(m_defaultDownloadDirectory);
+    }
 }
 
 void AppViewModel::restoreTssl()
 {
     clearError();
     setWebDavTsslStatus({});
-    const auto selected = QFileDialog::getOpenFileName(nullptr,
-                                                       trText(QStringLiteral("webdav.tsslRestore")),
-                                                       {},
-                                                       QStringLiteral("TSSL key packages (*.tssl)"));
-    if (selected.isEmpty()) {
-        return;
-    }
-    const auto restored = m_tsslStore.restoreFromFile(selected);
-    if (!restored) {
-        if (restored.error() == TsslStore::packageAlreadyExistsError()) {
-            const auto message = trText(QStringLiteral("webdav.tsslAlreadyExists"));
-            setWebDavTsslStatus(message);
-            emit tsslOperationNoticeRequested(message, true);
+    m_fileDialogs.openFile(trText(QStringLiteral("webdav.tsslRestore")),
+                          {},
+                          QStringLiteral("TSSL key packages (*.tssl)"),
+                          [this](const QString& selected) {
+        if (selected.isEmpty()) {
             return;
         }
-        setError(restored.error());
-        return;
-    }
-    AppLogger::info(QStringLiteral("encrypted-hls"),
-                    QStringLiteral("Restored a local TSSL key package"));
-    refreshTsslPackages();
-    const auto message = trText(QStringLiteral("webdav.tsslRestored"));
-    setWebDavTsslStatus(message);
-    emit tsslOperationNoticeRequested(message, false);
+        const auto restored = m_tsslStore.restoreFromFile(selected);
+        if (!restored) {
+            if (restored.error() == TsslStore::packageAlreadyExistsError()) {
+                const auto message = trText(QStringLiteral("webdav.tsslAlreadyExists"));
+                setWebDavTsslStatus(message);
+                emit tsslOperationNoticeRequested(message, true);
+                return;
+            }
+            setError(restored.error());
+            return;
+        }
+        AppLogger::info(QStringLiteral("encrypted-hls"),
+                        QStringLiteral("Restored a local TSSL key package"));
+        refreshTsslPackages();
+        const auto message = trText(QStringLiteral("webdav.tsslRestored"));
+        setWebDavTsslStatus(message);
+        emit tsslOperationNoticeRequested(message, false);
+    });
 }
 
 void AppViewModel::exportWebDavTssl(int row)
@@ -6473,7 +6527,7 @@ void AppViewModel::exportWebDavTssl(int row)
         item->url,
         [this, serverId, itemName = item->name](EncryptedHlsDigestResult result) {
             setLoading(false);
-            if (!m_currentWebDavCard || m_currentWebDavCard->server.id != serverId) {
+            if (m_currentView != QStringLiteral("webdav") || !m_currentWebDavCard || m_currentWebDavCard->server.id != serverId) {
                 return;
             }
             if (!result) {
@@ -6483,25 +6537,23 @@ void AppViewModel::exportWebDavTssl(int row)
 
             auto exportDirectory = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
             auto exportName = QFileInfo(itemName).completeBaseName() + QStringLiteral(".tssl");
-            auto destination = QFileDialog::getSaveFileName(nullptr,
-                                                            trText(QStringLiteral("webdav.tsslExport")),
-                                                            QDir(exportDirectory).filePath(exportName),
-                                                            QStringLiteral("TSSL key packages (*.tssl)"));
-            if (destination.isEmpty()) {
-                return;
-            }
-            if (!destination.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive)) {
-                destination += QStringLiteral(".tssl");
-            }
-            if (auto exported = m_tsslStore.exportByRootDigest(*result, destination); !exported) {
-                setError(exported.error());
-                return;
-            }
-            AppLogger::info(QStringLiteral("encrypted-hls"),
-                            QStringLiteral("Exported a local TSSL key package"));
-            const auto message = trText(QStringLiteral("webdav.tsslExported"));
-            setWebDavTsslStatus(message);
-            emit tsslOperationNoticeRequested(message, false);
+            m_fileDialogs.saveFile(trText(QStringLiteral("webdav.tsslExport")),
+                                   QDir(exportDirectory).filePath(exportName),
+                                   QStringLiteral("TSSL key packages (*.tssl)"), QStringLiteral("tssl"),
+                                   [this, digest = *result](const QString& destination) {
+                if (destination.isEmpty()) {
+                    return;
+                }
+                if (auto exported = m_tsslStore.exportByRootDigest(digest, destination); !exported) {
+                    setError(exported.error());
+                    return;
+                }
+                AppLogger::info(QStringLiteral("encrypted-hls"),
+                                QStringLiteral("Exported a local TSSL key package"));
+                const auto message = trText(QStringLiteral("webdav.tsslExported"));
+                setWebDavTsslStatus(message);
+                emit tsslOperationNoticeRequested(message, false);
+            });
         });
 }
 
@@ -6651,31 +6703,31 @@ void AppViewModel::refreshTsslBatchPackages()
 void AppViewModel::restoreManagedTssl()
 {
     clearError();
-    const auto selected = QFileDialog::getOpenFileName(
-        nullptr,
-        trText(QStringLiteral("m3u8s.importTssl")),
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
-        QStringLiteral("TSSL key packages (*.tssl)"));
-    if (selected.isEmpty()) {
-        return;
-    }
-    const auto restored = m_tsslStore.restoreFromFile(selected);
-    if (!restored) {
-        if (restored.error() == TsslStore::packageAlreadyExistsError()) {
-            const auto message = trText(QStringLiteral("m3u8s.tsslAlreadyExists"));
-            m_m3u8sStatus = message;
-            emit m3u8sStatusChanged();
-            emit tsslOperationNoticeRequested(message, true);
+    m_fileDialogs.openFile(trText(QStringLiteral("m3u8s.importTssl")),
+                          QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+                          QStringLiteral("TSSL key packages (*.tssl)"),
+                          [this](const QString& selected) {
+        if (selected.isEmpty()) {
             return;
         }
-        setError(restored.error());
-        return;
-    }
-    refreshTsslPackages();
-    m_m3u8sStatus = trText(QStringLiteral("m3u8s.restoredStatus"));
-    emit m3u8sStatusChanged();
-    emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
-    AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Imported a managed TSSL package"));
+        const auto restored = m_tsslStore.restoreFromFile(selected);
+        if (!restored) {
+            if (restored.error() == TsslStore::packageAlreadyExistsError()) {
+                const auto message = trText(QStringLiteral("m3u8s.tsslAlreadyExists"));
+                m_m3u8sStatus = message;
+                emit m3u8sStatusChanged();
+                emit tsslOperationNoticeRequested(message, true);
+                return;
+            }
+            setError(restored.error());
+            return;
+        }
+        refreshTsslPackages();
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.restoredStatus"));
+        emit m3u8sStatusChanged();
+        emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
+        AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Imported a managed TSSL package"));
+    });
 }
 
 void AppViewModel::exportManagedTssl(int row)
@@ -6688,25 +6740,22 @@ void AppViewModel::exportManagedTssl(int row)
     }
     const auto suggestedName = QString::fromLatin1(package->rootManifestDigest.toHex().first(16)) +
         QStringLiteral(".tssl");
-    auto destination = QFileDialog::getSaveFileName(
-        nullptr,
-        trText(QStringLiteral("m3u8s.exportTssl")),
-        QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(suggestedName),
-        QStringLiteral("TSSL key packages (*.tssl)"));
-    if (destination.isEmpty()) {
-        return;
-    }
-    if (!destination.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive)) {
-        destination += QStringLiteral(".tssl");
-    }
-    if (auto exported = m_tsslStore.exportByRootDigest(package->rootManifestDigest, destination); !exported) {
-        setError(exported.error());
-        return;
-    }
-    m_m3u8sStatus = trText(QStringLiteral("m3u8s.exportedStatus"));
-    emit m3u8sStatusChanged();
-    emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
-    AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Exported a managed TSSL package"));
+    m_fileDialogs.saveFile(trText(QStringLiteral("m3u8s.exportTssl")),
+                          QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).filePath(suggestedName),
+                          QStringLiteral("TSSL key packages (*.tssl)"), QStringLiteral("tssl"),
+                          [this, digest = package->rootManifestDigest](const QString& destination) {
+        if (destination.isEmpty()) {
+            return;
+        }
+        if (auto exported = m_tsslStore.exportByRootDigest(digest, destination); !exported) {
+            setError(exported.error());
+            return;
+        }
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.exportedStatus"));
+        emit m3u8sStatusChanged();
+        emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
+        AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Exported a managed TSSL package"));
+    });
 }
 
 void AppViewModel::setTsslBackupS3Secret(const QString& secret)
@@ -6730,13 +6779,13 @@ void AppViewModel::chooseTsslBackupLocalPath()
     const auto initialDirectory = m_tsslBackupLocalPath.isEmpty()
         ? QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
         : m_tsslBackupLocalPath;
-    const auto directory = QFileDialog::getExistingDirectory(
-        nullptr,
-        trText(QStringLiteral("tsslBackup.choosePath")),
-        initialDirectory);
-    if (!directory.isEmpty()) {
-        setTsslBackupLocalPath(directory);
-    }
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("tsslBackup.choosePath")),
+                          initialDirectory,
+                          [this](const QString& directory) {
+        if (!directory.isEmpty()) {
+            setTsslBackupLocalPath(directory);
+        }
+    });
 }
 
 void AppViewModel::backupTsslToConfiguredTarget()
@@ -7073,40 +7122,41 @@ void AppViewModel::exportManagedTsslBatch(const QVariantList& rows)
         return;
     }
 
-    const auto destination = QFileDialog::getExistingDirectory(
-        nullptr,
-        trText(QStringLiteral("m3u8s.batchExportDestination")),
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
-    if (destination.isEmpty()) {
-        return;
-    }
-
-    m_m3u8sBatchExporting = true;
-    m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportingStatus")).arg(digests.size());
-    emit m3u8sStatusChanged();
-
-    using ExportResult = std::expected<int, QString>;
-    auto* watcher = new QFutureWatcher<ExportResult>(this);
-    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
-        const auto result = watcher->result();
-        watcher->deleteLater();
-        m_m3u8sBatchExporting = false;
-        if (!result) {
-            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportFailedStatus"));
-            emit m3u8sStatusChanged();
-            setError(result.error());
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("m3u8s.batchExportDestination")),
+                          QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+                          [this, digests = std::move(digests)](const QString& destination) mutable {
+        if (m_m3u8sBatchExporting) return;
+        if (destination.isEmpty()) {
             return;
         }
-        m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportedStatus")).arg(*result);
+
+        m_m3u8sBatchExporting = true;
+        m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportingStatus")).arg(digests.size());
         emit m3u8sStatusChanged();
-        emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
-        AppLogger::info(QStringLiteral("encrypted-hls"),
-                        QStringLiteral("Exported %1 managed TSSL packages").arg(*result));
+
+        using ExportResult = std::expected<int, QString>;
+        auto* watcher = new QFutureWatcher<ExportResult>(this);
+        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+            const auto result = watcher->result();
+            watcher->deleteLater();
+            m_m3u8sBatchExporting = false;
+            if (!result) {
+                m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportFailedStatus"));
+                emit m3u8sStatusChanged();
+                setError(result.error());
+                return;
+            }
+            m_m3u8sStatus = trText(QStringLiteral("m3u8s.batchExportedStatus")).arg(*result);
+            emit m3u8sStatusChanged();
+            emit tsslOperationNoticeRequested(m_m3u8sStatus, false);
+            AppLogger::info(QStringLiteral("encrypted-hls"),
+                            QStringLiteral("Exported %1 managed TSSL packages").arg(*result));
+        });
+        watcher->setFuture(QtConcurrent::run(
+            [store = m_tsslStore, digests = std::move(digests), destination]() {
+                return store.exportByRootDigests(digests, destination);
+            }));
     });
-    watcher->setFuture(QtConcurrent::run(
-        [store = m_tsslStore, digests = std::move(digests), destination]() {
-            return store.exportByRootDigests(digests, destination);
-        }));
 }
 
 void AppViewModel::deleteManagedTssl(const QString& rootDigest)
@@ -7253,38 +7303,28 @@ void AppViewModel::chooseM3u8sFolderSources()
                                               : lastSource.absolutePath();
     }
 
-    // Qt Quick FolderDialog exposes only one selectedFolder. Use the widget
-    // dialog in directory mode with an extended selection so all chosen roots
-    // can be returned in one operation on every desktop platform.
-    QFileDialog dialog(nullptr,
-                       trText(QStringLiteral("m3u8s.chooseFolders")),
-                       initialDirectory);
-    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
-    dialog.setFileMode(QFileDialog::Directory);
-    dialog.setAcceptMode(QFileDialog::AcceptOpen);
-    dialog.setOption(QFileDialog::ShowDirsOnly, true);
-
-    const auto enableMultiSelection = [&dialog]() {
-        const auto views = dialog.findChildren<QAbstractItemView *>();
-        for (auto *view : views) {
-            view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_fileDialogs.selectDirectories(trText(QStringLiteral("m3u8s.chooseFolders")), initialDirectory,
+                                   [this](const QStringList& selectedFolders) {
+        for (const auto& folder : selectedFolders) {
+            addM3u8sFolderSource(QUrl::fromLocalFile(folder));
         }
-    };
-    enableMultiSelection();
-    QTimer::singleShot(0, &dialog, enableMultiSelection);
+        if (!selectedFolders.isEmpty()) {
+            AppLogger::info(QStringLiteral("encrypted-hls"),
+                            QStringLiteral("Added %1 M3U8S source folders").arg(selectedFolders.size()));
+        }
+    });
+}
 
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
-
-    const auto selectedFolders = dialog.selectedFiles();
-    for (const auto &folder : selectedFolders) {
-        addM3u8sFolderSource(QUrl::fromLocalFile(folder));
-    }
-    if (!selectedFolders.isEmpty()) {
-        AppLogger::info(QStringLiteral("encrypted-hls"),
-                        QStringLiteral("Added %1 M3U8S source folders").arg(selectedFolders.size()));
-    }
+void AppViewModel::chooseM3u8sVideoSources()
+{
+    if (m3u8sPackaging()) return;
+    m_fileDialogs.openFiles(trText(QStringLiteral("m3u8s.chooseVideo")),
+                           QStandardPaths::writableLocation(QStandardPaths::MoviesLocation),
+                           trText(QStringLiteral("m3u8s.videoFiles")) + QStringLiteral(";;") +
+                               trText(QStringLiteral("player.allFiles")) + QStringLiteral(" (*)"),
+                           [this](const QStringList& files) {
+        for (const auto& file : files) addM3u8sVideoSource(QUrl::fromLocalFile(file));
+    });
 }
 
 void AppViewModel::addM3u8sFolderSource(const QUrl& folder)
@@ -7472,15 +7512,16 @@ void AppViewModel::chooseFfmpegExecutable()
     const auto startDirectory = m_m3u8sFfmpegPath.isEmpty()
         ? QDir::homePath()
         : QFileInfo(m_m3u8sFfmpegPath).absolutePath();
-    const auto executable = QFileDialog::getOpenFileName(
-        nullptr,
-        trText(QStringLiteral("m3u8s.chooseFfmpeg")),
-        startDirectory,
-        filter);
-    if (executable.isEmpty()) {
-        return;
-    }
-    setM3u8sFfmpegPath(executable);
+    m_fileDialogs.openFile(trText(QStringLiteral("m3u8s.chooseFfmpeg")),
+                          startDirectory,
+                          filter,
+                          [this](const QString& executable) {
+        if (m3u8sPackaging()) return;
+        if (executable.isEmpty()) {
+            return;
+        }
+        setM3u8sFfmpegPath(executable);
+    });
 }
 
 void AppViewModel::clearFfmpegExecutablePath()
@@ -7498,16 +7539,17 @@ void AppViewModel::chooseM3u8sOutputDirectory()
     if (m3u8sPackaging()) {
         return;
     }
-    const auto directory = QFileDialog::getExistingDirectory(
-        nullptr,
-        trText(QStringLiteral("m3u8s.chooseOutput")),
-        m_m3u8sOutputDirectory.isEmpty() ? defaultM3u8sOutputDirectory() : m_m3u8sOutputDirectory);
-    if (directory.isEmpty()) {
-        return;
-    }
-    m_m3u8sOutputDirectory = QFileInfo(directory).absoluteFilePath();
-    m_repository.setM3u8sOutputDirectory(m_m3u8sOutputDirectory);
-    emit m3u8sSettingsChanged();
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("m3u8s.chooseOutput")),
+                          m_m3u8sOutputDirectory.isEmpty() ? defaultM3u8sOutputDirectory() : m_m3u8sOutputDirectory,
+                          [this](const QString& directory) {
+        if (m3u8sPackaging()) return;
+        if (directory.isEmpty()) {
+            return;
+        }
+        m_m3u8sOutputDirectory = QFileInfo(directory).absoluteFilePath();
+        m_repository.setM3u8sOutputDirectory(m_m3u8sOutputDirectory);
+        emit m3u8sSettingsChanged();
+    });
 }
 
 void AppViewModel::chooseM3u8sFallbackDirectory()
@@ -7515,16 +7557,17 @@ void AppViewModel::chooseM3u8sFallbackDirectory()
     if (m3u8sPackaging()) {
         return;
     }
-    const auto directory = QFileDialog::getExistingDirectory(
-        nullptr,
-        trText(QStringLiteral("m3u8s.chooseFallback")),
-        m_m3u8sFallbackDirectory.isEmpty() ? defaultM3u8sOutputDirectory() : m_m3u8sFallbackDirectory);
-    if (directory.isEmpty()) {
-        return;
-    }
-    m_m3u8sFallbackDirectory = QFileInfo(directory).absoluteFilePath();
-    m_repository.setM3u8sFallbackDirectory(m_m3u8sFallbackDirectory);
-    emit m3u8sSettingsChanged();
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("m3u8s.chooseFallback")),
+                          m_m3u8sFallbackDirectory.isEmpty() ? defaultM3u8sOutputDirectory() : m_m3u8sFallbackDirectory,
+                          [this](const QString& directory) {
+        if (m3u8sPackaging()) return;
+        if (directory.isEmpty()) {
+            return;
+        }
+        m_m3u8sFallbackDirectory = QFileInfo(directory).absoluteFilePath();
+        m_repository.setM3u8sFallbackDirectory(m_m3u8sFallbackDirectory);
+        emit m3u8sSettingsChanged();
+    });
 }
 
 void AppViewModel::chooseM3u8sTemporaryDirectory()
@@ -7532,16 +7575,17 @@ void AppViewModel::chooseM3u8sTemporaryDirectory()
     if (m3u8sPackaging()) {
         return;
     }
-    const auto directory = QFileDialog::getExistingDirectory(
-        nullptr,
-        trText(QStringLiteral("m3u8s.chooseTemporary")),
-        m_m3u8sTemporaryDirectory);
-    if (directory.isEmpty()) {
-        return;
-    }
-    m_m3u8sTemporaryDirectory = QFileInfo(directory).absoluteFilePath();
-    m_repository.setM3u8sTemporaryDirectory(m_m3u8sTemporaryDirectory);
-    emit m3u8sSettingsChanged();
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("m3u8s.chooseTemporary")),
+                          m_m3u8sTemporaryDirectory,
+                          [this](const QString& directory) {
+        if (m3u8sPackaging()) return;
+        if (directory.isEmpty()) {
+            return;
+        }
+        m_m3u8sTemporaryDirectory = QFileInfo(directory).absoluteFilePath();
+        m_repository.setM3u8sTemporaryDirectory(m_m3u8sTemporaryDirectory);
+        emit m3u8sSettingsChanged();
+    });
 }
 
 void AppViewModel::chooseM3u8sWebDavDirectory()
@@ -7680,12 +7724,13 @@ void AppViewModel::openTsslStorageDirectory()
 
 void AppViewModel::chooseDefaultDownloadDirectory()
 {
-    const auto directory = QFileDialog::getExistingDirectory(nullptr,
-                                                            trText(QStringLiteral("webdav.defaultDownload")),
-                                                            m_defaultDownloadDirectory);
-    if (!directory.isEmpty()) {
-        setDefaultDownloadDirectory(directory);
-    }
+    m_fileDialogs.selectDirectory(trText(QStringLiteral("webdav.defaultDownload")),
+                          m_defaultDownloadDirectory,
+                          [this](const QString& directory) {
+        if (!directory.isEmpty()) {
+            setDefaultDownloadDirectory(directory);
+        }
+    });
 }
 
 void AppViewModel::openTransfers()

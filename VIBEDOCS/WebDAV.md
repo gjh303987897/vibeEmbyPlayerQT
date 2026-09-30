@@ -66,18 +66,17 @@ WebDAV 页面使用独立的中文文案表覆盖上传、下载、下载任务�
 
 ## 上传文件选择与生命周期
 
-上传文件和文件夹分别使用根窗口拥有的 Qt Quick `FileDialog`（`OpenFiles`）和
-`FolderDialog`，显式设置 `parentWindow: root` 与 `Qt.WindowModal`，通过 `open()`
-异步显示。Windows 设置 `DontUseNativeDialog`，使用 Qt Quick 选择器，避开同步
-Windows Shell 文件对话框；其他平台继续使用 Qt Quick Dialogs 的平台实现或回退实现。
-这条入口不再调用无父窗口的 `QFileDialog::getOpenFileNames()` / `getExistingDirectory()`。
+上传文件和文件夹统一使用 `FileDialogController`（详见 `FileSelection.md`），
+优先使用系统原生选择器。控制器为选择框设置主 Quick 窗口的 transient parent 和
+`Qt.WindowModal`，用堆对象持有其生命周期，通过 `QDialog::open()` 异步显示。
+Windows 不再强制使用非原生界面，也不恢复无父窗口的同步静态调用。
 Qt 官方明确指出 Windows 静态文件对话框会运行阻塞模态循环且不派发 `QTimer`，因此
 在 Qt Quick 按钮回调中同步等待选择结果会妨碍正常事件处理。
 
-QML 仅在 `accepted` 时把 `selectedFiles` / `selectedFolder` 交给
+QML 只调用 ViewModel 的选择入口；控制器完成选择后，由 C++ 把本地 URL 交给
 `AppViewModel::uploadWebDavFiles()` / `uploadWebDavFolder()`；取消不会入队或跳转。
-离开 WebDAV 页面或切换服务器时关闭选择器，C++ 收到结果后重新检查当前页面、服务、
-目标目录及本地 URL，并只接受现存且可读的文件或文件夹。
+离开页面、切换服务器或隐藏/销毁主窗口时关闭选择器，C++ 收到结果后重新检查
+当前页面、服务、目标目录及本地 URL，并只接受现存且可读的文件或文件夹。
 
 文件夹上传通过 `QtConcurrent::run()` 在后台遍历，准备期间使用独立的
 `webDavUploadPreparing` 状态显示进度指示并禁用重复选择。工作线程只持有本地路径与
@@ -88,11 +87,9 @@ QML 仅在 `accepted` 时把 `selectedFiles` / `selectedFolder` 交给
 任务顺序仍为根目录 MKCOL、按路径排序的子目录 MKCOL、文件 PUT。
 
 官方接口依据：
-[QFileDialog](https://doc.qt.io/qt-6/qfiledialog.html#getOpenFileNames)、
-[FileDialog](https://doc.qt.io/qt-6/qml-qtquick-dialogs-filedialog.html)、
-[FolderDialog](https://doc.qt.io/qt-6/qml-qtquick-dialogs-folderdialog.html)、
-[Qt Quick Dialog 的父窗口与模态属性](https://doc.qt.io/qt-6/qml-qtquick-dialogs-dialog.html)、
-[QML list 与 QList 转换](https://doc.qt.io/qt-6/qml-list.html)。
+[QFileDialog 原生支持与模式](https://doc.qt.io/qt-6/qfiledialog.html)、
+[QDialog 异步显示](https://doc.qt.io/qt-6/qdialog.html#open)、
+[QWindow transient parent](https://doc.qt.io/qt-6/qwindow.html#transientParent-prop)。
 
 ## 目录显示模式
 

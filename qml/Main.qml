@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Window
@@ -593,6 +592,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        appViewModel.attachFileDialogWindow(root)
         trayController.attachWindow(root)
         windowAppearanceController.attachWindow(root)
         // Snap the live palette (and DWM chrome) to the startup theme before the
@@ -624,10 +624,6 @@ ApplicationWindow {
         target: appViewModel
 
         function onCurrentViewChanged() {
-            if (appViewModel.currentView !== "webdav") {
-                webDavUploadFileDialog.close()
-                webDavUploadFolderDialog.close()
-            }
             if (appViewModel.currentView !== "player" && root.playerImmersive) {
                 root.exitPlayerFullscreen()
             }
@@ -639,9 +635,14 @@ ApplicationWindow {
             }
         }
 
-        function onCurrentServerChanged() {
-            webDavUploadFileDialog.close()
-            webDavUploadFolderDialog.close()
+        function onExternalSubtitleSelected(file) {
+            playerPageInstance.loadExternalSubtitle(file)
+        }
+
+        function onExternalSubtitleSelectionCanceled() {
+            if (appViewModel.currentView === "player") {
+                playerPageInstance.revealControls()
+            }
         }
 
         function onLoadingChanged() {
@@ -3096,22 +3097,6 @@ ApplicationWindow {
         }
     }
 
-    FileDialog {
-        id: externalSubtitleDialog
-        title: t("player.selectSubtitleFile")
-        fileMode: FileDialog.OpenFile
-        nameFilters: [
-            t("player.subtitleFiles") + " (*.srt *.ass *.ssa *.vtt *.sub *.idx *.sup *.smi *.sami *.lrc *.ttml *.dfxp)",
-            t("player.allFiles") + " (*)"
-        ]
-        onAccepted: playerPageInstance.loadExternalSubtitle(selectedFile)
-        onRejected: {
-            if (appViewModel.currentView === "player") {
-                playerPageInstance.revealControls()
-            }
-        }
-    }
-
     Item {
         id: windowHeader
         anchors.left: parent.left
@@ -3662,7 +3647,7 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("m3u8s.addVideos")
-                    onClicked: m3u8sVideoDialog.open()
+                    onClicked: appViewModel.chooseM3u8sVideoSources()
                 }
 
                 ModernButton {
@@ -3788,7 +3773,8 @@ ApplicationWindow {
         }
 
         ColumnLayout {
-            anchors.fill: parent
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             spacing: 12
 
             Label {
@@ -3880,21 +3866,6 @@ ApplicationWindow {
         }
     }
 
-    FileDialog {
-        id: m3u8sVideoDialog
-        title: t("m3u8s.chooseVideo")
-        fileMode: FileDialog.OpenFiles
-        nameFilters: [
-            t("m3u8s.videoFiles"),
-            t("player.allFiles") + " (*)"
-        ]
-        onAccepted: {
-            for (let index = 0; index < selectedFiles.length; ++index) {
-                appViewModel.addM3u8sVideoSource(selectedFiles[index])
-            }
-        }
-    }
-
     }
 
     Timer {
@@ -3917,33 +3888,6 @@ ApplicationWindow {
                 root.windowControlsRevealed = false
             }
         }
-    }
-
-    FolderDialog {
-        id: localMediaFolderDialog
-        title: t("local.addFolder")
-        onAccepted: appViewModel.addLocalMediaRoot(selectedFolder)
-    }
-
-    // Keep upload selection asynchronous and owned by the Quick window.
-    // Windows uses the Quick implementation to avoid the blocking shell dialog.
-    FileDialog {
-        id: webDavUploadFileDialog
-        parentWindow: root
-        modality: Qt.WindowModal
-        title: t("action.upload")
-        fileMode: FileDialog.OpenFiles
-        options: Qt.platform.os === "windows" ? FileDialog.DontUseNativeDialog : 0
-        onAccepted: appViewModel.uploadWebDavFiles(selectedFiles)
-    }
-
-    FolderDialog {
-        id: webDavUploadFolderDialog
-        parentWindow: root
-        modality: Qt.WindowModal
-        title: t("action.uploadFolder")
-        options: Qt.platform.os === "windows" ? FolderDialog.DontUseNativeDialog : 0
-        onAccepted: appViewModel.uploadWebDavFolder(selectedFolder)
     }
 
     Item {
@@ -13371,7 +13315,7 @@ ApplicationWindow {
 
                         onClicked: {
                             playerPage.closeTrackMenu(false)
-                            externalSubtitleDialog.open()
+                            appViewModel.chooseExternalSubtitle()
                         }
                     }
 
@@ -14621,7 +14565,7 @@ ApplicationWindow {
                         if (appViewModel.localMediaDirectoryOpen) {
                             appViewModel.localMediaBack()
                         } else {
-                            localMediaFolderDialog.open()
+                            appViewModel.chooseLocalMediaFolder()
                         }
                     }
                 }
@@ -14824,7 +14768,7 @@ ApplicationWindow {
                         visible: !appViewModel.localMediaDirectoryOpen
                         Layout.alignment: Qt.AlignHCenter
                         text: t("local.addFolder")
-                        onClicked: localMediaFolderDialog.open()
+                        onClicked: appViewModel.chooseLocalMediaFolder()
                     }
                 }
 
@@ -15752,13 +15696,13 @@ ApplicationWindow {
                 ModernButton {
                     text: t("action.upload")
                     enabled: !appViewModel.loading && !appViewModel.webDavUploadPreparing
-                    onClicked: webDavUploadFileDialog.open()
+                    onClicked: appViewModel.chooseWebDavUploadFiles()
                 }
 
                 ModernButton {
                     text: t("action.uploadFolder")
                     enabled: !appViewModel.loading && !appViewModel.webDavUploadPreparing
-                    onClicked: webDavUploadFolderDialog.open()
+                    onClicked: appViewModel.chooseWebDavUploadFolder()
                 }
 
                 BusyIndicator {
