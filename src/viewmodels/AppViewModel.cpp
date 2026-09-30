@@ -2471,6 +2471,11 @@ QString AppViewModel::webDavCurrentPath() const
     return m_webDavCurrentUrl.path(QUrl::FullyDecoded);
 }
 
+bool AppViewModel::webDavUploadPreparing() const
+{
+    return m_webDavUploadPreparing;
+}
+
 QString AppViewModel::webDavDisplayMode() const
 {
     return m_webDavDisplayMode;
@@ -5970,6 +5975,7 @@ void AppViewModel::finishWebDavHistoryPlayback(const ServiceCard& card,
                                                const QUrl& proxyUrl,
                                                const QString& encryptedSessionId)
 {
+    cancelWebDavUploadPreparation();
     clearCurrentPlayback();
     m_session.reset();
     clearIptvState();
@@ -6214,83 +6220,120 @@ void AppViewModel::refreshWebDavDirectory()
     }
 }
 
-void AppViewModel::chooseWebDavUploadFiles()
+void AppViewModel::uploadWebDavFiles(const QList<QUrl>& files)
 {
-    if (!m_currentWebDavCard) {
+    if (!m_currentWebDavCard || m_currentView != QStringLiteral("webdav") ||
+        m_webDavCurrentUrl.isEmpty() || m_webDavUploadPreparing || files.isEmpty()) {
         return;
     }
-    const auto files = QFileDialog::getOpenFileNames(nullptr, trText(QStringLiteral("action.upload")));
+    qsizetype uploadCount = 0;
     for (const auto& file : files) {
-        const QFileInfo info(file);
-        if (!info.exists() || !info.isFile()) {
+        if (!file.isLocalFile()) {
+            continue;
+        }
+        const QFileInfo info(file.toLocalFile());
+        if (!info.exists() || !info.isFile() || !info.isReadable()) {
             continue;
         }
         enqueueWebDavUploadFile(info.absoluteFilePath(), childWebDavUrl(info.fileName(), false));
+        ++uploadCount;
     }
-    openTransfers();
+    if (uploadCount > 0) {
+        AppLogger::info(QStringLiteral("webdav"),
+                        QStringLiteral("Queued %1 selected upload files").arg(uploadCount));
+        openTransfers();
+    }
 }
 
-void AppViewModel::chooseWebDavUploadFolder()
+void AppViewModel::uploadWebDavFolder(const QUrl& folderUrl)
 {
-    if (!m_currentWebDavCard) {
+    if (!m_currentWebDavCard || m_currentView != QStringLiteral("webdav") ||
+        m_webDavCurrentUrl.isEmpty() || m_webDavUploadPreparing || !folderUrl.isLocalFile()) {
         return;
     }
-    const auto folder = QFileDialog::getExistingDirectory(nullptr, trText(QStringLiteral("action.uploadFolder")));
-    if (folder.isEmpty()) {
+    const QFileInfo rootInfo(folderUrl.toLocalFile());
+    if (!rootInfo.exists() || !rootInfo.isDir() || !rootInfo.isReadable() || rootInfo.fileName().isEmpty()) {
+        AppLogger::warning(QStringLiteral("webdav"), QStringLiteral("Rejected an invalid upload folder"));
         return;
     }
-    const QFileInfo rootInfo(folder);
+    const auto folder = rootInfo.absoluteFilePath();
     const auto rootRemote = childWebDavUrl(rootInfo.fileName(), true);
-    // One grouped upload row: the root MKCOL becomes the first child so the
-    // queue still creates it before any file PUT, and every child carries a
-    // relative title instead of leaking the remote URL.
-    std::vector<TransferManager::TaskRequest> requests;
-    requests.push_back(TransferManager::TaskRequest {
-        .remoteUrl = rootRemote,
-        .title = QStringLiteral("%1/").arg(rootInfo.fileName()),
-        .directory = true,
-    });
+    const auto server = m_currentWebDavCard->server;
+    const auto password = m_webDavPassword;
+    const auto generation = ++m_webDavUploadPreparationGeneration;
+    const auto cancelFlag = std::make_shared<std::atomic_bool>(false);
+    m_webDavUploadScanCanceled = cancelFlag;
+    m_webDavUploadPreparing = true;
+    emit webDavUploadPreparingChanged();
+    AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Preparing a folder upload in the background"));
 
-    std::vector<TransferManager::TaskRequest> directoryRequests;
-    std::vector<TransferManager::TaskRequest> fileRequests;
-    QDirIterator iterator(folder, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
-    while (iterator.hasNext()) {
-        iterator.next();
-        const QFileInfo info(iterator.fileInfo());
-        const auto relative = QDir(folder).relativeFilePath(info.absoluteFilePath()).replace(QLatin1Char('\\'), QLatin1Char('/'));
-        auto remoteUrl = rootRemote.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(relative))));
-        if (info.isDir()) {
-            remoteUrl = ensureDirectoryUrl(remoteUrl);
-            directoryRequests.push_back(TransferManager::TaskRequest {
-                .remoteUrl = std::move(remoteUrl),
-                .title = relative + QLatin1Char('/'),
-                .directory = true,
-            });
-        } else if (info.isFile()) {
-            fileRequests.push_back(TransferManager::TaskRequest {
-                .remoteUrl = std::move(remoteUrl),
-                .localPath = info.absoluteFilePath(),
-                .totalBytes = info.size(),
-                .title = relative,
-            });
+    using UploadRequests = std::vector<TransferManager::TaskRequest>;
+    auto* watcher = new QFutureWatcher<UploadRequests>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this,
+            [this, watcher, generation, server, password, rootInfo, rootRemote]() {
+        auto requests = watcher->result();
+        watcher->deleteLater();
+        // Navigation can clear or replace the service while the filesystem is
+        // being scanned. Never read the old optional or enqueue into a new service.
+        if (generation != m_webDavUploadPreparationGeneration || !m_currentWebDavCard ||
+            m_currentWebDavCard->server.id != server.id) {
+            return;
         }
-    }
-    // The queue runs non-download tasks strictly in order, so every MKCOL must
-    // precede its children: directories first (lexicographic path order puts
-    // each parent before its children), then the files.
-    std::ranges::sort(directoryRequests, {}, [](const auto& request) { return request.title; });
-    requests.insert(requests.end(),
-                    std::make_move_iterator(directoryRequests.begin()),
-                    std::make_move_iterator(directoryRequests.end()));
-    requests.insert(requests.end(),
-                    std::make_move_iterator(fileRequests.begin()),
-                    std::make_move_iterator(fileRequests.end()));
-    m_transferManager.enqueueUploads(m_currentWebDavCard->server,
-                                     m_webDavPassword,
-                                     rootInfo.fileName(),
-                                     rootRemote.toString(),
-                                     std::move(requests));
-    openTransfers();
+        m_webDavUploadPreparing = false;
+        m_webDavUploadScanCanceled.reset();
+        emit webDavUploadPreparingChanged();
+        AppLogger::info(QStringLiteral("webdav"),
+                        QStringLiteral("Queued a folder upload with %1 entries").arg(requests.size()));
+        m_transferManager.enqueueUploads(server, password, rootInfo.fileName(),
+                                         rootRemote.toString(), std::move(requests));
+        if (m_currentView == QStringLiteral("webdav")) {
+            openTransfers();
+        }
+    });
+    // The worker owns only value snapshots; it cannot access the ViewModel or
+    // TransferManager after either object has been destroyed.
+    watcher->setFuture(QtConcurrent::run([folder, rootInfo, rootRemote, cancelFlag]() {
+        UploadRequests requests;
+        requests.push_back(TransferManager::TaskRequest {
+            .remoteUrl = rootRemote,
+            .title = QStringLiteral("%1/").arg(rootInfo.fileName()),
+            .directory = true,
+        });
+        UploadRequests directoryRequests;
+        UploadRequests fileRequests;
+        QDirIterator iterator(folder, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (!cancelFlag->load(std::memory_order_relaxed) && iterator.hasNext()) {
+            iterator.next();
+            const QFileInfo info(iterator.fileInfo());
+            const auto relative = QDir(folder).relativeFilePath(info.absoluteFilePath()).replace(QLatin1Char('\\'), QLatin1Char('/'));
+            auto remoteUrl = rootRemote.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(relative))));
+            if (info.isDir()) {
+                remoteUrl = ensureDirectoryUrl(remoteUrl);
+                directoryRequests.push_back(TransferManager::TaskRequest {
+                    .remoteUrl = std::move(remoteUrl),
+                    .title = relative + QLatin1Char('/'),
+                    .directory = true,
+                });
+            } else if (info.isFile()) {
+                fileRequests.push_back(TransferManager::TaskRequest {
+                    .remoteUrl = std::move(remoteUrl),
+                    .localPath = info.absoluteFilePath(),
+                    .totalBytes = info.size(),
+                    .title = relative,
+                });
+            }
+        }
+        // Keep the existing grouped upload order: root MKCOL, all parent
+        // directories before their children, and finally file PUT requests.
+        std::ranges::sort(directoryRequests, {}, [](const auto& request) { return request.title; });
+        requests.insert(requests.end(),
+                        std::make_move_iterator(directoryRequests.begin()),
+                        std::make_move_iterator(directoryRequests.end()));
+        requests.insert(requests.end(),
+                        std::make_move_iterator(fileRequests.begin()),
+                        std::make_move_iterator(fileRequests.end()));
+        return requests;
+    }));
 }
 
 void AppViewModel::downloadWebDavItem(int row)
@@ -10325,6 +10368,7 @@ std::expected<IptvPlaylist, QString> AppViewModel::importIptvPlaylistFile(const 
 
 void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& password)
 {
+    cancelWebDavUploadPreparation();
     clearError();
     m_session.reset();
     clearIptvState();
@@ -10360,6 +10404,7 @@ void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& pas
 
 void AppViewModel::clearWebDavState()
 {
+    cancelWebDavUploadPreparation();
     if (!m_currentWebDavCard && m_webDavCurrentUrl.isEmpty() &&
         m_webDavItems.count() == 0 && m_webDavAudioQueue.empty()) {
         return;
@@ -10528,6 +10573,19 @@ void AppViewModel::enqueueWebDavUploadFile(const QString& localPath, const QUrl&
                                     info.absoluteFilePath(),
                                     remoteUrl,
                                     info.size());
+}
+
+void AppViewModel::cancelWebDavUploadPreparation()
+{
+    ++m_webDavUploadPreparationGeneration;
+    if (m_webDavUploadScanCanceled) {
+        m_webDavUploadScanCanceled->store(true, std::memory_order_relaxed);
+        m_webDavUploadScanCanceled.reset();
+    }
+    if (m_webDavUploadPreparing) {
+        m_webDavUploadPreparing = false;
+        emit webDavUploadPreparingChanged();
+    }
 }
 
 void AppViewModel::enqueueM3u8sPackageUpload(const EncryptedHlsPackageResult& result)

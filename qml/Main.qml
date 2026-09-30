@@ -624,6 +624,10 @@ ApplicationWindow {
         target: appViewModel
 
         function onCurrentViewChanged() {
+            if (appViewModel.currentView !== "webdav") {
+                webDavUploadFileDialog.close()
+                webDavUploadFolderDialog.close()
+            }
             if (appViewModel.currentView !== "player" && root.playerImmersive) {
                 root.exitPlayerFullscreen()
             }
@@ -633,6 +637,11 @@ ApplicationWindow {
                 serviceTransitionOverlay.releasePrepared()
                 serviceTransitionOverlay.maybeOpenPrepared()
             }
+        }
+
+        function onCurrentServerChanged() {
+            webDavUploadFileDialog.close()
+            webDavUploadFolderDialog.close()
         }
 
         function onLoadingChanged() {
@@ -3914,6 +3923,27 @@ ApplicationWindow {
         id: localMediaFolderDialog
         title: t("local.addFolder")
         onAccepted: appViewModel.addLocalMediaRoot(selectedFolder)
+    }
+
+    // Keep upload selection asynchronous and owned by the Quick window.
+    // Windows uses the Quick implementation to avoid the blocking shell dialog.
+    FileDialog {
+        id: webDavUploadFileDialog
+        parentWindow: root
+        modality: Qt.WindowModal
+        title: t("action.upload")
+        fileMode: FileDialog.OpenFiles
+        options: Qt.platform.os === "windows" ? FileDialog.DontUseNativeDialog : 0
+        onAccepted: appViewModel.uploadWebDavFiles(selectedFiles)
+    }
+
+    FolderDialog {
+        id: webDavUploadFolderDialog
+        parentWindow: root
+        modality: Qt.WindowModal
+        title: t("action.uploadFolder")
+        options: Qt.platform.os === "windows" ? FolderDialog.DontUseNativeDialog : 0
+        onAccepted: appViewModel.uploadWebDavFolder(selectedFolder)
     }
 
     Item {
@@ -15720,12 +15750,21 @@ ApplicationWindow {
 
                 ModernButton {
                     text: t("action.upload")
-                    onClicked: appViewModel.chooseWebDavUploadFiles()
+                    enabled: !appViewModel.loading && !appViewModel.webDavUploadPreparing
+                    onClicked: webDavUploadFileDialog.open()
                 }
 
                 ModernButton {
                     text: t("action.uploadFolder")
-                    onClicked: appViewModel.chooseWebDavUploadFolder()
+                    enabled: !appViewModel.loading && !appViewModel.webDavUploadPreparing
+                    onClicked: webDavUploadFolderDialog.open()
+                }
+
+                BusyIndicator {
+                    Layout.preferredWidth: 24
+                    Layout.preferredHeight: 24
+                    visible: appViewModel.webDavUploadPreparing
+                    running: visible
                 }
 
                 ModernButton {
