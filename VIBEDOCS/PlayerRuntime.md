@@ -102,6 +102,31 @@ Reference: <https://mpv.io/manual/master/#video-synchronization>
 
 No other module should include `mpv/client.h`.
 
+## Local Encrypted HLS Cache
+
+Local `.m3u8s` and `.m3u8sp` playback reaches libmpv through the authenticated
+localhost proxy. `AppViewModel.localEncryptedPlayback` identifies this source
+explicitly; a localhost URL alone cannot distinguish it from remote WebDAV.
+`MpvVideoItem` passes the flag to `PlayerController::playUrl`.
+
+For this source, `loadfile` supplies per-file options: `demuxer-max-bytes=64MiB`,
+`demuxer-max-back-bytes=8MiB`, `demuxer-donate-buffer=no`, and `cache-secs=8`.
+These keep read-ahead and rewind caching useful while reducing unnecessary
+network-style prefetch for local disk data. Resume positions share the same
+option list. mpv restores the previous options when the file ends or is
+replaced, so subsequent HTTP, WebDAV, SMB and other playback retains its
+existing behavior. Decoder and video-output memory are separate from these
+approximate demuxer cache limits; an entire encrypted segment must still be
+authenticated before it can be exposed to the player.
+
+`EncryptedHlsPlaybackProxyTest` generates a temporary 30-second HLS fixture
+with FFmpeg and verifies ordinary local HLS playback, encrypted container
+playback, read-ahead limits, seeking, two audio tracks, an external subtitle,
+and restoration of network caching after replacement with a mock WebDAV Range
+source. It skips this fixture when FFmpeg is absent.
+
+Reference: [mpv manual: cache, demuxer and loadfile options](https://mpv.io/manual/stable/).
+
 ## Player Page Behavior
 
 The player page uses a full-content native video surface with player chrome

@@ -28,6 +28,23 @@
 
 容器通过现有回环 HTTP 代理提供给 libmpv，libmpv 不直接解析 TAR，也不会接触 TSSL 密钥。
 
+### 播放内存管理
+
+- 本地索引先读取 512 字节 TAR 头，再按头内已校验的长度读取 CBOR，避免每次打开都分配 16 MiB 的固定探测窗口。
+- 容器成员的读取和 SHA-256 校验在工作线程执行；任务仅捕获已验证的成员信息，不复制完整索引，也不持有代理对象。
+- 播放分片使用 `AesGcmDecryptor::decryptTsSegmentInPlace` 接管密文缓冲，在原分配内解密。完整 GCM tag 验证通过之前不会发送任何明文；验证失败会清零暂存结果。
+- 单次异步结果使用 `QFuture::takeResult()` 转移所有权，避免隐式共享的结果在清零时复制整个分片。
+- HTTP 响应按 64 KiB 分块发送，Qt socket 待写队列上限为 256 KiB。慢速读取时保留一份已验证分片；发送完成、断开连接或撤销会话时清零并释放明文。
+- 每条连接只处理一个请求，撤销会话会关闭该会话的连接，防止旧播放继续保留发送缓冲。
+
+本地 `.m3u8s` / `.m3u8sp` 的来源信息由 `AppViewModel.localEncryptedPlayback` 传给 `MpvVideoItem` 和 `PlayerController`。libmpv 的单文件选项将前向缓存限制为 64 MiB、回看缓存限制为 8 MiB、预读限制为 8 秒，并关闭前向空间向回看缓存的转移。换片后选项自动恢复，WebDAV 等远程来源使用原有网络缓存策略。该限制不包含解码器、视频输出和当前正在认证的完整分片，因此不是应用总内存上限。
+
+实现依据：[Qt QFuture](https://doc.qt.io/qt-6/qfuture.html#takeResult)、[Qt socket 写缓冲](https://doc.qt.io/qt-6/qabstractsocket.html)、[OpenSSL EVP 原地解密](https://docs.openssl.org/3.0/man3/EVP_EncryptInit/)、[mpv 缓存与单文件选项](https://mpv.io/manual/stable/)。
+
+`EncryptedHlsFormatTest` 验证原地解密复用分配、共享数据不会被改写、错误 key/tag 和截断数据被拒绝。`EncryptedHlsPlaybackProxyTest` 验证 32 MiB 大分片的慢速读取、完整摘要、Range/HEAD、会话撤销，以及实际 libmpv 的普通本地 HLS / 加密容器播放、跳转、字幕加载、音轨切换和切换为模拟 WebDAV Range 来源后的缓存恢复；实际播放测试需要 PATH 中有 FFmpeg 来生成临时素材。
+
+2026-09-30 本地对比：Windows 11、Qt 6.7.3、clang-cl Debug，使用相同测试及 Qt/libmpv 依赖，对比 `c4e50d7` 的代理/解密/容器代码与本次修改。32 MiB + 7 字节分片通过回环代理发送，客户端读取缓冲限制为 64 KiB，先等待 1 秒再读取；随后验证 Range、HEAD 和撤销会话。以 20 ms 间隔采样测试进程的私有内存，峰值从 146.29 MiB 降至 82.68 MiB（约 43.5%）；峰值工作集从 160.57 MiB 降至 97.05 MiB。数字包含素材生成和测试开销，仅证明该传输场景的内存改善，不代表实际 4K 播放进程的总内存降幅。
+
 ## 兼容性
 
 - `.m3u8s` 目录格式继续支持，旧 TSSL v2/v3 不变。

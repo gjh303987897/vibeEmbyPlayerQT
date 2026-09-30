@@ -237,6 +237,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString selectedSeasonId READ selectedSeasonId NOTIFY selectedSeasonChanged)
     Q_PROPERTY(QString selectedSeasonName READ selectedSeasonName NOTIFY selectedSeasonChanged)
     Q_PROPERTY(QUrl currentPlaybackUrl READ currentPlaybackUrl NOTIFY playbackChanged)
+    Q_PROPERTY(bool localEncryptedPlayback READ localEncryptedPlayback NOTIFY playbackChanged)
     Q_PROPERTY(double currentPlaybackStartSeconds READ currentPlaybackStartSeconds NOTIFY playbackChanged)
     Q_PROPERTY(int currentPlaybackSubtitleStreamIndex READ currentPlaybackSubtitleStreamIndex NOTIFY playbackChanged)
     Q_PROPERTY(ServiceCardListModel* services READ services CONSTANT)
@@ -533,6 +534,7 @@ public:
     QString selectedSeasonId() const;
     QString selectedSeasonName() const;
     QUrl currentPlaybackUrl() const;
+    bool localEncryptedPlayback() const;
     double currentPlaybackStartSeconds() const;
     int currentPlaybackSubtitleStreamIndex() const;
 

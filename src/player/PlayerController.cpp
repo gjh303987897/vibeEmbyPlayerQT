@@ -484,7 +484,8 @@ void PlayerController::playUrl(const QString& url,
                                const QString& httpUsername,
                                const QString& httpPassword,
                                bool allowInsecureTls,
-                               int preferredSubtitleStreamIndex)
+                               int preferredSubtitleStreamIndex,
+                               bool localEncryptedPlayback)
 {
     if (!m_mpv || url.isEmpty()) {
         return;
@@ -545,10 +546,21 @@ void PlayerController::playUrl(const QString& url,
     m_seeking = false;
     m_bufferingProgress = 0;
     emit playbackStateChanged();
-    bool requested = false;
+    QByteArrayList fileOptions;
+    if (localEncryptedPlayback) {
+        // Local encrypted HLS travels through localhost HTTP, so mpv's auto
+        // cache otherwise prefetches it as a remote stream. Per-file options
+        // are restored by mpv when playback ends or is replaced.
+        fileOptions = { "demuxer-max-bytes=64MiB", "demuxer-max-back-bytes=8MiB",
+                        "demuxer-donate-buffer=no", "cache-secs=8" };
+    }
     if (startSeconds > 1.0) {
-        const QByteArray startOption = QByteArrayLiteral("start=") + QByteArray::number(startSeconds, 'f', 3);
-        const char* args[] = { "loadfile", encoded.constData(), "replace", "-1", startOption.constData(), nullptr };
+        fileOptions.append(QByteArrayLiteral("start=") + QByteArray::number(startSeconds, 'f', 3));
+    }
+    bool requested = false;
+    if (!fileOptions.isEmpty()) {
+        const auto options = fileOptions.join(',');
+        const char* args[] = { "loadfile", encoded.constData(), "replace", "-1", options.constData(), nullptr };
         requested = command(args);
     } else {
         const char* args[] = { "loadfile", encoded.constData(), "replace", nullptr };

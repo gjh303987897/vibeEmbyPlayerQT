@@ -2,15 +2,20 @@
 #include "services/encryptedhls/EncryptedHlsTarContainer.h"
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
+#include "player/PlayerController.h"
 
 #include <QCryptographicHash>
 #include <QDir>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QHostAddress>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
+#include <QSignalSpy>
+#include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QRegularExpression>
@@ -100,6 +105,9 @@ public:
                     } else {
                         body = full;
                     }
+                    if (path.startsWith("/movie.m3u8sp")) {
+                        extraHeaders += "ETag: \"test-container-v1\"\r\n";
+                    }
                     socket->write("HTTP/1.1 " + QByteArray::number(status) +
                                   (status == 200 ? " OK\r\n" : status == 206 ? " Partial Content\r\n" : " Not Found\r\n"));
                     socket->write("Content-Length: " + QByteArray::number(body.size()) + "\r\n");
@@ -151,7 +159,7 @@ struct HttpResponse {
     QByteArray body;
 };
 
-HttpResponse get(const QUrl& url, const QByteArray& range = {})
+HttpResponse get(const QUrl& url, const QByteArray& range = {}, bool head = false)
 {
     QNetworkAccessManager manager;
     QEventLoop loop;
@@ -159,7 +167,7 @@ HttpResponse get(const QUrl& url, const QByteArray& range = {})
     if (!range.isEmpty()) {
         request.setRawHeader(QByteArrayLiteral("Range"), range);
     }
-    auto* reply = manager.get(request);
+    auto* reply = head ? manager.head(request) : manager.get(request);
     QTimer timer;
     timer.setSingleShot(true);
     QObject::connect(&timer, &QTimer::timeout, reply, &QNetworkReply::abort);
@@ -188,6 +196,8 @@ private slots:
     void previewFallsBackToFullReadWithoutRangeSupport();
     void verifiedPlaintextIsServedAndTamperedTagIsRejected();
     void localPackageRestoresSourceNameAndVerifiesSegments();
+    void largeLocalContainerStreamsToSlowClient();
+    void localEncryptedPlaybackLimitsReadAheadAndRestoresNetworkDefaults();
     void mismatchedIdentifierIsRejectedBeforePlayback();
 };
 
@@ -529,6 +539,234 @@ void EncryptedHlsPlaybackProxyTest::localPackageRestoresSourceNameAndVerifiesSeg
     QCOMPARE(segmentFile.write(tampered), tampered.size());
     segmentFile.close();
     QCOMPARE(get(segmentUrl).status, 502);
+}
+
+void EncryptedHlsPlaybackProxyTest::largeLocalContainerStreamsToSlowClient()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    auto manifest = HlsManifestValidator::insertM3u8sIdentifier(
+        QByteArrayLiteral("#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n"),
+        identifierBytes('M'));
+    QVERIFY(manifest.has_value());
+    constexpr qsizetype payloadSize = 32 * 1024 * 1024 + 7;
+    const QByteArray sourceNameKey(32, '\x44');
+    const auto encryptedSourceName = AesGcmDecryptor::encryptAuthenticatedData(
+        QByteArrayLiteral("Memory probe.mkv"), sourceNameKey, QByteArray(16, '\x24'),
+        TsslPackage::sourceFileNameAuthenticatedData(identifierBytes('M')));
+    QVERIFY(encryptedSourceName.has_value());
+    manifest = HlsManifestValidator::insertEncryptedSourceFileName(*manifest, *encryptedSourceName);
+    QVERIFY(manifest.has_value());
+    QByteArray payload(payloadSize, '\x71');
+    const auto digest = QCryptographicHash::hash(payload, QCryptographicHash::Sha256);
+    const QByteArray key(32, '\x42');
+    auto encrypted = AesGcmDecryptor::encryptTsSegment(payload, key, QByteArray(16, '\x23'));
+    QVERIFY(encrypted.has_value());
+    QVERIFY(writeFile(temporary.filePath(QStringLiteral("index.m3u8s")), *manifest));
+    QVERIFY(writeFile(temporary.filePath(QStringLiteral("segment.ts")), *encrypted));
+    QByteArray().swap(payload);
+    QByteArray().swap(*encrypted);
+    const auto archivePath = temporary.filePath(QStringLiteral("movie.m3u8sp"));
+    const auto index = EncryptedHlsTarContainer::build(temporary.path(), archivePath, QStringLiteral("index.m3u8s"));
+    QVERIFY(index.has_value());
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    const TsslPackage package {
+        .version = 4,
+        .containerFormat = QStringLiteral("m3u8sp-tar-index-v1"),
+        .containerIndexSha256 = index->sha256,
+        .containerLength = index->containerLength,
+        .identifier = identifierBytes('M'),
+        .rootManifestDigest = QCryptographicHash::hash(*manifest, QCryptographicHash::Sha256),
+        .encryptedSourceFileName = *encryptedSourceName,
+        .sourceFileNameKey = sourceNameKey,
+        .segmentKeys = { { QStringLiteral("segment.ts"), key } },
+    };
+    QVERIFY(store.savePackage(package).has_value());
+    EncryptedHlsPlaybackProxy proxy(store);
+    std::optional<EncryptedHlsPrepareResult> prepared;
+    proxy.prepareLocalStream(archivePath, [&](EncryptedHlsPrepareResult result) {
+        prepared.emplace(std::move(result));
+    });
+    QTRY_VERIFY(prepared.has_value());
+    if (!*prepared) QFAIL(qPrintable(prepared->error()));
+    const auto segmentUrl = (**prepared).url.resolved(QUrl(QStringLiteral("segment.ts")));
+    const auto requestBytes = "GET " + segmentUrl.path().toUtf8() +
+        " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    QTcpSocket client;
+    client.setReadBufferSize(64 * 1024);
+    client.connectToHost(segmentUrl.host(), segmentUrl.port());
+    QTRY_COMPARE(client.state(), QAbstractSocket::ConnectedState);
+    client.write(requestBytes);
+    QTRY_VERIFY(client.bytesAvailable() > 0);
+    // Hold back the consumer so a full-segment socket write would retain a
+    // second large allocation. Also used for external memory measurements.
+    QTest::qWait(1000);
+    auto first = client.readAll();
+    const auto headerEnd = first.indexOf("\r\n\r\n");
+    QVERIFY(headerEnd >= 0);
+    QVERIFY(first.startsWith("HTTP/1.1 200"));
+    QVERIFY(first.left(headerEnd).contains("Content-Length: " + QByteArray::number(payloadSize)));
+    QCryptographicHash receivedHash(QCryptographicHash::Sha256);
+    receivedHash.addData(QByteArrayView(first).sliced(headerEnd + 4));
+    qint64 receivedBytes = first.size() - headerEnd - 4;
+    QEventLoop loop;
+    const auto consume = [&]() {
+        const auto chunk = client.readAll();
+        receivedHash.addData(chunk);
+        receivedBytes += chunk.size();
+        if (receivedBytes >= payloadSize) loop.quit();
+    };
+    connect(&client, &QTcpSocket::readyRead, &loop, consume);
+    connect(&client, &QTcpSocket::disconnected, &loop, &QEventLoop::quit);
+    QTimer::singleShot(10000, &loop, &QEventLoop::quit);
+    if (receivedBytes < payloadSize) loop.exec();
+    consume();
+    QCOMPARE(receivedBytes, payloadSize);
+    QCOMPARE(receivedHash.result(), digest);
+    QCOMPARE(get(segmentUrl, QByteArrayLiteral("bytes=-7")).body, QByteArray(7, '\x71'));
+    QCOMPARE(get(segmentUrl, QByteArrayLiteral("bytes=999999999-")).status, 416);
+    const auto headResponse = get(segmentUrl, {}, true);
+    QCOMPARE(headResponse.status, 200);
+    QVERIFY(headResponse.body.isEmpty());
+
+    QTcpSocket cancelled;
+    cancelled.setReadBufferSize(64 * 1024);
+    cancelled.connectToHost(segmentUrl.host(), segmentUrl.port());
+    QTRY_COMPARE(cancelled.state(), QAbstractSocket::ConnectedState);
+    cancelled.write(requestBytes);
+    QTRY_VERIFY(cancelled.bytesAvailable() > 0);
+    proxy.revoke((**prepared).sessionId);
+    // Drain the small amount already delivered so the client can observe FIN.
+    QElapsedTimer closeDeadline;
+    closeDeadline.start();
+    while (cancelled.state() != QAbstractSocket::UnconnectedState && closeDeadline.elapsed() < 10000) {
+        cancelled.readAll();
+        QTest::qWait(10);
+    }
+    QCOMPARE(cancelled.state(), QAbstractSocket::UnconnectedState);
+    QCOMPARE(get(segmentUrl).status, 404);
+}
+
+void EncryptedHlsPlaybackProxyTest::localEncryptedPlaybackLimitsReadAheadAndRestoresNetworkDefaults()
+{
+    const auto ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    if (ffmpeg.isEmpty()) QSKIP("FFmpeg is required to generate the playback fixture");
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    QProcess encoder;
+    encoder.setWorkingDirectory(temporary.path());
+    encoder.start(ffmpeg, {
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+        "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
+        "-map", "0:v", "-map", "1:a", "-map", "2:a", "-t", "30",
+        "-c:v", "mpeg2video", "-g", "20", "-c:a", "mp2",
+        "-f", "hls", "-hls_time", "2", "-hls_list_size", "0", "plain.m3u8",
+    });
+    QVERIFY(encoder.waitForFinished(30000));
+    QCOMPARE(encoder.exitCode(), 0);
+    {
+        PlayerController localPlayer;
+        QSignalSpy localErrors(&localPlayer, &PlayerController::errorOccurred);
+        QVERIFY(localPlayer.initializeHeadless());
+        localPlayer.playUrl(QUrl::fromLocalFile(temporary.filePath(QStringLiteral("plain.m3u8"))).toString());
+        QTRY_VERIFY_WITH_TIMEOUT(localPlayer.position() > 0.1, 10000);
+        QVERIFY(localErrors.isEmpty());
+        localPlayer.shutdown();
+    }
+    QFile plainManifest(temporary.filePath(QStringLiteral("plain.m3u8")));
+    QVERIFY(plainManifest.open(QIODevice::ReadOnly));
+    const auto identifier = identifierBytes('P');
+    auto manifest = HlsManifestValidator::insertM3u8sIdentifier(plainManifest.readAll(), identifier);
+    QVERIFY(manifest.has_value());
+    const QByteArray nameKey(32, '\x44');
+    const auto name = AesGcmDecryptor::encryptAuthenticatedData(
+        QByteArrayLiteral("Playback probe.mkv"), nameKey, QByteArray(16, '\x24'),
+        TsslPackage::sourceFileNameAuthenticatedData(identifier));
+    QVERIFY(name.has_value());
+    manifest = HlsManifestValidator::insertEncryptedSourceFileName(*manifest, *name);
+    QVERIFY(manifest.has_value());
+    QVERIFY(writeFile(temporary.filePath(QStringLiteral("index.m3u8s")), *manifest));
+    QHash<QString, QByteArray> keys;
+    for (const auto& segmentName : QDir(temporary.path()).entryList({ "*.ts" }, QDir::Files)) {
+        QFile segment(temporary.filePath(segmentName));
+        QVERIFY(segment.open(QIODevice::ReadOnly));
+        auto encrypted = AesGcmDecryptor::encryptTsSegment(segment.readAll());
+        QVERIFY(encrypted.has_value());
+        segment.close();
+        QVERIFY(writeFile(segment.fileName(), encrypted->bytes));
+        keys.insert(segmentName, std::move(encrypted->key));
+    }
+    const auto archivePath = temporary.filePath(QStringLiteral("movie.m3u8sp"));
+    const auto index = EncryptedHlsTarContainer::build(temporary.path(), archivePath, QStringLiteral("index.m3u8s"));
+    QVERIFY(index.has_value());
+    TsslStore store(temporary.filePath(QStringLiteral("store")));
+    const TsslPackage package {
+        .version = 4,
+        .containerFormat = QStringLiteral("m3u8sp-tar-index-v1"),
+        .containerIndexSha256 = index->sha256,
+        .containerLength = index->containerLength,
+        .identifier = identifier,
+        .rootManifestDigest = QCryptographicHash::hash(*manifest, QCryptographicHash::Sha256),
+        .encryptedSourceFileName = *name,
+        .sourceFileNameKey = nameKey,
+        .segmentKeys = std::move(keys),
+    };
+    QVERIFY(store.savePackage(package).has_value());
+    EncryptedHlsPlaybackProxy proxy(store);
+    std::optional<EncryptedHlsPrepareResult> prepared;
+    proxy.prepareLocalStream(archivePath, [&](EncryptedHlsPrepareResult result) {
+        prepared.emplace(std::move(result));
+    });
+    QTRY_VERIFY(prepared.has_value());
+    if (!*prepared) QFAIL(qPrintable(prepared->error()));
+    PlayerController player;
+    QSignalSpy errors(&player, &PlayerController::errorOccurred);
+    QVERIFY(player.initializeHeadless());
+    const auto url = (**prepared).url.toString();
+    player.playUrl(url, 0.0, {}, {}, false, -1, true);
+    QTRY_VERIFY_WITH_TIMEOUT(player.position() > 0.1, 10000);
+    player.pause();
+    QTRY_VERIFY(player.cacheDurationSeconds() > 2.0);
+    QTest::qWait(300);
+    QVERIFY(player.cacheDurationSeconds() < 11.0);
+    QCOMPARE(player.audioTracks()->count(), 2);
+    player.selectAudioTrack(1);
+    QTRY_VERIFY(player.audioTracks()->trackAt(1)->selected);
+    const auto subtitlePath = temporary.filePath(QStringLiteral("test.srt"));
+    QVERIFY(writeFile(subtitlePath, QByteArrayLiteral("1\n00:00:00,000 --> 00:00:29,000\nMemory test\n")));
+    player.loadExternalSubtitle(subtitlePath);
+    QTRY_COMPARE(player.subtitleTracks()->count(), 1);
+    player.selectSubtitleTrack(0);
+    QTRY_VERIFY(player.subtitleTracks()->trackAt(0)->selected);
+    player.seekAbsolute(15.0);
+    QTRY_VERIFY_WITH_TIMEOUT(player.position() >= 14.0, 10000);
+
+    // Replacing with a WebDAV Range stream must restore the network defaults.
+    FakeWebDavServer origin;
+    QVERIFY(origin.listen());
+    QFile archive(archivePath);
+    QVERIFY(archive.open(QIODevice::ReadOnly));
+    origin.container = archive.readAll();
+    ServerConfig server;
+    server.serviceType = ServiceType::WebDAV;
+    server.baseUrl = origin.containerUrl().adjusted(QUrl::RemoveFilename).toString();
+    std::optional<EncryptedHlsPrepareResult> remotePrepared;
+    proxy.prepareStream(server, {}, origin.containerUrl(), [&](EncryptedHlsPrepareResult result) {
+        remotePrepared.emplace(std::move(result));
+    });
+    QTRY_VERIFY(remotePrepared.has_value());
+    if (!*remotePrepared) QFAIL(qPrintable(remotePrepared->error()));
+    player.playUrl((**remotePrepared).url.toString());
+    QTRY_VERIFY_WITH_TIMEOUT(player.position() > 0.1 && player.position() < 5.0, 10000);
+    player.pause();
+    QTRY_VERIFY_WITH_TIMEOUT(player.cacheDurationSeconds() > 12.0, 10000);
+    QVERIFY(errors.isEmpty());
+    player.stop();
+    player.shutdown();
+    proxy.revoke((**prepared).sessionId);
+    proxy.revoke((**remotePrepared).sessionId);
 }
 
 void EncryptedHlsPlaybackProxyTest::mismatchedIdentifierIsRejectedBeforePlayback()

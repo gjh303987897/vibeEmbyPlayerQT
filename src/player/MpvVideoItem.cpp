@@ -268,6 +268,18 @@ bool MpvVideoItem::audioOnly() const
     return m_audioOnly;
 }
 
+bool MpvVideoItem::localEncryptedPlayback() const
+{
+    return m_localEncryptedPlayback;
+}
+
+void MpvVideoItem::setLocalEncryptedPlayback(bool value)
+{
+    if (m_localEncryptedPlayback == value) return;
+    m_localEncryptedPlayback = value;
+    emit localEncryptedPlaybackChanged();
+}
+
 void MpvVideoItem::setAudioOnly(bool value)
 {
     if (m_audioOnly == value) {
@@ -443,7 +455,8 @@ void MpvVideoItem::play()
                          m_httpUsername,
                          m_httpPassword,
                          m_allowInsecureTls,
-                         m_preferredSubtitleStreamIndex);
+                         m_preferredSubtitleStreamIndex,
+                         m_localEncryptedPlayback);
     m_startPosition = 0.0;
     emit startPositionChanged();
     m_pendingPlay = false;

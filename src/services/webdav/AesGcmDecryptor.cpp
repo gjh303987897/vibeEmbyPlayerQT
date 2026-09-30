@@ -143,11 +143,10 @@ OpenSslEvp& openssl()
     static OpenSslEvp api;
     return api;
 }
-}
-
-std::expected<QByteArray, QString> decryptAuthenticatedData(QByteArrayView encryptedSegment,
+std::expected<QByteArray, QString> decryptAuthenticatedDataImpl(QByteArrayView encryptedSegment,
                                                             QByteArrayView key,
-                                                            QByteArrayView authenticatedData)
+                                                            QByteArrayView authenticatedData,
+                                                            QByteArray* reusableBuffer = nullptr)
 {
     if (key.size() != 32) {
         return std::unexpected(QStringLiteral("AES-256-GCM requires a 32-byte key"));
@@ -193,8 +192,14 @@ std::expected<QByteArray, QString> decryptAuthenticatedData(QByteArrayView encry
         return std::unexpected(QStringLiteral("AES-256-GCM authenticated data setup failed"));
     }
 
-    QByteArray plaintext(ciphertextBytes + tagBytes, Qt::Uninitialized);
-    auto* output = reinterpret_cast<unsigned char*>(plaintext.data());
+    QByteArray plaintext;
+    auto& buffer = reusableBuffer ? *reusableBuffer : plaintext;
+    if (!reusableBuffer) {
+        buffer = QByteArray(ciphertextBytes + tagBytes, Qt::Uninitialized);
+    }
+    // EVP supports identical input/output pointers; partially overlapping
+    // buffers are forbidden. Leave the IV and tag in place until verification.
+    auto* output = reinterpret_cast<unsigned char*>(buffer.data()) + (reusableBuffer ? ivBytes : 0);
     int produced = 0;
     if (api.decryptUpdate(context.get(),
                           output,
@@ -202,22 +207,42 @@ std::expected<QByteArray, QString> decryptAuthenticatedData(QByteArrayView encry
                           ciphertext,
                           static_cast<int>(ciphertextBytes)) != 1 ||
         api.contextControl(context.get(), setTagControl, static_cast<int>(tagBytes), tag) != 1) {
-        plaintext.fill('\0');
+        buffer.fill('\0');
         return std::unexpected(QStringLiteral("AES-256-GCM segment decryption failed"));
     }
 
     int finalBytes = 0;
     if (api.decryptFinal(context.get(), output + produced, &finalBytes) != 1) {
-        plaintext.fill('\0');
+        buffer.fill('\0');
         return std::unexpected(QStringLiteral("AES-256-GCM authentication tag verification failed"));
     }
-    plaintext.resize(produced + finalBytes);
-    return plaintext;
+    if (reusableBuffer) {
+        std::fill_n(buffer.data(), ivBytes, '\0');
+        std::fill(buffer.data() + ivBytes + produced + finalBytes,
+                  buffer.data() + buffer.size(), '\0');
+        buffer.remove(0, ivBytes);
+    }
+    buffer.resize(produced + finalBytes);
+    return std::move(buffer);
+}
+}
+
+std::expected<QByteArray, QString> decryptAuthenticatedData(QByteArrayView encryptedSegment,
+                                                            QByteArrayView key,
+                                                            QByteArrayView authenticatedData)
+{
+    return decryptAuthenticatedDataImpl(encryptedSegment, key, authenticatedData);
 }
 
 std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegment, QByteArrayView key)
 {
     return decryptAuthenticatedData(encryptedSegment, key, {});
+}
+
+std::expected<QByteArray, QString> decryptTsSegmentInPlace(QByteArray encryptedSegment, QByteArrayView key)
+{
+    encryptedSegment.data(); // Detach before creating a view into the owned allocation.
+    return decryptAuthenticatedDataImpl(encryptedSegment, key, {}, &encryptedSegment);
 }
 
 std::expected<QByteArray, QString> secureRandomBytes(qsizetype size)

@@ -339,7 +339,10 @@ std::expected<EncryptedHlsTarIndex, QString> readIndex(const QString& archivePat
 {
     QFile archive(archivePath);
     if (!archive.open(QIODevice::ReadOnly) || archive.size() < blockSize) return std::unexpected(QStringLiteral("Unable to open M3U8SP container"));
-    const auto prefix = archive.read(std::min<qint64>(archive.size(), maximumIndexBytes + blockSize));
+    auto prefix = archive.read(blockSize);
+    const auto indexSize = indexSizeFromPrefix(prefix);
+    if (!indexSize) return std::unexpected(indexSize.error());
+    prefix.append(archive.read(*indexSize));
     auto index = readIndexPrefix(prefix, archive.size());
     if (!index) return index;
     for (const auto& entry : index->entries) {
@@ -420,11 +423,22 @@ std::expected<QByteArray, QString> readEntry(const QString& archivePath,
                                              qint64 maximumBytes)
 {
     const auto* entry = index.entry(path);
-    if (!entry || maximumBytes < 0 || entry->size > maximumBytes) return std::unexpected(QStringLiteral("M3U8SP entry is unavailable or too large"));
+    if (!entry) return std::unexpected(QStringLiteral("M3U8SP entry is unavailable or too large"));
+    return readEntry(archivePath, *entry, maximumBytes);
+}
+
+std::expected<QByteArray, QString> readEntry(const QString& archivePath,
+                                             const EncryptedHlsTarEntry& entry,
+                                             qint64 maximumBytes)
+{
+    if (maximumBytes < 0 || entry.size < 0 || entry.size > maximumBytes || entry.dataOffset < 0)
+        return std::unexpected(QStringLiteral("M3U8SP entry is unavailable or too large"));
     QFile archive(archivePath);
-    if (!archive.open(QIODevice::ReadOnly) || !archive.seek(entry->dataOffset)) return std::unexpected(QStringLiteral("Unable to read M3U8SP entry"));
-    const auto bytes = archive.read(entry->size);
-    if (bytes.size() != entry->size || QCryptographicHash::hash(bytes, QCryptographicHash::Sha256) != entry->sha256) return std::unexpected(QStringLiteral("M3U8SP entry digest mismatch"));
+    if (!archive.open(QIODevice::ReadOnly) || entry.dataOffset > archive.size() ||
+        entry.size > archive.size() - entry.dataOffset || !archive.seek(entry.dataOffset))
+        return std::unexpected(QStringLiteral("Unable to read M3U8SP entry"));
+    const auto bytes = archive.read(entry.size);
+    if (bytes.size() != entry.size || QCryptographicHash::hash(bytes, QCryptographicHash::Sha256) != entry.sha256) return std::unexpected(QStringLiteral("M3U8SP entry digest mismatch"));
     return bytes;
 }
 }

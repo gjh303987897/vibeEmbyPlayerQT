@@ -119,7 +119,8 @@ public:
                              const QString& httpUsername = {},
                              const QString& httpPassword = {},
                              bool allowInsecureTls = false,
-                             int preferredSubtitleStreamIndex = -1);
+                             int preferredSubtitleStreamIndex = -1,
+                             bool localEncryptedPlayback = false);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();

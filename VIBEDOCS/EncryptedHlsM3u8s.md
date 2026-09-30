@@ -266,6 +266,14 @@ Failed or truncated tags produce an HTTP error and the tentative plaintext
 buffer is cleared. A byte-range response is sliced only after the complete
 object has passed authentication.
 
+Playback transfers ownership of the encrypted QByteArray to the in-place EVP
+decryptor and moves the future result into a bounded HTTP response writer.
+The writer feeds at most 256 KiB to Qt's socket queue in 64 KiB chunks and wipes
+the owned plaintext after sending or disconnecting. This avoids allocating a
+second full-size plaintext/socket buffer or detaching a shared future result
+just to wipe it. See `EncryptedHlsTarContainer.md` for the shared memory policy
+and the source-aware libmpv cache limits for local encrypted playback.
+
 On macOS, the application links the Homebrew OpenSSL 3 Crypto target at build
 time and calls its EVP API directly. This avoids falling through a basename
 lookup to Apple's private `libcrypto` compatibility library on Apple Silicon.
@@ -330,8 +338,9 @@ the proxy has been destroyed. Its completion delivery remains bound to the
 proxy-owned `QFutureWatcher` and is automatically discarded on teardown. Every
 requested resource must be registered by TSSL, resolve to a canonical readable
 file, and remain inside the canonical package directory after symbolic-link
-resolution. libmpv still receives an ordinary localhost HLS URL; no player-core
-changes are required. Playback history stores the real local `.m3u8s` path,
+resolution. libmpv receives an ordinary localhost HLS URL, with local-source
+information supplied separately to select per-file cache limits. Playback
+history stores the real local `.m3u8s` path,
 never the temporary localhost session URL.
 
 ## Local storage, restore, and export

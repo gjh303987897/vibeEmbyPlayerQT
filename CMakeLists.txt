@@ -608,6 +608,10 @@ if(BUILD_TESTING)
 
     add_executable(encrypted_hls_playback_proxy_test
         tests/EncryptedHlsPlaybackProxyTest.cpp
+        src/player/PlayerController.cpp
+        src/player/PlayerController.h
+        src/network/TlsCertificateStore.cpp
+        src/network/TlsCertificateStore.h
         src/services/webdav/AesGcmDecryptor.cpp
         src/services/webdav/AesGcmDecryptor.h
         src/services/webdav/EncryptedHlsPlaybackProxy.cpp
@@ -628,10 +632,19 @@ if(BUILD_TESTING)
     )
     target_link_libraries(encrypted_hls_playback_proxy_test PRIVATE
         Qt6::Concurrent
+        Qt6::Gui
         Qt6::Network
         Qt6::Test
+        ${MPV_LINK_TARGET}
         ${VIBE_CRYPTO_LIBRARIES}
     )
+    if(WIN32)
+        add_custom_command(TARGET encrypted_hls_playback_proxy_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MPV_RUNTIME_DLL}" "$<TARGET_FILE_DIR:encrypted_hls_playback_proxy_test>/libmpv-2.dll"
+            VERBATIM
+        )
+    endif()
 
     add_executable(encrypted_hls_tar_container_test
         tests/EncryptedHlsTarContainerTest.cpp

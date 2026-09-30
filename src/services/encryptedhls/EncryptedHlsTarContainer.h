@@ -48,5 +48,9 @@ std::expected<QByteArray, QString> readEntry(const QString& archivePath,
                                              const EncryptedHlsTarIndex& index,
                                              const QString& path,
                                              qint64 maximumBytes);
+// A validated entry can be copied to a worker without copying the full index.
+std::expected<QByteArray, QString> readEntry(const QString& archivePath,
+                                             const EncryptedHlsTarEntry& entry,
+                                             qint64 maximumBytes);
 
 }

@@ -69,6 +69,7 @@ private slots:
     void manifestValidatorRejectsExternalUrisAndKeyTags();
     void aesGcmRequiresAValidAuthenticationTag();
     void aesGcmEncryptionMatchesTheAuthenticatedLayout();
+    void aesGcmOwnedDecryptionReusesStorageAndRejectsTampering();
 };
 
 void EncryptedHlsFormatTest::tsslRoundTripsDeterministically()
@@ -438,6 +439,36 @@ void EncryptedHlsFormatTest::aesGcmRequiresAValidAuthenticationTag()
     tampered.back() ^= 0x01;
     QVERIFY(!AesGcmDecryptor::decryptTsSegment(tampered, key).has_value());
     QVERIFY(!AesGcmDecryptor::decryptTsSegment(encrypted.chopped(1), key).has_value());
+}
+
+void EncryptedHlsFormatTest::aesGcmOwnedDecryptionReusesStorageAndRejectsTampering()
+{
+    const QByteArray key(32, '\x42');
+    const QByteArray iv(16, '\x23');
+    // Non-block-aligned payload exercises the final partial GCM block.
+    const QByteArray plaintext(1024 * 1024 + 7, '\x71');
+    auto encrypted = AesGcmDecryptor::encryptTsSegment(plaintext, key, iv);
+    QVERIFY(encrypted.has_value());
+    const auto* allocation = encrypted->constData();
+    auto decrypted = AesGcmDecryptor::decryptTsSegmentInPlace(std::move(*encrypted), key);
+    QVERIFY(decrypted.has_value());
+    QCOMPARE(*decrypted, plaintext);
+    // Removing the IV can move the data pointer within the same allocation.
+    QVERIFY(decrypted->constData() == allocation || decrypted->constData() == allocation + 16);
+
+    encrypted = AesGcmDecryptor::encryptTsSegment(plaintext, key, iv);
+    QVERIFY(encrypted.has_value());
+    const auto sharedCiphertext = *encrypted;
+    decrypted = AesGcmDecryptor::decryptTsSegmentInPlace(std::move(*encrypted), key);
+    QVERIFY(decrypted.has_value());
+    QCOMPARE(*decrypted, plaintext);
+    QVERIFY(AesGcmDecryptor::decryptTsSegment(sharedCiphertext, key).has_value());
+
+    auto tampered = sharedCiphertext;
+    tampered.back() ^= 1;
+    QVERIFY(!AesGcmDecryptor::decryptTsSegmentInPlace(std::move(tampered), key));
+    QVERIFY(!AesGcmDecryptor::decryptTsSegmentInPlace(sharedCiphertext.chopped(1), key));
+    QVERIFY(!AesGcmDecryptor::decryptTsSegmentInPlace(sharedCiphertext, QByteArray(32, '\x43')));
 }
 
 void EncryptedHlsFormatTest::aesGcmEncryptionMatchesTheAuthenticatedLayout()

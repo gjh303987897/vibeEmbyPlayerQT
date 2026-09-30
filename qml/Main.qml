@@ -12086,6 +12086,7 @@ ApplicationWindow {
             httpUsername: appViewModel.playbackHttpUsername
             httpPassword: appViewModel.playbackHttpPassword
             allowInsecureTls: appViewModel.playbackAllowInsecureTls
+            localEncryptedPlayback: appViewModel.localEncryptedPlayback
             source: appViewModel.currentPlaybackUrl
             onErrorOccurred: function(message) {
                 appViewModel.reportPlaybackError(message)

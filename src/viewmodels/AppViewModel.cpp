@@ -3843,6 +3843,11 @@ QUrl AppViewModel::currentPlaybackUrl() const
     return m_currentPlaybackUrl;
 }
 
+bool AppViewModel::localEncryptedPlayback() const
+{
+    return m_playbackOrigin == PlaybackOrigin::Local && !m_encryptedHlsPlaybackSessionId.isEmpty();
+}
+
 double AppViewModel::currentPlaybackStartSeconds() const
 {
     return m_currentPlaybackStartSeconds;

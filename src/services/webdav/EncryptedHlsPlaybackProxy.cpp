@@ -33,6 +33,8 @@ constexpr qint64 maximumManifestBytes = 4 * 1024 * 1024;
 constexpr qint64 maximumEncryptedSegmentBytes = 512 * 1024 * 1024;
 constexpr qint64 maximumResourceBytes = 128 * 1024 * 1024;
 constexpr qsizetype maximumRequestHeaderBytes = 64 * 1024;
+constexpr qint64 maximumSocketWriteBytes = 256 * 1024;
+constexpr qint64 socketWriteChunkBytes = 64 * 1024;
 // M3U8S metadata lives in the manifest head: the identifier line is a fixed
 // 4096-character tag and the source-name line follows immediately after
 // #EXTM3U, so a 16 KiB Range window always contains both. Used by the
@@ -133,13 +135,69 @@ std::expected<QPair<qint64, qint64>, QString> parseRange(const QByteArray& value
     return QPair<qint64, qint64> { start, end };
 }
 
+class VerifiedResponseWriter final : public QObject {
+public:
+    VerifiedResponseWriter(QTcpSocket* socket, QByteArray contents,
+                           qint64 start, qint64 length, bool sensitive)
+        : QObject(socket), m_socket(socket), m_contents(std::move(contents)),
+          m_position(start), m_end(start + length), m_sensitive(sensitive)
+    {
+        connect(socket, &QTcpSocket::bytesWritten, this, [this]() { pump(); });
+        connect(socket, &QTcpSocket::disconnected, this, [this]() {
+            clear();
+            deleteLater();
+        });
+    }
+
+    ~VerifiedResponseWriter() override { clear(); }
+
+    void pump()
+    {
+        if (m_complete || m_socket->state() != QAbstractSocket::ConnectedState) return;
+        while (m_position < m_end) {
+            const auto available = maximumSocketWriteBytes - m_socket->bytesToWrite();
+            if (available <= 0) return;
+            const auto count = std::min({ available, socketWriteChunkBytes, m_end - m_position });
+            const auto written = m_socket->write(m_contents.constData() + m_position, count);
+            if (written <= 0) {
+                m_socket->abort();
+                return;
+            }
+            m_position += written;
+        }
+        // Only the bounded socket queue still owns bytes after this point.
+        m_complete = true;
+        clear();
+        m_socket->disconnectFromHost();
+        deleteLater();
+    }
+
+private:
+    void clear()
+    {
+        if (m_sensitive && !m_contents.isEmpty()) m_contents.fill('\0');
+        QByteArray().swap(m_contents);
+    }
+
+    QTcpSocket* m_socket;
+    QByteArray m_contents;
+    qint64 m_position;
+    qint64 m_end;
+    bool m_sensitive;
+    bool m_complete { false };
+};
+
 void writeVerifiedBytes(QTcpSocket* socket,
-                        const QByteArray& contents,
+                        QByteArray contents,
                         const QByteArray& method,
                         const QByteArray& contentType,
-                        const QHash<QByteArray, QByteArray>& requestHeaders)
+                        const QHash<QByteArray, QByteArray>& requestHeaders,
+                        bool sensitive = false)
 {
+    // HEAD, invalid ranges and disconnected clients also release plaintext.
+    const auto clearSensitive = [&]() { if (sensitive) contents.fill('\0'); };
     if (!socket || socket->state() == QAbstractSocket::UnconnectedState) {
+        clearSensitive();
         return;
     }
 
@@ -153,6 +211,7 @@ void writeVerifiedBytes(QTcpSocket* socket,
             socket->write("Content-Range: bytes */" + QByteArray::number(contents.size()) + "\r\n");
             socket->write("Content-Length: 0\r\nConnection: close\r\n\r\n");
             socket->disconnectFromHost();
+            clearSensitive();
             return;
         }
         start = range->first;
@@ -171,8 +230,11 @@ void writeVerifiedBytes(QTcpSocket* socket,
     }
     socket->write("Connection: close\r\n\r\n");
     if (method != QByteArrayLiteral("HEAD") && responseBytes > 0) {
-        socket->write(contents.constData() + start, responseBytes);
+        auto* writer = new VerifiedResponseWriter(socket, std::move(contents), start, responseBytes, sensitive);
+        writer->pump();
+        return;
     }
+    clearSensitive();
     socket->disconnectFromHost();
 }
 
@@ -367,7 +429,7 @@ void EncryptedHlsPlaybackProxy::prepareLocalStream(
         auto* watcher = new QFutureWatcher<std::expected<ResolvedPackage, QString>>(this);
         connect(watcher, &QFutureWatcherBase::finished, watcher,
                 [this, watcher, archivePath, callback = std::move(callback)]() mutable {
-            auto resolved = watcher->result(); watcher->deleteLater();
+            auto resolved = watcher->future().takeResult(); watcher->deleteLater();
             if (!resolved) { callback(std::unexpected(resolved.error())); return; }
             Session session { .localSource = true, .containerSource = true,
                 .localManifestName = QStringLiteral("index.m3u8"), .localContainerPath = archivePath,
@@ -409,7 +471,7 @@ void EncryptedHlsPlaybackProxy::prepareLocalStream(
             &QFutureWatcherBase::finished,
             watcher,
             [this, watcher, canonicalPath, canonicalDirectory, callback = std::move(callback)]() mutable {
-        auto resolved = watcher->result();
+        auto resolved = watcher->future().takeResult();
         watcher->deleteLater();
         if (!resolved) {
             callback(std::unexpected(resolved.error()));
@@ -860,6 +922,9 @@ void EncryptedHlsPlaybackProxy::revoke(const QString& sessionId)
         key.value().fill('\0');
     }
     m_sessions.erase(session);
+    for (auto* socket : m_server.findChildren<QTcpSocket*>()) {
+        if (socket->property("encryptedHlsSessionId").toString() == sessionId) socket->abort();
+    }
 }
 
 void EncryptedHlsPlaybackProxy::resolvePackage(
@@ -958,6 +1023,7 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteBytes(
     auto buffer = std::make_shared<QByteArray>();
     buffer->reserve(static_cast<qsizetype>(std::min<qint64>(maximumBytes, 1024 * 1024)));
     auto readAvailable = [this, reply, buffer, maximumBytes, server]() {
+        if (!reply->isOpen()) return; // Aborting a revoked response closes its device.
         const auto chunk = reply->readAll();
         if (!chunk.isEmpty()) {
             m_traffic.record(server.id,
@@ -1032,7 +1098,7 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteRange(
     });
     connect(reply, &QNetworkReply::finished, reply,
             [reply, buffer, start, end, expectedEtag, callback = std::move(callback)]() mutable {
-        const auto chunk = reply->readAll();
+        const auto chunk = reply->isOpen() ? reply->readAll() : QByteArray {};
         if (!chunk.isEmpty()) buffer->append(chunk);
         const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError) {
@@ -1070,7 +1136,7 @@ void EncryptedHlsPlaybackProxy::fetchLocalBytes(
             &QFutureWatcherBase::finished,
             watcher,
             [watcher, callback = std::move(callback)]() mutable {
-        auto result = watcher->result();
+        auto result = watcher->future().takeResult();
         watcher->deleteLater();
         callback(std::move(result));
     });
@@ -1093,11 +1159,17 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchSessionBytes(
             return nullptr;
         }
         if (session.localSource) {
-            auto result = EncryptedHlsTarContainer::readEntry(session.localContainerPath,
-                                                              *session.containerIndex,
-                                                              relativePath,
-                                                              maximumBytes);
-            callback(std::move(result));
+            auto* watcher = new QFutureWatcher<std::expected<QByteArray, QString>>(this);
+            connect(watcher, &QFutureWatcherBase::finished, watcher,
+                    [watcher, callback = std::move(callback)]() mutable {
+                auto result = watcher->future().takeResult();
+                watcher->deleteLater();
+                callback(std::move(result));
+            });
+            watcher->setFuture(QtConcurrent::run(
+                [path = session.localContainerPath, entry = *entry, maximumBytes]() {
+                    return EncryptedHlsTarContainer::readEntry(path, entry, maximumBytes);
+                }));
             return nullptr;
         }
         return fetchRemoteRange(session.server, session.password, session.remoteContainerUrl,
@@ -1151,6 +1223,10 @@ void EncryptedHlsPlaybackProxy::handlePendingConnection()
             }
             const auto request = buffer->left(headerEnd + 4);
             buffer->clear();
+            // One response per connection; never start multiple full-segment
+            // allocations for pipelined/repeated request headers.
+            if (socket->property("encryptedHlsRequestStarted").toBool()) return;
+            socket->setProperty("encryptedHlsRequestStarted", true);
             handleRequest(socket, request);
         });
         connect(socket, &QTcpSocket::disconnected, socket, &QTcpSocket::deleteLater);
@@ -1185,6 +1261,7 @@ void EncryptedHlsPlaybackProxy::handleRequest(QTcpSocket* socket, const QByteArr
         return;
     }
     const auto headers = parseHeaders(lines);
+    socket->setProperty("encryptedHlsSessionId", sessionId);
 
     if (rawRelativePath == session->localManifestName) {
         writeVerifiedBytes(socket,
@@ -1285,7 +1362,7 @@ void EncryptedHlsPlaybackProxy::serveManifest(QTcpSocket* socket,
             return;
         }
         writeVerifiedBytes(guardedSocket,
-                           *manifest,
+                           std::move(*manifest),
                            method,
                            QByteArrayLiteral("application/vnd.apple.mpegurl; charset=utf-8"),
                            {});
@@ -1314,7 +1391,7 @@ void EncryptedHlsPlaybackProxy::serveSegment(QTcpSocket* socket,
                                    relativePath, maximumEncryptedSegmentBytes,
                                    [this, guardedSocket, sessionId, relativePath, method, requestHeaders, key](
                                        std::expected<QByteArray, QString> encrypted) {
-        if (!guardedSocket || !m_sessions.contains(sessionId)) {
+        if (!guardedSocket || guardedSocket->state() != QAbstractSocket::ConnectedState || !m_sessions.contains(sessionId)) {
             return;
         }
         if (!encrypted) {
@@ -1329,9 +1406,10 @@ void EncryptedHlsPlaybackProxy::serveSegment(QTcpSocket* socket,
                 &QFutureWatcherBase::finished,
                 watcher,
                 [this, watcher, guardedSocket, sessionId, relativePath, method, requestHeaders]() {
-            auto plaintext = watcher->result();
+            auto plaintext = watcher->future().takeResult();
             watcher->deleteLater();
-            if (!guardedSocket || !m_sessions.contains(sessionId)) {
+            if (!guardedSocket || guardedSocket->state() != QAbstractSocket::ConnectedState || !m_sessions.contains(sessionId)) {
+                if (plaintext) plaintext->fill('\0');
                 return;
             }
             if (!plaintext) {
@@ -1342,15 +1420,15 @@ void EncryptedHlsPlaybackProxy::serveSegment(QTcpSocket* socket,
                 return;
             }
             writeVerifiedBytes(guardedSocket,
-                               *plaintext,
+                               std::move(*plaintext),
                                method,
                                QByteArrayLiteral("video/mp2t"),
-                               requestHeaders);
-            plaintext->fill('\0');
+                               requestHeaders,
+                               true);
         });
         watcher->setFuture(QtConcurrent::run(
             [encrypted = std::move(*encrypted), segmentKey = QByteArray(key)]() mutable {
-            auto plaintext = AesGcmDecryptor::decryptTsSegment(encrypted, segmentKey);
+            auto plaintext = AesGcmDecryptor::decryptTsSegmentInPlace(std::move(encrypted), segmentKey);
             segmentKey.fill('\0');
             return plaintext;
         }));
@@ -1389,7 +1467,7 @@ void EncryptedHlsPlaybackProxy::serveResource(QTcpSocket* socket,
             return;
         }
         writeVerifiedBytes(guardedSocket,
-                           *resource,
+                           std::move(*resource),
                            method,
                            contentTypeForPath(relativePath),
                            requestHeaders);

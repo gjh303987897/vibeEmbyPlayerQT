@@ -15,6 +15,10 @@ struct EncryptedTsSegment final {
 
 std::expected<QByteArray, QString> decryptTsSegment(QByteArrayView encryptedSegment,
                                                     QByteArrayView key);
+// Takes ownership of the encrypted allocation and reuses it for authenticated
+// plaintext. Shared QByteArrays detach before any bytes are modified.
+std::expected<QByteArray, QString> decryptTsSegmentInPlace(QByteArray encryptedSegment,
+                                                           QByteArrayView key);
 std::expected<QByteArray, QString> decryptAuthenticatedData(QByteArrayView encryptedData,
                                                             QByteArrayView key,
                                                             QByteArrayView authenticatedData);
