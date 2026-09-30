@@ -525,6 +525,8 @@ ApplicationWindow {
             return Qt.rgba(0.910, 0.620, 0.220, 1.0)
         case "m3u8s":
             return Qt.rgba(0.055, 0.627, 0.447, 1.0)
+        case "restore":
+            return Qt.rgba(0.337, 0.553, 0.910, 1.0)
         default:
             return Qt.rgba(0.392, 0.455, 0.545, 1.0)
         }
@@ -3200,7 +3202,8 @@ ApplicationWindow {
                     if (appViewModel.currentView === "settings") {
                         appViewModel.backToServices()
                     } else if (appViewModel.currentView === "history" || appViewModel.currentView === "globalHistory"
-                            || appViewModel.currentView === "m3u8sManager") {
+                            || appViewModel.currentView === "m3u8sManager"
+                            || appViewModel.currentView === "encryptedHlsRestore") {
                         appViewModel.backToServices()
                     } else if (appViewModel.currentView === "scheduledTasks") {
                         appViewModel.backToServices()
@@ -3262,6 +3265,7 @@ ApplicationWindow {
                             : appViewModel.currentView === "history" ? t("history.title")
                             : appViewModel.currentView === "globalHistory" ? t("globalHistory.title")
                             : appViewModel.currentView === "m3u8sManager" ? t("m3u8s.title")
+                            : appViewModel.currentView === "encryptedHlsRestore" ? t("restore.title")
                             : appViewModel.currentView === "scheduledTasks" ? t("nav.scheduledTasks")
                             : appViewModel.currentView === "local" ? t("local.title")
                             : appViewModel.currentView === "link" ? t("link.title")
@@ -3306,6 +3310,7 @@ ApplicationWindow {
                         : appViewModel.currentView === "history" ? (appViewModel.privacyMode ? t("history.subtitlePrivacy") : t("history.subtitle"))
                         : appViewModel.currentView === "globalHistory" ? t("globalHistory.subtitle")
                         : appViewModel.currentView === "m3u8sManager" ? t("m3u8s.subtitle")
+                        : appViewModel.currentView === "encryptedHlsRestore" ? t("restore.subtitle")
                         : appViewModel.currentView === "scheduledTasks" ? t("schedule.subtitle")
                         : appViewModel.currentView === "local" ? (appViewModel.localMediaDirectoryOpen ? appViewModel.localMediaCurrentPath : t("local.subtitle"))
                         : appViewModel.currentView === "link" ? t("link.subtitle")
@@ -4647,6 +4652,7 @@ ApplicationWindow {
                     : appViewModel.currentView === "link" ? 12
                     : appViewModel.currentView === "globalHistory" ? 13
                     : appViewModel.currentView === "m3u8sManager" ? 14
+                    : appViewModel.currentView === "encryptedHlsRestore" ? 16
                     : 15
 
                 transform: [
@@ -4819,7 +4825,7 @@ ApplicationWindow {
                         spacing: servicePage.cardRowSpacing
 
                         GridLayout {
-                            Layout.preferredWidth: Math.min(4, servicePage.cardColumnCount)
+                            Layout.preferredWidth: Math.min(5, servicePage.cardColumnCount)
                                 * servicePage.cardCellWidth - servicePage.cardSpacing
                             Layout.leftMargin: Math.max(0,
                                 (servicePage.layoutWidth - servicePage.cardsRowWidth) / 2)
@@ -4913,6 +4919,30 @@ ApplicationWindow {
                                 trailingStatusColor: root.serviceAccentColor("M3u8s")
                                 onActivated: root.openServiceFromCard(sourceCard, function() {
                                     appViewModel.openM3u8sManager()
+                                })
+                            }
+
+                            ServiceCard {
+                                hoverColumn: 4 % servicePage.cardColumnCount
+                                hoverColumnCount: servicePage.cardColumnCount
+                                Layout.minimumWidth: servicePage.cardWidth
+                                Layout.preferredWidth: servicePage.cardWidth
+                                Layout.maximumWidth: servicePage.cardWidth
+                                Layout.minimumHeight: servicePage.cardHeight
+                                Layout.preferredHeight: servicePage.cardHeight
+                                Layout.maximumHeight: servicePage.cardHeight
+                                editing: false
+                                serviceName: t("restore.title")
+                                serviceType: "Restore"
+                                host: t("restore.cardSubtitle")
+                                leadingStatusText: t("local.builtIn")
+                                leadingStatusColor: theme.success
+                                trailingStatusText: appViewModel.encryptedHlsRestore.running
+                                    ? t("restore.cardWorking").arg(Math.round(appViewModel.encryptedHlsRestore.progress * 100))
+                                    : "M3U8S/SP"
+                                trailingStatusColor: root.serviceAccentColor("Restore")
+                                onActivated: root.openServiceFromCard(sourceCard, function() {
+                                    appViewModel.openEncryptedHlsRestore()
                                 })
                             }
                         }
@@ -5965,6 +5995,8 @@ ApplicationWindow {
                 M3u8sManagerPage {}
 
                 SettingsPage {}
+
+                EncryptedHlsRestorePage {}
             }
         }
 
@@ -7971,6 +8003,24 @@ ApplicationWindow {
                         context.lineTo(17, 17)
                         context.lineTo(22.2, 20.1)
                         context.stroke()
+                    } else if (serviceIcon.normalizedType === "restore") {
+                        context.strokeStyle = glyph
+                        context.fillStyle = glyph
+                        context.lineWidth = 2.5
+                        context.beginPath()
+                        context.arc(17, 17, 12, -0.65, 4.3)
+                        context.stroke()
+                        context.beginPath()
+                        context.moveTo(5.4, 7)
+                        context.lineTo(5.4, 14.2)
+                        context.lineTo(12.5, 14.2)
+                        context.stroke()
+                        context.beginPath()
+                        context.moveTo(14, 12)
+                        context.lineTo(14, 22)
+                        context.lineTo(23, 17)
+                        context.closePath()
+                        context.fill()
                     } else if (serviceIcon.normalizedType === "m3u8s") {
                         context.strokeStyle = glyph
                         context.fillStyle = glyph
@@ -17111,6 +17161,379 @@ ApplicationWindow {
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
+                    }
+                }
+            }
+        }
+    }
+
+    component EncryptedHlsRestorePage: Flickable {
+        id: restorePage
+        readonly property var vm: appViewModel.encryptedHlsRestore
+        readonly property color accentColor: root.serviceAccentColor("Restore")
+        contentWidth: width
+        contentHeight: restoreColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {}
+
+        ColumnLayout {
+            id: restoreColumn
+            width: restorePage.width
+            spacing: 18
+
+            Rectangle {
+                id: restoreControls
+                Layout.fillWidth: true
+                Layout.preferredHeight: restoreControlsContent.implicitHeight + 36
+                radius: 8
+                color: theme.surface
+                border.color: restorePage.vm.running ? restorePage.accentColor : theme.border
+
+                ColumnLayout {
+                    id: restoreControlsContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 18
+                    spacing: 14
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 14
+                        ServiceTypeIcon {
+                            serviceType: "Restore"
+                            Layout.preferredWidth: 52
+                            Layout.preferredHeight: 52
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("restore.heroTitle")
+                                color: theme.text
+                                font.pixelSize: 19
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("restore.heroSubtitle")
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                        ServiceStatusChip {
+                            text: appViewModel.ffmpegCapabilityState === "probing" ? t("m3u8s.ffmpegProbing")
+                                : appViewModel.m3u8sFfmpegAvailable ? t("m3u8s.ffmpegReady")
+                                : appViewModel.ffmpegCapabilityState === "incompatible" ? t("m3u8s.ffmpegIncompatible") : t("m3u8s.ffmpegMissing")
+                            accentColor: appViewModel.ffmpegCapabilityState === "probing" ? theme.muted
+                                : appViewModel.m3u8sFfmpegAvailable ? theme.success : theme.danger
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        ModernButton {
+                            text: t("restore.addFiles")
+                            enabled: !restorePage.vm.running
+                            onClicked: restorePage.vm.chooseSources()
+                        }
+                        ModernButton {
+                            text: t("m3u8s.importTssl")
+                            enabled: !restorePage.vm.running
+                            onClicked: appViewModel.restoreManagedTssl()
+                        }
+                        ModernButton {
+                            text: t("m3u8s.chooseFfmpeg")
+                            enabled: !restorePage.vm.running && !appViewModel.m3u8sPackaging
+                            onClicked: appViewModel.chooseFfmpegExecutable()
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: t("restore.keysHint")
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 12
+                    }
+
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: theme.border }
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: restorePage.width >= 820 ? 2 : 1
+                        columnSpacing: 24
+                        rowSpacing: 14
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 560
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 8
+                            Label { text: t("restore.output"); color: theme.text; font.pixelSize: 13; font.bold: true }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 36
+                                    color: theme.elevated
+                                    border.color: theme.border
+                                    radius: 8
+                                    Label {
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        text: restorePage.vm.outputDirectory || t("restore.chooseOutputHint")
+                                        color: restorePage.vm.outputDirectory.length > 0 ? theme.text : theme.muted
+                                        font.pixelSize: 12
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideMiddle
+                                    }
+                                }
+                                ModernButton {
+                                    text: t("restore.chooseOutput")
+                                    enabled: !restorePage.vm.running
+                                    onClicked: restorePage.vm.chooseOutputDirectory()
+                                }
+                            }
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("restore.safeOutput")
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 11
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 340
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 8
+                            Label { text: t("restore.format"); color: theme.text; font.pixelSize: 13; font.bold: true }
+                            ModernComboBox {
+                                Layout.fillWidth: true
+                                enabled: !restorePage.vm.running
+                                textRole: "label"
+                                valueRole: "value"
+                                model: [
+                                    { label: t("restore.original"), value: "original" },
+                                    { label: "MKV", value: "mkv" },
+                                    { label: "MP4", value: "mp4" }
+                                ]
+                                currentIndex: restorePage.vm.format === "mkv" ? 1 : restorePage.vm.format === "mp4" ? 2 : 0
+                                onActivated: restorePage.vm.format = model[index].value
+                            }
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("restore.formatHint")
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 11
+                            }
+                        }
+                    }
+
+                    MutedText {
+                        Layout.fillWidth: true
+                        text: t("restore.note")
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 12
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        ModernButton {
+                            text: t("restore.start")
+                            enabled: !restorePage.vm.running && restorePage.vm.count > 0
+                                && restorePage.vm.outputDirectory.length > 0 && appViewModel.m3u8sFfmpegAvailable
+                            onClicked: restorePage.vm.start()
+                            background: Rectangle {
+                                radius: 8
+                                color: parent.enabled ? (parent.hovered ? Qt.lighter(restorePage.accentColor, 1.10)
+                                    : restorePage.accentColor) : theme.elevated
+                            }
+                            contentItem: Label {
+                                text: parent.text
+                                color: parent.enabled ? "#ffffff" : theme.subtle
+                                font: parent.font
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                        ModernButton {
+                            visible: restorePage.vm.running
+                            text: t("restore.cancel")
+                            enabled: restorePage.vm.phase !== "canceling"
+                            onClicked: restorePage.vm.cancel()
+                        }
+                        Item { Layout.fillWidth: true }
+                        ModernButton {
+                            text: t("m3u8s.openOutput")
+                            enabled: restorePage.vm.outputDirectory.length > 0
+                            onClicked: restorePage.vm.openOutputDirectory()
+                        }
+                    }
+
+                    ColumnLayout {
+                        visible: restorePage.vm.running
+                        Layout.fillWidth: true
+                        spacing: 6
+                        RowLayout {
+                            Layout.fillWidth: true
+                            MutedText { text: t("restore.phase." + restorePage.vm.phase); Layout.fillWidth: true }
+                            Label {
+                                text: Math.round(restorePage.vm.progress * 100) + "%"
+                                color: restorePage.accentColor
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+                        }
+                        ProgressBar { Layout.fillWidth: true; from: 0; to: 1; value: restorePage.vm.progress }
+                    }
+                    Label {
+                        visible: restorePage.vm.error.length > 0
+                        Layout.fillWidth: true
+                        text: restorePage.vm.error
+                        color: theme.danger
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 12
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.max(300, restorePage.height - restoreControls.height - 18)
+                radius: 8
+                color: theme.surface
+                border.color: theme.border
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 18
+                    spacing: 12
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: t("restore.queue"); color: theme.text; font.pixelSize: 16; font.bold: true }
+                        ServiceStatusChip { text: t("restore.queueCount").arg(restorePage.vm.count); accentColor: restorePage.accentColor }
+                        Item { Layout.fillWidth: true }
+                        ModernButton {
+                            text: t("restore.clear")
+                            enabled: restorePage.vm.count > 0 && !restorePage.vm.running
+                            onClicked: restorePage.vm.clear()
+                        }
+                    }
+                    MutedText {
+                        visible: restorePage.vm.successCount + restorePage.vm.failureCount > 0 || restorePage.vm.phase === "canceled"
+                        Layout.fillWidth: true
+                        text: (restorePage.vm.phase === "canceled" ? t("restore.phase.canceled") + " · " : "")
+                            + t("restore.summary").arg(restorePage.vm.successCount).arg(restorePage.vm.failureCount)
+                        font.pixelSize: 12
+                    }
+                    Item {
+                        visible: restorePage.vm.count === 0
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            width: Math.min(parent.width - 24, 580)
+                            spacing: 12
+                            ServiceTypeIcon { serviceType: "Restore"; Layout.alignment: Qt.AlignHCenter; opacity: 0.72 }
+                            Label {
+                                Layout.fillWidth: true
+                                text: t("restore.emptyTitle")
+                                color: theme.text
+                                font.pixelSize: 16
+                                font.bold: true
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                            MutedText {
+                                Layout.fillWidth: true
+                                text: t("restore.emptyHint")
+                                wrapMode: Text.WordWrap
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                        }
+                    }
+                    ListView {
+                        id: restoreQueue
+                        visible: restorePage.vm.count > 0
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: 8
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: restorePage.vm.items
+                        ScrollBar.vertical: ScrollBar {}
+                        delegate: Rectangle {
+                            id: restoreRow
+                            required property int index
+                            required property string fileName
+                            required property string sourcePath
+                            required property string itemState
+                            required property string outputPath
+                            required property string itemError
+                            required property bool legacyName
+                            readonly property color stateColor: itemState === "failed" ? theme.danger
+                                : itemState === "completed" ? theme.success
+                                : itemState === "restoring" || itemState === "preparing" ? restorePage.accentColor : theme.muted
+                            width: restoreQueue.width
+                            height: restoreRowContent.implicitHeight + 24
+                            radius: 8
+                            color: theme.elevated
+                            border.color: itemState === "restoring" || itemState === "preparing"
+                                ? root.withAlpha(restorePage.accentColor, 0.65) : theme.border
+                            ColumnLayout {
+                                id: restoreRowContent
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: 12
+                                spacing: 6
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: restoreRow.fileName
+                                        color: theme.text
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                        elide: Text.ElideMiddle
+                                    }
+                                    ServiceStatusChip { text: t("restore.phase." + restoreRow.itemState); accentColor: restoreRow.stateColor }
+                                    IconButton {
+                                        text: "×"
+                                        visible: !restorePage.vm.running
+                                        implicitWidth: 28
+                                        implicitHeight: 28
+                                        onClicked: restorePage.vm.remove(restoreRow.index)
+                                        Accessible.name: t("action.remove")
+                                    }
+                                }
+                                MutedText {
+                                    Layout.fillWidth: true
+                                    text: restoreRow.outputPath || restoreRow.sourcePath
+                                    elide: Text.ElideMiddle
+                                    font.pixelSize: 11
+                                }
+                                Label {
+                                    visible: restoreRow.itemError.length > 0
+                                    Layout.fillWidth: true
+                                    text: restoreRow.itemError
+                                    color: theme.danger
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                }
+                                MutedText {
+                                    visible: restoreRow.legacyName && restorePage.vm.format === "original"
+                                    Layout.fillWidth: true
+                                    text: t("restore.legacy")
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
                     }
                 }
             }

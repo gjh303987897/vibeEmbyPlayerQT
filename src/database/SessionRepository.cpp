@@ -1925,6 +1925,27 @@ void SessionRepository::setTsslBackupS3AccessKey(const QString& accessKey)
     m_settings.setValue(QStringLiteral("tsslBackup/s3AccessKey"), accessKey);
 }
 
+QString SessionRepository::encryptedHlsRestoreOutputDirectory() const
+{
+    return m_settings.value(QStringLiteral("encryptedHlsRestore/outputDirectory")).toString();
+}
+
+void SessionRepository::setEncryptedHlsRestoreOutputDirectory(const QString& directory)
+{
+    m_settings.setValue(QStringLiteral("encryptedHlsRestore/outputDirectory"), directory);
+}
+
+QString SessionRepository::encryptedHlsRestoreFormat() const
+{
+    const auto format = m_settings.value(QStringLiteral("encryptedHlsRestore/format"), QStringLiteral("original")).toString();
+    return format == QStringLiteral("mkv") || format == QStringLiteral("mp4") ? format : QStringLiteral("original");
+}
+
+void SessionRepository::setEncryptedHlsRestoreFormat(const QString& format)
+{
+    m_settings.setValue(QStringLiteral("encryptedHlsRestore/format"), format);
+}
+
 QString SessionRepository::m3u8sOutputDirectory() const
 {
     return m_settings.value(QStringLiteral("m3u8s/outputDirectory")).toString();

@@ -23,6 +23,7 @@
 #include "services/update/UpdateService.h"
 #include "utils/ErrorPresentation.h"
 #include "viewmodels/IptvChannelListModel.h"
+#include "viewmodels/EncryptedHlsRestoreViewModel.h"
 #include "viewmodels/LocalMediaItemListModel.h"
 #include "viewmodels/LocalMediaRootListModel.h"
 #include "viewmodels/LinkPlaybackHistoryListModel.h"
@@ -105,6 +106,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool tsslPackagesHasMore READ tsslPackagesHasMore NOTIFY tsslPackagesStateChanged)
     Q_PROPERTY(bool tsslPackagesLoading READ tsslPackagesLoading NOTIFY tsslPackagesStateChanged)
     Q_PROPERTY(bool m3u8sPackaging READ m3u8sPackaging NOTIFY m3u8sPackagingChanged)
+    Q_PROPERTY(EncryptedHlsRestoreViewModel* encryptedHlsRestore READ encryptedHlsRestore CONSTANT)
     Q_PROPERTY(double m3u8sPackagingProgress READ m3u8sPackagingProgress NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sPackagingPhase READ m3u8sPackagingPhase NOTIFY m3u8sPackagingChanged)
     Q_PROPERTY(QString m3u8sStatus READ m3u8sStatus NOTIFY m3u8sStatusChanged)
@@ -375,6 +377,7 @@ public:
     bool tsslPackagesHasMore() const;
     bool tsslPackagesLoading() const;
     bool m3u8sPackaging() const;
+    EncryptedHlsRestoreViewModel* encryptedHlsRestore() { return &m_encryptedHlsRestore; }
     double m3u8sPackagingProgress() const;
     QString m3u8sPackagingPhase() const;
     QString m3u8sStatus() const;
@@ -655,6 +658,7 @@ public:
     Q_INVOKABLE void restoreTssl();
     Q_INVOKABLE void exportWebDavTssl(int row);
     Q_INVOKABLE void openM3u8sManager();
+    Q_INVOKABLE void openEncryptedHlsRestore();
     // Dismisses the startup FFmpeg warning; the next program start probes
     // again, so installing FFmpeg needs no other acknowledgement step.
     Q_INVOKABLE void acknowledgeFfmpegWarning();
@@ -1184,6 +1188,7 @@ private:
     TransferManager m_transferManager;
     FileDialogController m_fileDialogs;
     SessionRepository m_repository;
+    EncryptedHlsRestoreViewModel m_encryptedHlsRestore;
     UpdateService m_updateService;
     ScheduledPlaybackManager m_scheduledPlaybackManager;
     ServiceCardListModel m_services;

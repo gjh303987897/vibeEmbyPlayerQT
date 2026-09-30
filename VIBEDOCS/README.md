@@ -9,6 +9,7 @@
 当前文档：
 
 - `FileSelection.md`：统一的异步文件/文件夹选择控制器、原生优先策略、批量目录兼容实现与生命周期测试。
+- `EncryptedHlsRestore.md`：视频还原服务卡片、M3U8S/M3U8SP 批量解密重封装、原文件名恢复、完整性校验与取消清理。
 - `EmbyJellyfinApi.md`：Emby / Jellyfin 第一阶段登录、媒体库与库内列表 API 调研。
 - `MediaServices.md`：媒体服务层、网络层、ViewModel 和 QML 的分层边界。
 - `MediaHomeUi.md`: Emby / Jellyfin shared cinematic home, media rails, and

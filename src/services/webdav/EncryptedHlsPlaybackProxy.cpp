@@ -532,6 +532,7 @@ void EncryptedHlsPlaybackProxy::finishPreparingStream(
         .url = localUrl,
         .sessionId = sessionId,
         .displayName = displayName,
+        .sourceFileName = resolved.sourceFileName,
     });
 }
 
@@ -1273,6 +1274,7 @@ void EncryptedHlsPlaybackProxy::handleRequest(QTcpSocket* socket, const QByteArr
     }
     auto relativePath = normalizedRequestPath(rawRelativePath);
     if (!relativePath) {
+        emit streamFailed(sessionId, QStringLiteral("Rejected an unsafe HLS resource path"));
         writeError(socket, 403);
         return;
     }
@@ -1286,6 +1288,7 @@ void EncryptedHlsPlaybackProxy::handleRequest(QTcpSocket* socket, const QByteArr
     } else if (session->localSource) {
         auto localUrl = localResourceUrl(session->localDirectoryPath, *relativePath);
         if (!localUrl) {
+            emit streamFailed(sessionId, QStringLiteral("An HLS resource is missing or outside the package directory"));
             writeError(socket, 403);
             return;
         }
@@ -1334,6 +1337,7 @@ void EncryptedHlsPlaybackProxy::handleRequest(QTcpSocket* socket, const QByteArr
                       session->package.resourceDigests.value(*relativePath));
         return;
     }
+    emit streamFailed(sessionId, QStringLiteral("The HLS manifest references a resource absent from TSSL"));
     writeError(socket, 404);
 }
 
@@ -1358,6 +1362,7 @@ void EncryptedHlsPlaybackProxy::serveManifest(QTcpSocket* socket,
             !HlsManifestValidator::validate(*manifest, relativePath)) {
             AppLogger::warning(QStringLiteral("encrypted-hls"),
                                QStringLiteral("Rejected an invalid or untrusted child manifest"));
+            emit streamFailed(sessionId, QStringLiteral("A child manifest is missing or failed integrity validation"));
             writeError(guardedSocket, 502);
             return;
         }
@@ -1397,6 +1402,7 @@ void EncryptedHlsPlaybackProxy::serveSegment(QTcpSocket* socket,
         if (!encrypted) {
             AppLogger::warning(QStringLiteral("encrypted-hls"),
                                QStringLiteral("Unable to download encrypted TS segment"));
+            emit streamFailed(sessionId, QStringLiteral("An encrypted video segment could not be read"));
             writeError(guardedSocket, 502);
             return;
         }
@@ -1416,6 +1422,7 @@ void EncryptedHlsPlaybackProxy::serveSegment(QTcpSocket* socket,
                 AppLogger::warning(QStringLiteral("encrypted-hls"),
                                    QStringLiteral("Rejected TS segment because GCM authentication failed: %1")
                                        .arg(relativePath));
+                emit streamFailed(sessionId, QStringLiteral("A video segment failed AES-GCM authentication"));
                 writeError(guardedSocket, 502);
                 return;
             }
@@ -1463,6 +1470,7 @@ void EncryptedHlsPlaybackProxy::serveResource(QTcpSocket* socket,
         if (!resource || QCryptographicHash::hash(*resource, QCryptographicHash::Sha256) != expectedDigest) {
             AppLogger::warning(QStringLiteral("encrypted-hls"),
                                QStringLiteral("Rejected an auxiliary HLS resource with a digest mismatch"));
+            emit streamFailed(sessionId, QStringLiteral("An HLS resource is missing or failed integrity validation"));
             writeError(guardedSocket, 502);
             return;
         }

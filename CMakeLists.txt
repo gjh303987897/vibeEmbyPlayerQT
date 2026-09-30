@@ -165,6 +165,8 @@ qt_add_executable(vibePlayerQT
     src/services/ffmpeg/FfmpegCapability.cpp
     src/services/ffmpeg/FfmpegCapability.h
     src/services/encryptedhls/EncryptedHlsPackager.cpp
+    src/services/encryptedhls/EncryptedHlsRestorer.cpp
+    src/services/encryptedhls/EncryptedHlsRestorer.h
     src/services/encryptedhls/EncryptedHlsPackager.h
     src/services/encryptedhls/EncryptedHlsTarContainer.cpp
     src/services/encryptedhls/EncryptedHlsTarContainer.h
@@ -219,6 +221,8 @@ qt_add_executable(vibePlayerQT
     src/utils/JsonUtils.cpp
     src/utils/JsonUtils.h
     src/viewmodels/AppViewModel.cpp
+    src/viewmodels/EncryptedHlsRestoreViewModel.cpp
+    src/viewmodels/EncryptedHlsRestoreViewModel.h
     src/viewmodels/AppViewModel.h
     src/viewmodels/DailyUsageStatsListModel.cpp
     src/viewmodels/DailyUsageStatsListModel.h
@@ -718,6 +722,41 @@ if(BUILD_TESTING)
 
     add_test(NAME encrypted_hls_packager COMMAND encrypted_hls_packager_test)
     set_tests_properties(encrypted_hls_packager PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
+    add_executable(encrypted_hls_restorer_test
+        tests/EncryptedHlsRestorerTest.cpp
+        src/services/encryptedhls/EncryptedHlsRestorer.cpp
+        src/services/encryptedhls/EncryptedHlsRestorer.h
+        src/services/encryptedhls/EncryptedHlsPackager.cpp
+        src/services/encryptedhls/EncryptedHlsPackager.h
+        src/services/encryptedhls/EncryptedHlsTarContainer.cpp
+        src/services/encryptedhls/EncryptedHlsTarContainer.h
+        src/services/webdav/EncryptedHlsPlaybackProxy.cpp
+        src/services/webdav/EncryptedHlsPlaybackProxy.h
+        src/services/webdav/AesGcmDecryptor.cpp
+        src/services/webdav/AesGcmDecryptor.h
+        src/services/webdav/HlsManifestValidator.cpp
+        src/services/webdav/HlsManifestValidator.h
+        src/services/webdav/TsslStore.cpp
+        src/services/webdav/TsslStore.h
+        src/network/TlsCertificateStore.cpp
+        src/network/TlsCertificateStore.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+        src/utils/NetworkTrafficCoalescer.cpp
+        src/utils/NetworkTrafficCoalescer.h
+    )
+    target_include_directories(encrypted_hls_restorer_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(encrypted_hls_restorer_test PRIVATE
+        Qt6::Concurrent Qt6::Network Qt6::Test ${VIBE_CRYPTO_LIBRARIES}
+    )
+    add_test(NAME encrypted_hls_restorer COMMAND encrypted_hls_restorer_test
+        -o "${CMAKE_CURRENT_BINARY_DIR}/encrypted-hls-restorer-results.txt,txt"
+    )
+    set_tests_properties(encrypted_hls_restorer PROPERTIES
+        TIMEOUT 120
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 

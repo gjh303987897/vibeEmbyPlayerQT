@@ -150,6 +150,10 @@ public:
     QString tsslBackupS3AccessKey() const;
     void setTsslBackupS3AccessKey(const QString& accessKey);
     QString m3u8sOutputDirectory() const;
+    QString encryptedHlsRestoreOutputDirectory() const;
+    void setEncryptedHlsRestoreOutputDirectory(const QString& directory);
+    QString encryptedHlsRestoreFormat() const;
+    void setEncryptedHlsRestoreFormat(const QString& format);
     void setM3u8sOutputDirectory(const QString& directory);
     QString m3u8sFfmpegExecutable() const;
     void setM3u8sFfmpegExecutable(const QString& executablePath);

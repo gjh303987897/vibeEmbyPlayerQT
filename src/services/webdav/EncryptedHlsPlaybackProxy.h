@@ -25,6 +25,8 @@ struct EncryptedHlsPreparedStream final {
     QUrl url;
     QString sessionId;
     QString displayName;
+    // Empty for legacy TSSL v2; displayName then contains the package name.
+    QString sourceFileName;
 };
 
 using EncryptedHlsPrepareResult = std::expected<EncryptedHlsPreparedStream, QString>;
@@ -70,6 +72,9 @@ public:
     void revoke(const QString& sessionId);
 
 signals:
+    // Consumers producing an output file must treat any rejected resource as
+    // fatal: HLS demuxers can otherwise skip an unreadable segment.
+    void streamFailed(const QString& sessionId, const QString& reason);
     void networkTrafficSample(const QString& serviceId,
                               const QString& serviceName,
                               const QString& serviceType,

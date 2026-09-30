@@ -2,12 +2,17 @@
 
 ## Scope
 
-The encrypted HLS module has two entry points:
+The encrypted HLS module has the following entry points:
 
 - The local M3U8S manager packages a normal video as an HLS VOD package.
 - Local and WebDAV playback open a selected `.m3u8s` file through a loopback-only HTTP
   session for libmpv and decrypts registered MPEG-TS segments before returning
   them.
+
+A third built-in **Video Restore** card restores local `.m3u8s` and `.m3u8sp`
+packages to ordinary videos using the matching TSSL key and FFmpeg streamcopy.
+See `EncryptedHlsRestore.md` for format selection, filename recovery, output
+safety and the limits of reversing prior lossy encoding.
 
 The M3U8S manager's service-selector card uses the same `Built in` status chip
 as Local Playback, Link Playback, and Global Playback History.

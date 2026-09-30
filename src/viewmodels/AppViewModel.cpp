@@ -42,6 +42,57 @@
 #include <utility>
 
 namespace {
+QString restoreText(const QString& key, bool chinese)
+{
+    static const QHash<QString, QPair<QString, QString>> texts {
+        { QStringLiteral("restore.cardWorking"), { QStringLiteral("Restoring %1%"), QStringLiteral("还原中 %1%") } },
+        { QStringLiteral("restore.error.missingKey"), { QStringLiteral("No matching local TSSL key. Import the key for this package and retry."), QStringLiteral("未找到匹配的本地 TSSL 密钥。请导入该加密包的密钥后重试。") } },
+        { QStringLiteral("restore.error.container"), { QStringLiteral("The original container is unsupported. Choose MKV or MP4 and retry."), QStringLiteral("原有容器格式暂不支持。请选择 MKV 或 MP4 后重试。") } },
+        { QStringLiteral("restore.error.diskFull"), { QStringLiteral("The output disk is full. Free up space and retry."), QStringLiteral("输出磁盘空间不足，请释放空间后重试。") } },
+        { QStringLiteral("restore.error.ffmpeg"), { QStringLiteral("FFmpeg could not start. Choose an available FFmpeg executable."), QStringLiteral("无法启动 FFmpeg，请选择可用的 FFmpeg 程序。") } },
+        { QStringLiteral("restore.error.restore"), { QStringLiteral("Restoration failed. Check the package; try MKV if its codecs are incompatible with the output format."), QStringLiteral("还原失败，请检查加密包是否完整；若编码与输出格式不兼容，请尝试 MKV。") } },
+        { QStringLiteral("restore.error.output"), { QStringLiteral("Choose an existing writable output folder."), QStringLiteral("请选择存在且可写入的输出文件夹。") } },
+        { QStringLiteral("restore.error.timeout"), { QStringLiteral("FFmpeg stopped responding. The partial output has been removed."), QStringLiteral("FFmpeg 长时间无响应，未完成的输出已清理。") } },
+        { QStringLiteral("restore.error.integrity"), { QStringLiteral("A package resource is missing or failed authentication. Check the package before retrying."), QStringLiteral("加密包资源缺失或未通过完整性验证，请检查加密包后重试。") } },
+        { QStringLiteral("restore.error.save"), { QStringLiteral("Unable to save the restored video. Check permissions, available space and destination files."), QStringLiteral("无法保存还原的视频，请检查目录权限、磁盘空间和目标文件。") } },
+        { QStringLiteral("restore.title"), { QStringLiteral("Video Restore"), QStringLiteral("视频还原") } },
+        { QStringLiteral("restore.subtitle"), { QStringLiteral("Restore M3U8S / M3U8SP packages to ordinary video files"), QStringLiteral("将 M3U8S / M3U8SP 加密包还原为普通视频文件") } },
+        { QStringLiteral("restore.cardSubtitle"), { QStringLiteral("Decrypt packages · Restore video files"), QStringLiteral("解密加密包 · 还原视频文件") } },
+        { QStringLiteral("restore.heroTitle"), { QStringLiteral("Bring your videos back"), QStringLiteral("还原你的加密视频") } },
+        { QStringLiteral("restore.heroSubtitle"), { QStringLiteral("Recover the stored filename and container, with no additional encoding."), QStringLiteral("恢复已保存的原文件名与容器格式，不再额外转码。") } },
+        { QStringLiteral("restore.addFiles"), { QStringLiteral("Add encrypted files"), QStringLiteral("添加加密文件") } },
+        { QStringLiteral("restore.output"), { QStringLiteral("Output folder"), QStringLiteral("输出文件夹") } },
+        { QStringLiteral("restore.chooseOutput"), { QStringLiteral("Choose folder"), QStringLiteral("选择文件夹") } },
+        { QStringLiteral("restore.chooseOutputHint"), { QStringLiteral("Choose where to save restored videos"), QStringLiteral("选择还原视频的保存位置") } },
+        { QStringLiteral("restore.format"), { QStringLiteral("Output format"), QStringLiteral("输出格式") } },
+        { QStringLiteral("restore.original"), { QStringLiteral("Original format"), QStringLiteral("原有格式") } },
+        { QStringLiteral("restore.formatHint"), { QStringLiteral("Original format uses the stored filename. Legacy packages without a filename are saved as MKV."), QStringLiteral("原有格式使用包内保存的文件名；未保存原文件名的旧版包将输出为 MKV。") } },
+        { QStringLiteral("restore.note"), { QStringLiteral("Only video, audio and subtitles retained in the package can be recovered. Lossy encoding performed during packaging cannot be reversed."), QStringLiteral("仅能恢复加密包中保留的视频、音轨和字幕。制作加密包时发生的有损转码无法逆转。") } },
+        { QStringLiteral("restore.keysHint"), { QStringLiteral("A matching local TSSL key is required. Import a saved key if this package was created on another device."), QStringLiteral("需要匹配的本地 TSSL 密钥；在其他设备制作的加密包请先导入已保存的密钥。") } },
+        { QStringLiteral("restore.start"), { QStringLiteral("Start restoring"), QStringLiteral("开始还原") } },
+        { QStringLiteral("restore.cancel"), { QStringLiteral("Cancel batch"), QStringLiteral("取消还原") } },
+        { QStringLiteral("restore.clear"), { QStringLiteral("Clear list"), QStringLiteral("清空列表") } },
+        { QStringLiteral("restore.queue"), { QStringLiteral("Restoration queue"), QStringLiteral("还原队列") } },
+        { QStringLiteral("restore.queueCount"), { QStringLiteral("%1 files"), QStringLiteral("%1 个文件") } },
+        { QStringLiteral("restore.emptyTitle"), { QStringLiteral("Choose your encrypted videos"), QStringLiteral("添加需要还原的加密视频") } },
+        { QStringLiteral("restore.emptyHint"), { QStringLiteral("Select .m3u8sp files or .m3u8s manifests. Keep the M3U8S segment folder intact."), QStringLiteral("选择 .m3u8sp 文件或 .m3u8s 清单文件。M3U8S 文件需保留完整的分片目录。") } },
+        { QStringLiteral("restore.summary"), { QStringLiteral("%1 restored · %2 failed"), QStringLiteral("已还原 %1 个 · 失败 %2 个") } },
+        { QStringLiteral("restore.safeOutput"), { QStringLiteral("Existing files receive a numbered name. Source packages and TSSL keys are kept."), QStringLiteral("同名文件自动编号保存，原加密包和 TSSL 密钥会保留。") } },
+        { QStringLiteral("restore.legacy"), { QStringLiteral("Legacy package: original filename unavailable; MKV used by default"), QStringLiteral("旧版包未保存原文件名，默认使用 MKV") } },
+        { QStringLiteral("restore.invalidSource"), { QStringLiteral("Choose readable M3U8S or M3U8SP files."), QStringLiteral("请选择可读取的 M3U8S 或 M3U8SP 文件。") } },
+        { QStringLiteral("restore.phase.idle"), { QStringLiteral("Ready to restore"), QStringLiteral("等待还原") } },
+        { QStringLiteral("restore.phase.queued"), { QStringLiteral("Queued"), QStringLiteral("待处理") } },
+        { QStringLiteral("restore.phase.preparing"), { QStringLiteral("Validating package and key"), QStringLiteral("校验加密包与密钥") } },
+        { QStringLiteral("restore.phase.restoring"), { QStringLiteral("Decrypting and restoring"), QStringLiteral("正在解密并还原") } },
+        { QStringLiteral("restore.phase.canceling"), { QStringLiteral("Canceling…"), QStringLiteral("正在取消…") } },
+        { QStringLiteral("restore.phase.canceled"), { QStringLiteral("Canceled"), QStringLiteral("已取消") } },
+        { QStringLiteral("restore.phase.completed"), { QStringLiteral("Restored"), QStringLiteral("已还原") } },
+        { QStringLiteral("restore.phase.failed"), { QStringLiteral("Failed"), QStringLiteral("失败") } },
+    };
+    const auto it = texts.constFind(key);
+    return it == texts.cend() ? key : chinese ? it->second : it->first;
+}
+
 constexpr qint64 usageNetworkFlushBytes = 1024 * 1024;
 constexpr qint64 usageWatchFlushSeconds = 15;
 constexpr int usageFlushIntervalMs = 15000;
@@ -2002,6 +2053,8 @@ AppViewModel::AppViewModel(QObject* parent)
     , m_webDavDownloadPlanner(m_webDavClient)
     , m_encryptedHlsPlaybackProxy(m_tsslStore, this)
     , m_m3u8sPackager(m_tsslStore, this)
+    , m_encryptedHlsRestore(m_tsslStore, m_fileDialogs, m_repository,
+                           [this](const QString& key) { return trText(key); }, this)
     , m_updateService(this)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
 {
@@ -2017,6 +2070,7 @@ AppViewModel::AppViewModel(QObject* parent)
     if (auto* app = QCoreApplication::instance()) {
         connect(app, &QCoreApplication::aboutToQuit, this, [this]() {
             m_scheduledPlaybackManager.stop();
+            m_encryptedHlsRestore.cancel();
             finishPlaybackUsageTracking();
             flushPendingUsageStats(false);
         });
@@ -6557,6 +6611,12 @@ void AppViewModel::exportWebDavTssl(int row)
         });
 }
 
+void AppViewModel::openEncryptedHlsRestore()
+{
+    clearError();
+    setCurrentView(QStringLiteral("encryptedHlsRestore"));
+}
+
 void AppViewModel::openM3u8sManager()
 {
     clearError();
@@ -7927,6 +7987,8 @@ void AppViewModel::moveServiceCardTo(int fromRow, int toRow)
 QString AppViewModel::trText(const QString& key) const
 {
     const auto language = effectiveLanguage(m_languageMode);
+    if (key.startsWith(QStringLiteral("restore.")))
+        return restoreText(key, language == QStringLiteral("zh_CN"));
     if (language == QStringLiteral("zh_CN") &&
         (key.startsWith(QStringLiteral("webdav.")) ||
          key == QStringLiteral("action.upload") ||

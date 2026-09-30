@@ -33,6 +33,7 @@ tests/*
 !tests/EncryptedHlsFormatTest.cpp
 !tests/EncryptedHlsPlaybackProxyTest.cpp
 !tests/EncryptedHlsPackagerTest.cpp
+!tests/EncryptedHlsRestorerTest.cpp
 !tests/LocalMediaServiceTest.cpp
 !tests/LinkPlaybackServiceTest.cpp
 !tests/LinkPlaybackHistoryTest.cpp
