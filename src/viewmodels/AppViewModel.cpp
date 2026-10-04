@@ -1204,6 +1204,8 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("tsslBackup.statusCopying"), QStringLiteral("Copying %1 TSSL packages to the local folder...") },
         { QStringLiteral("tsslBackup.statusRestoring"), QStringLiteral("Restoring %1 TSSL packages...") },
         { QStringLiteral("tsslBackup.statusRemotePreparing"), QStringLiteral("Finding TSSL backups on the remote target...") },
+        { QStringLiteral("tsslBackup.statusDownloading"), QStringLiteral("Downloading %1/%2 TSSL backups...") },
+        { QStringLiteral("tsslBackup.statusRestoreCanceled"), QStringLiteral("TSSL restore canceled") },
         { QStringLiteral("tsslBackup.statusRestoreDone"), QStringLiteral("Restored %1 TSSL packages (%2 already existed, %3 failed)") },
         { QStringLiteral("tsslBackup.noLocalPath"), QStringLiteral("Choose a local backup folder first") },
         { QStringLiteral("tsslBackup.invalidLocalPath"), QStringLiteral("The local backup folder is unavailable or not writable") },
@@ -1749,6 +1751,8 @@ const QHash<QString, QString>& chineseTexts()
         { QStringLiteral("tsslBackup.statusCopying"), QStringLiteral("正在复制 %1 个 TSSL 包到本地文件夹……") },
         { QStringLiteral("tsslBackup.statusRestoring"), QStringLiteral("正在恢复 %1 个 TSSL 包……") },
         { QStringLiteral("tsslBackup.statusRemotePreparing"), QStringLiteral("正在查找远程目标中的 TSSL 备份……") },
+        { QStringLiteral("tsslBackup.statusDownloading"), QStringLiteral("正在下载 %1/%2 个 TSSL 备份……") },
+        { QStringLiteral("tsslBackup.statusRestoreCanceled"), QStringLiteral("已取消 TSSL 备份恢复") },
         { QStringLiteral("tsslBackup.statusRestoreDone"), QStringLiteral("已恢复 %1 个 TSSL 包（%2 个已存在，%3 个失败）") },
         { QStringLiteral("tsslBackup.noLocalPath"), QStringLiteral("请先选择本地备份文件夹") },
         { QStringLiteral("tsslBackup.invalidLocalPath"), QStringLiteral("本地备份文件夹不可用或不可写") },
@@ -2298,6 +2302,16 @@ AppViewModel::AppViewModel(QObject* parent)
                 m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusProgress"))
                     .arg(completed).arg(total);
                 emit tsslBackupChanged();
+            });
+    connect(&m_tsslBackupService, &TsslBackupService::restoreProgressChanged, this,
+            [this](int completed, int total) {
+                m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusDownloading"))
+                    .arg(completed).arg(total);
+                emit tsslBackupChanged();
+                if (completed == 0) {
+                    AppLogger::info(QStringLiteral("tssl-backup"),
+                                    QStringLiteral("Found %1 remote TSSL backups; starting downloads").arg(total));
+                }
             });
 }
 
@@ -7119,18 +7133,21 @@ void AppViewModel::restoreTsslBackup()
     m_tsslBackupCancelable = true;
     m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusRemotePreparing"));
     emit tsslBackupChanged();
+    AppLogger::info(QStringLiteral("tssl-backup"), QStringLiteral("Listing remote TSSL backups"));
     m_tsslBackupService.restore(target, [this](TsslBackupRestoreResult result) {
         m_tsslBackupCancelable = false;
         if (!result) {
             m_tsslBackupRunning = false;
             m_tsslBackupService.cleanupRestoreFiles();
             if (result.error() == QStringLiteral("TSSL restore canceled")) {
-                m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusCanceling"));
+                AppLogger::info(QStringLiteral("tssl-backup"), QStringLiteral("Remote TSSL restore canceled"));
+                m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusRestoreCanceled"));
                 emit tsslBackupChanged();
                 return;
             }
             m_tsslBackupStatus = trText(QStringLiteral("tsslBackup.statusFailed"));
             emit tsslBackupChanged();
+            AppLogger::warning(QStringLiteral("tssl-backup"), ErrorPresentation::sanitizeDetails(result.error()));
             setError(result.error());
             return;
         }

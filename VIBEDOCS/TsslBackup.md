@@ -38,6 +38,39 @@ the configured remote folder or object prefix, downloads them one at a time,
 and then applies the same local restore validation. Remote packages are never
 deleted, and existing local packages are never overwritten.
 
+WebDAV listing uses `PROPFIND` with `Depth: 1`. The response is parsed in a
+`QtConcurrent` worker, using only the response bytes and folder URL; DOM parsing
+and file filtering do not run on the UI thread. Invalid XML or a response that
+is not a WebDAV `multistatus` is reported as a listing error, rather than being
+treated as an empty backup folder.
+
+Once listing succeeds, `restoreProgressChanged(completed, total)` reports the
+download phase before the first GET and after each completed file. Settings
+switches from **Finding TSSL backups** to **Downloading n/total TSSL backups**,
+then to local package validation/import. Previously the finding message remained
+visible throughout every download, making a slow restore appear stuck at listing.
+This progress signal is separate from upload progress, and is used by both remote
+targets. Stage transitions and failures are logged without credentials or response
+bodies.
+
+Canceling an active listing or download immediately aborts its `QNetworkReply`,
+reports cancellation once, and releases the running state so the operation can be
+started again. Canceling while the WebDAV XML worker is pending discards its
+result when the worker finishes, before any downloads are dispatched. The service
+stays busy until that worker result is handled, preventing a canceled listing
+from affecting a later restore. Watcher connections use the service as their
+QObject context, so destroying the service cannot call it from a late worker result.
+
+Each network request retains the existing 60-second deadline. The deadline timer
+stops when the reply finishes; expiry reports a timeout explicitly, including when
+HTTP headers arrived but the response body never completed. A completed cancel is
+shown as **TSSL restore canceled**, with the settings controls enabled again.
+
+Protocol and lifecycle references:
+[WebDAV PROPFIND (RFC 4918, section 9.1)](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1),
+[Qt reply abort and finished signal](https://doc.qt.io/qt-6/qnetworkreply.html#abort),
+[QFutureWatcher completion and cancellation limits](https://doc.qt.io/qt-6/qfuturewatcher.html).
+
 ## Credentials
 
 WebDAV uses the password saved for the selected service card. S3 access keys are
@@ -87,6 +120,14 @@ delivered. A local HTTP endpoint verifies sequential WebDAV uploads and the S3
 payload hash. Tests also cover invalid/empty stores, duplicate starts, cancellation
 and restart, destruction during preparation, and unreadable/empty/oversized files.
 Existing encrypted-HLS format tests cover stable local backup names and exports.
+
+Remote-restore regression tests also verify standard WebDAV listing and sequential
+downloads of valid TSSL packages, import into a temporary local store, progress
+before downloading, filtering non-TSSL files and collections, background XML
+parsing, cancellation of stalled listing/download connections and immediate
+restart, malformed XML/HTML/HTTP errors, temporary-file cleanup, and destruction
+while parsing is pending. These tests use a local HTTP endpoint and do not require
+access to a user's WebDAV account.
 
 ## Extension points
 

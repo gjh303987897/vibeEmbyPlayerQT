@@ -119,11 +119,14 @@ QString webDavFileName(const QUrl& url)
     return path.section(QLatin1Char('/'), -1);
 }
 
-QStringList parseWebDavFiles(const QByteArray& body, const QUrl& folderUrl)
+using RemoteFilesResult = std::expected<QStringList, QString>;
+
+RemoteFilesResult parseWebDavFiles(const QByteArray& body, const QUrl& folderUrl)
 {
     QDomDocument document;
-    if (!document.setContent(body)) {
-        return {};
+    if (!document.setContent(body) ||
+        localName(document.documentElement()).compare(QStringLiteral("multistatus"), Qt::CaseInsensitive) != 0) {
+        return std::unexpected(QStringLiteral("The WebDAV backup listing is not a valid multistatus XML response"));
     }
 
     auto normalizedFolder = folderUrl.path(QUrl::FullyDecoded);
@@ -456,6 +459,9 @@ void TsslBackupService::cancel()
 {
     if (!m_running) return;
     m_cancelRequested = true;
+    if (m_activeReply && !m_activeReply->isFinished()) {
+        m_activeReply->abort();
+    }
 }
 
 void TsslBackupService::listRemoteFiles()
@@ -496,18 +502,34 @@ void TsslBackupService::listWebDavFiles()
     reply->setProperty("webdavPassword", m_target.webDavPassword);
     wireReply(reply);
     connect(reply, &QNetworkReply::finished, reply, [this, reply, folderUrl]() {
-        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const auto body = reply->readAll();
-        if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-            const auto message = status > 0 ? QStringLiteral("WebDAV backup listing failed with HTTP %1").arg(status)
-                                            : reply->errorString();
+        const auto checked = checkReply(reply, QStringLiteral("WebDAV backup listing"));
+        if (!checked) {
             reply->deleteLater();
-            finishRestore(std::unexpected(message));
+            finishRestore(std::unexpected(checked.error()));
             return;
         }
+        auto body = reply->readAll();
         reply->deleteLater();
-        m_remoteFiles = parseWebDavFiles(body, folderUrl);
-        restoreNext();
+
+        // As with directory browsing, build and scan the XML off the UI thread.
+        // Keep the operation busy until this result is handled, so cancellation
+        // cannot let an old listing dispatch downloads for a later restore.
+        auto* watcher = new QFutureWatcher<RemoteFilesResult>(this);
+        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher]() {
+            auto files = watcher->future().takeResult();
+            watcher->deleteLater();
+            if (m_cancelRequested) {
+                finishRestore(std::unexpected(QStringLiteral("TSSL restore canceled")));
+            } else if (!files) {
+                finishRestore(std::unexpected(files.error()));
+            } else {
+                m_remoteFiles = std::move(*files);
+                restoreNext();
+            }
+        });
+        watcher->setFuture(QtConcurrent::run([body = std::move(body), folderUrl]() {
+            return parseWebDavFiles(body, folderUrl);
+        }));
     });
 }
 
@@ -534,15 +556,13 @@ void TsslBackupService::listS3Page(const QString& continuationToken)
     auto* reply = m_manager.get(request);
     wireReply(reply);
     connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
-        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const auto body = reply->readAll();
-        if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-            const auto message = status > 0 ? QStringLiteral("S3 backup listing failed with HTTP %1").arg(status)
-                                            : reply->errorString();
+        const auto checked = checkReply(reply, QStringLiteral("S3 backup listing"));
+        if (!checked) {
             reply->deleteLater();
-            finishRestore(std::unexpected(message));
+            finishRestore(std::unexpected(checked.error()));
             return;
         }
+        const auto body = reply->readAll();
         reply->deleteLater();
         bool truncated = false;
         QString nextToken;
@@ -564,6 +584,12 @@ void TsslBackupService::restoreNext()
     }
     if (m_remoteFiles.isEmpty()) {
         finishRestore(QStringList());
+        return;
+    }
+    emit restoreProgressChanged(m_restoreCompleted, m_remoteFiles.size());
+    // A progress listener can cancel synchronously before the next request.
+    if (m_cancelRequested) {
+        finishRestore(std::unexpected(QStringLiteral("TSSL restore canceled")));
         return;
     }
     if (m_restoreNextIndex >= m_remoteFiles.size()) {
@@ -588,15 +614,13 @@ void TsslBackupService::downloadWebDav(const QUrl& url)
     reply->setProperty("webdavPassword", m_target.webDavPassword);
     wireReply(reply);
     connect(reply, &QNetworkReply::finished, reply, [this, reply, url]() {
-        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const auto payload = reply->readAll();
-        if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-            const auto message = status > 0 ? QStringLiteral("WebDAV TSSL download failed with HTTP %1").arg(status)
-                                            : reply->errorString();
+        const auto checked = checkReply(reply, QStringLiteral("WebDAV TSSL download"));
+        if (!checked) {
             reply->deleteLater();
-            finishRestore(std::unexpected(message));
+            finishRestore(std::unexpected(checked.error()));
             return;
         }
+        const auto payload = reply->readAll();
         reply->deleteLater();
         const auto name = webDavFileName(url);
         if (name.isEmpty() || !name.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive) ||
@@ -624,15 +648,13 @@ void TsslBackupService::downloadS3(const QString& key)
     auto* reply = m_manager.get(request);
     wireReply(reply);
     connect(reply, &QNetworkReply::finished, reply, [this, reply, key]() {
-        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const auto payload = reply->readAll();
-        if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-            const auto message = status > 0 ? QStringLiteral("S3 TSSL download failed with HTTP %1").arg(status)
-                                            : reply->errorString();
+        const auto checked = checkReply(reply, QStringLiteral("S3 TSSL download"));
+        if (!checked) {
             reply->deleteLater();
-            finishRestore(std::unexpected(message));
+            finishRestore(std::unexpected(checked.error()));
             return;
         }
+        const auto payload = reply->readAll();
         reply->deleteLater();
         const auto name = key.section(QLatin1Char('/'), -1);
         if (name.isEmpty() || !name.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive) ||
@@ -711,13 +733,12 @@ void TsslBackupService::uploadWebDav(const QString& localPath, const QByteArray&
     body->setParent(reply);
     reply->setProperty("webdavUsername", m_target.webDavServer.username);
     reply->setProperty("webdavPassword", m_target.webDavPassword);
+    wireReply(reply);
     connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
-        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-            const auto message = status > 0 ? QStringLiteral("WebDAV upload failed with HTTP %1").arg(status)
-                                            : reply->errorString();
+        const auto checked = checkReply(reply, QStringLiteral("WebDAV upload"));
+        if (!checked) {
             reply->deleteLater();
-            finish(std::unexpected(message));
+            finish(std::unexpected(checked.error()));
             return;
         }
         reply->deleteLater();
@@ -725,7 +746,6 @@ void TsslBackupService::uploadWebDav(const QString& localPath, const QByteArray&
         emit progressChanged(m_completed, m_localFiles.size());
         uploadNext();
     });
-    wireReply(reply);
 }
 
 void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& payload,
@@ -743,13 +763,12 @@ void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& pay
     body->open(QIODevice::ReadOnly);
     auto* reply = m_manager.put(request, body);
     body->setParent(reply);
+    wireReply(reply);
     connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
-        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-            const auto message = status > 0 ? QStringLiteral("S3 upload failed with HTTP %1").arg(status)
-                                            : reply->errorString();
+        const auto checked = checkReply(reply, QStringLiteral("S3 upload"));
+        if (!checked) {
             reply->deleteLater();
-            finish(std::unexpected(message));
+            finish(std::unexpected(checked.error()));
             return;
         }
         reply->deleteLater();
@@ -757,20 +776,45 @@ void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& pay
         emit progressChanged(m_completed, m_localFiles.size());
         uploadNext();
     });
-    wireReply(reply);
 }
 
 void TsslBackupService::wireReply(QNetworkReply* reply)
 {
+    m_activeReply = reply;
     auto* timeout = new QTimer(reply);
     timeout->setSingleShot(true);
-    connect(timeout, &QTimer::timeout, reply, &QNetworkReply::abort);
+    connect(timeout, &QTimer::timeout, reply, [reply]() {
+        reply->setProperty("tsslTimedOut", true);
+        reply->abort();
+    });
     timeout->start(requestTimeoutMs);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, timeout]() {
+        timeout->stop();
+        if (m_activeReply == reply) m_activeReply.clear();
+    });
     connect(reply, &QNetworkReply::sslErrors, reply, [reply, allow = m_target.type == TsslBackupTarget::Type::WebDav
                                                               ? m_target.webDavServer.trustSelfSignedCertificate
                                                               : m_target.trustSelfSignedCertificate](const QList<QSslError>&) {
         if (allow) reply->ignoreSslErrors();
     });
+}
+
+std::expected<void, QString> TsslBackupService::checkReply(QNetworkReply* reply, const QString& operation) const
+{
+    if (m_cancelRequested) {
+        return std::unexpected(m_restoreMode ? QStringLiteral("TSSL restore canceled")
+                                            : QStringLiteral("TSSL backup canceled"));
+    }
+    if (reply->property("tsslTimedOut").toBool()) {
+        return std::unexpected(operation + QStringLiteral(" timed out after 60 seconds"));
+    }
+    const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+        return std::unexpected(status > 0 && (status < 200 || status >= 300)
+            ? operation + QStringLiteral(" failed with HTTP %1").arg(status)
+            : operation + QStringLiteral(" failed: ") + reply->errorString());
+    }
+    return {};
 }
 
 void TsslBackupService::finish(TsslBackupResult result)

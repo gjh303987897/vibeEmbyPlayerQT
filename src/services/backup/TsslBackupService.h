@@ -6,6 +6,7 @@
 #include <QFuture>
 #include <QNetworkAccessManager>
 #include <QObject>
+#include <QPointer>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QStringList>
@@ -56,6 +57,7 @@ public:
 
 signals:
     void progressChanged(int completed, int total);
+    void restoreProgressChanged(int completed, int total);
 
 private:
     void uploadNext();
@@ -70,9 +72,11 @@ private:
     void downloadWebDav(const QUrl& url);
     void downloadS3(const QString& key);
     void wireReply(QNetworkReply* reply);
+    std::expected<void, QString> checkReply(QNetworkReply* reply, const QString& operation) const;
     void finishRestore(TsslBackupRestoreResult result);
 
     QNetworkAccessManager m_manager;
+    QPointer<QNetworkReply> m_activeReply;
     TsslBackupTarget m_target;
     QStringList m_localFiles;
     std::function<void(TsslBackupResult)> m_callback;

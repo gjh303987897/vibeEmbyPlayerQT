@@ -62,6 +62,7 @@ private:
 };
 
 struct PutRequest final {
+    QByteArray method;
     QByteArray path;
     QHash<QByteArray, QByteArray> headers;
     QByteArray body;
@@ -82,6 +83,7 @@ public:
                     if (headerEnd < 0) return;
                     const auto lines = buffer->left(headerEnd).split('\n');
                     PutRequest request;
+                    request.method = lines.first().split(' ').value(0);
                     request.path = lines.first().split(' ').value(1);
                     for (const auto& line : lines.sliced(1)) {
                         const auto colon = line.indexOf(':');
@@ -92,10 +94,13 @@ public:
                     const auto length = request.headers.value("content-length").toLongLong();
                     if (buffer->size() - headerEnd - 4 < length) return;
                     request.body = buffer->mid(headerEnd + 4, length);
-                    requests.append(std::move(request));
+                    requests.append(request);
                     buffer->clear();
-                    socket->write("HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-                    socket->disconnectFromHost();
+                    if (responseHandler) {
+                        responseHandler(socket, request);
+                    } else {
+                        respond(socket, QByteArrayLiteral("201 Created"));
+                    }
                 });
             }
         });
@@ -110,7 +115,35 @@ public:
     }
 
     QList<PutRequest> requests;
+    std::function<void(QTcpSocket*, const PutRequest&)> responseHandler;
+
+    static void respond(QTcpSocket* socket, const QByteArray& status, const QByteArray& body = {})
+    {
+        socket->write(QByteArrayLiteral("HTTP/1.1 ") + status
+            + QByteArrayLiteral("\r\nContent-Type: application/xml\r\nContent-Length: ")
+            + QByteArray::number(body.size()) + QByteArrayLiteral("\r\nConnection: close\r\n\r\n") + body);
+        socket->disconnectFromHost();
+    }
 };
+
+QByteArray webDavListing(bool includePackages = true)
+{
+    auto body = QByteArrayLiteral("<D:multistatus xmlns:D=\"DAV:\">");
+    const auto entry = [](const QByteArray& href, bool directory) {
+        return QByteArrayLiteral("<D:response><D:href>") + href
+            + QByteArrayLiteral("</D:href><D:propstat><D:prop><D:resourcetype>")
+            + (directory ? QByteArrayLiteral("<D:collection/>") : QByteArray())
+            + QByteArrayLiteral("</D:resourcetype></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>");
+    };
+    body += entry("/dav/backups/", true);
+    if (includePackages) {
+        body += entry("first.tssl", false);
+        body += entry("/dav/backups/second.TSSL", false);
+        body += entry("/dav/backups/folder.tssl/", true);
+        body += entry("/dav/backups/other.txt", false);
+    }
+    return body + QByteArrayLiteral("</D:multistatus>");
+}
 }
 
 class TsslBackupServiceTest final : public QObject {
@@ -125,6 +158,13 @@ private slots:
     void destructionDuringFilePreparationIsSafe();
     void rejectsUnreadableOrInvalidFiles_data();
     void rejectsUnreadableOrInvalidFiles();
+    void restoresWebDavPackagesWithProgress();
+    void parsesWebDavListingInBackgroundAndCanCancel();
+    void cancelsStalledRestoreAndCanRestart_data();
+    void cancelsStalledRestoreAndCanRestart();
+    void reportsWebDavListingErrors_data();
+    void reportsWebDavListingErrors();
+    void destructionDuringRestoreParsingIsSafe();
 };
 
 void TsslBackupServiceTest::preparesOnlyValidPackagesWithoutBlocking()
@@ -323,6 +363,187 @@ void TsslBackupServiceTest::rejectsUnreadableOrInvalidFiles()
     QVERIFY(result->error().contains(errorText));
     QVERIFY(!service.isRunning());
     QVERIFY(endpoint.requests.isEmpty());
+}
+
+void TsslBackupServiceTest::restoresWebDavPackagesWithProgress()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    TsslStore restoredStore(directory.filePath(QStringLiteral("restored")));
+    TsslPackage firstPackage {
+        .identifier = QByteArray(TsslPackage::identifierLength, 'A'),
+        .rootManifestDigest = QByteArray(32, 'B'),
+        .segmentKeys = { { QStringLiteral("segments/0001.ts"), QByteArray(32, 'C') } },
+    };
+    auto secondPackage = firstPackage;
+    secondPackage.identifier.fill('D');
+    secondPackage.rootManifestDigest.fill('E');
+    const QHash<QByteArray, QByteArray> packages {
+        { QByteArrayLiteral("/dav/backups/first.tssl"), firstPackage.toJson() },
+        { QByteArrayLiteral("/dav/backups/second.TSSL"), secondPackage.toJson() },
+    };
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    TsslBackupService service;
+    QSignalSpy progress(&service, &TsslBackupService::restoreProgressChanged);
+    QSignalSpy uploads(&service, &TsslBackupService::progressChanged);
+    bool downloadProgressVisible = false;
+    endpoint.responseHandler = [&](QTcpSocket* socket, const PutRequest& request) {
+        if (request.method == "PROPFIND") {
+            BackupEndpoint::respond(socket, "207 Multi-Status", webDavListing());
+        } else {
+            downloadProgressVisible = !progress.isEmpty() && progress.first().at(1).toInt() == 2;
+            BackupEndpoint::respond(socket, "200 OK", packages.value(request.path));
+        }
+    };
+    std::optional<TsslBackupRestoreResult> result;
+    service.restore(endpoint.webDavTarget(), [&](TsslBackupRestoreResult value) { result = std::move(value); });
+    QTRY_VERIFY(result.has_value());
+    QVERIFY(result->has_value());
+    QCOMPARE((**result).size(), 2);
+    QVERIFY(downloadProgressVisible);
+    QCOMPARE(progress.size(), 3);
+    QCOMPARE(progress.first().at(0).toInt(), 0);
+    QCOMPARE(progress.last().at(0).toInt(), 2);
+    QCOMPARE(progress.last().at(1).toInt(), 2);
+    QVERIFY(uploads.isEmpty());
+    QCOMPARE(endpoint.requests.size(), 3);
+    QCOMPARE(endpoint.requests.first().method, QByteArrayLiteral("PROPFIND"));
+    QCOMPARE(endpoint.requests.first().path, QByteArrayLiteral("/dav/backups/"));
+    QCOMPARE(endpoint.requests.first().headers.value("depth"), QByteArrayLiteral("1"));
+    for (int index = 0; index < 2; ++index) {
+        QFile file((**result).at(index));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), packages.value(endpoint.requests.at(index + 1).path));
+        QVERIFY(restoredStore.restoreFromFile((**result).at(index)).has_value());
+    }
+    const auto restored = restoredStore.listPackages();
+    QVERIFY(restored.has_value());
+    QCOMPARE(restored->size(), 2);
+    QVERIFY(!service.isRunning());
+    service.cleanupRestoreFiles();
+    QVERIFY(!QFile::exists((**result).first()));
+}
+
+void TsslBackupServiceTest::parsesWebDavListingInBackgroundAndCanCancel()
+{
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    endpoint.responseHandler = [](QTcpSocket* socket, const PutRequest&) {
+        BackupEndpoint::respond(socket, "207 Multi-Status", webDavListing(false));
+    };
+    TsslBackupService service;
+    std::optional<TsslBackupRestoreResult> result;
+    WorkerGate gate;
+    service.restore(endpoint.webDavTarget(), [&](TsslBackupRestoreResult value) { result = std::move(value); });
+    QTRY_COMPARE(endpoint.requests.size(), 1);
+    // Deliver the local HTTP response while parsing is held in the worker pool.
+    QTest::qWait(100);
+    QVERIFY(!result.has_value());
+    QVERIFY(service.isRunning());
+    service.cancel();
+    gate.release();
+    QTRY_VERIFY(result.has_value());
+    QVERIFY(!result->has_value());
+    QCOMPARE(result->error(), QStringLiteral("TSSL restore canceled"));
+    QVERIFY(!service.isRunning());
+    service.cleanupRestoreFiles();
+}
+
+void TsslBackupServiceTest::cancelsStalledRestoreAndCanRestart_data()
+{
+    QTest::addColumn<bool>("stallDownload");
+    QTest::newRow("listing does not respond") << false;
+    QTest::newRow("download does not respond") << true;
+}
+
+void TsslBackupServiceTest::cancelsStalledRestoreAndCanRestart()
+{
+    QFETCH(bool, stallDownload);
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    endpoint.responseHandler = [stallDownload](QTcpSocket* socket, const PutRequest& request) {
+        if (stallDownload && request.method == "PROPFIND") {
+            BackupEndpoint::respond(socket, "207 Multi-Status", webDavListing());
+        }
+        // Keep the connection open without sending the selected response.
+    };
+    TsslBackupService service;
+    std::optional<TsslBackupRestoreResult> canceled;
+    std::optional<TsslBackupRestoreResult> restarted;
+    int callbacks = 0;
+    service.restore(endpoint.webDavTarget(), [&](TsslBackupRestoreResult value) {
+        ++callbacks;
+        canceled = std::move(value);
+        service.cleanupRestoreFiles();
+        endpoint.responseHandler = [](QTcpSocket* socket, const PutRequest&) {
+            BackupEndpoint::respond(socket, "207 Multi-Status", webDavListing(false));
+        };
+        service.restore(endpoint.webDavTarget(), [&](TsslBackupRestoreResult next) { restarted = std::move(next); });
+    });
+    QTRY_COMPARE(endpoint.requests.size(), stallDownload ? 2 : 1);
+    service.cancel();
+    QTRY_VERIFY_WITH_TIMEOUT(restarted.has_value(), 1'000);
+    QVERIFY(canceled.has_value() && !canceled->has_value());
+    QCOMPARE(canceled->error(), QStringLiteral("TSSL restore canceled"));
+    QVERIFY(restarted->has_value());
+    QVERIFY((**restarted).isEmpty());
+    QCOMPARE(callbacks, 1);
+    QVERIFY(!service.isRunning());
+    service.cleanupRestoreFiles();
+}
+
+void TsslBackupServiceTest::reportsWebDavListingErrors_data()
+{
+    QTest::addColumn<QByteArray>("status");
+    QTest::addColumn<QByteArray>("body");
+    QTest::addColumn<QString>("errorText");
+    QTest::newRow("malformed XML") << QByteArrayLiteral("207 Multi-Status") << QByteArrayLiteral("<broken") << QStringLiteral("XML");
+    QTest::newRow("HTML response") << QByteArrayLiteral("200 OK") << QByteArrayLiteral("<html/>") << QStringLiteral("XML");
+    QTest::newRow("forbidden") << QByteArrayLiteral("403 Forbidden") << QByteArray() << QStringLiteral("HTTP 403");
+}
+
+void TsslBackupServiceTest::reportsWebDavListingErrors()
+{
+    QFETCH(QByteArray, status);
+    QFETCH(QByteArray, body);
+    QFETCH(QString, errorText);
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    endpoint.responseHandler = [status, body](QTcpSocket* socket, const PutRequest&) {
+        BackupEndpoint::respond(socket, status, body);
+    };
+    TsslBackupService service;
+    std::optional<TsslBackupRestoreResult> result;
+    service.restore(endpoint.webDavTarget(), [&](TsslBackupRestoreResult value) { result = std::move(value); });
+    QTRY_VERIFY(result.has_value());
+    QVERIFY(!result->has_value());
+    QVERIFY(result->error().contains(errorText));
+    QVERIFY(!service.isRunning());
+    QCOMPARE(endpoint.requests.size(), 1);
+    service.cleanupRestoreFiles();
+}
+
+void TsslBackupServiceTest::destructionDuringRestoreParsingIsSafe()
+{
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    endpoint.responseHandler = [](QTcpSocket* socket, const PutRequest&) {
+        BackupEndpoint::respond(socket, "207 Multi-Status", webDavListing());
+    };
+    bool callbackInvoked = false;
+    {
+        WorkerGate gate;
+        auto service = std::make_unique<TsslBackupService>();
+        service->restore(endpoint.webDavTarget(), [&](TsslBackupRestoreResult) { callbackInvoked = true; });
+        QTRY_COMPARE(endpoint.requests.size(), 1);
+        QTest::qWait(100);
+        service.reset();
+        gate.release();
+    }
+    QCoreApplication::processEvents();
+    QVERIFY(!callbackInvoked);
+    QCOMPARE(endpoint.requests.size(), 1);
 }
 
 QTEST_GUILESS_MAIN(TsslBackupServiceTest)
