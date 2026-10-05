@@ -83,6 +83,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(WebDavItemListModel* webDavItems READ webDavItems CONSTANT)
     Q_PROPERTY(QString webDavCurrentPath READ webDavCurrentPath NOTIFY webDavCurrentPathChanged)
     Q_PROPERTY(bool webDavUploadPreparing READ webDavUploadPreparing NOTIFY webDavUploadPreparingChanged)
+    Q_PROPERTY(bool webDavCreatingFolder READ webDavCreatingFolder NOTIFY webDavCreatingFolderChanged)
     Q_PROPERTY(QString webDavDisplayMode READ webDavDisplayMode WRITE setWebDavDisplayMode NOTIFY webDavDisplayModeChanged)
     Q_PROPERTY(bool webDavShowM3u8sIdentifier READ webDavShowM3u8sIdentifier WRITE setWebDavShowM3u8sIdentifier NOTIFY webDavDisplaySettingsChanged)
     Q_PROPERTY(bool webDavShowM3u8sSourceFileName READ webDavShowM3u8sSourceFileName WRITE setWebDavShowM3u8sSourceFileName NOTIFY webDavDisplaySettingsChanged)
@@ -343,6 +344,7 @@ public:
     WebDavItemListModel* webDavItems();
     QString webDavCurrentPath() const;
     bool webDavUploadPreparing() const;
+    bool webDavCreatingFolder() const;
     QString webDavDisplayMode() const;
     bool webDavShowM3u8sIdentifier() const;
     void setWebDavShowM3u8sIdentifier(bool enabled);
@@ -650,6 +652,7 @@ public:
     Q_INVOKABLE void restoreWebDavAudioPlayer();
     Q_INVOKABLE void webDavBack();
     Q_INVOKABLE void refreshWebDavDirectory();
+    Q_INVOKABLE void createWebDavFolder(const QString& name);
     Q_INVOKABLE void chooseWebDavUploadFiles();
     Q_INVOKABLE void chooseWebDavUploadFolder();
     Q_INVOKABLE void uploadWebDavFiles(const QList<QUrl>& files);
@@ -804,6 +807,7 @@ signals:
     void linkPlaybackAddressChanged();
     void webDavCurrentPathChanged();
     void webDavUploadPreparingChanged();
+    void webDavCreatingFolderChanged();
     void webDavDisplayModeChanged();
     void webDavDisplaySettingsChanged();
     void webDavTsslStatusChanged();
@@ -950,6 +954,7 @@ private:
     QString uniqueLocalPath(const QString& directory, const QString& name) const;
     void enqueueWebDavUploadFile(const QString& localPath, const QUrl& remoteUrl);
     void cancelWebDavUploadPreparation();
+    void resetWebDavFolderCreationState();
     void wireUsageSignals();
     bool accumulateUsage(const ServerConfig& server,
                          bool privacyMode,
@@ -1110,6 +1115,8 @@ private:
     std::optional<ServiceCard> m_currentWebDavCard;
     QUrl m_webDavCurrentUrl;
     bool m_webDavUploadPreparing { false };
+    bool m_webDavCreatingFolder { false };
+    quint64 m_webDavFolderCreationGeneration { 0 };
     quint64 m_webDavUploadPreparationGeneration { 0 };
     std::shared_ptr<std::atomic_bool> m_webDavUploadScanCanceled;
     std::vector<QUrl> m_webDavHistory;

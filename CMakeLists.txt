@@ -584,6 +584,20 @@ if(BUILD_TESTING)
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
 
+    add_executable(webdav_client_test
+        tests/WebDavClientTest.cpp
+        src/services/webdav/WebDavClient.cpp
+        src/services/webdav/WebDavClient.h
+        src/utils/AppLogger.cpp
+        src/utils/AppLogger.h
+    )
+    target_include_directories(webdav_client_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(webdav_client_test PRIVATE Qt6::Concurrent Qt6::Network Qt6::Test Qt6::Xml)
+    add_test(NAME webdav_client COMMAND webdav_client_test)
+    set_tests_properties(webdav_client PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+    )
+
     add_executable(webdav_download_planner_test
         tests/WebDavDownloadPlannerTest.cpp
         src/services/webdav/WebDavDownloadPlanner.cpp

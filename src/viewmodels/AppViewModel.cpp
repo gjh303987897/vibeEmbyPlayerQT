@@ -730,6 +730,12 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("iptv.allGroups"), QStringLiteral("All") },
         { QStringLiteral("iptv.noChannels"), QStringLiteral("No channels found") },
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV Files") },
+        { QStringLiteral("webdav.newFolder"), QStringLiteral("New folder") },
+        { QStringLiteral("webdav.folderName"), QStringLiteral("Folder name") },
+        { QStringLiteral("webdav.createFolder"), QStringLiteral("Create") },
+        { QStringLiteral("webdav.creatingFolder"), QStringLiteral("Creating...") },
+        { QStringLiteral("webdav.invalidFolderName"), QStringLiteral("Enter a folder name without /, \\, control characters, or . and ..") },
+        { QStringLiteral("webdav.folderExists"), QStringLiteral("A file or folder with this name already exists, or the server does not allow folder creation (HTTP 405)") },
         { QStringLiteral("webdav.empty"), QStringLiteral("This folder is empty") },
         { QStringLiteral("webdav.videoEmpty"), QStringLiteral("No folders or videos in this folder") },
         { QStringLiteral("webdav.audioEmpty"), QStringLiteral("No audio files in this folder") },
@@ -1840,6 +1846,12 @@ const QHash<QString, QString>& webDavChineseTexts()
         { QStringLiteral("action.transfers"), QStringLiteral("传输任务") },
         { QStringLiteral("action.choose"), QStringLiteral("选择") },
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV 文件") },
+        { QStringLiteral("webdav.newFolder"), QStringLiteral("新建文件夹") },
+        { QStringLiteral("webdav.folderName"), QStringLiteral("文件夹名称") },
+        { QStringLiteral("webdav.createFolder"), QStringLiteral("创建") },
+        { QStringLiteral("webdav.creatingFolder"), QStringLiteral("正在创建……") },
+        { QStringLiteral("webdav.invalidFolderName"), QStringLiteral("请输入文件夹名称，不能包含 /、\\、控制字符，也不能使用 . 或 ..") },
+        { QStringLiteral("webdav.folderExists"), QStringLiteral("同名文件或文件夹已存在，或服务器不允许创建文件夹（HTTP 405）") },
         { QStringLiteral("webdav.empty"), QStringLiteral("当前文件夹为空") },
         { QStringLiteral("webdav.videoEmpty"), QStringLiteral("当前文件夹中没有子文件夹或视频") },
         { QStringLiteral("webdav.audioEmpty"), QStringLiteral("当前文件夹中没有音频文件") },
@@ -2545,6 +2557,11 @@ QString AppViewModel::webDavCurrentPath() const
 bool AppViewModel::webDavUploadPreparing() const
 {
     return m_webDavUploadPreparing;
+}
+
+bool AppViewModel::webDavCreatingFolder() const
+{
+    return m_webDavCreatingFolder;
 }
 
 QString AppViewModel::webDavDisplayMode() const
@@ -6298,6 +6315,46 @@ void AppViewModel::refreshWebDavDirectory()
     if (!m_webDavCurrentUrl.isEmpty()) {
         loadWebDavDirectory(m_webDavCurrentUrl);
     }
+}
+
+void AppViewModel::createWebDavFolder(const QString& name)
+{
+    if (!m_currentWebDavCard || m_currentView != QStringLiteral("webdav") || m_loading ||
+        m_webDavUploadPreparing || m_webDavCreatingFolder || m_webDavCurrentUrl.isEmpty()) {
+        return;
+    }
+    clearError();
+    const auto folderUrl = WebDavClient::childDirectoryUrl(m_webDavCurrentUrl, name);
+    if (!folderUrl) {
+        setError(trText(QStringLiteral("webdav.invalidFolderName")));
+        return;
+    }
+
+    const auto server = m_currentWebDavCard->server;
+    const auto parentUrl = m_webDavCurrentUrl;
+    const auto generation = ++m_webDavFolderCreationGeneration;
+    m_webDavCreatingFolder = true;
+    emit webDavCreatingFolderChanged();
+    AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Creating a folder in the current WebDAV directory"));
+    m_webDavClient.createDirectory(server, m_webDavPassword, *folderUrl,
+        [this, serverId = server.id, parentUrl, generation](WebDavVoidResult result) {
+            if (generation != m_webDavFolderCreationGeneration) return;
+            m_webDavCreatingFolder = false;
+            emit webDavCreatingFolderChanged();
+            if (!m_currentWebDavCard || m_currentWebDavCard->server.id != serverId ||
+                m_currentView != QStringLiteral("webdav") || m_webDavCurrentUrl != parentUrl) {
+                return;
+            }
+            if (!result) {
+                AppLogger::warning(QStringLiteral("webdav"),
+                                   QStringLiteral("Folder creation failed: %1").arg(displayNetworkError(result.error())));
+                setError(result.error().httpStatus == 405 ? trText(QStringLiteral("webdav.folderExists"))
+                                                        : displayNetworkError(result.error()));
+                return;
+            }
+            AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Created a WebDAV folder"));
+            refreshWebDavDirectory();
+        });
 }
 
 void AppViewModel::chooseWebDavUploadFiles()
@@ -10499,6 +10556,7 @@ std::expected<IptvPlaylist, QString> AppViewModel::importIptvPlaylistFile(const 
 void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& password)
 {
     cancelWebDavUploadPreparation();
+    resetWebDavFolderCreationState();
     clearError();
     m_session.reset();
     clearIptvState();
@@ -10535,6 +10593,7 @@ void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& pas
 void AppViewModel::clearWebDavState()
 {
     cancelWebDavUploadPreparation();
+    resetWebDavFolderCreationState();
     if (!m_currentWebDavCard && m_webDavCurrentUrl.isEmpty() &&
         m_webDavItems.count() == 0 && m_webDavAudioQueue.empty()) {
         return;
@@ -10703,6 +10762,15 @@ void AppViewModel::enqueueWebDavUploadFile(const QString& localPath, const QUrl&
                                     info.absoluteFilePath(),
                                     remoteUrl,
                                     info.size());
+}
+
+void AppViewModel::resetWebDavFolderCreationState()
+{
+    ++m_webDavFolderCreationGeneration;
+    if (m_webDavCreatingFolder) {
+        m_webDavCreatingFolder = false;
+        emit webDavCreatingFolderChanged();
+    }
 }
 
 void AppViewModel::cancelWebDavUploadPreparation()

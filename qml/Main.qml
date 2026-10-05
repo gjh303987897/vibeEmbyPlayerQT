@@ -1077,6 +1077,67 @@ ApplicationWindow {
     }
 
     ModernDialog {
+        id: webDavNewFolderDialog
+        property string parentPath: ""
+        title: t("webdav.newFolder")
+        width: Math.min(root.width - 64, 420)
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 12
+
+            MutedText {
+                Layout.fillWidth: true
+                text: webDavNewFolderDialog.parentPath
+                elide: Text.ElideMiddle
+            }
+
+            ModernTextField {
+                id: webDavFolderNameField
+                Layout.fillWidth: true
+                placeholderText: t("webdav.folderName")
+                onAccepted: {
+                    if (text.trim().length > 0) webDavNewFolderDialog.accept()
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Item { Layout.fillWidth: true }
+                ModernButton {
+                    text: t("action.cancel")
+                    onClicked: webDavNewFolderDialog.reject()
+                }
+                ModernButton {
+                    text: t("webdav.createFolder")
+                    enabled: webDavFolderNameField.text.trim().length > 0
+                    onClicked: webDavNewFolderDialog.accept()
+                }
+            }
+        }
+
+        onOpened: {
+            parentPath = appViewModel.webDavCurrentPath
+            webDavFolderNameField.text = ""
+            webDavFolderNameField.forceActiveFocus()
+        }
+        onAccepted: appViewModel.createWebDavFolder(webDavFolderNameField.text)
+
+        Connections {
+            target: appViewModel
+            function onCurrentViewChanged() {
+                if (appViewModel.currentView !== "webdav") webDavNewFolderDialog.close()
+            }
+            function onCurrentServerChanged() { webDavNewFolderDialog.close() }
+            function onWebDavCurrentPathChanged() {
+                if (appViewModel.webDavCurrentPath !== webDavNewFolderDialog.parentPath)
+                    webDavNewFolderDialog.close()
+            }
+        }
+    }
+
+    ModernDialog {
         id: passwordDialog
         property string serviceName: ""
         property string username: ""
@@ -15755,10 +15816,17 @@ ApplicationWindow {
                     onClicked: appViewModel.chooseWebDavUploadFolder()
                 }
 
+                ModernButton {
+                    text: appViewModel.webDavCreatingFolder ? t("webdav.creatingFolder") : t("webdav.newFolder")
+                    enabled: !appViewModel.loading && !appViewModel.webDavUploadPreparing
+                        && !appViewModel.webDavCreatingFolder
+                    onClicked: webDavNewFolderDialog.open()
+                }
+
                 BusyIndicator {
                     Layout.preferredWidth: 24
                     Layout.preferredHeight: 24
-                    visible: appViewModel.webDavUploadPreparing
+                    visible: appViewModel.webDavUploadPreparing || appViewModel.webDavCreatingFolder
                     running: visible
                 }
 

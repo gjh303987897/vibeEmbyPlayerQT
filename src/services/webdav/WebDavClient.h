@@ -24,6 +24,8 @@ class WebDavClient final : public QObject {
 public:
     explicit WebDavClient(QObject* parent = nullptr);
 
+    static std::expected<QUrl, QString> childDirectoryUrl(const QUrl& parentUrl, const QString& name);
+
     void preconnect(const QUrl& url, bool allowSelfSigned);
     void listDirectory(const ServerConfig& server,
                        const QString& password,

@@ -13,6 +13,8 @@
 #include <QSet>
 #include <QtConcurrentRun>
 
+#include <algorithm>
+
 namespace {
 constexpr auto requestTimeoutMs = 30000;
 
@@ -333,6 +335,30 @@ void WebDavClient::statItem(const ServerConfig& server,
     });
 }
 
+std::expected<QUrl, QString> WebDavClient::childDirectoryUrl(const QUrl& parentUrl, const QString& name)
+{
+    const auto folderName = name.trimmed();
+    if (folderName.isEmpty() || folderName == QStringLiteral(".") || folderName == QStringLiteral("..") ||
+        folderName.contains(QLatin1Char('/')) || folderName.contains(QLatin1Char('\\')) ||
+        std::ranges::any_of(folderName, [](QChar character) {
+            return character.unicode() < 0x20 || character.unicode() == 0x7f;
+        })) {
+        return std::unexpected(QStringLiteral("Enter a single folder name without path separators or control characters"));
+    }
+    if (!parentUrl.isValid() || parentUrl.host().isEmpty() ||
+        (parentUrl.scheme() != QStringLiteral("http") && parentUrl.scheme() != QStringLiteral("https"))) {
+        return std::unexpected(QStringLiteral("The WebDAV parent directory URL is invalid"));
+    }
+
+    auto url = parentUrl;
+    auto path = url.path(QUrl::FullyEncoded);
+    if (!path.endsWith(QLatin1Char('/'))) path += QLatin1Char('/');
+    path += QString::fromLatin1(QUrl::toPercentEncoding(folderName)) + QLatin1Char('/');
+    // Preserve the parent's escapes and encode the name as one URL segment.
+    url.setPath(path, QUrl::StrictMode);
+    return url;
+}
+
 void WebDavClient::createDirectory(const ServerConfig& server,
                                    const QString& password,
                                    const QUrl& directoryUrl,
@@ -349,8 +375,14 @@ void WebDavClient::createDirectory(const ServerConfig& server,
         const auto body = reply->readAll();
         emit networkTrafficSample(server.id, server.name, serviceTypeToString(server.serviceType), body.size(), 0);
         const auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (reply->error() != QNetworkReply::NoError && statusCode != 405) {
-            callback(std::unexpected(WebDavClient::replyError(reply)));
+        // A user-requested new folder must fail when its URL already exists.
+        // RFC 4918 defines 201 as success and 405 as an already-mapped resource.
+        if (reply->error() != QNetworkReply::NoError || statusCode != 201) {
+            auto error = WebDavClient::replyError(reply);
+            if (reply->error() == QNetworkReply::NoError) {
+                error = { NetworkErrorKind::Http, QStringLiteral("HTTP %1").arg(statusCode), statusCode };
+            }
+            callback(std::unexpected(std::move(error)));
             reply->deleteLater();
             return;
         }

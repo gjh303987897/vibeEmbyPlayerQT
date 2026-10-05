@@ -91,6 +91,33 @@ QML 只调用 ViewModel 的选择入口；控制器完成选择后，由 C++ 把
 [QDialog 异步显示](https://doc.qt.io/qt-6/qdialog.html#open)、
 [QWindow transient parent](https://doc.qt.io/qt-6/qwindow.html#transientParent-prop)。
 
+## 新建文件夹
+
+WebDAV 文件页在“上传文件夹”旁提供“新建文件夹”按钮。点击后使用现有
+`ModernDialog` 输入一个文件夹名称，支持 Enter 确认；取消或直接关闭输入框不会发送请求。
+QML 只负责输入和展示，由 `AppViewModel::createWebDavFolder()` 编排创建操作。
+
+名称校验和目标 URL 构造复用 `WebDavClient::childDirectoryUrl()`：去掉首尾空白，
+拒绝空名称、`.`、`..`、路径分隔符及控制字符；中文、空格、`#`、`%`、`?`
+按单个路径段进行编码，同时保留父目录已有的 URL 转义。创建目标始终是当前目录
+的直接子文件夹，不自动创建多层目录。
+
+`WebDavClient::createDirectory()` 异步发送不带请求体的标准 `MKCOL`，复用现有
+认证、TLS 信任设置和 30 秒请求超时。只把 HTTP 201 视为创建成功；HTTP 405
+不会作为成功吞掉，界面提示同名资源已存在或服务器不允许创建。权限不足、父目录
+不存在和存储空间不足等失败沿用统一错误展示。
+
+创建期间禁用重复点击并显示忙碌状态，成功后刷新当前列表。操作捕获服务和父目录；
+用户切换目录后，旧请求不会刷新或报错到新目录。清除或替换服务时递增创建代次并
+复位忙碌状态，忽略旧回调。输入框在离开 WebDAV 页面、切换服务或更换当前目录时关闭。
+上传任务中的建目录重试语义仍由 `TransferManager` 独立处理。
+
+`tests/WebDavClientTest.cpp` 验证特殊名称编码和非法名称校验，使用本地 HTTP 服务
+验证 MKCOL 的成功/重名/权限/父目录/空间错误，以及创建后 PROPFIND 能显示新目录。
+
+依据：[RFC 4918 §9.3 MKCOL](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.3)、
+[Qt QUrl 路径编码](https://doc.qt.io/qt-6/qurl.html#setPath)。
+
 ## 目录显示模式
 
 WebDAV 文件页提供三种显示模式（切换按钮复用 `OptionSegmentedControl`，选中块以

@@ -30,6 +30,7 @@ tests/*
 !tests/ScheduledPlaybackScheduleTest.cpp
 !tests/MediaServerSearchTest.cpp
 !tests/WebDavItemListModelTest.cpp
+!tests/WebDavClientTest.cpp
 !tests/EncryptedHlsFormatTest.cpp
 !tests/EncryptedHlsPlaybackProxyTest.cpp
 !tests/EncryptedHlsPackagerTest.cpp
