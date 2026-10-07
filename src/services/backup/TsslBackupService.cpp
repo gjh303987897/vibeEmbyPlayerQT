@@ -24,7 +24,8 @@
 #include <algorithm>
 
 namespace {
-constexpr auto requestTimeoutMs = 60'000;
+struct S3Listing final { QStringList files; bool truncated = false; QString nextToken; };
+using S3ListingResult = std::expected<S3Listing, QString>;
 constexpr qint64 maxPackageBytes = 256LL * 1024LL * 1024LL;
 
 struct UploadPayload final {
@@ -206,11 +207,11 @@ RemoteFilesResult parseWebDavFiles(const QByteArray& body, const QUrl& folderUrl
     return files;
 }
 
-QStringList parseS3Files(const QByteArray& body, bool* truncated, QString* nextToken)
+std::expected<QStringList, QString> parseS3Files(const QByteArray& body, bool* truncated, QString* nextToken)
 {
     QDomDocument document;
-    if (!document.setContent(body)) {
-        return {};
+    if (!document.setContent(body) || localName(document.documentElement()) != QStringLiteral("ListBucketResult")) {
+        return std::unexpected(QStringLiteral("Invalid S3 backup listing XML"));
     }
 
     QStringList files;
@@ -336,8 +337,16 @@ QNetworkRequest signedS3Request(const TsslBackupTarget& target,
 }
 
 TsslBackupService::TsslBackupService(QObject* parent)
-    : QObject(parent)
+    : TsslBackupService(TsslBackupNetworkPolicy {}, parent)
 {
+}
+
+TsslBackupService::TsslBackupService(TsslBackupNetworkPolicy policy, QObject* parent)
+    : QObject(parent), m_networkPolicy(policy)
+{
+    m_networkPolicy.idleTimeoutMs = std::max(1, policy.idleTimeoutMs);
+    m_networkPolicy.totalTimeoutMs = std::max(1, policy.totalTimeoutMs);
+    m_networkPolicy.maximumRetries = std::clamp(policy.maximumRetries, 0, 5);
     connect(&m_manager, &QNetworkAccessManager::authenticationRequired, this,
             [](QNetworkReply* reply, QAuthenticator* authenticator) {
                 authenticator->setUser(reply->property("webdavUsername").toString());
@@ -398,6 +407,8 @@ void TsslBackupService::backup(const TsslBackupTarget& target,
         }
     }
     m_target = target;
+    ++m_operationGeneration;
+    m_retryCount = 0;
     m_restoreMode = false;
     m_localFiles = std::move(localFiles);
     m_callback = std::move(callback);
@@ -436,6 +447,8 @@ void TsslBackupService::restore(const TsslBackupTarget& target,
         return;
     }
     m_target = target;
+    ++m_operationGeneration;
+    m_retryCount = 0;
     m_restoreCallback = std::move(callback);
     m_remoteFiles.clear();
     m_downloadedFiles.clear();
@@ -505,10 +518,12 @@ void TsslBackupService::listWebDavFiles()
     body->setParent(reply);
     reply->setProperty("webdavUsername", m_target.webDavServer.username);
     reply->setProperty("webdavPassword", m_target.webDavPassword);
+    reply->setProperty("tsslResponseLimit", 4LL * 1024 * 1024);
     wireReply(reply);
     connect(reply, &QNetworkReply::finished, reply, [this, reply, folderUrl]() {
         const auto checked = checkReply(reply, QStringLiteral("WebDAV backup listing"));
         if (!checked) {
+            if (retryReply(reply, [this] { listWebDavFiles(); })) return;
             reply->deleteLater();
             finishRestore(std::unexpected(checked.error()));
             return;
@@ -540,11 +555,19 @@ void TsslBackupService::listWebDavFiles()
 
 void TsslBackupService::listS3Files()
 {
+    m_s3ListingElapsed.start();
+    m_s3PageTokens.clear();
+    m_s3Pages = 0;
     listS3Page();
 }
 
 void TsslBackupService::listS3Page(const QString& continuationToken)
 {
+    if (m_s3ListingElapsed.elapsed() >= m_networkPolicy.totalTimeoutMs || ++m_s3Pages > 10'000 || m_s3PageTokens.contains(continuationToken)) {
+        finishRestore(std::unexpected(QStringLiteral("S3 backup listing pagination did not advance")));
+        return;
+    }
+    m_s3PageTokens.insert(continuationToken);
     auto url = appendPath(m_target.s3Endpoint, { m_target.s3Bucket });
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("list-type"), QStringLiteral("2"));
@@ -559,24 +582,41 @@ void TsslBackupService::listS3Page(const QString& continuationToken)
     const auto emptyHash = hexHash(QByteArray());
     auto request = signedS3Request(m_target, QStringLiteral("GET"), url, emptyHash, QDateTime::currentDateTimeUtc());
     auto* reply = m_manager.get(request);
+    reply->setProperty("tsslResponseLimit", 4LL * 1024 * 1024);
     wireReply(reply);
-    connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, continuationToken]() {
         const auto checked = checkReply(reply, QStringLiteral("S3 backup listing"));
         if (!checked) {
+            if (retryReply(reply, [this, continuationToken] {
+                m_s3PageTokens.remove(continuationToken);
+                --m_s3Pages;
+                listS3Page(continuationToken);
+            })) return;
             reply->deleteLater();
             finishRestore(std::unexpected(checked.error()));
             return;
         }
-        const auto body = reply->readAll();
+        auto body = reply->readAll();
         reply->deleteLater();
-        bool truncated = false;
-        QString nextToken;
-        m_remoteFiles.append(parseS3Files(body, &truncated, &nextToken));
-        if (truncated && !nextToken.isEmpty()) {
-            listS3Page(nextToken);
-        } else {
-            restoreNext();
-        }
+        auto* watcher = new QFutureWatcher<S3ListingResult>(this);
+        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
+            auto page = watcher->future().takeResult();
+            watcher->deleteLater();
+            if (m_cancelRequested) { finishRestore(std::unexpected(QStringLiteral("TSSL restore canceled"))); return; }
+            if (!page) { finishRestore(std::unexpected(page.error())); return; }
+            m_remoteFiles.append(page->files);
+            if (page->truncated && page->nextToken.isEmpty()) {
+                finishRestore(std::unexpected(QStringLiteral("S3 backup listing is missing its continuation token")));
+            } else if (page->truncated) listS3Page(page->nextToken);
+            else restoreNext();
+        });
+        watcher->setFuture(QtConcurrent::run([body = std::move(body)]() -> S3ListingResult {
+            S3Listing page;
+            auto files = parseS3Files(body, &page.truncated, &page.nextToken);
+            if (!files) return std::unexpected(files.error());
+            page.files = std::move(*files);
+            return page;
+        }));
     });
 }
 
@@ -621,6 +661,7 @@ void TsslBackupService::downloadWebDav(const QUrl& url)
     connect(reply, &QNetworkReply::finished, reply, [this, reply, url]() {
         const auto checked = checkReply(reply, QStringLiteral("WebDAV TSSL download"));
         if (!checked) {
+            if (retryReply(reply, [this, url] { downloadWebDav(url); })) return;
             reply->deleteLater();
             finishRestore(std::unexpected(checked.error()));
             return;
@@ -655,6 +696,7 @@ void TsslBackupService::downloadS3(const QString& key)
     connect(reply, &QNetworkReply::finished, reply, [this, reply, key]() {
         const auto checked = checkReply(reply, QStringLiteral("S3 TSSL download"));
         if (!checked) {
+            if (retryReply(reply, [this, key] { downloadS3(key); })) return;
             reply->deleteLater();
             finishRestore(std::unexpected(checked.error()));
             return;
@@ -739,9 +781,10 @@ void TsslBackupService::uploadWebDav(const QString& localPath, const QByteArray&
     reply->setProperty("webdavUsername", m_target.webDavServer.username);
     reply->setProperty("webdavPassword", m_target.webDavPassword);
     wireReply(reply);
-    connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, localPath, payload]() {
         const auto checked = checkReply(reply, QStringLiteral("WebDAV upload"));
         if (!checked) {
+            if (retryReply(reply, [this, localPath, payload] { uploadWebDav(localPath, payload); })) return;
             reply->deleteLater();
             finish(std::unexpected(checked.error()));
             return;
@@ -769,9 +812,10 @@ void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& pay
     auto* reply = m_manager.put(request, body);
     body->setParent(reply);
     wireReply(reply);
-    connect(reply, &QNetworkReply::finished, reply, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, localPath, payload, payloadHash]() {
         const auto checked = checkReply(reply, QStringLiteral("S3 upload"));
         if (!checked) {
+            if (retryReply(reply, [this, localPath, payload, payloadHash] { uploadS3(localPath, payload, payloadHash); })) return;
             reply->deleteLater();
             finish(std::unexpected(checked.error()));
             return;
@@ -786,15 +830,36 @@ void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& pay
 void TsslBackupService::wireReply(QNetworkReply* reply)
 {
     m_activeReply = reply;
+    const auto limit = reply->property("tsslResponseLimit").isValid()
+        ? reply->property("tsslResponseLimit").toLongLong() : maxPackageBytes;
+    connect(reply, &QNetworkReply::readyRead, reply, [reply, limit] {
+        if (reply->bytesAvailable() > limit) {
+            reply->setProperty("tsslResponseTooLarge", true);
+            reply->abort();
+        }
+    });
     auto* timeout = new QTimer(reply);
     timeout->setSingleShot(true);
     connect(timeout, &QTimer::timeout, reply, [reply]() {
         reply->setProperty("tsslTimedOut", true);
         reply->abort();
     });
-    timeout->start(requestTimeoutMs);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, timeout]() {
+    timeout->start(m_networkPolicy.idleTimeoutMs);
+    auto trackProgress = [timeout, idleMs = m_networkPolicy.idleTimeoutMs, previous = qint64(0)](qint64 bytes, qint64) mutable {
+        if (bytes > previous) { previous = bytes; timeout->start(idleMs); }
+    };
+    connect(reply, &QNetworkReply::downloadProgress, timeout, trackProgress);
+    connect(reply, &QNetworkReply::uploadProgress, timeout, trackProgress);
+    auto* deadline = new QTimer(reply);
+    deadline->setSingleShot(true);
+    connect(deadline, &QTimer::timeout, reply, [reply] {
+        reply->setProperty("tsslTimedOut", true);
+        reply->abort();
+    });
+    deadline->start(m_networkPolicy.totalTimeoutMs);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, timeout, deadline]() {
         timeout->stop();
+        deadline->stop();
         if (m_activeReply == reply) m_activeReply.clear();
     });
     connect(reply, &QNetworkReply::sslErrors, reply, [reply, allow = m_target.type == TsslBackupTarget::Type::WebDav
@@ -804,14 +869,16 @@ void TsslBackupService::wireReply(QNetworkReply* reply)
     });
 }
 
-std::expected<void, QString> TsslBackupService::checkReply(QNetworkReply* reply, const QString& operation) const
+std::expected<void, QString> TsslBackupService::checkReply(QNetworkReply* reply, const QString& operation)
 {
     if (m_cancelRequested) {
         return std::unexpected(m_restoreMode ? QStringLiteral("TSSL restore canceled")
                                             : QStringLiteral("TSSL backup canceled"));
     }
+    if (reply->property("tsslResponseTooLarge").toBool())
+        return std::unexpected(operation + QStringLiteral(" response exceeds its size limit"));
     if (reply->property("tsslTimedOut").toBool()) {
-        return std::unexpected(operation + QStringLiteral(" timed out after 60 seconds"));
+        return std::unexpected(operation + QStringLiteral(" exceeded its idle or total time limit"));
     }
     const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
@@ -819,7 +886,30 @@ std::expected<void, QString> TsslBackupService::checkReply(QNetworkReply* reply,
             ? operation + QStringLiteral(" failed with HTTP %1").arg(status)
             : operation + QStringLiteral(" failed: ") + reply->errorString());
     }
+    m_retryCount = 0;
     return {};
+}
+
+bool TsslBackupService::retryReply(QNetworkReply* reply, std::function<void()> retry)
+{
+    const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const auto error = reply->error();
+    const bool transient = status == 408 || status == 429 || (status >= 500 && status <= 599) ||
+        reply->property("tsslTimedOut").toBool() || (status < 400 &&
+        (error == QNetworkReply::RemoteHostClosedError || error == QNetworkReply::ConnectionRefusedError ||
+         error == QNetworkReply::TimeoutError || error == QNetworkReply::TemporaryNetworkFailureError));
+    if (!m_running || m_cancelRequested || !transient || m_retryCount >= m_networkPolicy.maximumRetries) return false;
+    const auto generation = m_operationGeneration;
+    const auto delay = 200 * (1 << m_retryCount++);
+    reply->deleteLater();
+    QTimer::singleShot(delay, this, [this, generation, retry = std::move(retry)] {
+        if (!m_running || generation != m_operationGeneration) return;
+        if (m_cancelRequested) {
+            if (m_restoreMode) finishRestore(std::unexpected(QStringLiteral("TSSL restore canceled")));
+            else finish(std::unexpected(QStringLiteral("TSSL backup canceled")));
+        } else retry();
+    });
+    return true;
 }
 
 void TsslBackupService::finish(TsslBackupResult result)

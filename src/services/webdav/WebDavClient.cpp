@@ -424,12 +424,15 @@ void WebDavClient::mutate(const ServerConfig& server, const QString& password, M
     const auto method = operation == Mutation::Remove ? QByteArray("DELETE") :
                         operation == Mutation::Move ? QByteArray("MOVE") : QByteArray("COPY");
     auto* reply = m_manager.sendCustomRequest(request,method);
+    reply->setProperty("webdavUsername", server.username);
+    reply->setProperty("webdavPassword", password);
     wireReply(reply,server);
     connect(reply,&QNetworkReply::finished,reply,[reply,callback = std::move(callback)]() mutable {
         const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         // 207 may contain per-resource failures: never report it as unconditional success.
         if (reply->error() == QNetworkReply::NoError && (status == 200 || status == 201 || status == 204))
             callback({});
+        else if (reply->error() != QNetworkReply::NoError) callback(std::unexpected(replyError(reply)));
         else callback(std::unexpected(NetworkError {NetworkErrorKind::Http,QStringLiteral("HTTP %1").arg(status),status}));
         reply->deleteLater();
     });
@@ -440,9 +443,11 @@ void WebDavClient::wireReply(QNetworkReply* reply, const ServerConfig& server)
     auto* timeout = new QTimer(reply);
     timeout->setSingleShot(true);
     connect(timeout, &QTimer::timeout, reply, [reply]() {
+        reply->setProperty("requestTimedOut", true);
         reply->abort();
     });
     timeout->start(requestTimeoutMs);
+    connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
 
     connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>&) {
         if (!allowSelfSigned) {
@@ -463,10 +468,11 @@ NetworkError WebDavClient::replyError(QNetworkReply* reply)
             .httpStatus = statusCode,
         };
     }
-    const auto timeout = reply->error() == QNetworkReply::OperationCanceledError;
+    const auto canceled = reply->error() == QNetworkReply::OperationCanceledError;
+    const auto timeout = canceled && reply->property("requestTimedOut").toBool();
     return {
-        .kind = timeout ? NetworkErrorKind::Timeout : NetworkErrorKind::Transport,
-        .message = timeout ? QStringLiteral("Network request timed out") : reply->errorString(),
+        .kind = timeout ? NetworkErrorKind::Timeout : canceled ? NetworkErrorKind::Canceled : NetworkErrorKind::Transport,
+        .message = timeout ? QStringLiteral("Network request timed out") : canceled ? QStringLiteral("Canceled") : reply->errorString(),
         .httpStatus = statusCode,
     };
 }

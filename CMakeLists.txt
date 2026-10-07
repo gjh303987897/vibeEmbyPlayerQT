@@ -7,6 +7,10 @@ project(vibePlayerQT
 )
 
 include(cmake/SemVer.cmake)
+if(WIN32)
+    # Windows user-scoped DPAPI protects saved media-server session tokens.
+    link_libraries(crypt32)
+endif()
 set(VIBEPLAYER_PACKAGE_VERSION "${PROJECT_VERSION}-stable" CACHE STRING
     "Application version in Semantic Versioning 2.0.0 format"
 )
@@ -445,6 +449,12 @@ install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+    add_executable(audit_regression_test tests/AuditRegressionTest.cpp)
+    target_link_libraries(audit_regression_test PRIVATE vibeCli Qt6::Test)
+    add_test(NAME audit_regression COMMAND audit_regression_test
+        -o "${CMAKE_CURRENT_BINARY_DIR}/audit-regression-results.txt,txt")
+    set_tests_properties(audit_regression PROPERTIES TIMEOUT 60
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     add_executable(cli_test tests/CliTest.cpp)
     target_link_libraries(cli_test PRIVATE vibeCli Qt6::Test)
     add_executable(cli_integration_test tests/CliIntegrationTest.cpp)

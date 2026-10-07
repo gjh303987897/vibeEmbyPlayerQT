@@ -1,4 +1,5 @@
 #include "services/encryptedhls/EncryptedHlsPackager.h"
+#include "services/ffmpeg/FfmpegProgress.h"
 
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
@@ -33,11 +34,17 @@ std::expected<QByteArray, QString> readBoundedFile(const QString& path, qint64 m
     if (!file.open(QIODevice::ReadOnly)) {
         return std::unexpected(QStringLiteral("Unable to open generated HLS file: %1").arg(file.errorString()));
     }
-    if (file.size() <= 0 || file.size() > maximumBytes) {
+    const auto expectedSize = file.size();
+    if (expectedSize <= 0 || expectedSize > maximumBytes) {
         return std::unexpected(QStringLiteral("Generated HLS file is empty or exceeds its size limit: %1")
                                    .arg(QFileInfo(path).fileName()));
     }
-    return file.readAll();
+    auto bytes = file.read(expectedSize + 1);
+    if (file.error() != QFileDevice::NoError || bytes.size() != expectedSize || file.size() != expectedSize) {
+        bytes.fill('\0');
+        return std::unexpected(QStringLiteral("Generated HLS file changed or could not be read completely"));
+    }
+    return bytes;
 }
 
 std::expected<void, QString> writeFileAtomically(const QString& path,
@@ -686,11 +693,12 @@ void EncryptedHlsPackager::readFfmpegProgress()
     while ((newline = m_progressBuffer.indexOf('\n')) >= 0) {
         auto line = m_progressBuffer.first(newline).trimmed();
         m_progressBuffer.remove(0, newline + 1);
-        if (!line.startsWith("out_time_us=")) {
+        const auto field = FfmpegProgress::parseLine(line);
+        if (!field || field->key != "out_time_us") {
             continue;
         }
         bool ok = false;
-        const auto elapsed = line.sliced(12).toLongLong(&ok);
+        const auto elapsed = field->value.toLongLong(&ok);
         if (ok && m_durationMicroseconds > 0) {
             setProgress(std::clamp(0.02 + 0.63 * static_cast<double>(elapsed) /
                                       static_cast<double>(m_durationMicroseconds),

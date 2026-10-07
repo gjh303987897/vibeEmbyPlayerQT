@@ -18,6 +18,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <utility>
+#include <optional>
 
 namespace {
 constexpr uint64_t propertyTimePos = 1;
@@ -640,6 +641,7 @@ void PlayerController::stop()
 
 void PlayerController::shutdown()
 {
+    ++m_handleGeneration;
     m_eventTimer.stop();
     m_playbackMetricsTimer.stop();
     m_networkStatsActive = false;
@@ -792,11 +794,14 @@ void PlayerController::processEvents()
         return;
     }
 
-    while (true) {
-        auto* event = mpv_wait_event(m_mpv, 0.0);
-        if (!event || event->event_id == MPV_EVENT_NONE) {
-            break;
-        }
+    const auto generation = m_handleGeneration;
+    while (m_mpv && m_handleGeneration == generation) {
+        const auto* next = mpv_wait_event(m_mpv, 0.0);
+        if (!next || next->event_id == MPV_EVENT_NONE) break;
+        // Signals may synchronously shut down the player. The event header and
+        // end-file payload must survive destruction of libmpv's event storage.
+        const auto eventValue = *next;
+        const auto* event = &eventValue;
 
         if (event->event_id == MPV_EVENT_PROPERTY_CHANGE) {
             const auto* property = static_cast<mpv_event_property*>(event->data);
@@ -841,7 +846,9 @@ void PlayerController::processEvents()
                 emit playbackStateChanged();
             }
         } else if (event->event_id == MPV_EVENT_END_FILE) {
-            const auto* endFile = static_cast<mpv_event_end_file*>(event->data);
+            const auto endFileValue = event->data
+                ? std::optional<mpv_event_end_file>(*static_cast<mpv_event_end_file*>(event->data)) : std::nullopt;
+            const auto* endFile = endFileValue ? &*endFileValue : nullptr;
             const auto finalPosition = m_position;
             auto failed = false;
             const auto supersededEntry = endFile && m_activePlaylistEntryId >= 0 &&

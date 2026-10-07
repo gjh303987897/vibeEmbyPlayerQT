@@ -51,7 +51,15 @@ Sensitive values:
 
 - Password is never persisted.
 - Token is persisted only through `SessionRepository`.
+- Windows session persistence uses [user-scoped DPAPI](SessionTokenCipher.md).
 - Token, Cookie and password must never be logged.
+- Library/item list responses must be JSON objects with an `Items` array (lowercase
+  `items` remains compatible). Malformed JSON, absent/wrong arrays and non-object
+  entries return `NetworkErrorKind::Parse`; a valid empty array succeeds. Parser
+  watchers belong to the client, and pending network callbacks check client lifetime.
+- Login/report POST redirects are returned as explicit errors instead of being
+  converted into GET requests or forwarding credentials. Configure the final
+  server URL when a reverse proxy redirects the API endpoint.
 
 ## Libraries
 

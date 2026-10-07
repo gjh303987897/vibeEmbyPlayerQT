@@ -80,6 +80,7 @@ public:
     std::expected<std::vector<ScheduledPlaybackTask>, QString> loadScheduledPlaybackTasks(bool privacyMode);
     std::expected<void, QString> saveScheduledPlaybackTask(const ScheduledPlaybackTask& task);
     std::expected<void, QString> deleteScheduledPlaybackTask(const QString& taskId);
+    std::expected<QStringList, QString> scheduledPlaybackTaskIds();
     std::expected<void, QString> setScheduledPlaybackTaskLastRun(const QString& taskId, const QString& date);
     QString scheduledPlaybackCheckpoint(bool privateMode) const;
     void setScheduledPlaybackCheckpoint(bool privateMode, const QString& timestamp);
@@ -204,6 +205,7 @@ private:
     std::expected<void, QString> ensureOpen();
     std::expected<void, QString> ensureColumn(const QString& table, const QString& column, const QString& definition);
     std::expected<void, QString> migrateSessionsTable();
+    std::expected<void, QString> protectLegacySessionTokens();
     std::expected<void, QString> migrateDailyUsageStatsTable();
     std::expected<std::optional<UserSession>, QString> sessionFromQuery(QSqlQuery& query);
 

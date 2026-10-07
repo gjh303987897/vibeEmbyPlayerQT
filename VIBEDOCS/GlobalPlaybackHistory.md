@@ -67,7 +67,7 @@ Missing local files and deleted source configurations are marked unavailable bef
 
 ## Privacy And Security
 
-Normal mode excludes private history. Privacy mode includes both normal and private history, matching the existing privacy-card behavior. For configured services, the current service privacy flag takes precedence so moving a card into or out of privacy mode immediately changes history visibility; otherwise the privacy value captured with the occurrence is used.
+Normal mode excludes private history. Privacy mode includes both normal and private history, matching the existing privacy-card behavior. A record is private when either its captured privacy flag or its current service's privacy flag is set. Moving a card into private mode hides its history; moving it back does not expose occurrences captured during private playback. List, date, daily-detail and ordinary-mode deletion queries use the same rule. Stable-media replacement remains unchanged: the newest occurrence replaces the previous one.
 
 Deleting a service with local data also deletes its global history. Hiding a service without deleting local data preserves its history rows, but marks them unavailable until the service is enabled again.
 

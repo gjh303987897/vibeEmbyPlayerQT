@@ -26,13 +26,13 @@ protected:
     static QString normalizeBaseUrl(QString baseUrl);
     static MediaLibrary parseLibrary(const QJsonObject& object, const QString& baseUrl, const QString& token);
     static MediaItem parseItem(const QJsonObject& object, const QString& baseUrl, const QString& token);
-    static std::vector<MediaLibrary> parseLibraries(const QByteArray& body, const QString& baseUrl, const QString& token);
-    static std::vector<MediaItem> parseItems(const QByteArray& body, const QString& baseUrl, const QString& token);
-    static void parseLibrariesAsync(QByteArray body,
+    static LibraryResult parseLibraries(const QByteArray& body, const QString& baseUrl, const QString& token);
+    static ItemResult parseItems(const QByteArray& body, const QString& baseUrl, const QString& token);
+    void parseLibrariesAsync(QByteArray body,
                                     QString baseUrl,
                                     QString token,
                                     std::function<void(LibraryResult)> callback);
-    static void parseItemsAsync(QByteArray body,
+    void parseItemsAsync(QByteArray body,
                                 QString baseUrl,
                                 QString token,
                                 std::function<void(ItemResult)> callback);

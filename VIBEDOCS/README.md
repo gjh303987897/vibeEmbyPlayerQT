@@ -8,6 +8,11 @@
 
 当前文档：
 
+- [AuditFixes-2026-10-07.md](AuditFixes-2026-10-07.md)：缺陷修复、回归证据与尚未验证的边界。
+- [SqlTransaction.md](SqlTransaction.md)：SQLite 提交失败后的统一事务清理。
+- [SessionTokenCipher.md](SessionTokenCipher.md)：Windows Token 加密、旧会话迁移和平台边界。
+- [FfmpegProgress.md](FfmpegProgress.md)：打包和还原共用的安全进度行解析。
+
 - [CLI-Tutorial.md](CLI-Tutorial.md)：完整用户教程，覆盖全部 CLI 命令、参数、配置键、视频加密/还原、后台任务，以及 PowerShell/CMD/GitHub Actions 自动化示例。
 - `CLI.md`：控制台入口、全部命令、Shell、隐私/凭据、JSON/退出码和自动化示例。
 - `CliMedia.md`、`CliBackgroundTasks.md`、`CliShell.md`：媒体宿主、持久任务续传、交互表达式。

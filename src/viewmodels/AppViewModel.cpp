@@ -2039,6 +2039,8 @@ AppViewModel::AppViewModel(QObject* parent)
 {
     connect(this, &AppViewModel::currentViewChanged, &m_fileDialogs, &FileDialogController::cancel);
     connect(this, &AppViewModel::currentServerChanged, &m_fileDialogs, &FileDialogController::cancel);
+    m_homeCacheWarmTimer.setSingleShot(true);
+    connect(&m_homeCacheWarmTimer, &QTimer::timeout, this, &AppViewModel::backgroundRefreshHome);
     wireUsageSignals();
     m_usageFlushTimer.setInterval(usageFlushIntervalMs);
     m_usageFlushTimer.setSingleShot(false);
@@ -11253,7 +11255,10 @@ bool AppViewModel::reuseCachedHomeData() const
 
 void AppViewModel::backgroundRefreshHome()
 {
-    if (!m_session || m_currentView != QStringLiteral("home") || homeLoading()) {
+    if (!m_session || m_currentView != QStringLiteral("home")) return;
+    // Do not invalidate a recommendation callback which still owns its refresh flag.
+    if (homeLoading() || m_embyRecommendationRefreshing || m_homeCacheRefreshing) {
+        m_homeCacheWarmTimer.start(homeCacheWarmDelayMs);
         return;
     }
 

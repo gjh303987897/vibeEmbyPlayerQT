@@ -71,7 +71,19 @@ QHash<QString, QString> parseAttributes(const QString& value)
 
 QString extinfTitle(const QString& line)
 {
-    const auto commaIndex = line.indexOf(QLatin1Char(','));
+    qsizetype commaIndex = -1;
+    QChar quote;
+    for (qsizetype i = 0; i < line.size(); ++i) {
+        const auto ch = line.at(i);
+        if (!quote.isNull()) {
+            if (ch == quote) quote = {};
+        } else if (ch == QLatin1Char('"') || ch == QLatin1Char('\'')) {
+            quote = ch;
+        } else if (ch == QLatin1Char(',')) {
+            commaIndex = i;
+            break;
+        }
+    }
     if (commaIndex < 0 || commaIndex + 1 >= line.size()) {
         return {};
     }

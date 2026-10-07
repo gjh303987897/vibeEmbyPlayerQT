@@ -19,6 +19,7 @@ public:
     void setProgressObserver(std::function<void(qint64,qint64)> observer) { m_progressObserver = std::move(observer); }
 
 private:
+    Result executeCommand(const Invocation& invocation);
     std::expected<ServiceCard, Error> resolve(SessionRepository& repository, const QString& target, bool webdav = false);
     std::expected<QString, Error> password(const Invocation& invocation, const ServerConfig& server);
     std::expected<QString, Error> secret(const Invocation& invocation, const QString& option, const QString& prompt);

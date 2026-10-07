@@ -1,4 +1,5 @@
 #include "services/encryptedhls/EncryptedHlsRestorer.h"
+#include "services/ffmpeg/FfmpegProgress.h"
 
 #include "services/encryptedhls/EncryptedHlsPackager.h"
 #include "utils/AppLogger.h"
@@ -222,12 +223,14 @@ void EncryptedHlsRestorer::readProgress()
         if (newline < 0) break;
         const auto line = m_progressBuffer.first(newline).trimmed();
         m_progressBuffer.remove(0, newline + 1);
-        const auto separator = line.indexOf('=');
-        const auto key = line.first(separator);
-        const auto value = line.mid(separator + 1);
-        if (key == "frame") m_frames = value.toLongLong();
-        if (key == "out_time_us" && m_durationUs > 0)
-            m_itemProgress = std::clamp(static_cast<double>(value.toLongLong()) / m_durationUs, 0.0, 0.99);
+        const auto field = FfmpegProgress::parseLine(line);
+        if (!field) continue;
+        bool ok = false;
+        const auto value = field->value.toLongLong(&ok);
+        if (!ok || value < 0) continue;
+        if (field->key == "frame") m_frames = value;
+        if (field->key == "out_time_us" && m_durationUs > 0)
+            m_itemProgress = std::clamp(static_cast<double>(value) / m_durationUs, 0.0, 0.99);
     }
     if (m_progressBuffer.size() > 65536) m_progressBuffer.clear();
     if (m_running) { m_watchdog.start(); emit stateChanged(); }

@@ -1118,12 +1118,12 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteRange(
             const auto contentRange = reply->rawHeader(QByteArrayLiteral("Content-Range"));
             static const QRegularExpression pattern(QStringLiteral("^bytes (\\d+)-(\\d+)/(\\d+)$"));
             const auto match = pattern.match(QString::fromLatin1(contentRange));
-            bool ok = false;
-            const auto responseStart = match.captured(1).toLongLong(&ok);
-            const auto responseEnd = match.captured(2).toLongLong(&ok);
-            const auto total = match.captured(3).toLongLong(&ok);
+            bool startOk = false, endOk = false, totalOk = false;
+            const auto responseStart = match.captured(1).toLongLong(&startOk);
+            const auto responseEnd = match.captured(2).toLongLong(&endOk);
+            const auto total = match.captured(3).toLongLong(&totalOk);
             const auto etag = reply->rawHeader(QByteArrayLiteral("ETag"));
-            if (!match.hasMatch() || responseStart != start || responseEnd < start || responseEnd > end || total <= responseEnd ||
+            if (!match.hasMatch() || !startOk || !endOk || !totalOk || responseStart != start || responseEnd < start || responseEnd > end || total <= responseEnd ||
                 buffer->size() != responseEnd - start + 1 || (!expectedEtag.isEmpty() && etag != expectedEtag)) {
                 callback(std::unexpected(QStringLiteral("Remote M3U8SP Content-Range or ETag is invalid")));
             } else {

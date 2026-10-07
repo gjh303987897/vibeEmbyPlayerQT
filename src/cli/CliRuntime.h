@@ -3,10 +3,14 @@
 #include "cli/CliConsole.h"
 #include "network/NetworkError.h"
 #include <QEventLoop>
+#include <QCoreApplication>
 #include <QFutureWatcher>
 #include <QTimer>
+#include <QPointer>
 #include <functional>
+#include <memory>
 #include <optional>
+#include <type_traits>
 
 namespace Cli {
 inline Result failure(ExitCode code, const QString& message, QJsonValue data = QJsonValue(QJsonValue::Null))
@@ -18,7 +22,7 @@ inline Result networkFailure(const NetworkError& error)
     auto code = error.httpStatus == 401 || error.httpStatus == 403 ? ExitCode::Authentication :
         error.httpStatus == 404 ? ExitCode::NotFound :
         (error.httpStatus == 405 || error.httpStatus == 409 || error.httpStatus == 412) ? ExitCode::Conflict : ExitCode::Failed;
-    if (CliConsole::pollCancellation()) code = ExitCode::Canceled;
+    if (error.kind == NetworkErrorKind::Canceled || CliConsole::pollCancellation()) code = ExitCode::Canceled;
     // Reply diagnostics can include credentials or signed URLs. Output the status and safe kind.
     return failure(code, error.httpStatus ? QStringLiteral("HTTP %1").arg(error.httpStatus) :
                    code == ExitCode::Canceled ? QStringLiteral("Canceled") : QStringLiteral("Network request failed"));
@@ -30,27 +34,58 @@ ResultType await(Start start, Cancel cancel)
     QEventLoop loop;
     QTimer timer;
     bool cancelSent = false;
-    std::optional<ResultType> result;
+    auto result = std::make_shared<std::optional<ResultType>>();
     QObject::connect(&timer, &QTimer::timeout, &loop, [&]() {
         if (!cancelSent && CliConsole::pollCancellation()) { cancelSent = true; cancel(); }
     });
     timer.start(50);
-    start([&](ResultType value) { result = std::move(value); loop.quit(); });
-    if (!result) loop.exec();
-    return std::move(*result);
+    start([result, loop = QPointer<QEventLoop>(&loop)](ResultType value) {
+        if (!loop || *result) return;
+        *result = std::move(value);
+        loop->quit();
+    });
+    if (!*result) loop.exec();
+    if (!*result) {
+        CliConsole::canceled.store(true);
+        if (!cancelSent) cancel();
+        if (!*result) {
+            if constexpr (requires { typename ResultType::error_type; }) {
+                using ErrorType = typename ResultType::error_type;
+                if constexpr (std::is_same_v<ErrorType, QString>)
+                    return std::unexpected(QStringLiteral("Canceled"));
+                else if constexpr (std::is_same_v<ErrorType, NetworkError>)
+                    return std::unexpected(NetworkError {NetworkErrorKind::Canceled, QStringLiteral("Canceled")});
+                else return std::unexpected(Error {ExitCode::Canceled, QStringLiteral("Canceled")});
+            } else if constexpr (std::is_same_v<ResultType, Result>) {
+                return failure(ExitCode::Canceled, QStringLiteral("Canceled"));
+            } else if constexpr (std::is_same_v<ResultType, std::pair<bool, QString>>) {
+                return {false, QStringLiteral("Canceled")};
+            } else if constexpr (std::is_same_v<ResultType, bool>) {
+                return false;
+            } else {
+                ResultType interrupted {};
+                if constexpr (requires { interrupted.canceled = true; }) interrupted.canceled = true;
+                return interrupted;
+            }
+        }
+    }
+    return std::move(**result);
 }
 
 template<typename T>
 T awaitFuture(QFuture<T> future)
 {
+    // Some workers capture their command's inputs by reference. An application
+    // quit must not unwind that command while its worker still uses those inputs.
+    auto pending = future;
     return await<T>([future = std::move(future)](auto complete) mutable {
-        auto* watcher = new QFutureWatcher<T>();
+        auto* watcher = new QFutureWatcher<T>(QCoreApplication::instance());
         QObject::connect(watcher, &QFutureWatcher<T>::finished, watcher, [watcher, complete]() {
             auto value = watcher->future().takeResult();
             watcher->deleteLater();
             complete(std::move(value));
         });
         watcher->setFuture(future);
-    }, [] {});
+    }, [pending = std::move(pending)]() mutable { pending.waitForFinished(); });
 }
 }

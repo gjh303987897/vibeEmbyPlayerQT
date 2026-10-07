@@ -10,6 +10,8 @@
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QStringList>
+#include <QSet>
+#include <QElapsedTimer>
 
 #include <expected>
 #include <functional>
@@ -40,11 +42,18 @@ struct TsslBackupPackages final {
 };
 using TsslBackupPackagesResult = std::expected<TsslBackupPackages, QString>;
 
+struct TsslBackupNetworkPolicy final {
+    int idleTimeoutMs = 60'000;
+    int totalTimeoutMs = 15 * 60 * 1000;
+    int maximumRetries = 2;
+};
+
 class TsslBackupService final : public QObject {
     Q_OBJECT
 
 public:
     explicit TsslBackupService(QObject* parent = nullptr);
+    explicit TsslBackupService(TsslBackupNetworkPolicy policy, QObject* parent = nullptr);
 
     static QFuture<TsslBackupPackagesResult> preparePackages(TsslStore store);
     bool isRunning() const;
@@ -73,16 +82,23 @@ private:
     void downloadWebDav(const QUrl& url);
     void downloadS3(const QString& key);
     void wireReply(QNetworkReply* reply);
-    std::expected<void, QString> checkReply(QNetworkReply* reply, const QString& operation) const;
+    std::expected<void, QString> checkReply(QNetworkReply* reply, const QString& operation);
+    bool retryReply(QNetworkReply* reply, std::function<void()> retry);
     void finishRestore(TsslBackupRestoreResult result);
 
     QNetworkAccessManager m_manager;
+    TsslBackupNetworkPolicy m_networkPolicy;
+    int m_retryCount = 0;
+    quint64 m_operationGeneration = 0;
     QPointer<QNetworkReply> m_activeReply;
     TsslBackupTarget m_target;
     QStringList m_localFiles;
     std::function<void(TsslBackupResult)> m_callback;
     std::function<void(TsslBackupRestoreResult)> m_restoreCallback;
     QStringList m_remoteFiles;
+    QSet<QString> m_s3PageTokens;
+    int m_s3Pages = 0;
+    QElapsedTimer m_s3ListingElapsed;
     QStringList m_downloadedFiles;
     QTemporaryDir m_restoreDirectory;
     QString m_restorePath;

@@ -1183,7 +1183,14 @@ void TransferManager::startTask(QueuedTask task)
     } else {
         auto* file = new QFile(active->queued.localPath);
         const auto savedSize = QFileInfo(active->queued.localPath).size();
-        const auto offset = active->queued.retainPartial && !active->queued.resumeEtag.isEmpty() && QFileInfo::exists(active->queued.localPath) &&
+        const auto strongEtag = active->queued.resumeEtag.startsWith(QLatin1Char('"')) &&
+            active->queued.resumeEtag.endsWith(QLatin1Char('"'));
+        if (active->queued.retainPartial && strongEtag) {
+            // Pin every attempt to the revision whose metadata/checkpoint the
+            // caller saved, including a server which answers Range with 200.
+            request.setRawHeader("If-Match", active->queued.resumeEtag.toUtf8());
+        }
+        const auto offset = active->queued.retainPartial && strongEtag && QFileInfo::exists(active->queued.localPath) &&
             (active->queued.task.bytesTotal < 0 || savedSize < active->queued.task.bytesTotal)
             ? QFileInfo(active->queued.localPath).size() : 0;
         if (!file->open(offset > 0 ? QIODevice::ReadWrite : QIODevice::WriteOnly)) {
@@ -1204,6 +1211,7 @@ void TransferManager::startTask(QueuedTask task)
         reply->setProperty("resumeOffset",offset);
         reply->setProperty("resumeChecked",false);
         reply->setProperty("resumeExpectedSize",active->queued.task.bytesTotal);
+        reply->setProperty("resumeExpectedEtag",active->queued.resumeEtag);
         file->setParent(reply);
         active->file = file;
         connect(reply, &QNetworkReply::readyRead, reply, [reply, file]() {
@@ -1229,7 +1237,7 @@ void TransferManager::startTask(QueuedTask task)
                                total = match.captured(3).toLongLong(&totalOk);
                     const auto expected = reply->property("resumeExpectedSize").toLongLong();
                     const auto length = reply->header(QNetworkRequest::ContentLengthHeader);
-                    if (status != 206 || !match.hasMatch() || !startOk || !endOk || !totalOk || begin != offset ||
+                    if ((!reply->rawHeader("ETag").isEmpty() && reply->rawHeader("ETag") != reply->property("resumeExpectedEtag").toString().toUtf8()) || status != 206 || !match.hasMatch() || !startOk || !endOk || !totalOk || begin != offset ||
                         end < begin || total <= end || end != total - 1 || (expected >= 0 && total != expected) ||
                         (length.isValid() && length.toLongLong() != end - begin + 1)) {
                         reply->setProperty("transferWriteError","Invalid resumed download response"); reply->abort(); return;
@@ -1714,7 +1722,7 @@ bool TransferManager::scheduleAutomaticRetry(const QString& taskId,
     }
     active->reply = nullptr;
     active->file = nullptr;
-    if (active->queued.direction == Direction::Download) {
+    if (active->queued.direction == Direction::Download && !active->queued.retainPartial) {
         QFile::remove(active->queued.localPath);
     }
     active->queued.automaticRetryCount = nextRetryCount;
@@ -1823,7 +1831,7 @@ bool TransferManager::requeueTask(const QString& taskId)
                                    .arg(parentDirectory));
             return false;
         }
-        QFile::remove(definition->localPath);
+        if (!definition->retainPartial) QFile::remove(definition->localPath);
     }
     task->status = statusQueued();
     task->detail = QStringLiteral("Waiting");

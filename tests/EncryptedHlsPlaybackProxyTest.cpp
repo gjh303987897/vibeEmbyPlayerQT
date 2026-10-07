@@ -103,6 +103,7 @@ public:
                             body = full.mid(static_cast<int>(start), static_cast<int>(end - start + 1));
                             extraHeaders = "Content-Range: bytes " + QByteArray::number(start) + '-' +
                                 QByteArray::number(end) + '/' + QByteArray::number(full.size()) + "\r\n";
+                            if (!contentRangeOverride.isEmpty()) extraHeaders = "Content-Range: " + contentRangeOverride + "\r\n";
                         }
                     } else {
                         body = full;
@@ -150,6 +151,7 @@ public:
         QByteArray::fromHex("4607c2b2d88008a628da3a3f92378a13")
     };
     QByteArray container;
+    QByteArray contentRangeOverride;
     bool tamperSegment { false };
     bool supportsRange { true };
     int failFirstRequests { 0 };
@@ -189,6 +191,10 @@ class EncryptedHlsPlaybackProxyTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void rejectsOverflowingContentRange_data();
+    void rejectsOverflowingContentRange();
+    void shutsDownFromPlaybackCallback_data();
+    void shutsDownFromPlaybackCallback();
     void playerInitializesWithNonCNumericLocale();
     void remoteIdentifierPreviewIsResolvedWithoutTssl();
     void remoteMetadataRestoresSourceFileNameWithTssl();
@@ -222,6 +228,75 @@ void EncryptedHlsPlaybackProxyTest::playerInitializesWithNonCNumericLocale()
     QVERIFY(player.initializeHeadless());
     QCOMPARE(QByteArray(std::setlocale(LC_NUMERIC, nullptr)), QByteArrayLiteral("C"));
     QVERIFY(errors.isEmpty());
+}
+
+void EncryptedHlsPlaybackProxyTest::rejectsOverflowingContentRange_data()
+{
+    QTest::addColumn<QByteArray>("range");
+    QTest::newRow("start") << QByteArray("bytes 9223372036854775808-0/1");
+    QTest::newRow("end") << QByteArray("bytes 0-9223372036854775808/1");
+    QTest::newRow("total") << QByteArray("bytes 0-0/9223372036854775808");
+}
+
+void EncryptedHlsPlaybackProxyTest::rejectsOverflowingContentRange()
+{
+    QFETCH(QByteArray, range);
+    QTemporaryDir temporary;
+    TsslStore store(temporary.filePath("store"));
+    EncryptedHlsPlaybackProxy proxy(store);
+    FakeWebDavServer origin;
+    QVERIFY(origin.listen());
+    origin.container = "x";
+    origin.contentRangeOverride = range;
+    ServerConfig server; server.serviceType = ServiceType::WebDAV;
+    server.baseUrl = origin.containerUrl().adjusted(QUrl::RemoveFilename).toString();
+    std::optional<EncryptedHlsPrepareResult> result;
+    proxy.prepareStream(server, {}, origin.containerUrl(), [&](auto value) { result = std::move(value); });
+    QTRY_VERIFY(result.has_value());
+    QVERIFY(!*result);
+    QVERIFY2(result->error().contains("Content-Range"), qPrintable(result->error()));
+}
+
+void EncryptedHlsPlaybackProxyTest::shutsDownFromPlaybackCallback_data()
+{
+    QTest::addColumn<QString>("signal");
+    QTest::newRow("state") << QString("state");
+    QTest::newRow("ended") << QString("ended");
+    QTest::newRow("error") << QString("error");
+}
+
+void EncryptedHlsPlaybackProxyTest::shutsDownFromPlaybackCallback()
+{
+    QFETCH(QString, signal);
+    QTemporaryDir temporary;
+    // 500 ms of mono PCM silence exercises real libmpv events without a GUI.
+    QByteArray wave("RIFF", 4);
+    const auto number = [&](quint32 value, int bytes) {
+        for (int i = 0; i < bytes; ++i) wave.append(char((value >> (8 * i)) & 255));
+    };
+    number(8036, 4); wave += "WAVEfmt "; number(16, 4); number(1, 2); number(1, 2);
+    number(8000, 4); number(16000, 4); number(2, 2); number(16, 2);
+    wave += "data"; number(8000, 4); wave += QByteArray(8000, '\0');
+    const auto path = temporary.filePath("silence.wav");
+    QVERIFY(writeFile(path, wave));
+    PlayerController player;
+    QVERIFY(player.initializeHeadless());
+    bool closed = false;
+    const auto shutdown = [&] {
+        if (closed) return;
+        closed = true;
+        player.shutdown();
+    };
+    if (signal == "state") connect(&player, &PlayerController::playbackStateChanged, &player, [&] {
+        if (player.position() > 0) shutdown();
+    });
+    if (signal == "ended") connect(&player, &PlayerController::playbackEnded, &player, shutdown);
+    if (signal == "error") connect(&player, &PlayerController::errorOccurred, &player, shutdown);
+    player.playUrl(QUrl::fromLocalFile(signal == "error" ? temporary.filePath("missing.wav") : path).toString());
+    QTRY_VERIFY_WITH_TIMEOUT(closed, 5000);
+    QTest::qWait(100);
+    QVERIFY(player.initializeHeadless());
+    player.shutdown();
 }
 
 void EncryptedHlsPlaybackProxyTest::remoteIdentifierPreviewIsResolvedWithoutTssl()

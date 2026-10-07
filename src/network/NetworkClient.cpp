@@ -107,6 +107,9 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
         reply = m_manager.get(request);
         break;
     case QNetworkAccessManager::PostOperation:
+        // Do not turn authentication POSTs into GETs or forward their body to
+        // another origin. A redirect needs a corrected server URL.
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
         request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
         reply = m_manager.post(request, body);
         break;
@@ -123,9 +126,11 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
     auto* timeout = new QTimer(reply);
     timeout->setSingleShot(true);
     QObject::connect(timeout, &QTimer::timeout, reply, [reply]() {
+        reply->setProperty("requestTimedOut", true);
         reply->abort();
     });
     timeout->start(requestTimeoutMs);
+    QObject::connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
 
     QObject::connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned](const QList<QSslError>& errors) {
         if (!allowSelfSigned) {
@@ -138,27 +143,30 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
         reply->ignoreSslErrors(errors);
     });
 
-    QObject::connect(reply, &QNetworkReply::finished, reply, [this, reply, callback = std::move(callback)]() mutable {
+    QObject::connect(reply, &QNetworkReply::finished, reply, [this, reply, operation, callback = std::move(callback)]() mutable {
         const auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const auto responseBody = reply->readAll();
         const auto requestBytes = reply->property("requestBodyBytes").toLongLong();
         emit networkTrafficSample(responseBody.size(), requestBytes);
 
         if (reply->error() != QNetworkReply::NoError) {
-            const auto kind = reply->error() == QNetworkReply::OperationCanceledError
-                ? NetworkErrorKind::Timeout
-                : NetworkErrorKind::Transport;
-
             auto error = makeReplyError(reply);
-            if (kind == NetworkErrorKind::Timeout) {
-                error.kind = NetworkErrorKind::Timeout;
-                error.message = QStringLiteral("Network request timed out");
+            if (reply->error() == QNetworkReply::OperationCanceledError) {
+                const bool timedOut = reply->property("requestTimedOut").toBool();
+                error.kind = timedOut ? NetworkErrorKind::Timeout : NetworkErrorKind::Canceled;
+                error.message = timedOut ? QStringLiteral("Network request timed out") : QStringLiteral("Canceled");
             }
             callback(std::unexpected(error));
             reply->deleteLater();
             return;
         }
 
+        if (operation == QNetworkAccessManager::PostOperation && statusCode >= 300 && statusCode < 400) {
+            callback(std::unexpected(NetworkError {NetworkErrorKind::Http,
+                QStringLiteral("POST endpoint redirected; configure the final server URL"), statusCode}));
+            reply->deleteLater();
+            return;
+        }
         if (statusCode >= 400) {
             callback(std::unexpected(NetworkError {
                 .kind = NetworkErrorKind::Http,

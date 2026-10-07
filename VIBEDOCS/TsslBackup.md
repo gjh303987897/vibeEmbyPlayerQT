@@ -65,10 +65,24 @@ stays busy until that worker result is handled, preventing a canceled listing
 from affecting a later restore. Watcher connections use the service as their
 QObject context, so destroying the service cannot call it from a late worker result.
 
-Each network request retains the existing 60-second deadline. The deadline timer
-stops when the reply finishes; expiry reports a timeout explicitly, including when
-HTTP headers arrived but the response body never completed. A completed cancel is
-shown as **TSSL restore canceled**, with the settings controls enabled again.
+Each network request has a 60-second idle timeout, reset when transferred bytes
+advance, plus a separate 15-minute total deadline. Both timers stop when the reply
+finishes. `TsslBackupNetworkPolicy` can override these values for callers and tests;
+the default does not require changes to saved settings or CLI arguments. A completed
+cancel is shown as **TSSL restore canceled**, with the controls enabled again.
+
+HTTP 408/429/5xx and selected temporary transport failures retry at most twice,
+after 200 and 400 ms. Authentication, malformed content and local-file errors do
+not retry. PUT retries reopen an equivalent prepared payload under the same object
+name; S3 requests are signed again. Cancellation during backoff finishes without
+sending another request. Operation generations prevent old retry timers from
+dispatching requests for a new operation.
+
+S3 listing requires a valid `ListBucketResult` XML root and distinguishes malformed
+responses from an empty list. XML parsing runs on a worker, with the service busy
+until completion. Truncated pages require a continuation token; duplicate tokens,
+more than 10,000 pages or a listing exceeding the total timeout are rejected.
+Listing responses are bounded to 4 MiB; individual response bodies to 256 MiB.
 
 Protocol and lifecycle references:
 [WebDAV PROPFIND (RFC 4918, section 9.1)](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1),
@@ -101,7 +115,8 @@ HTTPS is required except for `localhost` development endpoints. Object keys are
 region, access key, and secret key are required.
 
 Packages larger than 256 MiB are rejected before upload to avoid unbounded memory
-use in the network request body. Network requests have a 60-second timeout.
+use in the network request body. Requests use the idle timeout, total deadline
+and bounded retry policy described above.
 
 Each remote upload reads its file and calculates the S3 payload SHA-256 in a worker.
 Only one package is prepared/uploaded at a time. The completed payload is handed

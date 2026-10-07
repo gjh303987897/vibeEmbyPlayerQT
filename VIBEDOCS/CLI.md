@@ -37,6 +37,12 @@ play 另启动同目录的 vibePlayerPlayback.exe，由 PlayerController 管理 
 `list` 只读取数据库，不执行迁移、去重或历史清理；没有数据库时返回空列表。
 写服务的命令复用迁移。SQLite 忙时最多等待 3000 ms，然后报告错误。
 
+Windows 会话 Token 由用户范围 DPAPI 加密；旧会话在写模式初始化时迁移。
+只读查询保持不迁移，复制数据库到其他 Windows 账户后可能需要重新登录。
+详见 [Token 存储](SessionTokenCipher.md)。登录端点的 POST 重定向明确报错，
+需要配置最终服务器地址。正常取消以及等待循环提前退出均返回 130，晚完成
+回调不访问已经退出的命令栈。
+
 | 命令 | 含义 |
 |---|---|
 | `list` / `service list` | 服务卡片；保存会话/凭据状态不表示在线 |

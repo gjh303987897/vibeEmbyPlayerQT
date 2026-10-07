@@ -3,6 +3,7 @@
 #include "utils/AppLogger.h"
 
 #include <QQuickWindow>
+#include <QScopedValueRollback>
 #include <QTimer>
 #include <QtMath>
 
@@ -569,6 +570,7 @@ void MpvVideoItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGe
 
 void MpvVideoItem::ensureNativeWindow()
 {
+    if (m_destroyingNativeWindow) return;
     auto* sceneWindow = window();
     if (!sceneWindow || !isVisible() || width() <= 0 || height() <= 0) {
         return;
@@ -647,7 +649,13 @@ void MpvVideoItem::ensureNativeWindow()
 
 void MpvVideoItem::destroyNativeWindow()
 {
+    if (m_destroyingNativeWindow) return;
+    QScopedValueRollback guard(m_destroyingNativeWindow, true);
     m_geometryAnimationTimer.stop();
+    m_initialized = false;
+    // libmpv owns a child of the host window. Stop it while that host is alive,
+    // and block reentrant playback/window creation until teardown completes.
+    m_controller.shutdown();
 #ifdef Q_OS_WIN
     if (m_nativeWindowId) {
         DestroyWindow(hwndFromId(m_nativeWindowId));
@@ -667,8 +675,6 @@ void MpvVideoItem::destroyNativeWindow()
     m_currentNativeGeometry = {};
     m_targetNativeGeometry = {};
     m_nativeGeometryVelocity.fill(0.0);
-    m_controller.shutdown();
-    m_initialized = false;
 }
 
 void MpvVideoItem::hideNativeWindow()

@@ -166,5 +166,6 @@ private:
     qreal m_lastNativeDevicePixelRatio { 0.0 };
     qreal m_targetNativeDevicePixelRatio { 1.0 };
     bool m_initialized { false };
+    bool m_destroyingNativeWindow = false;
     bool m_pendingPlay { false };
 };

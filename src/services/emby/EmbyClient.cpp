@@ -1,3 +1,4 @@
+#include <QPointer>
 #include "services/emby/EmbyClient.h"
 
 #include "utils/AppLogger.h"
@@ -106,7 +107,8 @@ void EmbyClient::login(const ServerConfig& server,
         { QStringLiteral("Pw"), password },
     };
 
-    m_networkClient.postJson(url, headers, body, server.trustSelfSignedCertificate, [server, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.postJson(url, headers, body, server.trustSelfSignedCertificate, [this, server, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -143,7 +145,8 @@ void EmbyClient::fetchLibraries(const UserSession& session, std::function<void(L
     const auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Views").arg(session.userId));
     const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
 
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -181,7 +184,8 @@ void EmbyClient::fetchLibraryItems(const UserSession& session,
     url.setQuery(query);
     const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
 
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -227,7 +231,8 @@ void EmbyClient::searchVideoItems(const UserSession& session,
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -250,7 +255,8 @@ void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, st
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -277,7 +283,8 @@ void EmbyClient::fetchSuggestedSeries(const UserSession& session,
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [this, session, limit, callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, session, limit, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -316,7 +323,8 @@ void EmbyClient::fetchSeriesGenres(const UserSession& session, std::function<voi
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [this, session, callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (result) {
             auto genres = parseFilterGenres(result->body);
             if (genres && !genres->isEmpty()) {
@@ -348,7 +356,8 @@ void EmbyClient::fetchSeriesGenresFallback(const UserSession& session,
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -374,7 +383,8 @@ void EmbyClient::fetchSuggestedSeriesFallback(const UserSession& session,
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -415,7 +425,8 @@ void EmbyClient::fetchRandomPlayableItems(const UserSession& session,
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -447,7 +458,8 @@ void EmbyClient::fetchSeriesSeasons(const UserSession& session,
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -485,7 +497,8 @@ void EmbyClient::fetchSeasonEpisodes(const UserSession& session,
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -511,18 +524,20 @@ void EmbyClient::fetchItemDetails(const UserSession& session,
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("Emby"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<EmbyClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
         }
 
         const auto items = parseItems(result->body, session.server.baseUrl, session.accessToken);
-        if (items.empty()) {
+        if (!items) { callback(std::unexpected(items.error())); return; }
+        if (items->empty()) {
             callback(std::unexpected(parseError(QStringLiteral("Media item was not found"))));
             return;
         }
-        callback(items.front());
+        callback(items->front());
     });
 }
 

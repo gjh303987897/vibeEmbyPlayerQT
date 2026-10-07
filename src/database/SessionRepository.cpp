@@ -1,4 +1,6 @@
 #include "database/SessionRepository.h"
+#include "database/SqlTransaction.h"
+#include "database/SessionTokenCipher.h"
 
 #include <QDateTime>
 #include <QDate>
@@ -156,6 +158,7 @@ std::expected<void, QString> SessionRepository::initialize()
     if (auto migrateResult = migrateSessionsTable(); !migrateResult) {
         return migrateResult;
     }
+    if (auto result = protectLegacySessionTokens(); !result) return result;
 
     QSqlQuery playlistQuery(m_database);
     if (!playlistQuery.exec(QStringLiteral(
@@ -370,6 +373,8 @@ std::expected<void, QString> SessionRepository::saveSession(const UserSession& s
         return serverResult;
     }
 
+    const auto protectedToken = SessionTokenCipher::protect(session.accessToken);
+    if (!protectedToken) return std::unexpected(protectedToken.error());
     QSqlQuery sessionQuery(m_database);
     sessionQuery.prepare(QStringLiteral(
         "INSERT INTO sessions (server_id, user_id, username, access_token, created_at) "
@@ -381,7 +386,7 @@ std::expected<void, QString> SessionRepository::saveSession(const UserSession& s
     sessionQuery.bindValue(QStringLiteral(":server_id"), session.server.id);
     sessionQuery.bindValue(QStringLiteral(":user_id"), session.userId);
     sessionQuery.bindValue(QStringLiteral(":username"), session.server.username.isEmpty() ? session.username : session.server.username);
-    sessionQuery.bindValue(QStringLiteral(":access_token"), session.accessToken);
+    sessionQuery.bindValue(QStringLiteral(":access_token"), *protectedToken);
     sessionQuery.bindValue(QStringLiteral(":created_at"), session.createdAt.toString(Qt::ISODate));
 
     if (!sessionQuery.exec()) {
@@ -471,28 +476,34 @@ std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerCon
         return openResult;
     }
 
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
 
     if (auto serverResult = upsertServer(m_database, server); !serverResult) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return serverResult;
     }
+
+    QString playlistId = playlist.id;
+    QSqlQuery existingPlaylist(m_database);
+    existingPlaylist.prepare(QStringLiteral("SELECT id FROM iptv_playlists WHERE service_id = :service_id"));
+    existingPlaylist.bindValue(QStringLiteral(":service_id"), server.id);
+    if (!existingPlaylist.exec()) return std::unexpected(sqlError(existingPlaylist));
+    if (existingPlaylist.next()) playlistId = existingPlaylist.value(0).toString();
+    existingPlaylist.finish();
 
     QSqlQuery playlistQuery(m_database);
     playlistQuery.prepare(QStringLiteral(
         "INSERT INTO iptv_playlists (id, service_id, name, source_type, source_path, imported_path, imported_at) "
         "VALUES (:id, :service_id, :name, :source_type, :source_path, :imported_path, :imported_at) "
         "ON CONFLICT(service_id) DO UPDATE SET "
-        "id = excluded.id, "
         "name = excluded.name, "
         "source_type = excluded.source_type, "
         "source_path = excluded.source_path, "
         "imported_path = excluded.imported_path, "
         "imported_at = excluded.imported_at"));
-    playlistQuery.bindValue(QStringLiteral(":id"), playlist.id);
+    playlistQuery.bindValue(QStringLiteral(":id"), playlistId);
     playlistQuery.bindValue(QStringLiteral(":service_id"), server.id);
     playlistQuery.bindValue(QStringLiteral(":name"), playlist.name);
     playlistQuery.bindValue(QStringLiteral(":source_type"), playlist.sourceType);
@@ -500,15 +511,13 @@ std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerCon
     playlistQuery.bindValue(QStringLiteral(":imported_path"), playlist.importedPath);
     playlistQuery.bindValue(QStringLiteral(":imported_at"), playlist.importedAt);
     if (!playlistQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(playlistQuery));
     }
 
     QSqlQuery deleteChannels(m_database);
     deleteChannels.prepare(QStringLiteral("DELETE FROM iptv_channels WHERE playlist_id = :playlist_id"));
-    deleteChannels.bindValue(QStringLiteral(":playlist_id"), playlist.id);
+    deleteChannels.bindValue(QStringLiteral(":playlist_id"), playlistId);
     if (!deleteChannels.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(deleteChannels));
     }
 
@@ -518,7 +527,7 @@ std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerCon
         "VALUES (:id, :playlist_id, :name, :group_name, :logo_url, :stream_url, :sort_order)"));
     for (const auto& channel : channels) {
         channelQuery.bindValue(QStringLiteral(":id"), channel.id);
-        channelQuery.bindValue(QStringLiteral(":playlist_id"), playlist.id);
+        channelQuery.bindValue(QStringLiteral(":playlist_id"), playlistId);
         channelQuery.bindValue(QStringLiteral(":name"), channel.name);
         channelQuery.bindValue(QStringLiteral(":group_name"), channel.groupName);
         // A missing optional logo is an empty SQL string, not a NULL QVariant.
@@ -526,16 +535,11 @@ std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerCon
         channelQuery.bindValue(QStringLiteral(":stream_url"), channel.streamUrl);
         channelQuery.bindValue(QStringLiteral(":sort_order"), channel.sortOrder);
         if (!channelQuery.exec()) {
-            transaction.exec(QStringLiteral("ROLLBACK"));
             return std::unexpected(sqlError(channelQuery));
         }
     }
 
-    QSqlQuery commit(m_database);
-    if (!commit.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(commit));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<void, QString> SessionRepository::addDailyUsage(const ServerConfig& server,
@@ -652,16 +656,15 @@ std::expected<void, QString> SessionRepository::pruneOldHistory()
     }
 
     const auto cutoff = QDate::currentDate().addDays(-(historyRetentionDays() - 1)).toString(Qt::ISODate);
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
 
     QSqlQuery linkQuery(m_database);
     linkQuery.prepare(QStringLiteral("DELETE FROM link_playback_history WHERE played_date < :cutoff"));
     linkQuery.bindValue(QStringLiteral(":cutoff"), cutoff);
     if (!linkQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(linkQuery));
     }
 
@@ -669,7 +672,6 @@ std::expected<void, QString> SessionRepository::pruneOldHistory()
     historyQuery.prepare(QStringLiteral("DELETE FROM playback_history WHERE played_date < :cutoff"));
     historyQuery.bindValue(QStringLiteral(":cutoff"), cutoff);
     if (!historyQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(historyQuery));
     }
 
@@ -677,14 +679,10 @@ std::expected<void, QString> SessionRepository::pruneOldHistory()
     usageQuery.prepare(QStringLiteral("DELETE FROM daily_usage_stats WHERE stat_date < :cutoff"));
     usageQuery.bindValue(QStringLiteral(":cutoff"), cutoff);
     if (!usageQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(usageQuery));
     }
 
-    if (!transaction.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(transaction));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<void, QString> SessionRepository::saveLinkPlaybackHistory(const LinkPlaybackHistoryItem& item)
@@ -824,10 +822,10 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
         "SELECT history.id, history.source_type, history.service_id, history.service_name, history.replay_target, "
         "history.title, history.subtitle, history.played_date, history.played_at, history.updated_at, "
         "history.position_seconds, history.duration_seconds, history.completed, "
-        "COALESCE(servers.private_mode, history.privacy_mode) "
+        "(history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) "
         "FROM playback_history history "
         "LEFT JOIN servers ON servers.id = history.service_id "
-        "WHERE (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0) "
+        "WHERE (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0) "
         "AND (:source_type = '' OR history.source_type = :source_type) "
         "ORDER BY history.played_at DESC, history.id DESC "
         "LIMIT :limit OFFSET :offset"));
@@ -885,7 +883,7 @@ std::expected<QStringList, QString> SessionRepository::loadPlaybackHistoryDates(
         "FROM playback_history history "
         "LEFT JOIN servers ON servers.id = history.service_id "
         "WHERE history.played_date <> '' "
-        "AND (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0) "
+        "AND (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0) "
         "ORDER BY history.played_date DESC"));
     query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     if (!query.exec()) {
@@ -921,11 +919,11 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
         "SELECT history.id, history.source_type, history.service_id, history.service_name, history.replay_target, "
         "history.title, history.subtitle, history.played_date, history.played_at, history.updated_at, "
         "history.position_seconds, history.duration_seconds, history.completed, "
-        "COALESCE(servers.private_mode, history.privacy_mode) "
+        "(history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) "
         "FROM playback_history history "
         "LEFT JOIN servers ON servers.id = history.service_id "
         "WHERE history.played_date = :played_date "
-        "AND (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0) "
+        "AND (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0) "
         "ORDER BY history.played_at DESC, history.id DESC"));
     query.bindValue(QStringLiteral(":played_date"), date.toString(Qt::ISODate));
     query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
@@ -1000,29 +998,23 @@ std::expected<void, QString> SessionRepository::deletePlaybackHistory(const QStr
         return openResult;
     }
 
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
     QSqlQuery historyQuery(m_database);
     historyQuery.prepare(QStringLiteral("DELETE FROM playback_history WHERE id = :id"));
     historyQuery.bindValue(QStringLiteral(":id"), recordId);
     if (!historyQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(historyQuery));
     }
     QSqlQuery linkQuery(m_database);
     linkQuery.prepare(QStringLiteral("DELETE FROM link_playback_history WHERE id = :id"));
     linkQuery.bindValue(QStringLiteral(":id"), recordId);
     if (!linkQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(linkQuery));
     }
-    QSqlQuery commit(m_database);
-    if (!commit.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(commit));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceCards(bool privacyMode)
@@ -1274,6 +1266,8 @@ std::expected<void, QString> SessionRepository::deleteScheduledPlaybackTask(cons
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
     }
+    auto pending = pendingMissedScheduledPlaybackTaskIds();
+    if (pending.removeAll(taskId) > 0) setPendingMissedScheduledPlaybackTaskIds(pending);
     return {};
 }
 
@@ -1430,23 +1424,22 @@ std::expected<void, QString> SessionRepository::deletePlaybackHistoryForDate(boo
         return openResult;
     }
 
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
 
     const auto visibleRecordPredicate = QStringLiteral(
         "SELECT history.id FROM playback_history history "
         "LEFT JOIN servers ON servers.id = history.service_id "
         "WHERE history.played_date = :played_date "
-        "AND (:include_privacy = 1 OR COALESCE(servers.private_mode, history.privacy_mode) = 0)");
+        "AND (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0)");
     QSqlQuery linkQuery(m_database);
     linkQuery.prepare(QStringLiteral("DELETE FROM link_playback_history WHERE id IN (")
                       + visibleRecordPredicate + QStringLiteral(")"));
     linkQuery.bindValue(QStringLiteral(":played_date"), date.toString(Qt::ISODate));
     linkQuery.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     if (!linkQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(linkQuery));
     }
 
@@ -1456,15 +1449,10 @@ std::expected<void, QString> SessionRepository::deletePlaybackHistoryForDate(boo
     historyQuery.bindValue(QStringLiteral(":played_date"), date.toString(Qt::ISODate));
     historyQuery.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     if (!historyQuery.exec()) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(historyQuery));
     }
 
-    QSqlQuery commit(m_database);
-    if (!commit.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(commit));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<void, QString> SessionRepository::clearEmbyRecommendationCaches()
@@ -1486,12 +1474,17 @@ std::expected<void, QString> SessionRepository::deleteServer(const QString& serv
         return openResult;
     }
 
+    SqlTransaction transaction(m_database);
+    if (deleteLocalData) {
+        if (auto result = transaction.begin(); !result) return result;
+    }
     QString importedIptvPath;
     if (deleteLocalData) {
         QSqlQuery playlistQuery(m_database);
         playlistQuery.prepare(QStringLiteral("SELECT imported_path FROM iptv_playlists WHERE service_id = :server_id LIMIT 1"));
         playlistQuery.bindValue(QStringLiteral(":server_id"), serverId);
-        if (playlistQuery.exec() && playlistQuery.next()) {
+        if (!playlistQuery.exec()) return std::unexpected(sqlError(playlistQuery));
+        if (playlistQuery.next()) {
             importedIptvPath = playlistQuery.value(0).toString();
         }
     }
@@ -1539,6 +1532,7 @@ std::expected<void, QString> SessionRepository::deleteServer(const QString& serv
     if (!serverQuery.exec()) {
         return std::unexpected(sqlError(serverQuery));
     }
+    if (auto result = transaction.commit(); !result) return result;
     if (!importedIptvPath.isEmpty()) {
         QFile::remove(importedIptvPath);
     }
@@ -1571,10 +1565,25 @@ std::expected<void, QString> SessionRepository::moveServer(const QString& server
     }
     std::swap(cards[static_cast<size_t>(index)], cards[static_cast<size_t>(targetIndex)]);
 
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
+
+    // Reorder the visible slots in the complete list, preserving private slots.
+    auto allCards = loadServiceCards(true);
+    if (!allCards) return std::unexpected(allCards.error());
+    size_t visibleIndex = 0;
+    for (auto& entry : *allCards) {
+        if (privacyMode || !entry.server.privateMode) {
+            if (visibleIndex >= cards.size() || std::ranges::none_of(cards, [&](const auto& card) {
+                return card.server.id == entry.server.id;
+            })) return std::unexpected(QStringLiteral("Service list changed during reordering; retry the operation"));
+            entry = cards[visibleIndex++];
+        }
+    }
+    if (visibleIndex != cards.size()) return std::unexpected(QStringLiteral("Service list changed during reordering; retry the operation"));
+    cards = std::move(*allCards);
 
     for (int i = 0; i < static_cast<int>(cards.size()); ++i) {
         QSqlQuery update(m_database);
@@ -1582,16 +1591,11 @@ std::expected<void, QString> SessionRepository::moveServer(const QString& server
         update.bindValue(QStringLiteral(":sort_order"), i);
         update.bindValue(QStringLiteral(":id"), cards[static_cast<size_t>(i)].server.id);
         if (!update.exec()) {
-            transaction.exec(QStringLiteral("ROLLBACK"));
             return std::unexpected(sqlError(update));
         }
     }
 
-    QSqlQuery commit(m_database);
-    if (!commit.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(commit));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<void, QString> SessionRepository::moveServerTo(const QString& serverId, int targetIndex, bool privacyMode)
@@ -1622,10 +1626,25 @@ std::expected<void, QString> SessionRepository::moveServerTo(const QString& serv
     cards.erase(current);
     cards.insert(cards.begin() + targetIndex, std::move(card));
 
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
+
+    // Reorder the visible slots in the complete list, preserving private slots.
+    auto allCards = loadServiceCards(true);
+    if (!allCards) return std::unexpected(allCards.error());
+    size_t visibleIndex = 0;
+    for (auto& entry : *allCards) {
+        if (privacyMode || !entry.server.privateMode) {
+            if (visibleIndex >= cards.size() || std::ranges::none_of(cards, [&](const auto& card) {
+                return card.server.id == entry.server.id;
+            })) return std::unexpected(QStringLiteral("Service list changed during reordering; retry the operation"));
+            entry = cards[visibleIndex++];
+        }
+    }
+    if (visibleIndex != cards.size()) return std::unexpected(QStringLiteral("Service list changed during reordering; retry the operation"));
+    cards = std::move(*allCards);
 
     for (int i = 0; i < static_cast<int>(cards.size()); ++i) {
         QSqlQuery update(m_database);
@@ -1633,16 +1652,11 @@ std::expected<void, QString> SessionRepository::moveServerTo(const QString& serv
         update.bindValue(QStringLiteral(":sort_order"), i);
         update.bindValue(QStringLiteral(":id"), cards[static_cast<size_t>(i)].server.id);
         if (!update.exec()) {
-            transaction.exec(QStringLiteral("ROLLBACK"));
             return std::unexpected(sqlError(update));
         }
     }
 
-    QSqlQuery commit(m_database);
-    if (!commit.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(commit));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<void, QString> SessionRepository::setServerPrivateMode(const QString& serverId, bool privateMode)
@@ -2207,7 +2221,9 @@ std::expected<void, QString> SessionRepository::ensureOpen()
     }
 
     QSqlQuery pragma(m_database);
-    pragma.exec(QStringLiteral("PRAGMA foreign_keys = ON"));
+    if (!pragma.exec(QStringLiteral("PRAGMA foreign_keys = ON"))) return std::unexpected(sqlError(pragma));
+    if (m_openMode == OpenMode::ReadWrite && !pragma.exec(QStringLiteral("PRAGMA secure_delete = ON")))
+        return std::unexpected(sqlError(pragma));
     return {};
 }
 
@@ -2270,17 +2286,29 @@ std::expected<void, QString> SessionRepository::migrateSessionsTable()
     }
 
     if (hasIdColumn) {
-        return std::unexpected(sqlError(indexQuery));
+        SqlTransaction transaction(m_database);
+        if (auto result = transaction.begin(); !result) return result;
+        QSqlQuery deduplicate(m_database);
+        if (!deduplicate.exec(QStringLiteral(
+                "DELETE FROM sessions WHERE EXISTS (SELECT 1 FROM sessions AS newer "
+                "WHERE newer.server_id = sessions.server_id AND newer.username = sessions.username "
+                "AND (newer.created_at > sessions.created_at OR "
+                "(newer.created_at = sessions.created_at AND newer.id > sessions.id)))"))) {
+            return std::unexpected(sqlError(deduplicate));
+        }
+        if (!indexQuery.exec(QStringLiteral("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_server_username ON sessions(server_id, username)"))) {
+            return std::unexpected(sqlError(indexQuery));
+        }
+        return transaction.commit();
     }
 
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
 
     QSqlQuery rename(m_database);
     if (!rename.exec(QStringLiteral("ALTER TABLE sessions RENAME TO sessions_legacy"))) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(rename));
     }
 
@@ -2296,29 +2324,22 @@ std::expected<void, QString> SessionRepository::migrateSessionsTable()
             "UNIQUE(server_id, username),"
             "FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE"
             ")"))) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(createNew));
     }
 
     QSqlQuery copy(m_database);
     if (!copy.exec(QStringLiteral(
             "INSERT OR REPLACE INTO sessions (server_id, user_id, username, access_token, created_at) "
-            "SELECT server_id, user_id, username, access_token, created_at FROM sessions_legacy"))) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
+            "SELECT server_id, user_id, username, access_token, created_at FROM sessions_legacy ORDER BY created_at ASC, rowid ASC"))) {
         return std::unexpected(sqlError(copy));
     }
 
     QSqlQuery dropOld(m_database);
     if (!dropOld.exec(QStringLiteral("DROP TABLE sessions_legacy"))) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(dropOld));
     }
 
-    QSqlQuery commit(m_database);
-    if (!commit.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(commit));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<void, QString> SessionRepository::migrateDailyUsageStatsTable()
@@ -2347,25 +2368,22 @@ std::expected<void, QString> SessionRepository::migrateDailyUsageStatsTable()
         return {};
     }
 
-    QSqlQuery transaction(m_database);
-    if (!transaction.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-        return std::unexpected(sqlError(transaction));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) {
+        return result;
     }
 
     QSqlQuery dropLegacy(m_database);
     if (!dropLegacy.exec(QStringLiteral("DROP TABLE IF EXISTS daily_usage_stats_legacy"))) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(dropLegacy));
     }
 
     QSqlQuery rename(m_database);
     if (!rename.exec(QStringLiteral("ALTER TABLE daily_usage_stats RENAME TO daily_usage_stats_legacy"))) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(rename));
     }
 
     if (auto createResult = createDailyUsageStatsTable(m_database); !createResult) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return createResult;
     }
 
@@ -2382,21 +2400,15 @@ std::expected<void, QString> SessionRepository::migrateDailyUsageStatsTable()
             "0, updated_at FROM daily_usage_stats_legacy");
     QSqlQuery copy(m_database);
     if (!copy.exec(copySql)) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(copy));
     }
 
     QSqlQuery dropOld(m_database);
     if (!dropOld.exec(QStringLiteral("DROP TABLE daily_usage_stats_legacy"))) {
-        transaction.exec(QStringLiteral("ROLLBACK"));
         return std::unexpected(sqlError(dropOld));
     }
 
-    QSqlQuery commit(m_database);
-    if (!commit.exec(QStringLiteral("COMMIT"))) {
-        return std::unexpected(sqlError(commit));
-    }
-    return {};
+    return transaction.commit();
 }
 
 std::expected<std::optional<UserSession>, QString> SessionRepository::sessionFromQuery(QSqlQuery& query)
@@ -2419,7 +2431,49 @@ std::expected<std::optional<UserSession>, QString> SessionRepository::sessionFro
     session.server = server;
     session.userId = query.value(8).toString();
     session.username = query.value(9).toString();
-    session.accessToken = query.value(10).toString();
+    const auto token = SessionTokenCipher::unprotect(query.value(10).toString());
+    if (!token) return std::unexpected(token.error());
+    session.accessToken = *token;
     session.createdAt = QDateTime::fromString(query.value(11).toString(), Qt::ISODate);
     return std::optional<UserSession> { session };
+}
+
+std::expected<QStringList, QString> SessionRepository::scheduledPlaybackTaskIds()
+{
+    if (auto result = ensureOpen(); !result) return std::unexpected(result.error());
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral("SELECT id FROM scheduled_playback_tasks"))) return std::unexpected(sqlError(query));
+    QStringList ids;
+    while (query.next()) ids.append(query.value(0).toString());
+    return ids;
+}
+
+std::expected<void, QString> SessionRepository::protectLegacySessionTokens()
+{
+#ifdef Q_OS_WIN
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral("PRAGMA secure_delete = ON"))) return std::unexpected(sqlError(query));
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) return result;
+    if (!query.exec(QStringLiteral("SELECT id, access_token FROM sessions WHERE access_token NOT LIKE 'dpapi:v1:%'")))
+        return std::unexpected(sqlError(query));
+    std::vector<std::pair<qint64, QString>> tokens;
+    while (query.next()) {
+        const auto encrypted = SessionTokenCipher::protect(query.value(1).toString());
+        if (!encrypted) return std::unexpected(encrypted.error());
+        tokens.emplace_back(query.value(0).toLongLong(), *encrypted);
+    }
+    query.finish();
+    if (tokens.empty()) return transaction.commit();
+    query.prepare(QStringLiteral("UPDATE sessions SET access_token = :token WHERE id = :id"));
+    for (const auto& [id, token] : tokens) {
+        query.bindValue(QStringLiteral(":id"), id);
+        query.bindValue(QStringLiteral(":token"), token);
+        if (!query.exec()) return std::unexpected(sqlError(query));
+    }
+    query.finish();
+    return transaction.commit();
+#else
+    return {};
+#endif
 }

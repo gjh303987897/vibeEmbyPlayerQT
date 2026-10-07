@@ -221,6 +221,7 @@ private:
     bool m_networkPlayback { false };
     qint64 m_activePlaylistEntryId { -1 };
     bool m_stopRequested { false };
+    quint64 m_handleGeneration = 0;
     int m_preferredSubtitleStreamIndex { -1 };
     bool m_preferredSubtitleSelectionApplied { false };
     bool m_preferredSubtitleFileLoaded { false };

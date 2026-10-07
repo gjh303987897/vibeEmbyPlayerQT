@@ -247,6 +247,16 @@ std::expected<QUrl, Cli::Error> Cli::Engine::remoteUrl(const ServerConfig& serve
 
 Cli::Result Cli::Engine::execute(const Invocation& invocation)
 {
+    auto result = executeCommand(invocation);
+    if (CliConsole::canceled.load()) {
+        result.code = ExitCode::Canceled;
+        result.message = QStringLiteral("Canceled");
+    }
+    return result;
+}
+
+Cli::Result Cli::Engine::executeCommand(const Invocation& invocation)
+{
     CliConsole::pollCancellation();
     CliConsole::canceled.store(false);
     if (invocation.command == "help") return success(help(invocation.arguments.join(' ')));

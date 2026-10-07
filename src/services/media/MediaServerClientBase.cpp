@@ -4,6 +4,7 @@
 #include "utils/JsonUtils.h"
 
 #include <QJsonDocument>
+#include <QCoreApplication>
 #include <QJsonValue>
 #include <QFutureWatcher>
 #include <QUrlQuery>
@@ -356,15 +357,22 @@ MediaItem MediaServerClientBase::parseItem(const QJsonObject& object, const QStr
     return item;
 }
 
-std::vector<MediaLibrary> MediaServerClientBase::parseLibraries(const QByteArray& body, const QString& baseUrl, const QString& token)
+LibraryResult MediaServerClientBase::parseLibraries(const QByteArray& body, const QString& baseUrl, const QString& token)
 {
-    const auto document = QJsonDocument::fromJson(body);
+    QJsonParseError jsonError;
+    const auto document = QJsonDocument::fromJson(body, &jsonError);
+    if (jsonError.error != QJsonParseError::NoError || !document.isObject())
+        return std::unexpected(parseError(QStringLiteral("Invalid JSON list response")));
     const auto root = document.object();
-    const auto items = root.value(QStringLiteral("Items")).toArray(root.value(QStringLiteral("items")).toArray());
+    const auto value = root.contains(QStringLiteral("Items"))
+        ? root.value(QStringLiteral("Items")) : root.value(QStringLiteral("items"));
+    if (!value.isArray()) return std::unexpected(parseError(QStringLiteral("Missing Items array in list response")));
+    const auto items = value.toArray();
 
     std::vector<MediaLibrary> libraries;
     libraries.reserve(static_cast<size_t>(items.size()));
     for (const auto& value : items) {
+        if (!value.isObject()) return std::unexpected(parseError(QStringLiteral("Invalid library list entry")));
         if (value.isObject()) {
             libraries.push_back(parseLibrary(value.toObject(), baseUrl, token));
         }
@@ -372,15 +380,22 @@ std::vector<MediaLibrary> MediaServerClientBase::parseLibraries(const QByteArray
     return libraries;
 }
 
-std::vector<MediaItem> MediaServerClientBase::parseItems(const QByteArray& body, const QString& baseUrl, const QString& token)
+ItemResult MediaServerClientBase::parseItems(const QByteArray& body, const QString& baseUrl, const QString& token)
 {
-    const auto document = QJsonDocument::fromJson(body);
+    QJsonParseError jsonError;
+    const auto document = QJsonDocument::fromJson(body, &jsonError);
+    if (jsonError.error != QJsonParseError::NoError || !document.isObject())
+        return std::unexpected(parseError(QStringLiteral("Invalid JSON list response")));
     const auto root = document.object();
-    const auto items = root.value(QStringLiteral("Items")).toArray(root.value(QStringLiteral("items")).toArray());
+    const auto value = root.contains(QStringLiteral("Items"))
+        ? root.value(QStringLiteral("Items")) : root.value(QStringLiteral("items"));
+    if (!value.isArray()) return std::unexpected(parseError(QStringLiteral("Missing Items array in list response")));
+    const auto items = value.toArray();
 
     std::vector<MediaItem> mediaItems;
     mediaItems.reserve(static_cast<size_t>(items.size()));
     for (const auto& value : items) {
+        if (!value.isObject()) return std::unexpected(parseError(QStringLiteral("Invalid media list entry")));
         if (value.isObject()) {
             mediaItems.push_back(parseItem(value.toObject(), baseUrl, token));
         }
@@ -393,11 +408,13 @@ void MediaServerClientBase::parseLibrariesAsync(QByteArray body,
                                                 QString token,
                                                 std::function<void(LibraryResult)> callback)
 {
-    auto* watcher = new QFutureWatcher<std::vector<MediaLibrary>>;
+    auto* watcher = new QFutureWatcher<LibraryResult>(this);
     connect(watcher, &QFutureWatcherBase::finished, watcher,
             [watcher, callback = std::move(callback)]() mutable {
-                callback(watcher->result());
+                auto result = watcher->result();
+                watcher->setParent(QCoreApplication::instance());
                 watcher->deleteLater();
+                callback(std::move(result));
             });
     watcher->setFuture(QtConcurrent::run(
         [body = std::move(body), baseUrl = std::move(baseUrl), token = std::move(token)]() {
@@ -410,11 +427,13 @@ void MediaServerClientBase::parseItemsAsync(QByteArray body,
                                             QString token,
                                             std::function<void(ItemResult)> callback)
 {
-    auto* watcher = new QFutureWatcher<std::vector<MediaItem>>;
+    auto* watcher = new QFutureWatcher<ItemResult>(this);
     connect(watcher, &QFutureWatcherBase::finished, watcher,
             [watcher, callback = std::move(callback)]() mutable {
-                callback(watcher->result());
+                auto result = watcher->result();
+                watcher->setParent(QCoreApplication::instance());
                 watcher->deleteLater();
+                callback(std::move(result));
             });
     watcher->setFuture(QtConcurrent::run(
         [body = std::move(body), baseUrl = std::move(baseUrl), token = std::move(token)]() {

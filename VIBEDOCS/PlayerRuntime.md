@@ -323,6 +323,26 @@ The playback URL currently contains an access token because libmpv receives a UR
 
 Future work should prefer passing authorization headers to libmpv when practical, or move playback URL construction behind a short-lived local proxy if needed for stricter token isolation.
 
+## Window and event lifetime (2026-10-07)
+
+`MpvVideoItem` shuts down libmpv before destroying its host HWND/QWindow. A
+teardown guard blocks nested teardown and native-window creation from synchronous
+state-change handlers until shutdown finishes. Hiding a video item still stops it;
+an explicit play request can recreate the player, and automatic resume was not added.
+
+`PlayerController` copies the event header and end-file payload before emitting
+Qt signals. Shutdown advances a handle generation; the current event drain stops
+when the handle is absent or its generation changed, including synchronous restart
+which could reuse the same handle address. Native libmpv event storage is never
+read again through an end-file pointer after shutdown.
+
+The proxy test suite exercises shutdown from position, end-of-file and error
+callbacks using real headless libmpv, then reinitialization. Its existing playback
+case covers local encrypted playback, HTTP/WebDAV ranges, seeking, audio-track
+selection and an external subtitle. This does not validate GPU output, native-window
+stress on every platform or a live SMB share. QObject destruction from a signal
+handler should follow Qt's normal `deleteLater()` lifecycle.
+
 ## Headless Keep-Alive Playback
 
 `PlayerController::initializeHeadless()` creates a separate libmpv handle for manually or automatically started Emby keep-alive playback. It does not set `wid` and uses `force-window=no`, `vo=null`, and `ao=null`, so no video surface or audio output is created.

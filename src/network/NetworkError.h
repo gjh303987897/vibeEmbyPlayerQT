@@ -6,6 +6,7 @@ enum class NetworkErrorKind {
     InvalidUrl,
     Transport,
     Timeout,
+    Canceled,
     Ssl,
     Http,
     Parse,

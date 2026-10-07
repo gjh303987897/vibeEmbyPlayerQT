@@ -82,6 +82,13 @@ void ScheduledPlaybackManager::setTasks(std::vector<ScheduledPlaybackTask> tasks
     m_tasksInitialized = true;
 
     bool missedTasksUpdated = false;
+    // Use the complete ID set so ordinary mode preserves hidden private tasks.
+    if (const auto ids = m_repository.scheduledPlaybackTaskIds(); ids) {
+        const QSet<QString> existing(ids->begin(), ids->end());
+        const auto before = m_missedTaskIds.size();
+        m_missedTaskIds.intersect(existing);
+        missedTasksUpdated = m_missedTaskIds.size() != before;
+    }
     for (const auto& task : m_scheduledTasks) {
         if (!ScheduledPlaybackSchedule::isAutomatic(task) && m_missedTaskIds.remove(task.id)) {
             missedTasksUpdated = true;

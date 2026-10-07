@@ -1,4 +1,5 @@
 #include "services/webdav/WebDavPlaybackProxy.h"
+#include <QPointer>
 
 #include "utils/AppLogger.h"
 
@@ -47,6 +48,7 @@ void writeSimpleResponse(QTcpSocket* socket, int statusCode, const QByteArray& r
     socket->write("Content-Length: " + QByteArray::number(body.size()) + "\r\n");
     socket->write("Connection: close\r\n\r\n");
     socket->write(body);
+    socket->flush();
     socket->disconnectFromHost();
 }
 }
@@ -111,14 +113,31 @@ void WebDavPlaybackProxy::handlePendingConnection()
 {
     while (auto* socket = m_server.nextPendingConnection()) {
         auto buffer = std::make_shared<QByteArray>();
-        connect(socket, &QTcpSocket::readyRead, socket, [this, socket, buffer]() {
-            buffer->append(socket->readAll());
-            if (!buffer->contains("\r\n\r\n")) {
+        auto* headerDeadline = new QTimer(socket);
+        headerDeadline->setSingleShot(true);
+        connect(headerDeadline, &QTimer::timeout, socket, [this, socket] {
+            writeSimpleResponse(socket, 408, QByteArrayLiteral("Request Timeout"));
+        });
+        headerDeadline->start(15'000);
+        connect(socket, &QTcpSocket::readyRead, socket, [this, socket, buffer, headerDeadline]() {
+            if (socket->property("requestStarted").toBool()) { socket->readAll(); return; }
+            constexpr qsizetype maxHeaderBytes = 64 * 1024;
+            buffer->append(socket->read(maxHeaderBytes + 1 - buffer->size()));
+            const auto end = buffer->indexOf("\r\n\r\n");
+            if ((end < 0 && buffer->size() >= maxHeaderBytes) || end + 4 > maxHeaderBytes) {
+                headerDeadline->stop();
+                socket->setProperty("requestStarted", true);
+                while (socket->bytesAvailable() > 0) socket->read(8192);
+                AppLogger::warning(QStringLiteral("webdav"), QStringLiteral("Rejected oversized local playback request header"));
+                writeSimpleResponse(socket, 431, QByteArrayLiteral("Request Header Fields Too Large"));
                 return;
             }
-            const auto request = *buffer;
+            if (end < 0) return;
+            headerDeadline->stop();
+            socket->setProperty("requestStarted", true);
+            const auto request = buffer->first(end + 4);
             buffer->clear();
-            handleRequest(socket, request.left(request.indexOf("\r\n\r\n") + 4));
+            handleRequest(socket, request);
         });
         connect(socket, &QTcpSocket::disconnected, socket, &QTcpSocket::deleteLater);
     }
@@ -171,9 +190,10 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
     wireReply(reply, stream.server);
     const auto server = stream.server;
 
-    auto* headersSent = new bool(false);
-    auto sendHeaders = [this, socket, reply, headersSent]() {
-        if (*headersSent || socket->state() == QAbstractSocket::UnconnectedState) {
+    const QPointer<QTcpSocket> guardedSocket(socket);
+    auto headersSent = std::make_shared<bool>(false);
+    auto sendHeaders = [this, socket = guardedSocket, reply, headersSent]() {
+        if (!socket || *headersSent || socket->state() == QAbstractSocket::UnconnectedState) {
             return;
         }
         *headersSent = true;
@@ -193,9 +213,9 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
         socket->write("Connection: close\r\n\r\n");
     };
 
-    connect(reply, &QNetworkReply::readyRead, reply, [this, reply, socket, sendHeaders, server]() {
+    connect(reply, &QNetworkReply::readyRead, reply, [this, reply, socket = guardedSocket, sendHeaders, server]() {
         sendHeaders();
-        if (socket->state() != QAbstractSocket::UnconnectedState) {
+        if (socket && socket->state() != QAbstractSocket::UnconnectedState) {
             const auto chunk = reply->readAll();
             if (!chunk.isEmpty()) {
                 m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
@@ -203,9 +223,9 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
             }
         }
     });
-    connect(reply, &QNetworkReply::finished, reply, [this, reply, socket, headersSent, sendHeaders, server]() {
+    connect(reply, &QNetworkReply::finished, reply, [this, reply, socket = guardedSocket, headersSent, sendHeaders, server]() {
         sendHeaders();
-        if (socket->state() != QAbstractSocket::UnconnectedState) {
+        if (socket && socket->state() != QAbstractSocket::UnconnectedState) {
             const auto rest = reply->readAll();
             if (!rest.isEmpty()) {
                 m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), rest.size(), 0);
@@ -213,7 +233,6 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
             }
             socket->disconnectFromHost();
         }
-        delete headersSent;
         reply->deleteLater();
     });
     connect(socket, &QTcpSocket::disconnected, reply, [reply]() {

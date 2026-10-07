@@ -38,6 +38,7 @@ tests/*
 !tests/EncryptedHlsPackagerTest.cpp
 !tests/EncryptedHlsRestorerTest.cpp
 !tests/TsslBackupServiceTest.cpp
+!tests/AuditRegressionTest.cpp
 !tests/LocalMediaServiceTest.cpp
 !tests/LinkPlaybackServiceTest.cpp
 !tests/LinkPlaybackHistoryTest.cpp

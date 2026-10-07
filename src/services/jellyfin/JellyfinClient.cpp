@@ -1,3 +1,4 @@
+#include <QPointer>
 #include "services/jellyfin/JellyfinClient.h"
 
 #include "utils/JsonUtils.h"
@@ -48,7 +49,8 @@ void JellyfinClient::login(const ServerConfig& server,
         { QStringLiteral("Pw"), password },
     };
 
-    m_networkClient.postJson(url, headers, body, server.trustSelfSignedCertificate, [server, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.postJson(url, headers, body, server.trustSelfSignedCertificate, [this, server, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -91,7 +93,8 @@ void JellyfinClient::fetchLibraries(const UserSession& session, std::function<vo
 
     const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
 
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -130,7 +133,8 @@ void JellyfinClient::fetchLibraryItems(const UserSession& session,
     url.setQuery(query);
     const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
 
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -176,7 +180,8 @@ void JellyfinClient::searchVideoItems(const UserSession& session,
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -200,7 +205,8 @@ void JellyfinClient::fetchContinueWatching(const UserSession& session, int limit
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -228,7 +234,8 @@ void JellyfinClient::fetchSuggestedSeries(const UserSession& session,
     m_networkClient.get(url,
                         headers,
                         session.server.trustSelfSignedCertificate,
-                        [session, callback = std::move(callback)](NetworkResult result) mutable {
+                        [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -260,7 +267,8 @@ void JellyfinClient::fetchSeriesSeasons(const UserSession& session,
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -296,7 +304,8 @@ void JellyfinClient::fetchSeasonEpisodes(const UserSession& session,
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;
@@ -319,7 +328,8 @@ void JellyfinClient::fetchItemDetails(const UserSession& session,
     url.setQuery(query);
 
     const auto headers = authHeaders(QStringLiteral("MediaBrowser"), session.accessToken);
-    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [session, callback = std::move(callback)](NetworkResult result) mutable {
+    m_networkClient.get(url, headers, session.server.trustSelfSignedCertificate, [this, session, callback = std::move(callback), guard = QPointer<JellyfinClient>(this)](NetworkResult result) mutable {
+        if (!guard) return;
         if (!result) {
             callback(std::unexpected(result.error()));
             return;

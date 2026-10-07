@@ -189,7 +189,7 @@ Some older local notes may contain encoding issues. The source code and this REA
 ## Security Notes
 
 - Do not commit real server credentials, access tokens, cookies, local SQLite databases or token-bearing logs.
-- Emby/Jellyfin access tokens are currently stored in the local SQLite session database.
+- Windows encrypts saved Emby/Jellyfin access tokens in SQLite with user-scoped DPAPI; legacy sessions migrate during write-mode initialization. See [session token storage](VIBEDOCS/SessionTokenCipher.md). macOS/Linux retain their existing storage behavior.
 - WebDAV passwords use Windows Credential Manager when available; other platforms currently request the password again.
 - Logs and UI must not expose passwords, tokens, cookies or full token-bearing playback URLs.
 
