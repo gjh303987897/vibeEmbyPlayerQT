@@ -75,9 +75,11 @@ The retention period is configurable in Settings > Playback history. It defaults
 to 30 days and applies to both global playback rows and daily usage statistics.
 Changing the value prunes records older than the selected number of calendar
 days immediately; the current day counts as the first day. The same cleanup is
-also performed during database initialization and before daily usage statistics
-are loaded, so expired records do not remain visible after an application
-restart.
+also performed during database initialization. History and daily usage reads
+filter expired dates without deleting rows, so read-only CLI queries work while
+another connection holds a reserved write lock. Physical cleanup remains in
+initialization and explicit pruning. Indexes on `played_date` support cleanup,
+and the global history table also indexes `service_id`.
 
 Because pruning runs during `initialize()`, history fixtures must never use calendar dates: a hardcoded
 timestamp silently leaves the retention window and the test then fails as "writes succeed, reads return

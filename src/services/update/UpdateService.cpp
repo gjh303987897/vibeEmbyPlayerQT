@@ -161,10 +161,16 @@ QString UpdateService::channelToString(UpdateChannel channel)
 
 std::optional<QString> UpdateService::parseChecksum(const QByteArray& content, const QString& fileName)
 {
-    const auto line = QString::fromUtf8(content).trimmed();
-    const auto match = QRegularExpression(QStringLiteral("^([0-9A-Fa-f]{64})\\s{2}(.+)$")).match(line);
-    if (!match.hasMatch() || match.captured(2).trimmed() != fileName) return std::nullopt;
-    return match.captured(1).toLower();
+    static const QRegularExpression pattern(QStringLiteral("^([0-9A-Fa-f]{64})[ \\t]+\\*?(.+)$"));
+    std::optional<QString> result;
+    for (const auto& line : QString::fromUtf8(content).split('\n')) {
+        const auto match = pattern.match(line.trimmed());
+        if (!match.hasMatch() || match.captured(2) != fileName) continue;
+        const auto checksum = match.captured(1).toLower();
+        if (result && *result != checksum) return std::nullopt;
+        result = checksum;
+    }
+    return result;
 }
 
 std::optional<UpdateRelease> UpdateService::parseReleases(const QByteArray& content,

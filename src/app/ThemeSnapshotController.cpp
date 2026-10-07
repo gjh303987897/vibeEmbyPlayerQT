@@ -11,18 +11,14 @@
 #include <QScreen>
 #include <QTimer>
 #include <QUrl>
+#include <QFutureWatcher>
+#include <QtConcurrentRun>
 
 #include "utils/AppLogger.h"
 
-namespace {
-QString snapshotPathFor(int token)
-{
-    return QDir::temp().filePath(QStringLiteral("vibeplayer-theme-snapshot-%1.jpg").arg(token));
-}
-}
-
 ThemeSnapshotController::ThemeSnapshotController(QObject* parent)
     : QObject(parent)
+    , m_snapshotDirectory(QSharedPointer<QTemporaryDir>::create())
 {
 }
 
@@ -50,27 +46,33 @@ int ThemeSnapshotController::grabContent(QObject* object)
         failAsync(token, QStringLiteral("scene-graph grab returned a null image"));
         return token;
     }
-    const QString path = snapshotPathFor(token);
-    if (!image.save(path, "JPEG", 90)) {
-        failAsync(token, QStringLiteral("failed to save snapshot to %1").arg(path));
+    if (!m_snapshotDirectory->isValid()) {
+        failAsync(token, QStringLiteral("snapshot directory is unavailable"));
         return token;
     }
-    AppLogger::info(QStringLiteral("theme"), QStringLiteral("snapshot %1 captured (%2x%3)")
-                        .arg(token).arg(image.width()).arg(image.height()));
+    const auto directory = m_snapshotDirectory;
+    const auto path = directory->filePath(QStringLiteral("snapshot-%1.jpg").arg(token));
+    auto* watcher = new QFutureWatcher<bool>(this);
+    connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher, token, path] {
+        const auto saved = watcher->result();
+        watcher->deleteLater();
+        if (token != m_nextToken - 1) {
+            QFile::remove(path);
+            return;
+        }
+        if (!saved) {
+            failAsync(token, QStringLiteral("failed to save snapshot"));
+            return;
+        }
+        // Keep the previous generation while an in-flight dissolve displays it.
+        if (!m_olderSnapshotPath.isEmpty() && m_olderSnapshotPath != m_lastSnapshotPath)
+            QFile::remove(m_olderSnapshotPath);
+        m_olderSnapshotPath = m_lastSnapshotPath;
+        m_lastSnapshotPath = path;
 
-    // Keep the previous generation on disk: an in-flight dissolve may still be
-    // displaying it, and deleting the file its Image points at can blank the
-    // cover mid-fade (observed as a hard cut to the new background). Only the
-    // generation before that is safe to drop.
-    if (!m_olderSnapshotPath.isEmpty() && m_olderSnapshotPath != m_lastSnapshotPath)
-        QFile::remove(m_olderSnapshotPath);
-    m_olderSnapshotPath = m_lastSnapshotPath;
-    m_lastSnapshotPath = path;
-
-    // Emit asynchronously so callers finish their current turn first.
-    QTimer::singleShot(0, this, [this, token, path]() {
         emit ready(token, QUrl::fromLocalFile(path));
     });
+    watcher->setFuture(QtConcurrent::run([image, path, directory] { return image.save(path, "JPEG", 90); }));
     return token;
 }
 

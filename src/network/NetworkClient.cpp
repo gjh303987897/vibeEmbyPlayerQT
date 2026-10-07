@@ -1,4 +1,5 @@
 #include "network/NetworkClient.h"
+#include "network/SelfSignedTlsPolicy.h"
 #include "utils/AppLogger.h"
 
 #include <QJsonDocument>
@@ -134,12 +135,12 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
     QObject::connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
 
     QObject::connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned](const QList<QSslError>& errors) {
-        if (!allowSelfSigned) {
+        if (!SelfSignedTlsPolicy::allows(errors, allowSelfSigned)) {
             return;
         }
 
         AppLogger::warning(QStringLiteral("network"),
-                           QStringLiteral("Ignoring TLS certificate errors for explicitly trusted server %1")
+                           QStringLiteral("Accepting a self-signed issuer for explicitly trusted server %1")
                                .arg(reply->url().host()));
         reply->ignoreSslErrors(errors);
     });

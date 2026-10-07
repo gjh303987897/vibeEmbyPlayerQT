@@ -1,4 +1,5 @@
 #include "services/webdav/EncryptedHlsPlaybackProxy.h"
+#include "network/SelfSignedTlsPolicy.h"
 
 #include "services/webdav/AesGcmDecryptor.h"
 #include "services/webdav/HlsManifestValidator.h"
@@ -1528,13 +1529,19 @@ void EncryptedHlsPlaybackProxy::wireReply(QNetworkReply* reply, const ServerConf
         reply->abort();
     });
     timeout->start(requestTimeoutMs);
+    connect(reply, &QNetworkReply::downloadProgress, timeout, [timeout] { timeout->start(requestTimeoutMs); });
+    connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
+
+    auto* deadline = new QTimer(reply);
+    deadline->setSingleShot(true);
+    connect(deadline, &QTimer::timeout, reply, [reply] { reply->abort(); });
+    deadline->start(15 * 60 * 1000);
+    connect(reply, &QNetworkReply::finished, deadline, &QTimer::stop);
 
     connect(reply,
             &QNetworkReply::sslErrors,
             reply,
-            [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>&) {
-        if (allowSelfSigned) {
-            reply->ignoreSslErrors();
-        }
+            [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>& errors) {
+        SelfSignedTlsPolicy::apply(reply, errors, allowSelfSigned);
     });
 }

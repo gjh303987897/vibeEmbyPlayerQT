@@ -281,7 +281,8 @@ std::expected<EncryptedHlsTarIndex, QString> build(const QString& directoryPath,
         index.entries.push_back(std::move(entry));
     }
     std::expected<QByteArray, QString> indexBytes;
-    for (int pass = 0; pass < 4; ++pass) {
+    bool converged = false;
+    for (int pass = 0; pass < 16; ++pass) {
         indexBytes = encodeIndex(index);
         if (!indexBytes) return std::unexpected(indexBytes.error());
         qint64 offset = blockSize + aligned(indexBytes->size());
@@ -295,9 +296,16 @@ std::expected<EncryptedHlsTarIndex, QString> build(const QString& directoryPath,
         if (index.containerLength > maximumContainerBytes) {
             return std::unexpected(QStringLiteral("M3U8SP container is too large"));
         }
+        auto updated = encodeIndex(index);
+        if (!updated) return std::unexpected(updated.error());
+        // Offsets depend on padded index length, not its unpadded byte count.
+        if (aligned(updated->size()) == aligned(indexBytes->size())) {
+            indexBytes = std::move(updated);
+            converged = true;
+            break;
+        }
     }
-    indexBytes = encodeIndex(index);
-    if (!indexBytes) return std::unexpected(indexBytes.error());
+    if (!converged) return std::unexpected(QStringLiteral("M3U8SP index offsets did not converge"));
     index.serialized = *indexBytes;
     index.sha256 = QCryptographicHash::hash(index.serialized, QCryptographicHash::Sha256);
     QSaveFile output(outputPath);

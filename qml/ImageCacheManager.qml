@@ -10,6 +10,10 @@ QtObject {
 
     // 缓存大小限制（MB）
     property int maxCacheSizeMB: 100
+    property int maxCacheEntries: 256
+    property Component cachedImageComponent: Component {
+        Image { asynchronous: true; cache: true; visible: false }
+    }
     
     // 缓存的图片Map：url -> Image
     property var imageCache: ({})
@@ -65,15 +69,24 @@ QtObject {
         }
         
         // 估算图片大小（宽*高*4字节RGBA）
+        if (!image) return
         var estimatedSize = image.sourceSize.width * image.sourceSize.height * 4
+        var limit = Math.max(0, maxCacheSizeMB) * 1024 * 1024
+        // Unknown dimensions cannot provide a bounded memory estimate.
+        if (image.sourceSize.width <= 0 || image.sourceSize.height <= 0 ||
+            estimatedSize > limit || maxCacheEntries <= 0) return
         
         // 如果缓存已满，清理旧缓存
-        if (currentCacheSizeBytes + estimatedSize > maxCacheSizeMB * 1024 * 1024) {
-            clearOldestCache(estimatedSize)
-        }
+        clearOldestCache(Math.max(0, currentCacheSizeBytes + estimatedSize - limit))
+        // The preloader owns the input Image and destroys it after this call.
+        // Keep a cache-owned Image; Qt shares its decoded pixmap for this URL.
+        var retainedImage = cachedImageComponent.createObject(cacheManager, {
+            source: urlStr, sourceSize: image.sourceSize
+        })
+        if (!retainedImage) return
         
         imageCache[urlStr] = {
-            image: image,
+            image: retainedImage,
             timestamp: Date.now(),
             size: estimatedSize
         }
@@ -102,9 +115,12 @@ QtObject {
         
         // 删除最旧的条目，直到有足够空间
         var freedSize = 0
-        for (var i = 0; i < entries.length && freedSize < neededSize; i++) {
+        var remaining = entries.length
+        for (var i = 0; i < entries.length && (freedSize < neededSize || remaining >= maxCacheEntries); i++) {
             var entry = entries[i]
+            imageCache[entry.url].image.destroy()
             delete imageCache[entry.url]
+            remaining--
             freedSize += entry.size
             currentCacheSizeBytes -= entry.size
         }
@@ -145,6 +161,7 @@ QtObject {
      * 清空所有缓存
      */
     function clearCache() {
+        for (var url in imageCache) imageCache[url].image.destroy()
         imageCache = {}
         currentCacheSizeBytes = 0
         cacheHits = 0

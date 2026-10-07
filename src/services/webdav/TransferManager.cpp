@@ -1,4 +1,5 @@
 #include "services/webdav/TransferManager.h"
+#include "network/SelfSignedTlsPolicy.h"
 
 #include "utils/AppLogger.h"
 
@@ -1985,9 +1986,7 @@ void TransferManager::wireReply(QNetworkReply* reply, const ServerConfig& server
     });
     idleTimer->start();
 
-    connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>&) {
-        if (allowSelfSigned) {
-            reply->ignoreSslErrors();
-        }
+    connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>& errors) {
+        SelfSignedTlsPolicy::apply(reply, errors, allowSelfSigned);
     });
 }

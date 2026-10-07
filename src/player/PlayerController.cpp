@@ -226,6 +226,7 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
 
 void TrackListModel::setTracks(std::vector<TrackInfo> tracks)
 {
+    if (m_tracks == tracks) return;
     beginResetModel();
     m_tracks = std::move(tracks);
     endResetModel();
@@ -494,6 +495,10 @@ void PlayerController::playUrl(const QString& url,
                                bool localEncryptedPlayback)
 {
     if (!m_mpv || url.isEmpty()) {
+        const auto message = !m_mpv ? QStringLiteral("The player is not initialized") : QStringLiteral("The playback URL is empty");
+        m_loading = false;
+        emit playbackStateChanged();
+        emit errorOccurred(message);
         return;
     }
     m_stopRequested = false;
@@ -535,7 +540,7 @@ void PlayerController::playUrl(const QString& url,
         return;
     }
     int pauseFlag = 0;
-    mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag);
+    if (!setProperty("pause", MPV_FORMAT_FLAG, &pauseFlag)) return;
     const QByteArray encoded = url.toUtf8();
     const auto mediaUrl = QUrl::fromUserInput(url, {}, QUrl::AssumeLocalFile);
     m_networkPlayback = mediaUrl.isValid() && !mediaUrl.isLocalFile() && !mediaUrl.scheme().isEmpty();
@@ -560,7 +565,7 @@ void PlayerController::playUrl(const QString& url,
         fileOptions = { "demuxer-max-bytes=64MiB", "demuxer-max-back-bytes=8MiB",
                         "demuxer-donate-buffer=no", "cache-secs=8" };
     }
-    if (startSeconds > 1.0) {
+    if (std::isfinite(startSeconds) && startSeconds > 0.0) {
         fileOptions.append(QByteArrayLiteral("start=") + QByteArray::number(startSeconds, 'f', 3));
     }
     bool requested = false;
@@ -605,7 +610,7 @@ void PlayerController::pause()
         return;
     }
     int flag = 1;
-    mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &flag);
+    setProperty("pause", MPV_FORMAT_FLAG, &flag);
 }
 
 void PlayerController::resume()
@@ -614,7 +619,7 @@ void PlayerController::resume()
         return;
     }
     int flag = 0;
-    mpv_set_property(m_mpv, "pause", MPV_FORMAT_FLAG, &flag);
+    setProperty("pause", MPV_FORMAT_FLAG, &flag);
 }
 
 void PlayerController::togglePause()
@@ -641,6 +646,7 @@ void PlayerController::stop()
 
 void PlayerController::shutdown()
 {
+    if (!m_mpv) return;
     ++m_handleGeneration;
     m_eventTimer.stop();
     m_playbackMetricsTimer.stop();
@@ -688,7 +694,7 @@ void PlayerController::setVolume(int volume)
         return;
     }
     double value = static_cast<double>(std::clamp(volume, 0, 100));
-    mpv_set_property(m_mpv, "volume", MPV_FORMAT_DOUBLE, &value);
+    setProperty("volume", MPV_FORMAT_DOUBLE, &value);
 }
 
 void PlayerController::setSpeed(double speed)
@@ -700,7 +706,7 @@ void PlayerController::setSpeed(double speed)
         return;
     }
     auto value = std::clamp(speed, 0.5, 5.0);
-    mpv_set_property(m_mpv, "speed", MPV_FORMAT_DOUBLE, &value);
+    setProperty("speed", MPV_FORMAT_DOUBLE, &value);
 }
 
 void PlayerController::loadExternalSubtitle(const QString& filePath)
@@ -740,10 +746,9 @@ void PlayerController::selectSubtitleTrack(int row)
         return;
     }
 
-    m_preferredSubtitleSelectionApplied = true;
     if (row < 0) {
-        const char* none = "no";
-        mpv_set_property_string(m_mpv, "sid", none);
+        qint64 id = -1;
+        if (setProperty("sid", MPV_FORMAT_INT64, &id)) m_preferredSubtitleSelectionApplied = true;
         return;
     }
 
@@ -751,8 +756,8 @@ void PlayerController::selectSubtitleTrack(int row)
     if (!track) {
         return;
     }
-    const QByteArray id = QByteArray::number(track->id);
-    mpv_set_property_string(m_mpv, "sid", id.constData());
+    qint64 id = track->id;
+    if (setProperty("sid", MPV_FORMAT_INT64, &id)) m_preferredSubtitleSelectionApplied = true;
 }
 
 void PlayerController::selectAudioTrack(int row)
@@ -765,8 +770,8 @@ void PlayerController::selectAudioTrack(int row)
     if (!track) {
         return;
     }
-    const QByteArray id = QByteArray::number(track->id);
-    mpv_set_property_string(m_mpv, "aid", id.constData());
+    qint64 id = track->id;
+    setProperty("aid", MPV_FORMAT_INT64, &id);
 }
 
 void PlayerController::observeProperties()
@@ -774,18 +779,24 @@ void PlayerController::observeProperties()
     if (!m_mpv) {
         return;
     }
-    mpv_observe_property(m_mpv, propertyTimePos, "time-pos", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, propertyDuration, "duration", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, propertyPause, "pause", MPV_FORMAT_FLAG);
-    mpv_observe_property(m_mpv, propertyVolume, "volume", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, propertySpeed, "speed", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, propertyTrackList, "track-list", MPV_FORMAT_NODE);
-    mpv_observe_property(m_mpv, propertyPausedForCache, "paused-for-cache", MPV_FORMAT_FLAG);
-    mpv_observe_property(m_mpv, propertyCacheBufferingState, "cache-buffering-state", MPV_FORMAT_INT64);
-    mpv_observe_property(m_mpv, propertySeeking, "seeking", MPV_FORMAT_FLAG);
-    mpv_observe_property(m_mpv, propertyIdleActive, "idle-active", MPV_FORMAT_FLAG);
-    mpv_observe_property(m_mpv, propertyDemuxerCacheDuration, "demuxer-cache-duration", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, propertyMetadata, "metadata", MPV_FORMAT_NODE);
+    const auto observe = [this](quint64 id, const char* name, mpv_format format) {
+        const auto status = mpv_observe_property(m_mpv, id, name, format);
+        if (status < 0) AppLogger::warning(QStringLiteral("player"),
+            QStringLiteral("Unable to observe playback property %1: %2")
+                .arg(QString::fromLatin1(name), QString::fromUtf8(mpv_error_string(status))));
+    };
+    observe(propertyTimePos, "time-pos", MPV_FORMAT_DOUBLE);
+    observe(propertyDuration, "duration", MPV_FORMAT_DOUBLE);
+    observe(propertyPause, "pause", MPV_FORMAT_FLAG);
+    observe(propertyVolume, "volume", MPV_FORMAT_DOUBLE);
+    observe(propertySpeed, "speed", MPV_FORMAT_DOUBLE);
+    observe(propertyTrackList, "track-list", MPV_FORMAT_NODE);
+    observe(propertyPausedForCache, "paused-for-cache", MPV_FORMAT_FLAG);
+    observe(propertyCacheBufferingState, "cache-buffering-state", MPV_FORMAT_INT64);
+    observe(propertySeeking, "seeking", MPV_FORMAT_FLAG);
+    observe(propertyIdleActive, "idle-active", MPV_FORMAT_FLAG);
+    observe(propertyDemuxerCacheDuration, "demuxer-cache-duration", MPV_FORMAT_DOUBLE);
+    observe(propertyMetadata, "metadata", MPV_FORMAT_NODE);
 }
 
 void PlayerController::processEvents()
@@ -807,6 +818,17 @@ void PlayerController::processEvents()
             const auto* property = static_cast<mpv_event_property*>(event->data);
             if (property) {
                 handlePropertyChange(property->name, property->format, property->data);
+            }
+        } else if (event->event_id == MPV_EVENT_COMMAND_REPLY && m_audioCoverRequest != 0 &&
+                   event->reply_userdata == m_audioCoverRequest) {
+            m_audioCoverRequest = 0;
+            if (event->error < 0) {
+                handleAudioCoverCaptureFailure(QString::fromUtf8(mpv_error_string(event->error)));
+            } else if (const auto* reply = static_cast<const mpv_event_command*>(event->data)) {
+                // Borrowed event data is valid only until the next mpv_wait_event.
+                receiveAudioCover(reply->result);
+            } else {
+                handleAudioCoverCaptureFailure(QStringLiteral("missing screenshot reply"));
             }
         } else if (event->event_id == MPV_EVENT_COMMAND_REPLY &&
                    event->reply_userdata == externalSubtitleCommandReply) {
@@ -1256,26 +1278,29 @@ void PlayerController::updateAudioCoverTrack(bool available)
     // arms the capture would then wait for an event that never comes again, so kick
     // one attempt directly as well.
     if (m_audioCoverCapturePending && m_audioCoverCaptureAttempts == 0) {
-        QTimer::singleShot(120, this, [this]() { captureAudioCover(); });
+        scheduleAudioCoverCapture(120);
     }
 }
 
 void PlayerController::captureAudioCover()
 {
     if (!m_mpv || !m_headlessAudioOutput || !m_audioCoverTrackAvailable ||
-        !m_audioCoverCapturePending || m_audioCoverCaptureExhausted) {
+        !m_audioCoverCapturePending || m_audioCoverCaptureExhausted || m_audioCoverRequest != 0) {
         return;
     }
 
     ++m_audioCoverCaptureAttempts;
     const char* args[] = { "screenshot-raw", "video", "rgba", nullptr };
-    mpv_node result {};
-    const auto status = mpv_command_ret(m_mpv, args, &result);
+    m_audioCoverRequest = ++m_audioCoverRequestCounter;
+    const auto status = mpv_command_async(m_mpv, m_audioCoverRequest, args);
     if (status < 0) {
+        m_audioCoverRequest = 0;
         handleAudioCoverCaptureFailure(QString::fromUtf8(mpv_error_string(status)));
-        return;
     }
+}
 
+void PlayerController::receiveAudioCover(const mpv_node& result)
+{
     int width = -1;
     int height = -1;
     qint64 stride = 0;
@@ -1302,20 +1327,22 @@ void PlayerController::captureAudioCover()
     constexpr auto maxCoverDimension = 8192;
     constexpr qint64 maxCoverBytes = 128LL * 1024LL * 1024LL;
     const auto rowBytes = static_cast<qint64>(width) * 4;
+    if (stride < -maxCoverBytes || stride > maxCoverBytes) {
+        handleAudioCoverCaptureFailure(QStringLiteral("invalid screenshot stride"));
+        return;
+    }
     const auto absoluteStride = std::abs(stride);
     const auto requiredBytes = height > 0 ? absoluteStride * (height - 1LL) + rowBytes : 0;
     if (width <= 0 || height <= 0 || width > maxCoverDimension || height > maxCoverDimension ||
         format != QStringLiteral("rgba") || !bytes || !bytes->data || stride == 0 ||
         absoluteStride < rowBytes || requiredBytes <= 0 || requiredBytes > maxCoverBytes ||
         static_cast<quint64>(requiredBytes) > static_cast<quint64>(bytes->size)) {
-        mpv_free_node_contents(&result);
         handleAudioCoverCaptureFailure(QStringLiteral("invalid screenshot data"));
         return;
     }
 
     QImage cover(width, height, QImage::Format_RGBA8888);
     if (cover.isNull()) {
-        mpv_free_node_contents(&result);
         handleAudioCoverCaptureFailure(QStringLiteral("unable to allocate cover image"));
         return;
     }
@@ -1325,7 +1352,6 @@ void PlayerController::captureAudioCover()
         const auto* sourceRow = source + static_cast<qint64>(y) * stride;
         std::memcpy(cover.scanLine(y), sourceRow, static_cast<size_t>(rowBytes));
     }
-    mpv_free_node_contents(&result);
 
     constexpr auto maxStoredCoverSize = 1024;
     if (cover.width() > maxStoredCoverSize || cover.height() > maxStoredCoverSize) {
@@ -1367,11 +1393,11 @@ void PlayerController::handleAudioCoverCaptureFailure(const QString& reason)
     constexpr auto fastBurstAttempts = 3;
     constexpr auto maxTotalAttempts = 18;
     if (m_audioCoverCaptureAttempts < fastBurstAttempts) {
-        QTimer::singleShot(140, this, [this]() { captureAudioCover(); });
+        scheduleAudioCoverCapture(140);
         return;
     }
     if (m_audioCoverCaptureAttempts < maxTotalAttempts) {
-        QTimer::singleShot(600, this, [this]() { captureAudioCover(); });
+        scheduleAudioCoverCapture(600);
         return;
     }
     m_audioCoverCapturePending = false;
@@ -1382,6 +1408,9 @@ void PlayerController::handleAudioCoverCaptureFailure(const QString& reason)
 
 void PlayerController::resetAudioCover()
 {
+    ++m_audioCoverGeneration;
+    if (m_mpv && m_audioCoverRequest != 0) mpv_abort_async_command(m_mpv, m_audioCoverRequest);
+    m_audioCoverRequest = 0;
     m_audioCoverTrackAvailable = false;
     m_audioCoverCapturePending = false;
     m_audioCoverCaptureExhausted = false;
@@ -1394,6 +1423,25 @@ void PlayerController::resetAudioCover()
         m_audioCoverUrl = QUrl {};
         emit audioCoverChanged();
     }
+}
+
+void PlayerController::scheduleAudioCoverCapture(int delayMs)
+{
+    const auto generation = m_audioCoverGeneration;
+    QTimer::singleShot(delayMs, this, [this, generation] {
+        if (generation == m_audioCoverGeneration) captureAudioCover();
+    });
+}
+
+bool PlayerController::setProperty(const char* name, int format, void* value)
+{
+    const auto status = mpv_set_property(m_mpv, name, static_cast<mpv_format>(format), value);
+    if (status >= 0) return true;
+    const auto message = QStringLiteral("Unable to set playback property %1: %2")
+        .arg(QString::fromLatin1(name), QString::fromUtf8(mpv_error_string(status)));
+    AppLogger::warning(QStringLiteral("player"), message);
+    emit errorOccurred(message);
+    return false;
 }
 
 void PlayerController::updateVideoInfo(QString resolution, QString codec, QString frameRate, QString bitrate)

@@ -5,6 +5,9 @@
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QStandardPaths>
+#include <QTemporaryDir>
+#include <mutex>
+#include <memory>
 
 #include <expected>
 
@@ -32,17 +35,14 @@ std::expected<QString, QString> createSystemCaBundle()
         return std::unexpected(QStringLiteral("The operating system CA certificates could not be encoded as PEM"));
     }
 
-    const auto cacheRoot = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-    if (cacheRoot.isEmpty()) {
-        return std::unexpected(QStringLiteral("The application cache directory is unavailable"));
-    }
-
-    const auto certificateDirectory = QDir(cacheRoot).filePath(QStringLiteral("tls"));
-    if (!QDir().mkpath(certificateDirectory)) {
+    // A process-owned temporary directory avoids trusting a previously written
+    // persistent cache file. Its lifetime covers all libmpv handles in this process.
+    static std::unique_ptr<QTemporaryDir> certificateDirectory;
+    if (!certificateDirectory || !certificateDirectory->isValid()) certificateDirectory = std::make_unique<QTemporaryDir>();
+    if (!certificateDirectory->isValid()) {
         return std::unexpected(QStringLiteral("The TLS certificate cache directory could not be created"));
     }
-
-    const auto bundlePath = QDir(certificateDirectory).filePath(QStringLiteral("system-ca-bundle.pem"));
+    const auto bundlePath = certificateDirectory->filePath(QStringLiteral("system-ca-bundle.pem"));
     QSaveFile bundleFile(bundlePath);
     if (!bundleFile.open(QIODevice::WriteOnly)) {
         return std::unexpected(QStringLiteral("The system CA bundle could not be opened for writing: %1")
@@ -63,8 +63,10 @@ std::expected<QString, QString> createSystemCaBundle()
 
 std::expected<QString, QString> ensureSystemCaBundle()
 {
-    static const auto result = createSystemCaBundle();
-    return result;
+    static std::mutex mutex;
+    std::lock_guard lock(mutex);
+    // Retry errors and refresh from the operating system on every new handle.
+    return createSystemCaBundle();
 }
 
 }

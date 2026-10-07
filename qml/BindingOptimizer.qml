@@ -6,6 +6,9 @@ import QtQuick
  */
 QtObject {
     id: bindingOptimizer
+    property Component debounceTimerComponent: Component {
+        Timer { repeat: false }
+    }
     
     /**
      * 响应式列数计算（带缓存）
@@ -36,10 +39,12 @@ QtObject {
      * @return Timer对象
      */
     function debounce(callback, delay) {
-        return Qt.createQmlObject(
-            'import QtQuick; Timer { interval: ' + delay + '; repeat: false; onTriggered: (' + callback.toString() + ')() }',
-            bindingOptimizer
-        )
+        var timer = debounceTimerComponent.createObject(bindingOptimizer, { interval: Math.max(0, delay) })
+        timer.triggered.connect(function() {
+            try { callback() } finally { timer.destroy() }
+        })
+        timer.start()
+        return timer
     }
     
     /**

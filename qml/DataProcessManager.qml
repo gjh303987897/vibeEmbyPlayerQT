@@ -7,14 +7,25 @@ import QtQml.WorkerScript
  */
 QtObject {
     id: dataManager
+    property int nextRequestId: 0
+    property var latestRequests: ({})
+    signal requestFailed(string action, string message)
+    function sendRequest(action, data) {
+        var requestId = ++nextRequestId
+        latestRequests[action] = requestId
+        worker.sendMessage({ action: action, requestId: requestId, data: data })
+        return requestId
+    }
     
     // Worker实例
     property WorkerScript worker: WorkerScript {
         source: "DataWorker.mjs"
         
         onMessage: function(message) {
+            if (message.requestId !== dataManager.latestRequests[message.action]) return
             if (!message.success) {
                 console.error("Worker错误:", message.error)
+                dataManager.requestFailed(message.action, message.error)
                 return
             }
             
@@ -45,17 +56,14 @@ QtObject {
     /**
      * 过滤数据
      * @param items 数据数组
-     * @param filterFunc 过滤函数类型: 'type', 'status', 'contains', 'extension', 'date', 'custom'
+     * @param filterFunc 过滤函数类型: 'type', 'status', 'contains', 'extension', 'date'
      * @param filterValue 过滤值
      */
     function filter(items, filterFunc, filterValue) {
-        worker.sendMessage({
-            action: 'filter',
-            data: {
+        return sendRequest('filter', {
                 items: items,
                 filterFunc: filterFunc,
                 filterValue: filterValue
-            }
         })
     }
     
@@ -70,13 +78,10 @@ QtObject {
             ascending = true
         }
         
-        worker.sendMessage({
-            action: 'sort',
-            data: {
+        return sendRequest('sort', {
                 items: items,
                 sortKey: sortKey,
                 ascending: ascending
-            }
         })
     }
     
@@ -93,15 +98,12 @@ QtObject {
             ascending = true
         }
         
-        worker.sendMessage({
-            action: 'filterAndSort',
-            data: {
+        return sendRequest('filterAndSort', {
                 items: items,
                 filterFunc: filterFunc,
                 filterValue: filterValue,
                 sortKey: sortKey,
                 ascending: ascending
-            }
         })
     }
     
@@ -112,13 +114,10 @@ QtObject {
      * @param searchFields 搜索字段数组（可选，不指定则搜索所有字符串字段）
      */
     function search(items, searchText, searchFields) {
-        worker.sendMessage({
-            action: 'search',
-            data: {
+        return sendRequest('search', {
                 items: items,
                 searchText: searchText,
                 searchFields: searchFields || []
-            }
         })
     }
 }

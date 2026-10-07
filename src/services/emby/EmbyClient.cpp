@@ -169,8 +169,8 @@ void EmbyClient::fetchLibraryItems(const UserSession& session,
     const auto effectiveParentId = parentId.isEmpty() ? library.id : parentId;
     query.addQueryItem(QStringLiteral("ParentId"), effectiveParentId);
     query.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("false"));
-    query.addQueryItem(QStringLiteral("StartIndex"), QString::number(startIndex));
-    query.addQueryItem(QStringLiteral("Limit"), QString::number(limit));
+    query.addQueryItem(QStringLiteral("StartIndex"), QString::number(std::max(0, startIndex)));
+    query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
     query.addQueryItem(QStringLiteral("Fields"), QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,DateCreated,SeriesPrimaryImageTag,ParentId"));
     query.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
     query.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
@@ -246,7 +246,7 @@ void EmbyClient::fetchContinueWatching(const UserSession& session, int limit, st
 {
     auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Users/%1/Items/Resume").arg(session.userId));
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("Limit"), QString::number(limit));
+    query.addQueryItem(QStringLiteral("Limit"), QString::number(std::max(1, limit)));
     query.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Episode"));
     query.addQueryItem(QStringLiteral("Fields"),
                        QStringLiteral("PrimaryImageAspectRatio,Overview,Genres,People,DateCreated,RunTimeTicks,SeriesPrimaryImageTag,ParentId"));

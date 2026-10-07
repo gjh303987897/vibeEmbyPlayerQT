@@ -3,15 +3,15 @@
 #include <QObject>
 #include <QString>
 #include <QUrl>
+#include <QSharedPointer>
+#include <QTemporaryDir>
 
 // One-shot window snapshot for the theme-switch dissolve (VIBEDOCS/ThemeTransition.md).
 //
 // Both QML-side grab paths are unusable here: Item.grabToImage refuses to run on
 // the window's internal contentItem ("item has no QML engine"), and the C++ offscreen
-// re-render path silently loses texture-backed content under this app's pipeline
-// (poster walls come back black). This helper instead reads the real framebuffer
-// via QScreen::grabWindow(winId) - exactly what is on screen - and hands the QML
-// side a file URL it can fade out.
+// capture must use QQuickWindow::grabWindow to avoid black DirectFlip readback.
+// Image encoding and writing run on a worker; QML receives a file URL to fade out.
 class ThemeSnapshotController final : public QObject {
     Q_OBJECT
 
@@ -35,4 +35,5 @@ private:
     QString m_lastSnapshotPath;
     QString m_olderSnapshotPath;
     int m_nextToken = 1;
+    QSharedPointer<QTemporaryDir> m_snapshotDirectory;
 };

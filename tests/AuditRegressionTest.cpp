@@ -8,6 +8,9 @@
 #include "services/webdav/BoundedReplyWriter.h"
 #include "services/webdav/HlsManifestValidator.h"
 #include "utils/JsonUtils.h"
+#include "network/SelfSignedTlsPolicy.h"
+#include "player/PlayerController.h"
+#include "services/smb/SmbClient.h"
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include "services/iptv/IptvParser.h"
@@ -104,6 +107,108 @@ public:
 class AuditRegressionTest final : public QObject {
     Q_OBJECT
 private slots:
+    void historyReadsDoNotRequireAWriteLock()
+    {
+        QTemporaryDir temporary;
+        const auto path = temporary.filePath("history.db");
+        const auto connection = uniqueId();
+        SessionRepository writer(connection, path);
+        QVERIFY(writer.initialize());
+        QSqlQuery query(QSqlDatabase::database(connection));
+        QVERIFY(query.exec("INSERT INTO playback_history (id,source_type,service_id,service_name,replay_target,title,subtitle,played_date,played_at,updated_at) "
+                           "VALUES ('expired','Local','','','/tmp/a','old','','2000-01-01','2000-01-01T00:00:00Z','2000-01-01T00:00:00Z')"));
+        QVERIFY(query.exec("EXPLAIN QUERY PLAN DELETE FROM playback_history WHERE played_date < '2001-01-01'"));
+        QVERIFY(query.next());
+        QVERIFY(query.value(3).toString().contains("idx_playback_history_date"));
+        QVERIFY(query.exec("BEGIN IMMEDIATE"));
+        const auto rollback = qScopeGuard([&] { query.exec("ROLLBACK"); });
+        SessionRepository reader(uniqueId(), path, SessionRepository::OpenMode::ReadOnly);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        const auto history = reader.loadPlaybackHistory(true, 0, 50);
+        QVERIFY2(history.has_value(), qPrintable(history ? QString() : history.error()));
+        QVERIFY(history->empty());
+        const auto dates = reader.loadPlaybackHistoryDates(true);
+        QVERIFY(dates.has_value());
+        QVERIFY(dates->empty());
+        const auto day = reader.loadPlaybackHistoryForDate(true, QDate(2000,1,1));
+        QVERIFY(day.has_value());
+        QVERIFY(day->empty());
+        const auto links = reader.loadLinkPlaybackHistory(true);
+        QVERIFY(links.has_value());
+        QVERIFY(links->empty());
+        const auto usage = reader.loadDailyUsageStats(true);
+        QVERIFY(usage.has_value());
+        QVERIFY(usage->empty());
+        QVERIFY(elapsed.elapsed() < 1500);
+        QVERIFY(query.exec("SELECT COUNT(*) FROM playback_history"));
+        QVERIFY(query.next());
+        QCOMPARE(query.value(0).toInt(), 1); // Reads filter expired entries without erasing them.
+    }
+    void selfSignedTrustDoesNotWaiveOtherTlsChecks()
+    {
+        const QList<QSslError> selfSigned {QSslError(QSslError::SelfSignedCertificate)};
+        QVERIFY(SelfSignedTlsPolicy::allows(selfSigned, true));
+        QVERIFY(!SelfSignedTlsPolicy::allows(selfSigned, false));
+        QVERIFY(!SelfSignedTlsPolicy::allows({}, true));
+        for (auto error : {QSslError::HostNameMismatch, QSslError::CertificateExpired,
+                           QSslError::CertificateNotYetValid, QSslError::CertificateRevoked,
+                           QSslError::NoPeerCertificate, QSslError::CertificateSignatureFailed,
+                           QSslError::UnableToGetLocalIssuerCertificate}) {
+            auto mixed = selfSigned;
+            mixed.append(QSslError(error));
+            QVERIFY(!SelfSignedTlsPolicy::allows(mixed, true));
+        }
+    }
+    void unchangedTracksPreserveTheModel()
+    {
+        TrackListModel model;
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        std::vector<TrackInfo> tracks {{.id = 1, .type = "audio", .title = "Main", .selected = true}};
+        model.setTracks(tracks);
+        QCOMPARE(resets.size(), 1);
+        model.setTracks(tracks);
+        QCOMPARE(resets.size(), 1);
+        tracks.front().selected = false;
+        model.setTracks(tracks);
+        QCOMPARE(resets.size(), 2);
+        QVERIFY(!model.trackAt(0)->selected);
+    }
+    void playbackWithoutInitializationReportsAnError()
+    {
+        PlayerController player;
+        QSignalSpy errors(&player, &PlayerController::errorOccurred);
+        player.playUrl("file:///missing.mp4");
+        QCOMPARE(errors.size(), 1);
+        QVERIFY(!player.loading());
+    }
+    void canceledFutureKeepsProcessingEvents()
+    {
+        CliConsole::canceled.store(false);
+        QSemaphore release;
+        auto future = QtConcurrent::run([&] { release.acquire(); return 42; });
+        int heartbeats = 0;
+        QTimer timer;
+        connect(&timer, &QTimer::timeout, &timer, [&] { ++heartbeats; });
+        timer.start(5);
+        QTimer::singleShot(10, this, [] { CliConsole::canceled.store(true); });
+        QTimer::singleShot(180, this, [&] { release.release(); });
+        QCOMPARE(Cli::awaitFuture(std::move(future)), 42);
+        QVERIFY(heartbeats >= 5);
+        CliConsole::canceled.store(false);
+    }
+    void smbConnectValidatesBeforeAuthentication()
+    {
+        auto server = serverConfig();
+        for (const auto& url : {"https://localhost/share", "smb://localhost", "smb://localhost/share/../other"}) {
+            server.baseUrl = url;
+            const auto result = SmbClient::connect(server, "unused-test-password");
+            QVERIFY(!result);
+#ifdef Q_OS_WIN
+            QVERIFY(result.error().contains("Invalid") || result.error().contains("share is required"));
+#endif
+        }
+    }
     void initTestCase()
     {
         QVERIFY(m_settings.isValid());

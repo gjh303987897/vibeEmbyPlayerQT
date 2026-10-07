@@ -22,7 +22,7 @@ WorkerScript.onMessage = function(message) {
                 result = searchData(data.items, data.searchText, data.searchFields)
                 break
             default:
-                result = { success: false, error: 'Unknown action: ' + action }
+                throw new Error('Unknown action: ' + action)
         }
         
         result.success = true
@@ -34,6 +34,7 @@ WorkerScript.onMessage = function(message) {
             error: e.toString()
         }
     }
+    result.requestId = message.requestId
     
     WorkerScript.sendMessage(result)
 }
@@ -79,16 +80,9 @@ function filterData(items, filterFunc, filterValue) {
                 }
                 break
             case 'custom':
-                // 自定义过滤 - filterValue是判断函数的字符串
-                try {
-                    var customFunc = eval('(' + filterValue + ')')
-                    pass = customFunc(item)
-                } catch(e) {
-                    pass = false
-                }
-                break
+                throw new Error('Executable custom filters are unsupported; use a named filter')
             default:
-                pass = true
+                throw new Error('Unknown filter: ' + filterFunc)
         }
         
         if (pass) {

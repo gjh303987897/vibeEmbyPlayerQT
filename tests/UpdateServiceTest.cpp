@@ -58,6 +58,11 @@ void UpdateServiceTest::parsesChecksumSidecar()
     const auto fileName = QStringLiteral("vibePlayerQT-1.0.1-windows-x86_64-installer.exe");
     QCOMPARE(UpdateService::parseChecksum(hash + "  " + fileName.toUtf8(), fileName).value(), QString(64, QLatin1Char('a')));
     QVERIFY(!UpdateService::parseChecksum(hash + "  other.exe", fileName));
+    QCOMPARE(UpdateService::parseChecksum(hash + " " + fileName.toUtf8(), fileName).value(), QString(64, 'a'));
+    QCOMPARE(UpdateService::parseChecksum(hash + " *" + fileName.toUtf8(), fileName).value(), QString(64, 'a'));
+    QCOMPARE(UpdateService::parseChecksum(hash + "  other.exe\r\n" + hash + "  " + fileName.toUtf8() + "\r\n", fileName).value(), QString(64, 'a'));
+    QVERIFY(!UpdateService::parseChecksum(hash + "  " + fileName.toUtf8() + "\n" + QByteArray(64, 'b') + "  " + fileName.toUtf8(), fileName));
+    QVERIFY(!UpdateService::parseChecksum(hash + "  path/" + fileName.toUtf8(), fileName));
 }
 
 void UpdateServiceTest::selectsHighestRelease()

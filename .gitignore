@@ -39,6 +39,7 @@ tests/*
 !tests/EncryptedHlsRestorerTest.cpp
 !tests/TsslBackupServiceTest.cpp
 !tests/AuditRegressionTest.cpp
+!tests/QmlUtilityTest.cpp
 !tests/LocalMediaServiceTest.cpp
 !tests/LinkPlaybackServiceTest.cpp
 !tests/LinkPlaybackHistoryTest.cpp

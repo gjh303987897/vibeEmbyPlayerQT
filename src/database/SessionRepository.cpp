@@ -301,6 +301,14 @@ std::expected<void, QString> SessionRepository::initialize()
         return std::unexpected(sqlError(playbackHistoryQuery));
     }
 
+    for (const auto& sql : {
+            "CREATE INDEX IF NOT EXISTS idx_playback_history_date ON playback_history(played_date)",
+            "CREATE INDEX IF NOT EXISTS idx_link_playback_history_date ON link_playback_history(played_date)",
+            "CREATE INDEX IF NOT EXISTS idx_playback_history_service ON playback_history(service_id)"}) {
+        QSqlQuery indexQuery(m_database);
+        if (!indexQuery.exec(QString::fromLatin1(sql))) return std::unexpected(sqlError(indexQuery));
+    }
+
     QSqlQuery scheduledTaskQuery(m_database);
     if (!scheduledTaskQuery.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS scheduled_playback_tasks ("
@@ -599,9 +607,6 @@ std::expected<void, QString> SessionRepository::addDailyUsage(const ServerConfig
 
 std::expected<std::vector<DailyUsageStat>, QString> SessionRepository::loadDailyUsageStats(bool includePrivacyMode)
 {
-    if (auto pruneResult = pruneOldDailyUsage(); !pruneResult) {
-        return std::unexpected(pruneResult.error());
-    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -712,9 +717,6 @@ std::expected<void, QString> SessionRepository::saveLinkPlaybackHistory(const Li
 
 std::expected<std::vector<LinkPlaybackHistoryItem>, QString> SessionRepository::loadLinkPlaybackHistory(bool includePrivacyMode)
 {
-    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
-        return std::unexpected(pruneResult.error());
-    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -723,8 +725,9 @@ std::expected<std::vector<LinkPlaybackHistoryItem>, QString> SessionRepository::
     query.prepare(QStringLiteral(
         "SELECT id, playback_url, played_date, played_at, privacy_mode "
         "FROM link_playback_history "
-        "WHERE (:include_privacy = 1 OR privacy_mode = 0) "
+        "WHERE played_date >= :cutoff AND (:include_privacy = 1 OR privacy_mode = 0) "
         "ORDER BY played_at DESC, id DESC"));
+    query.bindValue(QStringLiteral(":cutoff"), QDate::currentDate().addDays(-(historyRetentionDays() - 1)).toString(Qt::ISODate));
     query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
@@ -810,9 +813,6 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
     int limit,
     PlaybackHistorySource source)
 {
-    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
-        return std::unexpected(pruneResult.error());
-    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -825,10 +825,11 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
         "(history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) "
         "FROM playback_history history "
         "LEFT JOIN servers ON servers.id = history.service_id "
-        "WHERE (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0) "
+        "WHERE history.played_date >= :cutoff AND (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0) "
         "AND (:source_type = '' OR history.source_type = :source_type) "
         "ORDER BY history.played_at DESC, history.id DESC "
         "LIMIT :limit OFFSET :offset"));
+    query.bindValue(QStringLiteral(":cutoff"), QDate::currentDate().addDays(-(historyRetentionDays() - 1)).toString(Qt::ISODate));
     query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     query.bindValue(QStringLiteral(":source_type"), source == PlaybackHistorySource::Unknown
             ? QStringLiteral("")
@@ -870,9 +871,6 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
 
 std::expected<QStringList, QString> SessionRepository::loadPlaybackHistoryDates(bool includePrivacyMode)
 {
-    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
-        return std::unexpected(pruneResult.error());
-    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -882,9 +880,10 @@ std::expected<QStringList, QString> SessionRepository::loadPlaybackHistoryDates(
         "SELECT DISTINCT history.played_date "
         "FROM playback_history history "
         "LEFT JOIN servers ON servers.id = history.service_id "
-        "WHERE history.played_date <> '' "
+        "WHERE history.played_date >= :cutoff "
         "AND (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0) "
         "ORDER BY history.played_date DESC"));
+    query.bindValue(QStringLiteral(":cutoff"), QDate::currentDate().addDays(-(historyRetentionDays() - 1)).toString(Qt::ISODate));
     query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
@@ -907,9 +906,6 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
     if (!date.isValid()) {
         return std::unexpected(QStringLiteral("Invalid playback history date"));
     }
-    if (auto pruneResult = pruneOldHistory(); !pruneResult) {
-        return std::unexpected(pruneResult.error());
-    }
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -922,10 +918,11 @@ std::expected<std::vector<PlaybackHistoryItem>, QString> SessionRepository::load
         "(history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) "
         "FROM playback_history history "
         "LEFT JOIN servers ON servers.id = history.service_id "
-        "WHERE history.played_date = :played_date "
+        "WHERE history.played_date = :played_date AND history.played_date >= :cutoff "
         "AND (:include_privacy = 1 OR (history.privacy_mode <> 0 OR COALESCE(servers.private_mode, 0) <> 0) = 0) "
         "ORDER BY history.played_at DESC, history.id DESC"));
     query.bindValue(QStringLiteral(":played_date"), date.toString(Qt::ISODate));
+    query.bindValue(QStringLiteral(":cutoff"), QDate::currentDate().addDays(-(historyRetentionDays() - 1)).toString(Qt::ISODate));
     query.bindValue(QStringLiteral(":include_privacy"), includePrivacyMode ? 1 : 0);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
@@ -1029,7 +1026,7 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceC
             "SELECT s.id, s.name, "
             "CASE WHEN s.service_type = 'IPTV' AND p.imported_path <> '' THEN p.imported_path ELSE s.base_url END, "
             "s.username, s.service_type, s.trust_self_signed, "
-            "s.auto_login, s.last_used_at, s.private_mode, sess.access_token "
+            "s.auto_login, s.last_used_at, s.private_mode, (COALESCE(sess.access_token, '') <> '') "
             "FROM servers s "
             "LEFT JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
             "LEFT JOIN iptv_playlists p ON p.service_id = s.id "
@@ -1054,7 +1051,7 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceC
 
         cards.push_back(ServiceCard {
             .server = server,
-            .hasSession = server.serviceType == ServiceType::IPTV || !query.value(9).toString().isEmpty(),
+            .hasSession = server.serviceType == ServiceType::IPTV || query.value(9).toBool(),
             .lastUsedAt = query.value(7).toString(),
         });
     }
@@ -1074,7 +1071,7 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadAllServi
             "SELECT s.id, s.name, "
             "CASE WHEN s.service_type = 'IPTV' AND p.imported_path <> '' THEN p.imported_path ELSE s.base_url END, "
             "s.username, s.service_type, s.trust_self_signed, "
-            "s.auto_login, s.last_used_at, s.private_mode, sess.access_token "
+            "s.auto_login, s.last_used_at, s.private_mode, (COALESCE(sess.access_token, '') <> '') "
             "FROM servers s "
             "LEFT JOIN sessions sess ON sess.server_id = s.id AND sess.username = s.username "
             "LEFT JOIN iptv_playlists p ON p.service_id = s.id "
@@ -1097,7 +1094,7 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadAllServi
 
         cards.push_back(ServiceCard {
             .server = server,
-            .hasSession = server.serviceType == ServiceType::IPTV || !query.value(9).toString().isEmpty(),
+            .hasSession = server.serviceType == ServiceType::IPTV || query.value(9).toBool(),
             .lastUsedAt = query.value(7).toString(),
         });
     }
@@ -1585,9 +1582,10 @@ std::expected<void, QString> SessionRepository::moveServer(const QString& server
     if (visibleIndex != cards.size()) return std::unexpected(QStringLiteral("Service list changed during reordering; retry the operation"));
     cards = std::move(*allCards);
 
+    QSqlQuery update(m_database);
+    if (!update.prepare(QStringLiteral("UPDATE servers SET sort_order = :sort_order WHERE id = :id")))
+        return std::unexpected(sqlError(update));
     for (int i = 0; i < static_cast<int>(cards.size()); ++i) {
-        QSqlQuery update(m_database);
-        update.prepare(QStringLiteral("UPDATE servers SET sort_order = :sort_order WHERE id = :id"));
         update.bindValue(QStringLiteral(":sort_order"), i);
         update.bindValue(QStringLiteral(":id"), cards[static_cast<size_t>(i)].server.id);
         if (!update.exec()) {
@@ -1646,9 +1644,10 @@ std::expected<void, QString> SessionRepository::moveServerTo(const QString& serv
     if (visibleIndex != cards.size()) return std::unexpected(QStringLiteral("Service list changed during reordering; retry the operation"));
     cards = std::move(*allCards);
 
+    QSqlQuery update(m_database);
+    if (!update.prepare(QStringLiteral("UPDATE servers SET sort_order = :sort_order WHERE id = :id")))
+        return std::unexpected(sqlError(update));
     for (int i = 0; i < static_cast<int>(cards.size()); ++i) {
-        QSqlQuery update(m_database);
-        update.prepare(QStringLiteral("UPDATE servers SET sort_order = :sort_order WHERE id = :id"));
         update.bindValue(QStringLiteral(":sort_order"), i);
         update.bindValue(QStringLiteral(":id"), cards[static_cast<size_t>(i)].server.id);
         if (!update.exec()) {

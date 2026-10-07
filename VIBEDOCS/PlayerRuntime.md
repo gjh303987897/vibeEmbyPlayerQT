@@ -76,6 +76,30 @@ the FFmpeg embedded in that libmpv build).
 
 ## Window Embedding
 
+The Windows host is validated with `IsWindow` and reparented with `SetParent` when
+the Qt Quick window changes. A reparenting failure tears down the host and reports
+an error. On other platforms, native-window destruction clears its ID and stops
+the controller; geometry and delayed refreshes also guard the `QPointer`.
+
+Resume accepts finite positive positions, including fractions below one second.
+Uninitialized/empty playback requests report an error. User property writes report
+libmpv failures, observations log registration failures, and identical track lists
+keep their model instead of resetting it. Shutdown of an absent handle is a no-op.
+
+Embedded audio covers use `mpv_command_async` and `MPV_EVENT_COMMAND_REPLY` with a
+unique request ID. Event results are borrowed until the next event read; image
+pixels are copied before that read and the borrowed node is never freed by the
+application. Changing media aborts outstanding capture, invalidates retry timers
+and discards stale replies. The requested `rgba` format is supported by mpv.
+`EncryptedHlsPlaybackProxyTest` verifies a 0.35-second resume and an embedded MP3
+cover with `initializeHeadless(true)`/`vo=null` against the installed Windows DLL;
+the MP3 fixture has no adjacent image when playback begins. This does not validate
+every other platform/audio driver or measure 4K playback performance.
+
+References: [mpv commands](https://mpv.io/manual/stable/#command-interface-screenshot-raw),
+[libmpv asynchronous API](https://github.com/mpv-player/mpv/blob/master/include/mpv/client.h),
+[Windows SetParent](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent).
+
 The project uses libmpv Window Embedding through the `wid` option.
 
 `MpvVideoItem` is a QML-facing `QQuickItem` that creates a platform-native video host, keeps it aligned to the Qt Quick item geometry, and passes the host window id to `PlayerController`. Windows uses a real `WS_CHILD` HWND owned by the main Qt Quick window; other platforms use a child `QWindow`.

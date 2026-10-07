@@ -63,6 +63,8 @@ int main(int argc, char* argv[])
             media->reportPlaybackStopped(*session,report);
         }
         reportStarted = false;
+        if (!encryptedSession.isEmpty()) { proxy.revoke(encryptedSession); encryptedSession.clear(); }
+        if (!webdavSession.isEmpty()) { webdavProxy.revoke(webdavSession); webdavSession.clear(); }
     };
     QObject::connect(&player,&PlayerController::errorOccurred,&app,[&](const QString& message) {
         lastError = ErrorPresentation::sanitizeDetails(message);
@@ -126,8 +128,6 @@ int main(int argc, char* argv[])
             preparationCanceled = false;
             struct Reset { bool& value; ~Reset() { value = false; } } reset {preparing};
             stopped(); player.stop(); player.shutdown();
-            if (!encryptedSession.isEmpty()) { proxy.revoke(encryptedSession); encryptedSession.clear(); }
-            if (!webdavSession.isEmpty()) { webdavProxy.revoke(webdavSession); webdavSession.clear(); }
             privatePlayback = sourcePrivate; session.reset();
             title = request.value("title").toString("vibePlayerQT"); lastError.clear();
             ended = false; failed = false;

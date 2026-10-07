@@ -1,4 +1,5 @@
 #include "services/webdav/WebDavPlaybackProxy.h"
+#include "network/SelfSignedTlsPolicy.h"
 #include "services/webdav/BoundedReplyWriter.h"
 #include <QPointer>
 
@@ -238,12 +239,8 @@ void WebDavPlaybackProxy::wireReply(QNetworkReply* reply, const ServerConfig& se
     });
     connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
 
-    connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>&) {
-        if (!allowSelfSigned) {
-            return;
-        }
-
-        reply->ignoreSslErrors();
+    connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>& errors) {
+        SelfSignedTlsPolicy::apply(reply, errors, allowSelfSigned);
     });
 }
 

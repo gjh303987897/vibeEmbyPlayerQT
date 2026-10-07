@@ -584,6 +584,20 @@ void MpvVideoItem::ensureNativeWindow()
     }
     enableChildWindowClipping(parentHwnd);
 
+    if (m_nativeWindowId && !IsWindow(hwndFromId(m_nativeWindowId))) destroyNativeWindow();
+    if (m_nativeWindowId && GetParent(hwndFromId(m_nativeWindowId)) != parentHwnd) {
+        // SetParent can return null on success when the previous parent was null.
+        SetLastError(ERROR_SUCCESS);
+        if (!SetParent(hwndFromId(m_nativeWindowId), parentHwnd) && GetLastError() != ERROR_SUCCESS) {
+            const auto error = GetLastError();
+            destroyNativeWindow();
+            AppLogger::warning(QStringLiteral("player"), QStringLiteral("Unable to reparent mpv host window: %1").arg(error));
+            emit errorOccurred(QStringLiteral("Unable to move the playback window"));
+            return;
+        }
+        m_lastNativeGeometry = {};
+    }
+
     if (!m_nativeWindowId) {
         registerMpvHostWindowClass();
         const auto geometry = nativeVideoGeometry(sceneWindow, this);
@@ -626,6 +640,13 @@ void MpvVideoItem::ensureNativeWindow()
         m_nativeWindow->setFlags(Qt::SubWindow | Qt::FramelessWindowHint | Qt::WindowTransparentForInput);
         m_nativeWindow->create();
         m_nativeWindowId = static_cast<quintptr>(m_nativeWindow->winId());
+        connect(m_nativeWindow, &QObject::destroyed, this, [this] {
+            m_nativeWindowId = 0;
+            if (m_destroyingNativeWindow) return;
+            m_initialized = false;
+            m_geometryAnimationTimer.stop();
+            m_controller.shutdown();
+        });
         AppLogger::info(QStringLiteral("player"), QStringLiteral("Created native mpv child window"));
     }
 
@@ -809,6 +830,7 @@ void MpvVideoItem::applyWindowGeometry(const QRect& geometry, qreal devicePixelR
         m_lastNativeDevicePixelRatio = devicePixelRatio;
     }
 #else
+    if (!m_nativeWindow) return;
     const auto windowWasVisible = m_nativeWindow->isVisible();
     if (m_nativeWindow->geometry() != geometry) {
         m_nativeWindow->setGeometry(geometry);
@@ -838,6 +860,7 @@ void MpvVideoItem::refreshNativeWindow()
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(hwnd, nullptr, FALSE);
 #else
+    if (!m_nativeWindow) return;
     m_nativeWindow->hide();
     m_nativeWindow->show();
     m_nativeWindow->raise();
@@ -858,8 +881,10 @@ void MpvVideoItem::refreshNativeWindow()
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             InvalidateRect(hwnd, nullptr, FALSE);
 #else
-            m_nativeWindow->show();
-            m_nativeWindow->raise();
+            if (m_nativeWindow) {
+                m_nativeWindow->show();
+                m_nativeWindow->raise();
+            }
 #endif
             emit nativeWindowUpdated();
         }

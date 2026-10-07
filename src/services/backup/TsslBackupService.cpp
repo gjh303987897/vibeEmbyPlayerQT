@@ -1,4 +1,5 @@
 #include "services/backup/TsslBackupService.h"
+#include "network/SelfSignedTlsPolicy.h"
 
 #include <QAuthenticator>
 #include <QBuffer>
@@ -864,8 +865,8 @@ void TsslBackupService::wireReply(QNetworkReply* reply)
     });
     connect(reply, &QNetworkReply::sslErrors, reply, [reply, allow = m_target.type == TsslBackupTarget::Type::WebDav
                                                               ? m_target.webDavServer.trustSelfSignedCertificate
-                                                              : m_target.trustSelfSignedCertificate](const QList<QSslError>&) {
-        if (allow) reply->ignoreSslErrors();
+                                                              : m_target.trustSelfSignedCertificate](const QList<QSslError>& errors) {
+        SelfSignedTlsPolicy::apply(reply, errors, allow);
     });
 }
 

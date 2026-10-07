@@ -449,6 +449,21 @@ install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+    add_executable(qml_utility_test tests/QmlUtilityTest.cpp src/app/ThemeSnapshotController.cpp
+        src/player/PlayerController.cpp src/player/MpvVideoItem.cpp)
+    target_link_libraries(qml_utility_test PRIVATE vibeCore Qt6::Quick Qt6::Test ${MPV_LINK_TARGET})
+    target_compile_definitions(qml_utility_test PRIVATE VIBEPLAYER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME qml_utility COMMAND qml_utility_test -o "${CMAKE_CURRENT_BINARY_DIR}/qml-utility-results.txt,txt")
+    set_tests_properties(qml_utility PROPERTIES TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+    if(WIN32)
+        add_test(NAME native_player_host COMMAND qml_utility_test nativeHostMovesToTheNewWindow
+            -o "${CMAKE_CURRENT_BINARY_DIR}/native-player-host-results.txt,txt")
+        set_tests_properties(native_player_host PROPERTIES TIMEOUT 30
+            ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_QUICK_BACKEND=software"
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+    endif()
     add_executable(audit_regression_test tests/AuditRegressionTest.cpp
         src/services/scheduler/ScheduledPlaybackManager.cpp
         src/services/scheduler/ScheduledPlaybackSchedule.cpp

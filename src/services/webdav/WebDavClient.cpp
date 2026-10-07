@@ -1,4 +1,5 @@
 #include "services/webdav/WebDavClient.h"
+#include "network/SelfSignedTlsPolicy.h"
 #include <QCoreApplication>
 
 #include "utils/AppLogger.h"
@@ -455,12 +456,8 @@ void WebDavClient::wireReply(QNetworkReply* reply, const ServerConfig& server)
     timeout->start(requestTimeoutMs);
     connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
 
-    connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>&) {
-        if (!allowSelfSigned) {
-            return;
-        }
-
-        reply->ignoreSslErrors();
+    connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>& errors) {
+        SelfSignedTlsPolicy::apply(reply, errors, allowSelfSigned);
     });
 }
 

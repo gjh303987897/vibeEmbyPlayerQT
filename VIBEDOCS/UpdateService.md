@@ -13,3 +13,8 @@ Release assets must provide a same-name GNU checksum sidecar, for example:
 
 `vibePlayerQT-1.0.2-windows-x86_64-installer.exe.sha256`
 
+Checksum parsing accepts whitespace-separated text or binary-marker (`*`)
+entries, including manifests containing multiple files. It matches the exact
+asset filename and rejects conflicting hashes for that filename. Packages still
+must pass the existing size and SHA-256 verification before opening.
+

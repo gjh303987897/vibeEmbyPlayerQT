@@ -20,6 +20,7 @@ struct TrackInfo {
     QString language;
     QString codec;
     bool selected { false };
+    bool operator==(const TrackInfo&) const = default;
 };
 
 class TrackListModel final : public QAbstractListModel {
@@ -167,6 +168,8 @@ private:
                           QString track);
     void updateAudioCoverTrack(bool available);
     void captureAudioCover();
+    void receiveAudioCover(const struct mpv_node& result);
+    void scheduleAudioCoverCapture(int delayMs);
     void handleAudioCoverCaptureFailure(const QString& reason);
     void resetAudioCover();
     void updateCacheDuration(double seconds);
@@ -178,6 +181,7 @@ private:
     static double nodeDouble(const struct mpv_node& node, double fallback = 0.0);
     static bool nodeBool(const struct mpv_node& node, bool fallback = false);
     bool command(const char** args);
+    bool setProperty(const char* name, int format, void* value);
     bool initializeInternal(qintptr windowId, bool headless);
 
     mpv_handle* m_mpv { nullptr };
@@ -211,6 +215,9 @@ private:
     bool m_audioCoverCapturePending { false };
     bool m_audioCoverCaptureExhausted { false };
     int m_audioCoverCaptureAttempts { 0 };
+    quint64 m_audioCoverGeneration { 0 };
+    quint64 m_audioCoverRequestCounter { 2000 };
+    quint64 m_audioCoverRequest { 0 };
     double m_cacheDurationSeconds { -1.0 };
     double m_currentFrameRate { -1.0 };
     qint64 m_networkSpeedBytesPerSecond { -1 };

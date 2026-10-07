@@ -1,6 +1,7 @@
 #include "services/encryptedhls/EncryptedHlsTarContainer.h"
 
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
 #include <QTemporaryDir>
 #include <QProcess>
@@ -19,10 +20,37 @@ class EncryptedHlsTarContainerTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void indexOffsetsMatchPaddedLayoutAcrossBoundaries();
     void createsIndexedTarAndReadsEntries();
     void supportsPaxLongPaths();
     void rejectsUnsafeIndexEntry();
 };
+
+void EncryptedHlsTarContainerTest::indexOffsetsMatchPaddedLayoutAcrossBoundaries()
+{
+    QTemporaryDir temporary;
+    const auto source = temporary.filePath("source");
+    QVERIFY(QDir().mkpath(source));
+    QVERIFY(writeFile(QDir(source).filePath("index.m3u8s"), "#EXTM3U\n"));
+    for (int i = 0; i < 180; ++i) {
+        const auto name = QStringLiteral("segment-%1.ts").arg(i, 5, 10, QChar('0'));
+        QVERIFY(writeFile(QDir(source).filePath(name), QByteArray(1 + i * 7, char(i))));
+    }
+    const auto path = temporary.filePath("archive.m3u8sp");
+    const auto built = EncryptedHlsTarContainer::build(source, path, "index.m3u8s");
+    QVERIFY2(built.has_value(), qPrintable(built ? QString() : built.error()));
+    QCOMPARE(built->containerLength, QFileInfo(path).size());
+    QVERIFY(built->serialized.size() > 512);
+    const auto parsed = EncryptedHlsTarContainer::readIndex(path);
+    QVERIFY2(parsed.has_value(), qPrintable(parsed ? QString() : parsed.error()));
+    QCOMPARE(parsed->entries.size(), size_t(181));
+    for (int i = 0; i < 180; ++i) {
+        const auto name = QStringLiteral("segment-%1.ts").arg(i, 5, 10, QChar('0'));
+        const auto bytes = EncryptedHlsTarContainer::readEntry(path, *parsed, name, 4096);
+        QVERIFY2(bytes.has_value(), qPrintable(bytes ? QString() : bytes.error()));
+        QCOMPARE(*bytes, QByteArray(1 + i * 7, char(i)));
+    }
+}
 
 void EncryptedHlsTarContainerTest::createsIndexedTarAndReadsEntries()
 {

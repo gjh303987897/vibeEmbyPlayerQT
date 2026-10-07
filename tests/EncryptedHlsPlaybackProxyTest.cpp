@@ -9,6 +9,7 @@
 #include <QEventLoop>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QImage>
 #include <QHostAddress>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -191,6 +192,8 @@ class EncryptedHlsPlaybackProxyTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void subsecondResumeStartsAtTheRequestedPosition();
+    void headlessAudioCapturesEmbeddedCover();
     void rejectsOverflowingContentRange_data();
     void rejectsOverflowingContentRange();
     void shutsDownFromPlaybackCallback_data();
@@ -209,6 +212,60 @@ private slots:
     void localEncryptedPlaybackLimitsReadAheadAndRestoresNetworkDefaults();
     void mismatchedIdentifierIsRejectedBeforePlayback();
 };
+
+void EncryptedHlsPlaybackProxyTest::subsecondResumeStartsAtTheRequestedPosition()
+{
+    QTemporaryDir temporary;
+    QByteArray wave("RIFF", 4);
+    const auto number = [&](quint32 value, int bytes) {
+        for (int i = 0; i < bytes; ++i) wave.append(char((value >> (8 * i)) & 255));
+    };
+    number(160036, 4); wave += "WAVEfmt "; number(16, 4); number(1, 2); number(1, 2);
+    number(8000, 4); number(16000, 4); number(2, 2); number(16, 2);
+    wave += "data"; number(160000, 4); wave += QByteArray(160000, '\0');
+    const auto path = temporary.filePath("resume.wav");
+    QVERIFY(writeFile(path, wave));
+    PlayerController player;
+    QVERIFY(player.initializeHeadless());
+    double firstPosition = -1;
+    connect(&player, &PlayerController::playbackStateChanged, &player, [&] {
+        if (firstPosition < 0 && player.position() > 0) firstPosition = player.position();
+    });
+    player.playUrl(QUrl::fromLocalFile(path).toString(), 0.35);
+    QTRY_VERIFY_WITH_TIMEOUT(firstPosition >= 0, 3000);
+    QVERIFY2(firstPosition >= 0.34, qPrintable(QString::number(firstPosition)));
+}
+
+void EncryptedHlsPlaybackProxyTest::headlessAudioCapturesEmbeddedCover()
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty()) QSKIP("FFmpeg is required to generate the embedded-cover fixture");
+    QTemporaryDir temporary;
+    QImage image(32, 32, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(temporary.filePath("cover.png")));
+    QProcess encoder;
+    encoder.setWorkingDirectory(temporary.path());
+    encoder.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                          "sine=duration=4", "-i", "cover.png", "-map", "0:a", "-map", "1:v",
+                          "-c:a", "libmp3lame", "-c:v", "mjpeg", "-disposition:v", "attached_pic", "cover.mp3"});
+    QVERIFY(encoder.waitForFinished(10000));
+    QCOMPARE(encoder.exitCode(), 0);
+    QVERIFY(QFile::remove(temporary.filePath("cover.png")));
+    PlayerController player;
+    QVERIFY(player.initializeHeadless(true));
+    player.playUrl(QUrl::fromLocalFile(temporary.filePath("cover.mp3")).toString());
+    QTRY_VERIFY_WITH_TIMEOUT(!player.audioCoverUrl().isEmpty(), 4000);
+    const auto coverPath = player.audioCoverUrl().toLocalFile();
+    const QImage decoded(coverPath);
+    QCOMPARE(decoded.size(), QSize(32, 32));
+    QVERIFY(decoded.pixelColor(0, 0).red() > 200);
+    player.stop();
+    QVERIFY(player.audioCoverUrl().isEmpty());
+    QVERIFY(!QFileInfo::exists(coverPath));
+    QTest::qWait(700);
+    QVERIFY(player.audioCoverUrl().isEmpty());
+}
 
 void EncryptedHlsPlaybackProxyTest::playerInitializesWithNonCNumericLocale()
 {

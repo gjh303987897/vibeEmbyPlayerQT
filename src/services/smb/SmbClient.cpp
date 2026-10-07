@@ -67,6 +67,7 @@ std::expected<void,QString> SmbClient::connect(const ServerConfig& server, const
 #ifdef Q_OS_WIN
     const QUrl url(server.baseUrl);
     auto share = QStringLiteral("\\\\") + url.host() + '\\' + url.path().split('/',Qt::SkipEmptyParts).value(0);
+    if (const auto validated = path(server, {}); !validated) return std::unexpected(validated.error());
     NETRESOURCEW resource {};
     resource.dwType = RESOURCETYPE_DISK;
     resource.lpRemoteName = reinterpret_cast<LPWSTR>(share.data());
