@@ -77,4 +77,36 @@ macOS/Wayland 或 ASan 进行验收，不能据此宣称所有平台上的崩溃
 H-8 的真实首页竞态、M-8 大库性能、L-05 日志队列压力、L-10 平台窗口、
 L-14 CBOR 收敛仍需独立验证。C3 保持既有隐藏停止及显式播放重建规则。
 
-修改没有安装新运行依赖，也没有改动真实用户数据；没有创建 Git 提交。
+此前 Windows 修复批次没有安装新运行依赖，也没有改动真实用户数据；没有创建 Git 提交。
+
+## 18:54 报告续修批次
+
+新增报告 [20261007_1854_hy.md](../20261007_1854_hy.md) 已逐项复核全部 86
+编号，纠正重复计数、错误第三方 API 推断及未经复现的必然故障说法。
+该报告的表格记录最终源码结论和验收边界；此批基于本地提交 `07cb21a`，
+修复代码、测试和文档随本批本地提交保存。
+
+本批补充配置编辑保留使用时间、登录事务回滚、无资源版本跳过、GET
+PlaybackInfo 参数纠正及 DST 约定验证。服务卡片使用
+[ServiceCardLoader](ServiceCardLoader.md) 后台快照，加载高亮有独立通知；
+实际 QML 测试覆盖通知及隐私锁定。自签名播放使用
+[验证代理](SelfSignedTlsPolicy.md)，真实 TLS 连接拒绝错误域名和过期证书。
+[打包器](EncryptedHlsM3u8s.md) worker 独立拥有输入、析构不等待，FFmpeg
+异步退出后清理目录，TAR/TSSL 完成前不发布成品。WebDAV 完成后的目录刷新
+按服务和目录合并，CLI Tab 使用短期元数据缓存。
+
+当前 Windows/Qt 6.7.3/clang-cl 全量编译通过，CTest **30/30，36.62 秒**；
+AuditRegressionTest **58 passed**，SessionCredentialsTest **9 passed**，
+AppViewModelStateTest **6 passed**，上述目标均无失败。
+新增测试使用独立数据库/INI、本地 HTTP/HTTPS 与真实 libmpv/FFmpeg。
+2026-10-08 补齐 P1-5：macOS Keychain/Linux libsecret 原生后端、SQLite 凭据
+引用、旧数据迁移、保护失败拒绝保存、事务回滚及持久清理队列。Windows
+仍默认 DPAPI。共享引用生命周期测试 9 项通过；新增原生模块及 CI 环境说明
+见 [NativeCredentialStore](NativeCredentialStore.md) 和
+[SessionTokenCipher](SessionTokenCipher.md)。
+
+P1-9 另补足多字段 Cookie 脱敏，实际日志测试覆盖控制台和文件输出。
+非 Windows 原生编译/运行及真实远程服务仍未验收，不将 Windows 的共享
+逻辑测试写成全平台完成。Linux 新增 libsecret 构建/运行依赖，macOS 使用
+系统 framework；未增加 Windows 运行库，未修改用户数据。本批按用户要求
+进行本地提交，未推送远端。

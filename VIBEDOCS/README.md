@@ -8,14 +8,16 @@
 
 当前文档：
 
-- [SelfSignedTlsPolicy.md](SelfSignedTlsPolicy.md)：Qt 网络入口的自签名错误边界与系统 CA 临时文件。
+- [ServiceCardLoader.md](ServiceCardLoader.md)：服务卡片后台只读快照、请求合并、隐私过滤与最近使用时间。
+- [SelfSignedTlsPolicy.md](SelfSignedTlsPolicy.md)：自签名错误边界、桌面/CLI 验证播放代理、真实证书测试与系统 CA 临时文件。
 - [QmlUtilities.md](QmlUtilities.md)：辅助组件的闭包、请求代次、图片生命周期及运行测试。
 
 - [BoundedReplyWriter.md](BoundedReplyWriter.md)：普通 WebDAV 播放的有界转发与背压。
 
 - [AuditFixes-2026-10-07.md](AuditFixes-2026-10-07.md)：缺陷修复、回归证据与尚未验证的边界。
 - [SqlTransaction.md](SqlTransaction.md)：SQLite 提交失败后的统一事务清理。
-- [SessionTokenCipher.md](SessionTokenCipher.md)：Windows Token 加密、旧会话迁移和平台边界。
+- [SessionTokenCipher.md](SessionTokenCipher.md)：DPAPI/系统凭据引用、旧会话迁移、事务清理和平台边界。
+- [NativeCredentialStore.md](NativeCredentialStore.md)：系统凭据原生后端、依赖与 CI 测试环境。
 - [FfmpegProgress.md](FfmpegProgress.md)：打包和还原共用的安全进度行解析。
 
 - [CLI-Tutorial.md](CLI-Tutorial.md)：完整用户教程，覆盖全部 CLI 命令、参数、配置键、视频加密/还原、后台任务，以及 PowerShell/CMD/GitHub Actions 自动化示例。

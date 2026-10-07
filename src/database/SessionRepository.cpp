@@ -1,6 +1,7 @@
 #include "database/SessionRepository.h"
 #include "database/SqlTransaction.h"
 #include "database/SessionTokenCipher.h"
+#include "utils/AppLogger.h"
 
 #include <QDateTime>
 #include <QDate>
@@ -10,6 +11,7 @@
 #include <QSqlQuery>
 #include <QStandardPaths>
 #include <QVariant>
+#include <QScopeGuard>
 
 #include <algorithm>
 #include <optional>
@@ -26,7 +28,7 @@ QString nonNullText(const QString& value)
     return value.isNull() ? QStringLiteral("") : value;
 }
 
-std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerConfig& server)
+std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerConfig& server, bool markUsed = false)
 {
     const auto now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     QSqlQuery orderQuery(database);
@@ -48,7 +50,7 @@ std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerCo
         "auto_login = excluded.auto_login, "
         "private_mode = excluded.private_mode, "
         "enabled = 1, "
-        "last_used_at = excluded.last_used_at"));
+        "last_used_at = CASE WHEN :mark_used = 1 THEN excluded.last_used_at ELSE servers.last_used_at END"));
     serverQuery.bindValue(QStringLiteral(":id"), server.id);
     serverQuery.bindValue(QStringLiteral(":name"), server.name);
     serverQuery.bindValue(QStringLiteral(":base_url"), server.baseUrl);
@@ -59,6 +61,7 @@ std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerCo
     serverQuery.bindValue(QStringLiteral(":private_mode"), server.privateMode ? 1 : 0);
     serverQuery.bindValue(QStringLiteral(":sort_order"), nextOrder);
     serverQuery.bindValue(QStringLiteral(":last_used_at"), now);
+    serverQuery.bindValue(QStringLiteral(":mark_used"), markUsed ? 1 : 0);
 
     if (!serverQuery.exec()) {
         return std::unexpected(sqlError(serverQuery));
@@ -91,12 +94,14 @@ std::expected<void, QString> createDailyUsageStatsTable(QSqlDatabase& database)
 }
 }
 
-SessionRepository::SessionRepository(QString connectionName, QString databasePathOverride, OpenMode openMode)
+SessionRepository::SessionRepository(QString connectionName, QString databasePathOverride, OpenMode openMode,
+                                     SessionTokenCipher::Protection tokenProtection)
     : m_connectionName(std::move(connectionName))
     , m_databasePathOverride(std::move(databasePathOverride))
     , m_settings(QSettings::defaultFormat(), QSettings::UserScope,
                  QStringLiteral("vibePlayerQT"), QStringLiteral("vibePlayerQT"))
     , m_openMode(openMode)
+    , m_tokenProtection(tokenProtection)
 {
     if (QSettings::defaultFormat() == QSettings::IniFormat) m_settings.setFallbacksEnabled(false);
 }
@@ -155,10 +160,13 @@ std::expected<void, QString> SessionRepository::initialize()
         return columnResult;
     }
 
+    if (auto result = initializeSessionTokenCleanup(); !result) return result;
     if (auto migrateResult = migrateSessionsTable(); !migrateResult) {
         return migrateResult;
     }
+    if (auto result = installSessionTokenCleanupTriggers(); !result) return result;
     if (auto result = protectLegacySessionTokens(); !result) return result;
+    if (auto result = collectUnusedSessionCredentials(); !result) return result;
 
     QSqlQuery playlistQuery(m_database);
     if (!playlistQuery.exec(QStringLiteral(
@@ -373,16 +381,24 @@ std::expected<void, QString> SessionRepository::initialize()
 
 std::expected<void, QString> SessionRepository::saveSession(const UserSession& session)
 {
+    if (m_openMode == OpenMode::ReadOnly)
+        return std::unexpected(QStringLiteral("Cannot save a session through a read-only repository"));
     if (auto openResult = ensureOpen(); !openResult) {
         return openResult;
     }
 
-    if (auto serverResult = saveServer(session.server); !serverResult) {
-        return serverResult;
-    }
-
-    const auto protectedToken = SessionTokenCipher::protect(session.accessToken);
+    const auto protectedToken = SessionTokenCipher::protect(session.accessToken, m_tokenProtection);
     if (!protectedToken) return std::unexpected(protectedToken.error());
+    // Runs after SqlTransaction rolls back on any failure. Never journal a new
+    // reference before commit: another process could collect it before insertion.
+    bool committed = false;
+    const auto cleanup = qScopeGuard([&] {
+        if (committed) return;
+        discardUncommittedSessionCredential(*protectedToken);
+    });
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) return result;
+    if (auto result = upsertServer(m_database, session.server, true); !result) return result;
     QSqlQuery sessionQuery(m_database);
     sessionQuery.prepare(QStringLiteral(
         "INSERT INTO sessions (server_id, user_id, username, access_token, created_at) "
@@ -401,7 +417,9 @@ std::expected<void, QString> SessionRepository::saveSession(const UserSession& s
         return std::unexpected(sqlError(sessionQuery));
     }
 
-    return {};
+    if (auto result = transaction.commit(); !result) return result;
+    committed = true;
+    return collectUnusedSessionCredentials();
 }
 
 std::expected<void, QString> SessionRepository::saveServer(const ServerConfig& server)
@@ -1533,7 +1551,7 @@ std::expected<void, QString> SessionRepository::deleteServer(const QString& serv
     if (!importedIptvPath.isEmpty()) {
         QFile::remove(importedIptvPath);
     }
-    return {};
+    return collectUnusedSessionCredentials();
 }
 
 std::expected<void, QString> SessionRepository::moveServer(const QString& serverId, int direction, bool privacyMode)
@@ -1686,7 +1704,8 @@ std::expected<void, QString> SessionRepository::clearServerSession(const QString
     query.prepare(QStringLiteral("DELETE FROM sessions WHERE server_id = :id"));
     query.bindValue(QStringLiteral(":id"), serverId);
     if (!query.exec()) return std::unexpected(sqlError(query));
-    return {};
+    query.finish();
+    return collectUnusedSessionCredentials();
 }
 
 std::expected<void, QString> SessionRepository::clearSession()
@@ -1699,7 +1718,8 @@ std::expected<void, QString> SessionRepository::clearSession()
     if (!query.exec(QStringLiteral("DELETE FROM sessions"))) {
         return std::unexpected(sqlError(query));
     }
-    return {};
+    query.finish();
+    return collectUnusedSessionCredentials();
 }
 
 bool SessionRepository::privacyPinConfigured() const
@@ -2449,30 +2469,112 @@ std::expected<QStringList, QString> SessionRepository::scheduledPlaybackTaskIds(
 
 std::expected<void, QString> SessionRepository::protectLegacySessionTokens()
 {
-#ifdef Q_OS_WIN
     QSqlQuery query(m_database);
-    if (!query.exec(QStringLiteral("PRAGMA secure_delete = ON"))) return std::unexpected(sqlError(query));
-    SqlTransaction transaction(m_database);
-    if (auto result = transaction.begin(); !result) return result;
-    if (!query.exec(QStringLiteral("SELECT id, access_token FROM sessions WHERE access_token NOT LIKE 'dpapi:v1:%'")))
+    if (!query.exec(QStringLiteral("SELECT id, access_token FROM sessions WHERE "
+                                   "access_token NOT LIKE 'dpapi:v1:%' AND access_token NOT LIKE 'keychain:v1:%' ORDER BY id")))
         return std::unexpected(sqlError(query));
-    std::vector<std::pair<qint64, QString>> tokens;
+    struct Token { qint64 id; QString previous; QString protectedValue; };
+    std::vector<Token> tokens;
     while (query.next()) {
-        const auto encrypted = SessionTokenCipher::protect(query.value(1).toString());
-        if (!encrypted) return std::unexpected(encrypted.error());
-        tokens.emplace_back(query.value(0).toLongLong(), *encrypted);
+        tokens.push_back({query.value(0).toLongLong(), query.value(1).toString(), {}});
     }
     query.finish();
-    if (tokens.empty()) return transaction.commit();
-    query.prepare(QStringLiteral("UPDATE sessions SET access_token = :token WHERE id = :id"));
-    for (const auto& [id, token] : tokens) {
-        query.bindValue(QStringLiteral(":id"), id);
-        query.bindValue(QStringLiteral(":token"), token);
+    if (tokens.empty()) return {};
+    bool committed = false;
+    const auto cleanup = qScopeGuard([&] {
+        if (committed) return;
+        for (const auto& token : tokens) discardUncommittedSessionCredential(token.protectedValue);
+    });
+    // Keyring I/O can dispatch events. Do it before taking SQLite's write lock
+    // and compare the original value when updating a concurrently used database.
+    for (auto& token : tokens) {
+        const auto encrypted = SessionTokenCipher::protect(token.previous, m_tokenProtection);
+        if (!encrypted) return std::unexpected(encrypted.error());
+        token.protectedValue = *encrypted;
+    }
+    SqlTransaction transaction(m_database);
+    if (auto result = transaction.begin(); !result) return result;
+    query.prepare(QStringLiteral("UPDATE sessions SET access_token = :token WHERE id = :id AND access_token = :previous"));
+    for (const auto& token : tokens) {
+        if (SessionTokenCipher::isCredentialReference(token.protectedValue)) {
+            QSqlQuery pending(m_database);
+            pending.prepare(QStringLiteral("INSERT OR IGNORE INTO session_credential_cleanup VALUES (:reference)"));
+            pending.bindValue(QStringLiteral(":reference"), token.protectedValue);
+            if (!pending.exec()) return std::unexpected(sqlError(pending));
+        }
+        query.bindValue(QStringLiteral(":id"), token.id);
+        query.bindValue(QStringLiteral(":token"), token.protectedValue);
+        query.bindValue(QStringLiteral(":previous"), token.previous);
         if (!query.exec()) return std::unexpected(sqlError(query));
     }
     query.finish();
-    return transaction.commit();
-#else
+    if (auto result = transaction.commit(); !result) return result;
+    committed = true;
+    return collectUnusedSessionCredentials();
+}
+
+std::expected<void, QString> SessionRepository::initializeSessionTokenCleanup()
+{
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS session_credential_cleanup (reference TEXT PRIMARY KEY)")))
+        return std::unexpected(sqlError(query));
+    // Queue references before a legacy table is replaced or deduplicated. The
+    // collector only deletes entries no longer referenced by the current table.
+    if (m_database.tables().contains(QStringLiteral("sessions")) &&
+        !query.exec(QStringLiteral("INSERT OR IGNORE INTO session_credential_cleanup "
+                                    "SELECT access_token FROM sessions WHERE access_token LIKE 'keychain:v1:%'")))
+        return std::unexpected(sqlError(query));
     return {};
-#endif
+}
+
+std::expected<void, QString> SessionRepository::installSessionTokenCleanupTriggers()
+{
+    QSqlQuery query(m_database);
+    for (const auto& statement : {
+        QStringLiteral("CREATE TRIGGER IF NOT EXISTS session_credential_delete AFTER DELETE ON sessions "
+                       "WHEN OLD.access_token LIKE 'keychain:v1:%' BEGIN "
+                       "INSERT OR IGNORE INTO session_credential_cleanup VALUES (OLD.access_token); END"),
+        QStringLiteral("CREATE TRIGGER IF NOT EXISTS session_credential_update AFTER UPDATE OF access_token ON sessions "
+                       "WHEN OLD.access_token LIKE 'keychain:v1:%' AND OLD.access_token <> NEW.access_token BEGIN "
+                       "INSERT OR IGNORE INTO session_credential_cleanup VALUES (OLD.access_token); END")}) {
+        if (!query.exec(statement)) return std::unexpected(sqlError(query));
+    }
+    return {};
+}
+
+void SessionRepository::discardUncommittedSessionCredential(const QString& reference)
+{
+    if (!SessionTokenCipher::isCredentialReference(reference)) return;
+    if (auto result = SessionTokenCipher::discard(reference); result) return;
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral("INSERT OR IGNORE INTO session_credential_cleanup VALUES (:reference)"));
+    query.bindValue(QStringLiteral(":reference"), reference);
+    const auto queued = query.exec();
+    AppLogger::warning(QStringLiteral("credentials"), queued
+        ? QStringLiteral("Uncommitted session credential cleanup pending; retry on next writable initialization")
+        : QStringLiteral("Unable to journal uncommitted session credential cleanup"));
+}
+
+std::expected<void, QString> SessionRepository::collectUnusedSessionCredentials()
+{
+    QSqlQuery query(m_database);
+    if (!query.exec(QStringLiteral("DELETE FROM session_credential_cleanup WHERE EXISTS "
+                                   "(SELECT 1 FROM sessions WHERE sessions.access_token = session_credential_cleanup.reference)")))
+        return std::unexpected(sqlError(query));
+    if (!query.exec(QStringLiteral("SELECT reference FROM session_credential_cleanup")))
+        return std::unexpected(sqlError(query));
+    QStringList references;
+    while (query.next()) references.append(query.value(0).toString());
+    query.finish();
+    for (const auto& reference : references) {
+        if (SessionTokenCipher::isCredentialReference(reference)) {
+            if (auto result = SessionTokenCipher::discard(reference); !result)
+                return std::unexpected(QStringLiteral("Session database change completed; system credential cleanup remains pending: %1").arg(result.error()));
+        }
+        query.prepare(QStringLiteral("DELETE FROM session_credential_cleanup WHERE reference = :reference"));
+        query.bindValue(QStringLiteral(":reference"), reference);
+        if (!query.exec()) return std::unexpected(sqlError(query));
+        query.finish();
+    }
+    return {};
 }

@@ -8,6 +8,7 @@
 #include <QProcess>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 
 #include <atomic>
 #include <expected>
@@ -148,14 +149,19 @@ private:
                              EncryptedHlsContainerFormat format) const;
 
     TsslStore& m_store;
-    QProcess m_ffmpeg;
+    QProcess* m_ffmpeg;
     QFutureWatcher<std::expected<QString, QString>> m_codecProbeWatcher;
     QFutureWatcher<std::expected<EncryptedHlsPreparedPackage, QString>> m_encryptionWatcher;
     QFutureWatcher<std::expected<EncryptedHlsTarIndex, QString>> m_tarWatcher;
     EncryptedHlsPreparedPackage m_pendingPreparedPackage;
     EncryptedHlsPackageRequest m_pendingRequest;
-    std::unique_ptr<QTemporaryDir> m_stagingDirectory;
-    std::atomic_bool m_cancelRequested { false };
+    // Workers retain these independently of the QObject; destruction requests
+    // cancellation without waiting for the global thread pool or file I/O.
+    std::shared_ptr<QTemporaryDir> m_stagingDirectory;
+    std::shared_ptr<QTemporaryDir> m_tarDirectory;
+    std::shared_ptr<std::atomic_bool> m_cancelRequested { std::make_shared<std::atomic_bool>(false) };
+    std::shared_ptr<std::atomic<double>> m_encryptionProgress;
+    QTimer m_progressTimer;
     QByteArray m_progressBuffer;
     QByteArray m_diagnostics;
     QString m_outputDirectory;

@@ -1629,6 +1629,9 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
                                .arg(normalizedErrorMessage(message)));
     }
 
+    if (ok && active->queued.direction != Direction::Download) {
+        emit remoteWriteCompleted(active->queued.server.id, active->queued.remoteUrl);
+    }
     emit taskFinished(taskId, ok, message);
     if (status == statusCanceled() && !canRetryCanceledTransfer(active->queued.direction)) {
         m_taskDefinitions.remove(taskId);

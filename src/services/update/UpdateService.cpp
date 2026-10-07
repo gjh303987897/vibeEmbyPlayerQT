@@ -214,6 +214,9 @@ std::optional<UpdateRelease> UpdateService::parseReleases(const QByteArray& cont
             release.assets.append(asset);
         }
         release.assets = selectPlatformAssets(release.assets);
+        // A release for another platform must not hide an older installable
+        // update or open a dialog with no download actions.
+        if (release.assets.isEmpty()) continue;
         best = release;
     }
     return best;

@@ -1,4 +1,5 @@
 #include "services/credentials/CredentialStore.h"
+#include "services/credentials/NativeCredentialStore.h"
 
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -19,15 +20,14 @@ QString secretTargetName(const QString& key)
     return QStringLiteral("vibePlayerQT/Secret/%1").arg(key);
 }
 
-QString unavailableMessage()
-{
-    return QStringLiteral("System credential store is not available on this platform");
-}
 }
 
 bool CredentialStore::isAvailable()
 {
 #ifdef Q_OS_WIN
+    return true;
+#elif defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
+    // Capability, not a guarantee that the user's keyring is currently unlocked.
     return true;
 #else
     return false;
@@ -38,6 +38,8 @@ std::expected<void, QString> CredentialStore::savePassword(const QString& key,
                                                            const QString& username,
                                                            const QString& password)
 {
+    if (key.isEmpty() || key.contains(QChar::Null) || password.contains(QChar::Null))
+        return std::unexpected(QStringLiteral("Invalid system credential input"));
 #ifdef Q_OS_WIN
     const auto target = targetName(key).toStdWString();
     const auto user = username.toStdWString();
@@ -57,10 +59,10 @@ std::expected<void, QString> CredentialStore::savePassword(const QString& key,
     }
     return {};
 #else
-    Q_UNUSED(key)
     Q_UNUSED(username)
-    Q_UNUSED(password)
-    return std::unexpected(unavailableMessage());
+    const auto result = NativeCredentialStore::execute(NativeCredentialStore::Operation::Write, targetName(key), password);
+    if (!result) return std::unexpected(result.error());
+    return {};
 #endif
 }
 
@@ -83,8 +85,7 @@ std::expected<std::optional<QString>, QString> CredentialStore::loadPassword(con
     CredFree(credential);
     return std::optional<QString> { password };
 #else
-    Q_UNUSED(key)
-    return std::unexpected(unavailableMessage());
+    return NativeCredentialStore::execute(NativeCredentialStore::Operation::Read, targetName(key));
 #endif
 }
 
@@ -100,13 +101,16 @@ std::expected<void, QString> CredentialStore::deletePassword(const QString& key)
     }
     return {};
 #else
-    Q_UNUSED(key)
-    return std::unexpected(unavailableMessage());
+    const auto result = NativeCredentialStore::execute(NativeCredentialStore::Operation::Remove, targetName(key));
+    if (!result) return std::unexpected(result.error());
+    return {};
 #endif
 }
 
 std::expected<void, QString> CredentialStore::saveSecret(const QString& key, const QString& secret)
 {
+    if (key.isEmpty() || key.contains(QChar::Null) || secret.contains(QChar::Null))
+        return std::unexpected(QStringLiteral("Invalid system credential input"));
 #ifdef Q_OS_WIN
     const auto target = secretTargetName(key).toStdWString();
     auto bytes = secret.toUtf8();
@@ -122,9 +126,9 @@ std::expected<void, QString> CredentialStore::saveSecret(const QString& key, con
     }
     return {};
 #else
-    Q_UNUSED(key)
-    Q_UNUSED(secret)
-    return std::unexpected(unavailableMessage());
+    const auto result = NativeCredentialStore::execute(NativeCredentialStore::Operation::Write, secretTargetName(key), secret);
+    if (!result) return std::unexpected(result.error());
+    return {};
 #endif
 }
 
@@ -145,8 +149,7 @@ std::expected<std::optional<QString>, QString> CredentialStore::loadSecret(const
     CredFree(credential);
     return std::optional<QString> { result };
 #else
-    Q_UNUSED(key)
-    return std::unexpected(unavailableMessage());
+    return NativeCredentialStore::execute(NativeCredentialStore::Operation::Read, secretTargetName(key));
 #endif
 }
 
@@ -159,7 +162,8 @@ std::expected<void, QString> CredentialStore::deleteSecret(const QString& key)
     }
     return {};
 #else
-    Q_UNUSED(key)
-    return std::unexpected(unavailableMessage());
+    const auto result = NativeCredentialStore::execute(NativeCredentialStore::Operation::Remove, secretTargetName(key));
+    if (!result) return std::unexpected(result.error());
+    return {};
 #endif
 }

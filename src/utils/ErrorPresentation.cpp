@@ -19,7 +19,10 @@ bool containsAny(const QString& value, std::initializer_list<QStringView> needle
 QString ErrorPresentation::sanitizeDetails(QString details)
 {
     details.replace(QRegularExpression(QStringLiteral("(?i)(authorization\\s*[:=]\\s*)(?:(?:bearer|basic)\\s+)?[^\\s,;]+")), QStringLiteral("\\1[REDACTED]"));
-    details.replace(QRegularExpression(QStringLiteral("(?i)(cookie\\s*[:=]\\s*|api[-_ ]?key\\s*[:=]\\s*|token\\s*[:=]\\s*)[^\\s,;]+")), QStringLiteral("\\1[REDACTED]"));
+    // Cookie contains several semicolon-separated secrets; replacing only the
+    // first value would leave later cookies in both console and file logs.
+    details.replace(QRegularExpression(QStringLiteral("(?i)(cookie[ \\t]*[:=][ \\t]*)[^\\r\\n]*")), QStringLiteral("\\1[REDACTED]"));
+    details.replace(QRegularExpression(QStringLiteral("(?i)(api[-_ ]?key\\s*[:=]\\s*|token\\s*[:=]\\s*)[^\\s,;]+")), QStringLiteral("\\1[REDACTED]"));
     details.replace(QRegularExpression(QStringLiteral("(?i)(https?://)([^/@\\s]+):([^/@\\s]+)@([^/\\s]+)")), QStringLiteral("\\1[REDACTED]@[REDACTED]"));
     details.replace(QRegularExpression(QStringLiteral("(?i)([?&](?:api[_-]?key|token|password|passwd|secret)=)[^&\\s]+")), QStringLiteral("\\1[REDACTED]"));
     constexpr qsizetype maxDetailsLength = 11970;

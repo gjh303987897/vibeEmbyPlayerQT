@@ -159,12 +159,12 @@ QString serviceActivationConnectionName()
         .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
 }
 
-ServiceActivationResult prepareServiceActivation(const ServiceCard& card)
+ServiceActivationResult prepareServiceActivation(const ServiceCard& card, const QString& databasePath)
 {
     ServiceActivationData data;
     switch (card.server.serviceType) {
     case ServiceType::IPTV: {
-        SessionRepository repository(serviceActivationConnectionName());
+        SessionRepository repository(serviceActivationConnectionName(), databasePath);
         auto playlist = repository.loadIptvPlaylist(card.server.id);
         if (!playlist) {
             return std::unexpected(playlist.error());
@@ -193,7 +193,7 @@ ServiceActivationResult prepareServiceActivation(const ServiceCard& card)
     case ServiceType::Emby:
     case ServiceType::Jellyfin:
         if (card.server.autoLogin) {
-            SessionRepository repository(serviceActivationConnectionName());
+            SessionRepository repository(serviceActivationConnectionName(), databasePath);
             auto session = repository.loadSession(card.server.id);
             if (!session) {
                 return std::unexpected(session.error());
@@ -2024,9 +2024,11 @@ const QHash<QString, QString>& scheduledPlaybackChineseTexts()
 }
 }
 
-AppViewModel::AppViewModel(QObject* parent)
+AppViewModel::AppViewModel(QObject* parent, QString databasePath)
     : QObject(parent)
     , m_fileDialogs(this)
+    , m_databasePathOverride(databasePath)
+    , m_repository(QStringLiteral("vibeplayer_session"), databasePath)
     , m_embyClient(m_embyNetworkClient, this)
     , m_jellyfinClient(m_jellyfinNetworkClient, this)
     , m_webDavDownloadPlanner(m_webDavClient)
@@ -2036,7 +2038,15 @@ AppViewModel::AppViewModel(QObject* parent)
                            [this](const QString& key) { return trText(key); }, this)
     , m_updateService(this)
     , m_scheduledPlaybackManager(m_embyClient, m_repository, this)
+    , m_serviceCardLoader(this, std::move(databasePath))
 {
+    connect(this, &AppViewModel::loadingChanged, this, &AppViewModel::notifyLoadingServiceCardIdChanged);
+    connect(this, &AppViewModel::currentViewChanged, this, &AppViewModel::notifyLoadingServiceCardIdChanged);
+    connect(&m_serviceCardLoader, &ServiceCardLoader::ready, this, &AppViewModel::applyServiceCards);
+    connect(&m_serviceCardLoader, &ServiceCardLoader::failed, this, [this](const QString& message) {
+        AppLogger::warning(QStringLiteral("services"), QStringLiteral("Load service cards failed: %1").arg(message));
+        setError(message);
+    });
     connect(this, &AppViewModel::currentViewChanged, &m_fileDialogs, &FileDialogController::cancel);
     connect(this, &AppViewModel::currentServerChanged, &m_fileDialogs, &FileDialogController::cancel);
     m_homeCacheWarmTimer.setSingleShot(true);
@@ -2247,9 +2257,29 @@ AppViewModel::AppViewModel(QObject* parent)
             }
             emit m3u8sPackagingChanged();
         }
-        if (m_currentWebDavCard && m_currentView == QStringLiteral("webdav")) {
+    });
+    m_webDavRefreshTimer.setSingleShot(true);
+    m_webDavRefreshTimer.setInterval(200);
+    connect(&m_webDavRefreshTimer, &QTimer::timeout, this, [this]() {
+        if (m_currentWebDavCard && m_currentView == QStringLiteral("webdav") &&
+            m_currentWebDavCard->server.id == m_webDavRefreshServiceId &&
+            ensureDirectoryUrl(m_webDavCurrentUrl) == m_webDavRefreshDirectory) {
             refreshWebDavDirectory();
         }
+    });
+    connect(&m_transferManager, &TransferManager::remoteWriteCompleted, this,
+            [this](const QString& serviceId, QUrl remoteUrl) {
+        if (!m_currentWebDavCard || m_currentView != QStringLiteral("webdav") ||
+            m_currentWebDavCard->server.id != serviceId) return;
+        // A MKCOL URL can end with '/'; remove it before finding its parent.
+        auto path = remoteUrl.path();
+        if (path.endsWith(QLatin1Char('/'))) path.chop(1);
+        remoteUrl.setPath(path);
+        const auto parent = ensureDirectoryUrl(remoteUrl.adjusted(QUrl::RemoveFilename | QUrl::RemoveQuery | QUrl::RemoveFragment));
+        if (parent != ensureDirectoryUrl(m_webDavCurrentUrl)) return;
+        m_webDavRefreshServiceId = serviceId;
+        m_webDavRefreshDirectory = parent;
+        m_webDavRefreshTimer.start();
     });
     connect(&m_scheduledPlaybackManager,
             &ScheduledPlaybackManager::statusChanged,
@@ -4415,7 +4445,7 @@ void AppViewModel::initialize()
 void AppViewModel::beginAddServiceCard()
 {
     m_pendingHistoryReplay.reset();
-    m_pendingServiceCard.reset();
+    setPendingServiceCard(std::nullopt);
     setServerName(QString {});
     setServerUrl(QString {});
     setUsername(QString {});
@@ -4459,7 +4489,7 @@ void AppViewModel::saveServiceCard()
         AppLogger::info(QStringLiteral("iptv"),
                         QStringLiteral("Imported IPTV playlist into managed application storage"));
 
-        m_pendingServiceCard.reset();
+        setPendingServiceCard(std::nullopt);
         setIptvFilePath(QString {});
         refreshServiceCards();
         setCurrentView(QStringLiteral("services"));
@@ -4485,7 +4515,7 @@ void AppViewModel::saveServiceCard()
             setError(saveResult.error());
             return;
         }
-        m_pendingServiceCard.reset();
+        setPendingServiceCard(std::nullopt);
         setPassword(QString {});
         refreshServiceCards();
         setCurrentView(QStringLiteral("services"));
@@ -4512,7 +4542,7 @@ void AppViewModel::saveServiceCard()
         setError(saveResult.error());
         return;
     }
-    m_pendingServiceCard.reset();
+    setPendingServiceCard(std::nullopt);
     refreshServiceCards();
     setCurrentView(QStringLiteral("services"));
 }
@@ -4524,7 +4554,7 @@ void AppViewModel::invalidateServiceActivation()
     m_serviceCardTransitionActive = false;
     m_serviceCardTransitionExpanded = true;
     m_pendingServiceActivationCommit = {};
-    m_pendingServiceCard.reset();
+    setPendingServiceCard(std::nullopt);
     if (m_currentView == QStringLiteral("services")) {
         setLoading(false);
     }
@@ -4581,7 +4611,7 @@ void AppViewModel::selectServiceCard(int row)
         });
     }
 
-    m_pendingServiceCard = *card;
+    setPendingServiceCard(*card);
     const auto selectedServerId = card->server.id;
     setLoading(true);
     QTimer::singleShot(serviceActivationFeedbackMs, this,
@@ -4699,8 +4729,8 @@ void AppViewModel::selectServiceCard(int row)
                 QTimer::singleShot(serviceActivationCommitDelayMs, this, std::move(commit));
             }
         });
-        watcher->setFuture(QtConcurrent::run([card]() {
-            return prepareServiceActivation(card);
+        watcher->setFuture(QtConcurrent::run([card, path = m_databasePathOverride]() {
+            return prepareServiceActivation(card, path);
         }));
     });
 }
@@ -4756,7 +4786,7 @@ void AppViewModel::editServiceCard(int row)
         return;
     }
 
-    m_pendingServiceCard = *card;
+    setPendingServiceCard(*card);
     setServerUrl(card->server.baseUrl);
     setServerName(card->server.name);
     setUsername(card->server.username);
@@ -5280,8 +5310,8 @@ void AppViewModel::refreshLinkPlaybackHistory()
         }
         m_linkPlaybackHistory.setItems(std::move(visibleItems));
     });
-    watcher->setFuture(QtConcurrent::run([privacyMode]() {
-        SessionRepository repository(serviceActivationConnectionName());
+    watcher->setFuture(QtConcurrent::run([privacyMode, path = m_databasePathOverride]() {
+        SessionRepository repository(serviceActivationConnectionName(), path);
         return repository.loadLinkPlaybackHistory(privacyMode);
     }));
 }
@@ -5387,8 +5417,8 @@ void AppViewModel::loadGlobalHistoryPage(bool resetItems)
                 m_globalHistoryLoading = false;
                 emit globalHistoryStateChanged();
             });
-    watcher->setFuture(QtConcurrent::run([privacyMode, startIndex, pageSize, source]() -> GlobalHistoryPageResult {
-        SessionRepository repository(serviceActivationConnectionName());
+    watcher->setFuture(QtConcurrent::run([privacyMode, startIndex, pageSize, source, path = m_databasePathOverride]() -> GlobalHistoryPageResult {
+        SessionRepository repository(serviceActivationConnectionName(), path);
         auto history = repository.loadPlaybackHistory(privacyMode, startIndex, pageSize, source);
         if (!history) {
             return std::unexpected(history.error());
@@ -5583,7 +5613,7 @@ bool AppViewModel::playGlobalHistory(const QString& recordId)
         const auto password = loadWebDavPassword(card->server);
         if (!password) {
             m_pendingHistoryReplay = item;
-            m_pendingServiceCard = *card;
+            setPendingServiceCard(*card);
             setServerUrl(card->server.baseUrl);
             setServerName(card->server.name);
             setUsername(card->server.username);
@@ -5750,7 +5780,7 @@ bool AppViewModel::replayMediaServerHistory(const PlaybackHistoryItem& historyIt
     }
     if (!sessionResult->has_value()) {
         m_pendingHistoryReplay = historyItem;
-        m_pendingServiceCard = *card;
+        setPendingServiceCard(*card);
         setServerUrl(card->server.baseUrl);
         setServerName(card->server.name);
         setUsername(card->server.username);
@@ -5786,7 +5816,7 @@ bool AppViewModel::replayMediaServerHistory(const PlaybackHistoryItem& historyIt
                 const auto card = serviceCardForHistory(historyCopy.serviceId);
                 if (card) {
                     m_pendingHistoryReplay = historyCopy;
-                    m_pendingServiceCard = *card;
+                    setPendingServiceCard(*card);
                     emit passwordRequired(card->server.name, card->server.username);
                     return;
                 }
@@ -7846,12 +7876,7 @@ void AppViewModel::exitPrivacyMode()
 
 void AppViewModel::refreshPrivacyCards()
 {
-    const auto cardsResult = m_repository.loadAllServiceCards();
-    if (!cardsResult) {
-        setError(cardsResult.error());
-        return;
-    }
-    m_privacyCards.setCards(*cardsResult);
+    refreshServiceCards();
 }
 
 void AppViewModel::setPrivacyCardPrivate(int row, bool privateMode)
@@ -8078,7 +8103,7 @@ void AppViewModel::logout()
     invalidateHomeLoading();
     setLoading(false);
     m_session.reset();
-    m_pendingServiceCard.reset();
+    setPendingServiceCard(std::nullopt);
     clearIptvState();
     clearWebDavState();
     m_currentLibrary.reset();
@@ -8111,7 +8136,7 @@ void AppViewModel::backToServices()
     m_initialServiceHasValidData = false;
     m_initialServiceError.clear();
     m_session.reset();
-    m_pendingServiceCard.reset();
+    setPendingServiceCard(std::nullopt);
     clearIptvState();
     clearWebDavState();
     clearLocalMediaDirectory();
@@ -9556,14 +9581,14 @@ void AppViewModel::playSelectedItem()
     setForegroundPlaybackActive(true);
     setLoading(true);
     const auto itemName = m_selectedItem->name;
-    const auto allowInsecureTls = m_session->server.trustSelfSignedCertificate;
+    const auto playbackServer = m_session->server;
     const auto historyReplayGeneration = m_currentView == QStringLiteral("globalHistory")
         ? m_globalHistoryReplayGeneration
         : -1;
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Fetching playback info for selected media item"));
     client->fetchPlaybackUrl(*m_session,
                              *m_selectedItem,
-                             [this, itemName, allowInsecureTls, historyReplayGeneration](PlaybackUrlResult result) {
+                             [this, itemName, playbackServer, historyReplayGeneration](PlaybackUrlResult result) {
         setLoading(false);
         if (historyReplayGeneration >= 0 && historyReplayGeneration != m_globalHistoryReplayGeneration) {
             setForegroundPlaybackActive(false);
@@ -9577,13 +9602,30 @@ void AppViewModel::playSelectedItem()
             return;
         }
 
-        m_currentPlaybackUrl = result->url;
+        auto playbackUrl = result->url;
+        if (playbackServer.trustSelfSignedCertificate && playbackUrl.scheme() == QStringLiteral("https")) {
+            auto proxyServer = playbackServer;
+            // The media stream carries api_key; the login name is not HTTP
+            // Basic authentication and must not be forwarded on a challenge.
+            proxyServer.username.clear();
+            playbackUrl = m_webDavPlaybackProxy.streamUrlFor(proxyServer, {}, result->url);
+            if (playbackUrl == result->url) {
+                setForegroundPlaybackActive(false);
+                setError(QStringLiteral("Unable to start the validated HTTPS playback proxy"));
+                return;
+            }
+            if (!m_webDavPlaybackStreamId.isEmpty()) m_webDavPlaybackProxy.revoke(m_webDavPlaybackStreamId);
+            m_webDavPlaybackStreamId = playbackUrl.path().section(QLatin1Char('/'), 1, 1);
+        }
+        m_currentPlaybackUrl = playbackUrl;
         m_playbackOrigin = PlaybackOrigin::MediaServer;
         m_currentIptvChannelId.clear();
         m_currentMediaSourceId = result->mediaSourceId;
         m_currentPlaySessionId = result->playSessionId;
         m_currentPlaybackSubtitleStreamIndex = result->subtitleStreamIndex;
-        m_playbackAllowInsecureTls = allowInsecureTls;
+        m_playbackHttpUsername.clear();
+        m_playbackHttpPassword.clear();
+        m_playbackAllowInsecureTls = false;
         m_currentPlaybackStartSeconds = result->startSeconds;
         m_lastPlaybackReportSeconds = -1.0;
         m_playbackStartedReported = false;
@@ -10028,13 +10070,41 @@ ServerConfig AppViewModel::makeServerConfig() const
 
 void AppViewModel::refreshServiceCards()
 {
-    const auto cardsResult = m_repository.loadServiceCards(m_privacyMode);
-    if (!cardsResult) {
-        setError(cardsResult.error());
-        return;
+    // Locking privacy takes effect before an in-flight read can finish.
+    // Ordinary cards stay visible while the background snapshot refreshes.
+    if (!m_privacyMode) {
+        for (auto* model : {&m_services, &m_scheduledEmbySources}) {
+            std::vector<ServiceCard> visible;
+            bool removed = false;
+            for (int row = 0; row < model->count(); ++row) {
+                const auto card = model->cardAt(row);
+                if (card->server.privateMode) removed = true;
+                else visible.push_back(*card);
+            }
+            if (removed) model->setCards(std::move(visible));
+        }
+        if (m_m3u8sWebDavCard && m_m3u8sWebDavCard->server.privateMode) {
+            m_m3u8sWebDavCard.reset();
+            m_m3u8sWebDavPassword.clear();
+            emit m3u8sWebDavPickerChanged();
+        }
     }
-    m_services.setCards(*cardsResult);
+    m_serviceCardLoader.refresh();
+}
+
+void AppViewModel::applyServiceCards(const std::vector<ServiceCard>& cards)
+{
+    std::vector<ServiceCard> visible, sources;
+    for (const auto& card : cards) {
+        if (!m_privacyMode && card.server.privateMode) continue;
+        visible.push_back(card);
+        if (card.server.serviceType == ServiceType::Emby && card.hasSession) sources.push_back(card);
+    }
+    m_privacyCards.setCards(cards);
+    m_scheduledEmbySources.setCards(std::move(sources));
+    m_services.setCards(std::move(visible));
     m_m3u8sWebDavCard.reset();
+    m_m3u8sWebDavPassword.clear();
     if (!m_m3u8sWebDavServiceId.isEmpty()) {
         for (int row = 0; row < m_services.count(); ++row) {
             const auto card = m_services.cardAt(row);
@@ -10051,7 +10121,6 @@ void AppViewModel::refreshServiceCards()
     }
     emit m3u8sWebDavPickerChanged();
     emit tsslBackupChanged();
-    refreshScheduledEmbySources();
 }
 
 void AppViewModel::refreshLocalMediaRoots()
@@ -10074,8 +10143,8 @@ void AppViewModel::refreshLocalMediaRoots()
         }
         m_localMediaRoots.setRoots(std::move(roots));
     });
-    watcher->setFuture(QtConcurrent::run([]() {
-        SessionRepository repository(serviceActivationConnectionName());
+    watcher->setFuture(QtConcurrent::run([path = m_databasePathOverride]() {
+        SessionRepository repository(serviceActivationConnectionName(), path);
         return repository.loadLocalMediaRoots();
     }));
 }
@@ -10177,21 +10246,7 @@ void AppViewModel::refreshScheduledPlaybackTasks()
 
 void AppViewModel::refreshScheduledEmbySources()
 {
-    const auto result = m_repository.loadAllServiceCards();
-    if (!result) {
-        AppLogger::warning(QStringLiteral("scheduled-playback"),
-                           QStringLiteral("Load Emby sources failed: %1").arg(result.error()));
-        return;
-    }
-
-    std::vector<ServiceCard> sources;
-    for (const auto& card : *result) {
-        if (card.server.serviceType == ServiceType::Emby && card.hasSession &&
-            (m_privacyMode || !card.server.privateMode)) {
-            sources.push_back(card);
-        }
-    }
-    m_scheduledEmbySources.setCards(std::move(sources));
+    refreshServiceCards();
 }
 
 void AppViewModel::setForegroundPlaybackActive(bool active)
@@ -11222,6 +11277,20 @@ void AppViewModel::setLoading(bool value)
     }
     m_loading = value;
     emit loadingChanged();
+}
+
+void AppViewModel::setPendingServiceCard(std::optional<ServiceCard> card)
+{
+    m_pendingServiceCard = std::move(card);
+    notifyLoadingServiceCardIdChanged();
+}
+
+void AppViewModel::notifyLoadingServiceCardIdChanged()
+{
+    const auto id = loadingServiceCardId();
+    if (id == m_publishedLoadingServiceCardId) return;
+    m_publishedLoadingServiceCardId = id;
+    emit loadingServiceCardIdChanged();
 }
 
 void AppViewModel::setEpisodeSwitching(bool value)

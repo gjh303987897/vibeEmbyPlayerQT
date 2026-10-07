@@ -9,6 +9,12 @@ streaming package plus `.sha256` verification out of QML.
 opened with the platform default handler only after the sidecar hash and package size
 have been verified.
 
+Release selection chooses the highest newer channel-compatible version with at
+least one package for the current platform and architecture. A release containing
+only other platforms or no packages is skipped, so it cannot hide an older usable
+update or open an empty download dialog. Packages lacking a checksum remain
+visible with the existing warning and disabled download action.
+
 Release assets must provide a same-name GNU checksum sidecar, for example:
 
 `vibePlayerQT-1.0.2-windows-x86_64-installer.exe.sha256`

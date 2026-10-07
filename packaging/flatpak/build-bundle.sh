@@ -76,6 +76,7 @@ flatpak build-finish \
   --socket=x11 \
   --socket=wayland \
   --socket=pulseaudio \
+  --talk-name=org.freedesktop.secrets \
   --device=dri \
   --filesystem=host \
   "$build_dir"

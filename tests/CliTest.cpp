@@ -21,11 +21,56 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QScopeGuard>
 #include <algorithm>
 
 class CliTest final : public QObject {
     Q_OBJECT
 private slots:
+    void serviceCompletionCachesMetadataAndRespectsPrivacyChanges()
+    {
+        QTemporaryDir temporary;
+        const auto originalFormat = QSettings::defaultFormat();
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary.path());
+        const auto restoreSettings = qScopeGuard([originalFormat] { QSettings::setDefaultFormat(originalFormat); });
+        const auto connection = QStringLiteral("completion-seed");
+        SessionRepository repository(connection, temporary.filePath("vibeplayer.sqlite3"));
+        QVERIFY(repository.initialize());
+        ServerConfig server {.id = "public", .name = "Public NAS", .baseUrl = "https://localhost/",
+                             .username = "tester", .serviceType = ServiceType::WebDAV};
+        QVERIFY(repository.saveServer(server));
+        server.id = "private"; server.name = "Private NAS"; server.privateMode = true;
+        QVERIFY(repository.saveServer(server));
+        Cli::Engine engine(temporary.path());
+        Cli::Shell shell(engine, {});
+        QVERIFY(shell.complete("service show Pub").contains("service show \"Public NAS\""));
+        QVERIFY(!shell.complete("service show Pri").contains("service show \"Private NAS\""));
+        QSqlQuery lock(QSqlDatabase::database(connection));
+        QVERIFY(lock.exec("BEGIN EXCLUSIVE"));
+        QElapsedTimer elapsed;
+        elapsed.start();
+        bool found = true;
+        for (int i = 0; i < 10; ++i)
+            found &= shell.complete("service show Pub").contains("service show \"Public NAS\"");
+        const auto duration = elapsed.elapsed();
+        QVERIFY(lock.exec("ROLLBACK"));
+        QVERIFY(found);
+        QVERIFY2(duration < 100, "Repeated completion waited on the database instead of the cached names");
+        server.id = "public"; server.name = "Renamed NAS"; server.privateMode = false;
+        QVERIFY(repository.saveServer(server));
+        QTest::qWait(550);
+        QVERIFY(shell.complete("service show Ren").contains("service show \"Renamed NAS\""));
+        qputenv("COMPLETION_PIN", "1234");
+        const auto configured = shell.execute("privacy set --new-pin-env COMPLETION_PIN --confirm-pin-env COMPLETION_PIN");
+        const auto unlocked = shell.execute("privacy unlock --pin-env COMPLETION_PIN");
+        qunsetenv("COMPLETION_PIN");
+        QCOMPARE(configured.second.code, Cli::ExitCode::Success);
+        QCOMPARE(unlocked.second.code, Cli::ExitCode::Success);
+        QVERIFY(shell.complete("service show Pri").contains("service show \"Private NAS\""));
+        QCOMPARE(shell.execute("privacy lock").second.code, Cli::ExitCode::Success);
+        QVERIFY(!shell.complete("service show Pri").contains("service show \"Private NAS\""));
+    }
     void smbPathsStayWithinConfiguredRoot()
     {
         ServerConfig server {.id = "test-smb",.name = "NAS",.baseUrl = "smb://nas/share/root",

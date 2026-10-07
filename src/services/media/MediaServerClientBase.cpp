@@ -569,8 +569,8 @@ void MediaServerClientBase::fetchPlaybackUrlWithScheme(const QString& authScheme
     auto url = makeUrl(session.server.baseUrl, QStringLiteral("/Items/%1/PlaybackInfo").arg(item.id));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("UserId"), session.userId);
-    query.addQueryItem(QStringLiteral("IsPlayback"), QStringLiteral("true"));
-    query.addQueryItem(QStringLiteral("AutoOpenLiveStream"), QStringLiteral("true"));
+    // GET PlaybackInfo accepts UserId. Opening live sources is a separate POST
+    // lifecycle; this direct-play path does not request an automatic open.
     url.setQuery(query);
 
     const auto headers = authHeaders(authScheme, session.accessToken);

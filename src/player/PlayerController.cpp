@@ -501,6 +501,12 @@ void PlayerController::playUrl(const QString& url,
         emit errorOccurred(message);
         return;
     }
+    if (allowInsecureTls) {
+        // A self-signed exception belongs to the validating Qt proxy. libmpv's
+        // tls-verify=no would also waive host-name and validity checks.
+        emit errorOccurred(QStringLiteral("Self-signed HTTPS playback requires the validated playback proxy"));
+        return;
+    }
     m_stopRequested = false;
     m_preferredSubtitleStreamIndex = std::max(-1, preferredSubtitleStreamIndex);
     m_preferredSubtitleSelectionApplied = m_preferredSubtitleStreamIndex < 0;
@@ -531,7 +537,7 @@ void PlayerController::playUrl(const QString& url,
         return;
     }
     const auto tlsVerifyResult = mpv_set_property_string(
-        m_mpv, "options/tls-verify", allowInsecureTls ? "no" : "yes");
+        m_mpv, "options/tls-verify", "yes");
     if (tlsVerifyResult < 0) {
         AppLogger::warning(QStringLiteral("player"),
                            QStringLiteral("Unable to update libmpv TLS verification mode: %1")

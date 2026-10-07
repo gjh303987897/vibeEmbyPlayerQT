@@ -240,6 +240,24 @@ the `.m3u8s` and encrypted `.ts` files. A TSSL recovery copy is created only
 through the manager's explicit export action, so uploading the media directory
 cannot accidentally disclose its keys.
 
+The packager's codec-probe, encryption and TAR workers capture shared cancellation
+state and owned temporary directories, never the packager QObject. Encryption
+progress is an atomic value sampled by a 100 ms GUI timer. Destroying the owner
+requests cancellation and disconnects result delivery without joining workers.
+An active FFmpeg process is killed asynchronously and retained by the application
+until exit; its output directory is kept alive until output handles are released,
+then cleaned on a worker. Application shutdown can still wait for the global
+thread pool to finish cleanup after the UI has closed.
+
+TAR output is built in a unique `.m3u8sp-publish-*` directory on the output
+filesystem. Only the live owner, after saving its TSSL metadata, renames that
+archive into the final destination. Publication failure rolls back the newly
+saved metadata. Cancellation, failure or owner destruction removes unpublished
+archives, including a worker that finishes after the owner closes. This does not
+delete previously completed packages. Tests exercise all three queued worker
+phases, repeated destruction while FFmpeg starts, and the ordinary successful
+directory/TAR pipelines.
+
 The user must explicitly choose a custom staging root in the M3U8S manager for
 both local and WebDAV exports; the application does not fall back to the system
 temporary directory. The selected directory is only the parent; each package

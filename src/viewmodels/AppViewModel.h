@@ -21,6 +21,7 @@
 #include "services/local/LocalMediaService.h"
 #include "services/scheduler/ScheduledPlaybackManager.h"
 #include "services/update/UpdateService.h"
+#include "services/management/ServiceCardLoader.h"
 #include "utils/ErrorPresentation.h"
 #include "viewmodels/IptvChannelListModel.h"
 #include "viewmodels/EncryptedHlsRestoreViewModel.h"
@@ -203,7 +204,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool pageTransitionsEnabled READ pageTransitionsEnabled WRITE setPageTransitionsEnabled NOTIFY pageTransitionsEnabledChanged)
     Q_PROPERTY(int translationRevision READ translationRevision NOTIFY translationsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
-    Q_PROPERTY(QString loadingServiceCardId READ loadingServiceCardId NOTIFY loadingChanged)
+    Q_PROPERTY(QString loadingServiceCardId READ loadingServiceCardId NOTIFY loadingServiceCardIdChanged)
     Q_PROPERTY(bool episodeSwitching READ episodeSwitching NOTIFY episodeSwitchingChanged)
     Q_PROPERTY(bool homeLoading READ homeLoading NOTIFY homeLoadingChanged)
     Q_PROPERTY(bool libraryItemsLoading READ libraryItemsLoading NOTIFY libraryItemsLoadingChanged)
@@ -300,7 +301,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool scheduledTaskEnabled READ scheduledTaskEnabled WRITE setScheduledTaskEnabled NOTIFY scheduledTaskEditorChanged)
 
 public:
-    explicit AppViewModel(QObject* parent = nullptr);
+    explicit AppViewModel(QObject* parent = nullptr, QString databasePath = {});
 
     QString serverUrl() const;
     void setServerUrl(const QString& value);
@@ -843,6 +844,7 @@ signals:
     void pageTransitionsEnabledChanged();
     void translationsChanged();
     void loadingChanged();
+    void loadingServiceCardIdChanged();
     void episodeSwitchingChanged();
     void homeLoadingChanged();
     void libraryItemsLoadingChanged();
@@ -900,6 +902,9 @@ private:
     MediaServiceClient* clientFor(ServiceType type);
     ServerConfig makeServerConfig() const;
     void refreshServiceCards();
+    void applyServiceCards(const std::vector<ServiceCard>& cards);
+    void setPendingServiceCard(std::optional<ServiceCard> card);
+    void notifyLoadingServiceCardIdChanged();
     void refreshLocalMediaRoots();
     void loadLocalMediaDirectory(const QString& path);
     void clearLocalMediaDirectory();
@@ -1098,6 +1103,7 @@ private:
     AppErrorPresentation m_errorPresentation;
     std::optional<UserSession> m_session;
     std::optional<ServiceCard> m_pendingServiceCard;
+    QString m_publishedLoadingServiceCardId;
     quint64 m_serviceActivationGeneration { 0 };
     bool m_serviceActivationInFlight { false };
     bool m_serviceCardTransitionActive { false };
@@ -1188,16 +1194,21 @@ private:
     TsslBackupService m_tsslBackupService;
     WebDavDownloadPlanner m_webDavDownloadPlanner;
     WebDavPlaybackProxy m_webDavPlaybackProxy;
+    QTimer m_webDavRefreshTimer;
+    QString m_webDavRefreshServiceId;
+    QUrl m_webDavRefreshDirectory;
     TsslStore m_tsslStore;
     EncryptedHlsPlaybackProxy m_encryptedHlsPlaybackProxy;
     EncryptedHlsBatchPackager m_m3u8sPackager;
     LocalMediaService m_localMediaService;
     TransferManager m_transferManager;
     FileDialogController m_fileDialogs;
+    QString m_databasePathOverride;
     SessionRepository m_repository;
     EncryptedHlsRestoreViewModel m_encryptedHlsRestore;
     UpdateService m_updateService;
     ScheduledPlaybackManager m_scheduledPlaybackManager;
+    ServiceCardLoader m_serviceCardLoader;
     ServiceCardListModel m_services;
     ServiceCardListModel m_privacyCards;
     ServiceCardListModel m_scheduledEmbySources;

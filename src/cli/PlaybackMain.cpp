@@ -164,11 +164,13 @@ int main(int argc, char* argv[])
                 }
                 if (!prepared) return Cli::failure(Cli::ExitCode::Failed,prepared.error());
                 encryptedSession = prepared->sessionId; url = prepared->url;
-            } else if (request.value("webdav").toBool()) {
+            } else if (request.value("webdav").toBool() ||
+                       (session && session->server.trustSelfSignedCertificate && url.scheme() == QStringLiteral("https"))) {
                 ServerConfig source; source.id = request.value("serviceId").toString(); source.name = title;
                 source.serviceType = ServiceType::WebDAV; source.baseUrl = url.adjusted(QUrl::RemoveFilename).toString();
-                source.username = request.value("username").toString();
-                source.trustSelfSignedCertificate = request.value("insecure").toBool();
+                source.username = request.value("webdav").toBool() ? request.value("username").toString() : QString();
+                source.trustSelfSignedCertificate = session ? session->server.trustSelfSignedCertificate
+                                                          : request.value("insecure").toBool();
                 const auto local = webdavProxy.streamUrlFor(source,request.value("password").toString(),url);
                 if (local == url) return Cli::failure(Cli::ExitCode::Failed,"Unable to start the WebDAV playback proxy");
                 webdavSession = local.path().section('/',1,1); url = local;

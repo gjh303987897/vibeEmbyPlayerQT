@@ -1,6 +1,7 @@
 #pragma once
 #include "cli/CliEngine.h"
 #include <functional>
+#include <QElapsedTimer>
 namespace Cli {
 class Shell final {
 public:
@@ -14,5 +15,8 @@ private:
     Engine& m_engine;
     Invocation m_defaults;
     QStringList m_history;
+    QStringList m_serviceCompletionNames;
+    QElapsedTimer m_serviceCompletionAge;
+    bool m_serviceCompletionPrivate {false};
 };
 }

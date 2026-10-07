@@ -52,6 +52,12 @@ QML does not make network requests and does not parse JSON.
 
 ## Service Card Flow
 
+- Service-card, privacy-card and scheduled-source refreshes share the background
+  [ServiceCardLoader](ServiceCardLoader.md). SQLite reads run on a worker with a
+  separate read-only connection; repeated refreshes coalesce and stale snapshots
+  are discarded. Privacy locking immediately removes private visible cards.
+- Editing a saved card preserves its recent-use timestamp. A successful session
+  save updates that timestamp atomically with its server and session data.
 - App launch opens the service-card page.
 - The header carries two capsules over the blended `theme.bg` (the shared `applicationToolbar` paints no
   `theme.surface` band and no bottom hairline): the page actions centered on the window, and the caption

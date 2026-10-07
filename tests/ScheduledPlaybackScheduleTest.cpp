@@ -38,6 +38,7 @@ private slots:
     void respectsLastRunDate();
     void detectsMissedOccurrencesWithinWindow();
     void ignoresManualAndDisabledTasks();
+    void resolvesDaylightSavingGapAndRepeatedHour();
 };
 
 void ScheduledPlaybackScheduleTest::parsesAndSerializesDays()
@@ -142,6 +143,31 @@ void ScheduledPlaybackScheduleTest::ignoresManualAndDisabledTasks()
     disabled.enabled = false;
     QVERIFY(!ScheduledPlaybackSchedule::nextOccurrence(
         disabled, utcDateTime(QDate(2026, 7, 15), QTime(10, 0))).has_value());
+}
+
+void ScheduledPlaybackScheduleTest::resolvesDaylightSavingGapAndRepeatedHour()
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    const QTimeZone berlin("Europe/Berlin");
+    QVERIFY(berlin.isValid());
+    const auto daily = task("daily", "02:30");
+    const auto spring = ScheduledPlaybackSchedule::nextOccurrence(daily, QDateTime(QDate(2026,3,29), QTime(0,0), berlin));
+    QVERIFY(spring);
+    QCOMPARE(spring->date(), QDate(2026,3,29));
+    QCOMPARE(spring->time(), QTime(3,30));
+    QCOMPARE(spring->offsetFromUtc(), 7200);
+    const auto autumn = ScheduledPlaybackSchedule::nextOccurrence(daily, QDateTime(QDate(2026,10,25), QTime(0,0), berlin));
+    QVERIFY(autumn);
+    QCOMPARE(autumn->time(), QTime(2,30));
+    QCOMPARE(autumn->offsetFromUtc(), 7200); // First occurrence, before the repeated hour.
+    const auto following = ScheduledPlaybackSchedule::nextOccurrence(daily, autumn->addSecs(1));
+    QVERIFY(following);
+    QCOMPARE(following->date(), QDate(2026,10,26));
+    QCOMPARE(following->time(), QTime(2,30));
+    QVERIFY(!ScheduledPlaybackSchedule::firstOccurrenceBetween(daily, autumn->addSecs(1), autumn->addSecs(3600)));
+#else
+    QSKIP("Explicit DST resolution is documented and verified for Qt 6.7 and newer");
+#endif
 }
 
 QTEST_GUILESS_MAIN(ScheduledPlaybackScheduleTest)

@@ -2,12 +2,14 @@
 set(VIBE_CORE_SOURCES
     src/services/media/MediaServiceClient.h
     src/database/SessionRepository.cpp
+    src/database/SessionTokenCipher.cpp
     src/network/NetworkClient.cpp
     src/network/TlsCertificateStore.cpp
     src/services/media/MediaServerClientBase.cpp
     src/services/emby/EmbyClient.cpp
     src/services/jellyfin/JellyfinClient.cpp
     src/services/credentials/CredentialStore.cpp
+    src/services/credentials/NativeCredentialStore.cpp
     src/services/iptv/IptvParser.cpp
     src/services/iptv/IptvPlaylistStore.cpp
     src/services/webdav/WebDavClient.cpp
@@ -29,6 +31,7 @@ set(VIBE_CORE_SOURCES
     src/services/backup/S3CredentialProvider.cpp
     src/services/backup/TsslImportWorkflow.cpp
     src/services/management/ServiceOperations.cpp
+    src/services/management/ServiceCardLoader.cpp
     src/services/smb/SmbClient.cpp
     src/services/management/WorkflowSettings.cpp
     src/viewmodels/TransferTaskListModel.cpp
@@ -43,6 +46,12 @@ target_link_libraries(vibeCore PUBLIC Qt6::Core Qt6::Concurrent Qt6::Network Qt6
     ${VIBE_CRYPTO_LIBRARIES})
 if(WIN32)
     target_link_libraries(vibeCore PUBLIC Advapi32 Mpr)
+elseif(APPLE)
+    target_link_libraries(vibeCore PUBLIC "-framework Security" "-framework CoreFoundation")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
+    target_link_libraries(vibeCore PUBLIC PkgConfig::LIBSECRET)
 endif()
 get_target_property(_desktop_sources vibePlayerQT SOURCES)
 foreach(_source IN LISTS VIBE_CORE_SOURCES)

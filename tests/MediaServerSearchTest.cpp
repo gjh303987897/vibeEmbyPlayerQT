@@ -523,6 +523,9 @@ void MediaServerSearchTest::embyPlaybackPrefersFullDefaultSubtitleOverForcedSele
     QVERIFY(result->has_value());
     QCOMPARE(result->value().subtitleStreamIndex, 8);
     QCOMPARE(QUrl(result->value().url).path(), QStringLiteral("/Videos/episode-1/stream"));
+    const QUrlQuery playbackQuery(QUrl(QStringLiteral("http://localhost") + QString::fromUtf8(server.requestTarget())));
+    QVERIFY(!playbackQuery.hasQueryItem(QStringLiteral("AutoOpenLiveStream")));
+    QVERIFY(!playbackQuery.hasQueryItem(QStringLiteral("IsPlayback")));
     QVERIFY(!QUrlQuery(result->value().url).hasQueryItem(QStringLiteral("SubtitleStreamIndex")));
 }
 
@@ -553,6 +556,8 @@ void MediaServerSearchTest::jellyfinPlaybackKeepsNonForcedServerSubtitleSelectio
     QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 3000);
     QVERIFY(result->has_value());
     QCOMPARE(result->value().subtitleStreamIndex, 5);
+    const QUrlQuery playbackQuery(QUrl(QStringLiteral("http://localhost") + QString::fromUtf8(server.requestTarget())));
+    QVERIFY(!playbackQuery.hasQueryItem(QStringLiteral("AutoOpenLiveStream")));
 }
 
 void MediaServerSearchTest::playbackWithoutValidSubtitleUsesPlayerAutomaticSelection()

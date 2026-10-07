@@ -97,6 +97,17 @@ Cli::ExitCode transferFailureCode(const QString& error)
 }
 
 Cli::Engine::Engine(QString profile) : m_profile(std::move(profile)) {}
+QStringList Cli::Engine::serviceNamesForCompletion() const
+{
+    SessionRepository repository("cli-completion-" + QUuid::createUuid().toString(QUuid::WithoutBraces),
+                                 databasePath(), SessionRepository::OpenMode::ReadOnly);
+    const auto cards = repository.loadServiceCards(m_private);
+    if (!cards) return {};
+    QStringList names;
+    for (const auto& card : *cards) names.append(card.server.name);
+    names.removeDuplicates();
+    return names;
+}
 Cli::Result Cli::Engine::transferControl(const QString& action)
 {
     if (action == "cancel") { CliConsole::canceled.store(true); CliConsole::transferPaused.store(false); }

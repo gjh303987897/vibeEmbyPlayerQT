@@ -169,5 +169,6 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
     request["title"] = item->name; request["itemId"] = item->id;
     request["mediaSourceId"] = playback->mediaSourceId; request["playSessionId"] = playback->playSessionId;
     request["subtitleStreamIndex"] = playback->subtitleStreamIndex;
+    request["insecure"] = server.trustSelfSignedCertificate;
     return startPlayback(invocation,request);
 }

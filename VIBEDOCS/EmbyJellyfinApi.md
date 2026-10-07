@@ -32,6 +32,16 @@
 
 ## Authentication
 
+Playback discovery uses `GET /Items/{id}/PlaybackInfo` with `UserId` and the saved
+authorization headers. Both [Emby's GET reference](https://dev.emby.media/reference/RestAPI/MediaInfoService/getItemsByIdPlaybackinfo.html)
+and [Jellyfin 10.10.7's controller](https://github.com/jellyfin/jellyfin/blob/v10.10.7/Jellyfin.Api/Controllers/MediaInfoController.cs)
+define the GET without `AutoOpenLiveStream` or `IsPlayback`; these unsupported
+query parameters have been removed. Automatic live-source opening belongs to the
+POST playback-info lifecycle. This native direct-play path uses the returned
+media-source/session identifiers and `static=true`; adaptive transcoding and an
+explicit live-source open/close lifecycle are outside its current implementation.
+The presence of a query string alone did not prove that GET had opened a live source.
+
 Emby:
 
 - Endpoint: `POST /Users/AuthenticateByName`

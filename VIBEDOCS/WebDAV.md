@@ -343,3 +343,19 @@ copied there, and successful uploads may also be retained there by the user.
 For directory-format packages, `MKCOL` tasks are queued for the package tree
 before its files are uploaded. WebDAV credentials continue to come from
 `CredentialStore` and are never exposed to QML or written to logs.
+
+## Transfer-driven directory refresh
+
+`TransferManager::remoteWriteCompleted(serviceId, remoteUrl)` reports successful
+PUT/MKCOL operations only. Downloads, failures and cancellation do not emit it.
+The desktop schedules a 200 ms single-shot refresh only when that operation
+changes the currently displayed service and directory. A burst of writes restarts
+the timer and coalesces into one PROPFIND. The timer rechecks the page, service and
+directory before requesting, so navigating away discards pending refreshes.
+MKCOL's optional trailing slash is removed before resolving its parent. Existing
+manual refresh and folder-creation refresh remain available.
+
+Tests verify signal filtering for upload/download/failed MKCOL, and actual desktop
+uploads verify both one directory read per burst and discarded reads after
+navigation. TSSL catalogue/page refreshes already use background workers and are
+independent of this timer.

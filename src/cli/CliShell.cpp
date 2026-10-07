@@ -94,11 +94,15 @@ QStringList Cli::Shell::complete(const QString& prefix)
     if (split >= 0) {
         const auto base = prefix.left(split + 1);
         const auto token = prefix.mid(split + 1);
-        Invocation list; list.command = "service list";
-        const auto cards = m_engine.execute(list);
-        for (const auto& card : cards.data.toArray())
-            if (card.toObject().value("name").toString().startsWith(token,Qt::CaseInsensitive))
-                result += base + '"' + card.toObject().value("name").toString().replace("\"","\"\"") + '"';
+        if (!m_serviceCompletionAge.isValid() || m_serviceCompletionAge.elapsed() >= 500 ||
+            m_serviceCompletionPrivate != m_engine.privateAccess()) {
+            m_serviceCompletionNames = m_engine.serviceNamesForCompletion();
+            m_serviceCompletionPrivate = m_engine.privateAccess();
+            m_serviceCompletionAge.start();
+        }
+        for (auto name : m_serviceCompletionNames)
+            if (name.startsWith(token,Qt::CaseInsensitive))
+                result += base + '"' + name.replace("\"","\"\"") + '"';
         const QFileInfo info(token.isEmpty() ? "." : token);
         for (const auto& file : QDir(info.path()).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot,QDir::Name))
             if (file.fileName().startsWith(token.isEmpty() ? QString() : info.fileName(),Qt::CaseInsensitive))
@@ -133,7 +137,11 @@ std::pair<Cli::Invocation,Cli::Result> Cli::Shell::evaluate(const QString& input
         if (command->has("clear")) { m_history.clear(); result = success(QStringLiteral("History cleared")); }
         else result = success(QJsonArray::fromStringList(m_history));
     } else if (command->command == "complete") result = success(QJsonArray::fromStringList(complete(command->arguments.value(0))));
-    else result = m_engine.execute(*command);
+    else {
+        result = m_engine.execute(*command);
+        if (command->command.startsWith("service ") || command->command.startsWith("privacy "))
+            m_serviceCompletionAge.invalidate();
+    }
     for (const auto& raw : stages->mid(1)) {
         if (result.code != ExitCode::Success) break;
         auto expression = expandVariables(raw,depth);

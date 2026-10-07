@@ -97,6 +97,18 @@ This lets Qt deploy:
 
 Windows and macOS use Qt's platform deployment tools underneath. Linux uses Qt's CMake runtime dependency deployment.
 
+## Native credential storage
+
+Linux compilation also requires `libsecret-1-dev`; runtime credential persistence
+requires libsecret, a user D-Bus session and an unlocked Secret Service provider.
+macOS links the system Security/CoreFoundation frameworks. Windows retains its
+existing DPAPI/Credential Manager backend and runtime dependencies.
+The Unix CTest step uses `scripts/test-with-system-credentials.sh` with a temporary
+GNOME Keyring or Keychain containing only synthetic test secrets. The Linux matrix
+also runs a process with an unavailable D-Bus address to verify fail-closed storage.
+These CI changes have not yet been run from the current Windows workspace.
+Details are in [NativeCredentialStore](NativeCredentialStore.md).
+
 ## libmpv Dependency
 
 Windows resolves the standard x86_64 development package pinned by
@@ -123,7 +135,7 @@ Linux sets install RPATH to `$ORIGIN/../lib` so the installed executable can loa
 
 ## Native Linux Packages
 
-The DEB and RPM packages install under `/usr` and include the same deployed Qt, QML, plugin, and libmpv runtime files as the portable archive. CPack asks `dpkg-shlibdeps` to derive DEB system dependencies from the installed binaries. The staged `usr/lib` directory is passed as a private-library search path so ARM64 Qt and libmpv dependencies are resolved from the package payload instead of an incompatible runner library set. Because native packaging runs on a fresh runner, the DEB job also installs `libcjson1`, `libmariadb3`, and `libmysofa1`; this lets `dpkg-shlibdeps` resolve the transitive SONAMEs required by the deployed `librist` and `libavfilter` libraries, plus `libmariadb.so.3` required by Qt's deployed MySQL SQL driver, and record the corresponding package dependencies. RPM keeps its standard automatic requirements/provides scan.
+The DEB and RPM packages install under `/usr` and include the same deployed Qt, QML, plugin, and libmpv runtime files as the portable archive. CPack asks `dpkg-shlibdeps` to derive DEB system dependencies from the installed binaries. The staged `usr/lib` directory is passed as a private-library search path so ARM64 Qt and libmpv dependencies are resolved from the package payload instead of an incompatible runner library set. Because native packaging runs on a fresh runner, the DEB job also installs `libcjson1`, `libmariadb3`, `libmysofa1` and `libsecret-1-0`; this lets `dpkg-shlibdeps` resolve the deployed media, Qt SQL and credential libraries and record the corresponding package dependencies. RPM keeps its standard automatic requirements/provides scan.
 
 The packages are built on Ubuntu 24.04. They are intended for compatible Debian/Ubuntu and Fedora/RHEL/openSUSE systems, but the oldest supported glibc is therefore bounded by the Ubuntu 24.04 build environment. Broader old-distribution compatibility would require building on an older baseline or in distribution-specific containers.
 

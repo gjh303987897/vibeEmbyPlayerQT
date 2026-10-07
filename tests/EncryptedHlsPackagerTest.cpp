@@ -12,6 +12,10 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QElapsedTimer>
+#include <QSemaphore>
+#include <QThreadPool>
+#include <QtConcurrent>
 
 #include <algorithm>
 #include <optional>
@@ -41,6 +45,33 @@ bool containsArgumentPair(const QStringList& arguments, const QString& option, c
     const auto index = arguments.indexOf(option);
     return index >= 0 && index + 1 < arguments.size() && arguments.at(index + 1) == value;
 }
+
+// Hold the global pool until the owner has been destroyed. The queued worker
+// must retain its inputs, and must not publish output when finally released.
+class PausedPool final {
+public:
+    PausedPool() : m_pool(QThreadPool::globalInstance()), m_threads(m_pool->maxThreadCount())
+    {
+        m_pool->setMaxThreadCount(1);
+        m_blocker = QtConcurrent::run(m_pool, [this]() {
+            m_entered.release();
+            m_release.acquire();
+        });
+        m_entered.acquire();
+    }
+    ~PausedPool()
+    {
+        m_release.release();
+        m_pool->waitForDone();
+        m_pool->setMaxThreadCount(m_threads);
+    }
+private:
+    QThreadPool* m_pool;
+    int m_threads;
+    QSemaphore m_entered;
+    QSemaphore m_release;
+    QFuture<void> m_blocker;
+};
 }
 
 class EncryptedHlsPackagerTest final : public QObject {
@@ -59,7 +90,92 @@ private slots:
     void scansHiddenNestedFoldersAndPreservesRelativeStructure();
     void deduplicatesSourcesCoveredByASelectedFolder();
     void rejectsUnsupportedFilesAndHonorsDiscoveryCancellation();
+    void destructionWithQueuedWorker_data();
+    void destructionWithQueuedWorker();
+    void destructionDuringFfmpegCleansUpWithoutJoining();
 };
+
+void EncryptedHlsPackagerTest::destructionDuringFfmpegCleansUpWithoutJoining()
+{
+    if (EncryptedHlsPackager::locateFfmpegExecutable().isEmpty()) QSKIP("FFmpeg unavailable");
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto source = temporary.filePath(QStringLiteral("tiny.y4m"));
+    QVERIFY(writeBytes(source, tinyY4mVideo()));
+    TsslStore store(temporary.filePath(QStringLiteral("keys")));
+    for (int i = 0; i < 5; ++i) {
+        auto packager = std::make_unique<EncryptedHlsPackager>(store);
+        QVERIFY(packager->start(EncryptedHlsPackageRequest {
+            .sourcePath = source, .outputDirectory = temporary.path(),
+            .videoEncoding = EncryptedHlsVideoEncoding::H264,
+        }));
+        QElapsedTimer elapsed;
+        elapsed.start();
+        packager.reset();
+        QVERIFY2(elapsed.elapsed() < 100, "Destruction waited synchronously for FFmpeg");
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(QDir(temporary.path()).entryList(
+        {QStringLiteral("vibe-m3u8s-staging-*")},
+        QDir::Dirs | QDir::NoDotAndDotDot).size(), 0, 5000);
+    QCOMPARE(QDir(temporary.path()).entryList({QStringLiteral("*.m3u8sp")}, QDir::Files).size(), 0);
+}
+
+void EncryptedHlsPackagerTest::destructionWithQueuedWorker_data()
+{
+    QTest::addColumn<QString>("phase");
+    QTest::newRow("codec-probe") << QStringLiteral("probing");
+    QTest::newRow("segment-encryption") << QStringLiteral("encrypting");
+    QTest::newRow("tar-archive") << QStringLiteral("archiving");
+}
+
+void EncryptedHlsPackagerTest::destructionWithQueuedWorker()
+{
+    QFETCH(QString, phase);
+    if (EncryptedHlsPackager::locateFfmpegExecutable().isEmpty()) QSKIP("FFmpeg unavailable");
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto source = temporary.filePath(QStringLiteral("tiny.y4m"));
+    QVERIFY(writeBytes(source, tinyY4mVideo()));
+    TsslStore store(temporary.filePath(QStringLiteral("keys")));
+    auto packager = std::make_unique<EncryptedHlsPackager>(store);
+    std::unique_ptr<PausedPool> paused;
+    bool reached = false;
+    QString failure;
+    connect(packager.get(), &EncryptedHlsPackager::failed, this,
+            [&](const QString& error) { failure = error; });
+    connect(packager.get(), &EncryptedHlsPackager::phaseChanged, this, [&]() {
+        if (packager->phase() == phase) {
+            paused = std::make_unique<PausedPool>();
+            // Destruction must happen after the scheduling method returns.
+            QTimer::singleShot(0, this, [&]() { reached = true; });
+        }
+    });
+    const auto started = packager->start(EncryptedHlsPackageRequest {
+        .sourcePath = source,
+        .outputDirectory = temporary.path(),
+        .segmentDurationSeconds = 2,
+        .videoEncoding = phase == QStringLiteral("probing")
+            ? EncryptedHlsVideoEncoding::Auto : EncryptedHlsVideoEncoding::H264,
+    });
+    QVERIFY2(started.has_value(), qPrintable(started ? QString() : started.error()));
+    QTRY_VERIFY_WITH_TIMEOUT(reached || !failure.isEmpty(), 10'000);
+    QVERIFY2(reached, qPrintable(failure));
+    QElapsedTimer elapsed;
+    elapsed.start();
+    packager.reset();
+    QVERIFY2(elapsed.elapsed() < 100, "Destruction waited for a queued background worker");
+    const auto staging = QDir(temporary.path()).entryList(
+        {QStringLiteral("vibe-m3u8s-staging-*")}, QDir::Dirs | QDir::NoDotAndDotDot);
+    if (phase != QStringLiteral("probing")) QCOMPARE(staging.size(), 1);
+    paused.reset();
+    QCOMPARE(QDir(temporary.path()).entryList(
+        {QStringLiteral("*.m3u8sp")}, QDir::Files).size(), 0);
+    QCOMPARE(QDir(temporary.path()).entryList(
+        {QStringLiteral("vibe-m3u8s-staging-*"), QStringLiteral(".m3u8sp-publish-*")},
+        QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).size(), 0);
+    QCOMPARE(QDir(temporary.filePath(QStringLiteral("keys"))).entryList(
+        {QStringLiteral("*.tssl")}, QDir::Files).size(), 0);
+}
 
 void EncryptedHlsPackagerTest::plansFilesAndNestedFoldersWithoutFlattening()
 {

@@ -11,6 +11,7 @@
 #include "network/SelfSignedTlsPolicy.h"
 #include "player/PlayerController.h"
 #include "services/smb/SmbClient.h"
+#include "services/management/ServiceCardLoader.h"
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include "services/iptv/IptvParser.h"
@@ -20,6 +21,7 @@
 #include "cli/CliRuntime.h"
 #include "services/ffmpeg/FfmpegProgress.h"
 #include "utils/AppLogger.h"
+#include "utils/ErrorPresentation.h"
 
 #include <QFile>
 #include <QHostAddress>
@@ -33,10 +35,15 @@
 #include <thread>
 #include <chrono>
 #include <QSemaphore>
+#include <QSslSocket>
+#include <QSslCertificate>
+#include <QSslKey>
+#include <QSignalSpy>
 #include <QtConcurrentRun>
 #include <optional>
 
 namespace {
+QStringList capturedLogMessages;
 QString uniqueId() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 bool writeFile(const QString& path, const QByteArray& bytes)
 {
@@ -102,11 +109,223 @@ public:
     using MediaServerClientBase::parseItems;
     using MediaServerClientBase::parseLibraries;
 };
+
+class TlsEndpoint final : public QTcpServer {
+public:
+    QSslCertificate certificate;
+    QSslKey key;
+    QList<QByteArray> requests;
+protected:
+    void incomingConnection(qintptr descriptor) override
+    {
+        auto* socket = new QSslSocket(this);
+        if (!socket->setSocketDescriptor(descriptor)) { socket->deleteLater(); return; }
+        socket->setLocalCertificate(certificate);
+        socket->setPrivateKey(key);
+        socket->setPeerVerifyMode(QSslSocket::VerifyNone);
+        connect(socket, &QSslSocket::disconnected, socket, &QObject::deleteLater);
+        connect(socket, &QSslSocket::readyRead, this, [this, socket]() {
+            auto bytes = socket->property("request").toByteArray() + socket->readAll();
+            socket->setProperty("request", bytes);
+            if (!bytes.contains("\r\n\r\n") || socket->property("handled").toBool()) return;
+            socket->setProperty("handled", true);
+            requests.append(bytes);
+            Endpoint::respond(socket, "video-bytes", "206 Partial Content",
+                              "Content-Range: bytes 0-10/11\r\n");
+        });
+        socket->startServerEncryption();
+    }
+};
 }
 
 class AuditRegressionTest final : public QObject {
     Q_OBJECT
 private slots:
+    void transfersAnnounceOnlySuccessfulRemoteWrites()
+    {
+        QTemporaryDir temporary;
+        const auto source = temporary.filePath("source.bin");
+        QVERIFY(writeFile(source, "test-upload"));
+        Endpoint endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        endpoint.handler = [](QTcpSocket* socket, const QByteArray& request) {
+            if (request.startsWith("MKCOL")) Endpoint::respond(socket, {}, "409 Conflict");
+            else Endpoint::respond(socket, "test-download");
+        };
+        auto server = serverConfig();
+        server.serviceType = ServiceType::WebDAV;
+        server.baseUrl = endpoint.url().toString();
+        TransferManager manager;
+        QSignalSpy writes(&manager, &TransferManager::remoteWriteCompleted);
+        QSignalSpy finished(&manager, &TransferManager::taskFinished);
+        const auto upload = endpoint.url().resolved(QUrl("uploaded.bin"));
+        manager.enqueueUpload(server, {}, source, upload, QFileInfo(source).size());
+        manager.enqueueDownload(server, {}, endpoint.url().resolved(QUrl("download.bin")),
+                                temporary.filePath("downloaded.bin"), -1);
+        manager.enqueueCreateDirectory(server, {}, endpoint.url().resolved(QUrl("folder/")));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 3, 5000);
+        QCOMPARE(writes.size(), 1);
+        QCOMPARE(writes.front()[0].toString(), server.id);
+        QCOMPARE(writes.front()[1].toUrl(), upload);
+    }
+    void playbackProxyValidatesRealCertificates_data()
+    {
+        QTest::addColumn<QString>("certificateName");
+        QTest::addColumn<bool>("trustSelfSigned");
+        QTest::addColumn<bool>("accepted");
+        QTest::newRow("self-signed-disabled") << QString("valid") << false << false;
+        QTest::newRow("self-signed-enabled") << QString("valid") << true << true;
+        QTest::newRow("wrong-host-rejected") << QString("wrong-host") << true << false;
+        QTest::newRow("expired-rejected") << QString("expired") << true << false;
+    }
+    void playbackProxyValidatesRealCertificates()
+    {
+        QFETCH(QString, certificateName);
+        QFETCH(bool, trustSelfSigned);
+        QFETCH(bool, accepted);
+        QVERIFY2(QSslSocket::supportsSsl(), "A Qt TLS backend is required for this regression test");
+        const auto fixtureDirectory = QFileInfo(QFINDTESTDATA("data/tls/valid.pem")).absolutePath();
+        TlsEndpoint endpoint;
+        endpoint.certificate = QSslCertificate(readFile(QDir(fixtureDirectory).filePath(certificateName + ".pem")));
+        endpoint.key = QSslKey(readFile(QDir(fixtureDirectory).filePath("test-key.pem")), QSsl::Rsa);
+        QVERIFY(!endpoint.certificate.isNull());
+        QVERIFY(!endpoint.key.isNull());
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        auto server = serverConfig();
+        server.username.clear();
+        server.trustSelfSignedCertificate = trustSelfSigned;
+        const auto remote = QUrl(QString("https://localhost:%1/stream?api_key=test-token").arg(endpoint.serverPort()));
+        WebDavPlaybackProxy proxy;
+        const auto local = proxy.streamUrlFor(server, {}, remote);
+        QVERIFY(local != remote);
+        QVERIFY(!local.toString().contains("test-token"));
+        QNetworkAccessManager manager;
+        QNetworkRequest request(local);
+        request.setRawHeader("Range", "bytes=0-10");
+        auto* reply = manager.get(request);
+        QSignalSpy finished(reply, &QNetworkReply::finished);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), accepted ? 206 : 502);
+        QCOMPARE(reply->readAll(), accepted ? QByteArray("video-bytes") : QByteArray());
+        QCOMPARE(endpoint.requests.size(), accepted ? 1 : 0);
+        if (accepted) {
+            QVERIFY(endpoint.requests.front().contains("Range: bytes=0-10"));
+            QVERIFY(endpoint.requests.front().contains("api_key=test-token"));
+            QVERIFY(!endpoint.requests.front().contains("Authorization: Basic"));
+        }
+        reply->deleteLater();
+        proxy.revoke(local.path().section('/', 1, 1));
+    }
+    void playerRejectsDisablingCertificateValidation()
+    {
+        PlayerController player;
+        QVERIFY(player.initializeHeadless());
+        QSignalSpy errors(&player, &PlayerController::errorOccurred);
+        player.playUrl("https://localhost/video", 0, {}, {}, true);
+        QCOMPARE(errors.size(), 1);
+        QVERIFY(errors.front().front().toString().contains("validated playback proxy"));
+        player.shutdown();
+    }
+    void configEditsPreserveUsageAndFailedLoginRollsBack()
+    {
+        QTemporaryDir temporary;
+        const auto connection = uniqueId();
+        SessionRepository repository(connection, temporary.filePath("session.db"));
+        QVERIFY(repository.initialize());
+        auto server = serverConfig();
+        QVERIFY(repository.saveServer(server));
+        QSqlQuery query(QSqlDatabase::database(connection));
+        QVERIFY(query.exec("UPDATE servers SET last_used_at = '2000-01-01T00:00:00Z'"));
+        server.name = "renamed";
+        server.privateMode = true;
+        QVERIFY(repository.saveServer(server));
+        auto cards = repository.loadAllServiceCards();
+        QVERIFY(cards);
+        QCOMPARE(cards->size(), size_t(1));
+        QCOMPARE(cards->front().lastUsedAt, QString("2000-01-01T00:00:00Z"));
+        QCOMPARE(cards->front().server.name, QString("renamed"));
+        UserSession session {.server = server, .userId = "user", .username = server.username,
+                             .accessToken = "test-token", .createdAt = QDateTime::currentDateTimeUtc()};
+        QVERIFY(repository.saveSession(session));
+        cards = repository.loadAllServiceCards();
+        QVERIFY(cards);
+        QVERIFY(cards->front().lastUsedAt != "2000-01-01T00:00:00Z");
+        const auto savedUsed = cards->front().lastUsedAt;
+        QVERIFY(query.exec("CREATE TRIGGER reject_session BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'test failure'); END"));
+        session.server.name = "must roll back";
+        QVERIFY(!repository.saveSession(session));
+        cards = repository.loadAllServiceCards();
+        QVERIFY(cards);
+        QCOMPARE(cards->front().lastUsedAt, savedUsed);
+        QCOMPARE(cards->front().server.name, QString("renamed"));
+        const auto savedSession = repository.loadSession(server.id);
+        QVERIFY(savedSession);
+        QVERIFY(savedSession->has_value());
+        QCOMPARE((**savedSession).accessToken, QString("test-token"));
+    }
+    void serviceCardRefreshStaysResponsiveAndPublishesLatestSnapshot()
+    {
+        QTemporaryDir temporary;
+        const auto path = temporary.filePath("cards.db");
+        const auto connection = uniqueId();
+        SessionRepository repository(connection, path);
+        QVERIFY(repository.initialize());
+        auto server = serverConfig();
+        QVERIFY(repository.saveServer(server));
+        auto privateServer = serverConfig("private"); privateServer.privateMode = true;
+        QVERIFY(repository.saveServer(privateServer));
+        QSqlQuery lock(QSqlDatabase::database(connection));
+        QVERIFY(lock.exec("BEGIN EXCLUSIVE"));
+        const auto rollback = qScopeGuard([&] { lock.exec("ROLLBACK"); });
+        ServiceCardLoader loader(nullptr, path);
+        int ready = 0, heartbeats = 0;
+        ServiceCardLoader::Cards received;
+        QString error;
+        connect(&loader, &ServiceCardLoader::ready, this, [&](const auto& cards) {
+            QCOMPARE(QThread::currentThread(), loader.thread());
+            received = cards; ++ready;
+        });
+        connect(&loader, &ServiceCardLoader::failed, this, [&](const auto& message) { error = message; });
+        QTimer heartbeat; heartbeat.setInterval(5);
+        connect(&heartbeat, &QTimer::timeout, this, [&] { ++heartbeats; });
+        heartbeat.start();
+        QElapsedTimer elapsed; elapsed.start();
+        loader.refresh();
+        QVERIFY(elapsed.elapsed() < 100);
+        QTimer::singleShot(50, &loader, [&] { loader.refresh(); loader.refresh(); });
+        QTimer::singleShot(200, &loader, [&] {
+            QVERIFY(lock.exec("COMMIT"));
+            server.name = "latest";
+            QVERIFY(repository.saveServer(server));
+            loader.refresh();
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(ready == 1 || !error.isEmpty(), 5000);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(received.size(), size_t(2));
+        QCOMPARE(received.front().server.name, QString("latest"));
+        QVERIFY(received.back().server.privateMode);
+        QVERIFY(heartbeats >= 10);
+        QTest::qWait(100);
+        QCOMPARE(ready, 1);
+    }
+    void serviceCardRefreshMissingAndMalformedDatabase()
+    {
+        QTemporaryDir temporary;
+        const auto path = temporary.filePath("missing.db");
+        ServiceCardLoader loader(nullptr, path);
+        int ready = 0; QString error;
+        connect(&loader, &ServiceCardLoader::ready, this, [&](const auto& cards) { QVERIFY(cards.empty()); ++ready; });
+        connect(&loader, &ServiceCardLoader::failed, this, [&](const auto& message) { error = message; });
+        loader.refresh();
+        QTRY_COMPARE(ready, 1);
+        QVERIFY(!QFile::exists(path));
+        const QByteArray invalid("not a SQLite database");
+        QVERIFY(writeFile(path, invalid));
+        loader.refresh();
+        QTRY_VERIFY(!error.isEmpty());
+        QCOMPARE(ready, 1);
+        QCOMPARE(readFile(path), invalid);
+    }
     void historyReadsDoNotRequireAWriteLock()
     {
         QTemporaryDir temporary;
@@ -354,9 +573,11 @@ private slots:
         QVERIFY(query.next());
 #ifdef Q_OS_WIN
         QVERIFY(query.value(0).toString().startsWith(SessionTokenCipher::prefix));
+#else
+        QVERIFY(SessionTokenCipher::isCredentialReference(query.value(0).toString()));
+#endif
         QVERIFY(!readFile(path).contains("legacy-new-token"));
         QVERIFY(!readFile(path).contains("legacy-old-token"));
-#endif
         QVERIFY(!query.next());
         query.finish();
         SessionRepository readonly(uniqueId(), path, SessionRepository::OpenMode::ReadOnly);
@@ -809,6 +1030,36 @@ private slots:
         Q_UNUSED(result)
         QVERIFY(completed.load());
         CliConsole::canceled.store(false);
+    }
+    void sensitiveLogsRedactEveryCookieAndTokenBeforeWriting()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("redacted.log");
+        const auto previous = qgetenv("VIBEPLAYER_LOG_FILE");
+        qputenv("VIBEPLAYER_LOG_FILE", path.toUtf8());
+        capturedLogMessages.clear();
+        const auto previousHandler = qInstallMessageHandler([](QtMsgType, const QMessageLogContext&, const QString& message) {
+            capturedLogMessages.append(message);
+        });
+        AppLogger::setSanitizer([](const QString& message) { return ErrorPresentation::sanitizeDetails(message); });
+        const auto restore = qScopeGuard([&] {
+            AppLogger::setSanitizer({});
+            qInstallMessageHandler(previousHandler);
+            if (previous.isNull()) qunsetenv("VIBEPLAYER_LOG_FILE"); else qputenv("VIBEPLAYER_LOG_FILE", previous);
+        });
+        AppLogger::warning("security-test", "Authorization: Bearer fake-bearer-secret\n"
+            "Cookie: session=fake-cookie-first; refresh=fake-cookie-second\n"
+            "https://user:fake-url-password@example.test/item?api_key=fake-api-key&password=fake-query-password\n"
+            "Token: fake-token-secret");
+        const auto written = readFile(path);
+        const auto console = capturedLogMessages.join('\n').toUtf8();
+        QVERIFY(!written.isEmpty()); QVERIFY(!console.isEmpty());
+        QVERIFY(written.contains("[REDACTED]")); QVERIFY(console.contains("[REDACTED]"));
+        for (const auto* secret : {"fake-bearer-secret", "fake-cookie-first", "fake-cookie-second",
+                                   "fake-url-password", "fake-api-key", "fake-query-password", "fake-token-secret"}) {
+            QVERIFY(!written.contains(secret));
+            QVERIFY(!console.contains(secret));
+        }
     }
     void fileLogsRotateAndSerializeWrites()
     {

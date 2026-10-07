@@ -96,6 +96,8 @@ std::optional<QDateTime> nextOccurrence(const ScheduledPlaybackTask& task,
             continue;
         }
 
+        // Qt 6.7's default RelativeToBefore shifts a skipped wall-clock time
+        // forward and chooses the first occurrence of a repeated time.
         const QDateTime candidate(date, startTime, after.timeZone());
         if (candidate.isValid() && candidate > after) {
             return candidate;

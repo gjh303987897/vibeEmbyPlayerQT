@@ -14,7 +14,6 @@
 #include <QFileInfo>
 #include <QMutex>
 #include <QMutexLocker>
-#include <QPointer>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -491,17 +490,25 @@ std::expected<EncryptedHlsPreparedPackage, QString> encryptHlsDirectory(
 EncryptedHlsPackager::EncryptedHlsPackager(TsslStore& store, QObject* parent)
     : QObject(parent)
     , m_store(store)
+    , m_ffmpeg(new QProcess(this))
 {
-    m_ffmpeg.setProcessChannelMode(QProcess::SeparateChannels);
-    connect(&m_ffmpeg, &QProcess::readyReadStandardOutput, this, &EncryptedHlsPackager::readFfmpegProgress);
-    connect(&m_ffmpeg, &QProcess::readyReadStandardError, this, &EncryptedHlsPackager::readFfmpegDiagnostics);
-    connect(&m_ffmpeg,
+    m_progressTimer.setInterval(100);
+    connect(&m_progressTimer, &QTimer::timeout, this, [this]() {
+        if (m_running && m_encryptionProgress) {
+            setProgress(0.65 + std::clamp(m_encryptionProgress->load(std::memory_order_relaxed),
+                                        0.0, 1.0) * 0.30);
+        }
+    });
+    m_ffmpeg->setProcessChannelMode(QProcess::SeparateChannels);
+    connect(m_ffmpeg, &QProcess::readyReadStandardOutput, this, &EncryptedHlsPackager::readFfmpegProgress);
+    connect(m_ffmpeg, &QProcess::readyReadStandardError, this, &EncryptedHlsPackager::readFfmpegDiagnostics);
+    connect(m_ffmpeg,
             qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this,
             &EncryptedHlsPackager::handleFfmpegFinished);
-    connect(&m_ffmpeg, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+    connect(m_ffmpeg, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart && m_running && !m_terminalReported) {
-            finishFailure(QStringLiteral("Unable to start FFmpeg: %1").arg(m_ffmpeg.errorString()));
+            finishFailure(QStringLiteral("Unable to start FFmpeg: %1").arg(m_ffmpeg->errorString()));
         }
     });
     connect(&m_codecProbeWatcher,
@@ -520,19 +527,30 @@ EncryptedHlsPackager::EncryptedHlsPackager(TsslStore& store, QObject* parent)
 
 EncryptedHlsPackager::~EncryptedHlsPackager()
 {
-    m_cancelRequested.store(true, std::memory_order_relaxed);
-    if (m_ffmpeg.state() != QProcess::NotRunning) {
-        m_ffmpeg.kill();
-        m_ffmpeg.waitForFinished(3000);
+    m_cancelRequested->store(true, std::memory_order_relaxed);
+    m_progressTimer.stop();
+    // Kill asynchronously without dispatching finalization on a dying owner.
+    // Keep the staging directory until FFmpeg has released its output handles.
+    disconnect(m_ffmpeg, nullptr, this, nullptr);
+    if (m_ffmpeg->state() != QProcess::NotRunning) {
+        auto* process = m_ffmpeg;
+        process->setParent(QCoreApplication::instance());
+        const auto staging = std::make_shared<std::shared_ptr<QTemporaryDir>>(std::move(m_stagingDirectory));
+        auto cleanup = [process, staging]() {
+            // Large staging cleanup must also stay off the GUI thread.
+            if (*staging) static_cast<void>(QtConcurrent::run([directory = std::move(*staging)] {}));
+            process->deleteLater();
+        };
+        connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), process,
+                [cleanup](int, QProcess::ExitStatus) { cleanup(); });
+        connect(process, &QProcess::errorOccurred, process, [cleanup](QProcess::ProcessError error) {
+            if (error == QProcess::FailedToStart) cleanup();
+        });
+        process->kill();
     }
-    if (m_encryptionWatcher.isRunning()) {
-        m_encryptionWatcher.waitForFinished();
-    }
-    if (m_codecProbeWatcher.isRunning()) {
-        m_codecProbeWatcher.waitForFinished();
-    }
-    if (m_tarWatcher.isRunning()) {
-        m_tarWatcher.waitForFinished();
+    if (m_stagingDirectory || m_tarDirectory) {
+        static_cast<void>(QtConcurrent::run([staging = std::move(m_stagingDirectory),
+                                            archive = std::move(m_tarDirectory)] {}));
     }
 }
 
@@ -587,7 +605,7 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
     m_ffmpegExecutable = ffmpeg;
     m_containerFormat = request.containerFormat;
     m_finalOutputPath.clear();
-    m_stagingDirectory = std::make_unique<QTemporaryDir>(
+    m_stagingDirectory = std::make_shared<QTemporaryDir>(
         QDir(temporary.absoluteFilePath()).filePath(QStringLiteral("vibe-m3u8s-staging-XXXXXX")));
     if (!m_stagingDirectory->isValid()) {
         resetRunState();
@@ -615,7 +633,7 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
 
     ++m_runGeneration;
     m_pendingRequest = effectiveRequest;
-    m_cancelRequested.store(false, std::memory_order_relaxed);
+    m_cancelRequested = std::make_shared<std::atomic_bool>(false);
     m_terminalReported = false;
     m_durationMicroseconds = 0;
     m_progressBuffer.clear();
@@ -630,10 +648,11 @@ std::expected<void, QString> EncryptedHlsPackager::start(const EncryptedHlsPacka
     emit runningChanged();
     if (effectiveRequest.videoEncoding == EncryptedHlsVideoEncoding::Auto) {
         const auto sourcePath = effectiveRequest.sourcePath;
+        const auto canceled = m_cancelRequested;
         m_codecProbeWatcher.setFuture(QtConcurrent::run(
-            [sourcePath, ffmpeg, this]() {
+            [sourcePath, ffmpeg, canceled]() {
                 return EncryptedHlsPackaging::probeVideoCodec(
-                    sourcePath, ffmpeg, &m_cancelRequested);
+                    sourcePath, ffmpeg, canceled.get());
             }));
         return {};
     }
@@ -660,7 +679,7 @@ std::expected<void, QString> EncryptedHlsPackager::launchFfmpeg(
     setPhase(QStringLiteral("segmenting"));
     AppLogger::info(QStringLiteral("encrypted-hls"),
                     QStringLiteral("Starting local video segmentation for an M3U8S package"));
-    m_ffmpeg.start(m_ffmpegExecutable, *arguments, QIODevice::ReadOnly);
+    m_ffmpeg->start(m_ffmpegExecutable, *arguments, QIODevice::ReadOnly);
     return {};
 }
 
@@ -669,18 +688,18 @@ void EncryptedHlsPackager::cancel()
     if (!m_running) {
         return;
     }
-    m_cancelRequested.store(true, std::memory_order_relaxed);
+    m_cancelRequested->store(true, std::memory_order_relaxed);
     setPhase(QStringLiteral("canceling"));
     if (m_codecProbeWatcher.isRunning()) {
         return;
     }
-    if (m_ffmpeg.state() != QProcess::NotRunning) {
-        m_ffmpeg.terminate();
+    if (m_ffmpeg->state() != QProcess::NotRunning) {
+        m_ffmpeg->terminate();
         const auto generation = m_runGeneration;
         QTimer::singleShot(2000, this, [this, generation]() {
             if (generation == m_runGeneration &&
-                m_ffmpeg.state() != QProcess::NotRunning) {
-                m_ffmpeg.kill();
+                m_ffmpeg->state() != QProcess::NotRunning) {
+                m_ffmpeg->kill();
             }
         });
     }
@@ -688,7 +707,7 @@ void EncryptedHlsPackager::cancel()
 
 void EncryptedHlsPackager::readFfmpegProgress()
 {
-    m_progressBuffer.append(m_ffmpeg.readAllStandardOutput());
+    m_progressBuffer.append(m_ffmpeg->readAllStandardOutput());
     qsizetype newline = -1;
     while ((newline = m_progressBuffer.indexOf('\n')) >= 0) {
         auto line = m_progressBuffer.first(newline).trimmed();
@@ -710,7 +729,7 @@ void EncryptedHlsPackager::readFfmpegProgress()
 
 void EncryptedHlsPackager::readFfmpegDiagnostics()
 {
-    m_diagnostics.append(m_ffmpeg.readAllStandardError());
+    m_diagnostics.append(m_ffmpeg->readAllStandardError());
     if (m_diagnostics.size() > 256 * 1024) {
         m_diagnostics = m_diagnostics.last(256 * 1024);
     }
@@ -736,7 +755,7 @@ void EncryptedHlsPackager::handleFfmpegFinished(int exitCode, QProcess::ExitStat
     if (!m_running || m_terminalReported) {
         return;
     }
-    if (m_cancelRequested.load(std::memory_order_relaxed)) {
+    if (m_cancelRequested->load(std::memory_order_relaxed)) {
         finishCanceled();
         return;
     }
@@ -754,43 +773,38 @@ void EncryptedHlsPackager::beginEncryption()
 {
     setProgress(0.65);
     setPhase(QStringLiteral("encrypting"));
-    const auto directoryPath = m_stagingDirectory->path();
+    const auto staging = m_stagingDirectory;
+    const auto canceled = m_cancelRequested;
     const auto sourceFileName = m_sourceFileName;
     const auto ffmpegExecutable = m_ffmpegExecutable;
-    const auto runGeneration = m_runGeneration;
-    QPointer<EncryptedHlsPackager> owner(this);
-    auto progressCallback = [owner, runGeneration](double value) {
-        if (!owner) {
-            return;
-        }
-        QMetaObject::invokeMethod(owner, [owner, runGeneration, value]() {
-            if (owner && owner->m_running && owner->m_runGeneration == runGeneration) {
-                owner->setProgress(0.65 + std::clamp(value, 0.0, 1.0) * 0.30);
-            }
-        });
+    m_encryptionProgress = std::make_shared<std::atomic<double>>(0.0);
+    auto progressCallback = [progress = m_encryptionProgress](double value) {
+        progress->store(value, std::memory_order_relaxed);
     };
+    m_progressTimer.start();
     m_encryptionWatcher.setFuture(QtConcurrent::run(
-        [directoryPath, sourceFileName, ffmpegExecutable, this,
+        [staging, sourceFileName, ffmpegExecutable, canceled,
          progressCallback = std::move(progressCallback)]() {
             if (auto validated = EncryptedHlsPackaging::validateGeneratedVideoTrack(
-                    directoryPath, ffmpegExecutable, m_cancelRequested); !validated) {
+                    staging->path(), ffmpegExecutable, *canceled); !validated) {
                 return std::expected<EncryptedHlsPreparedPackage, QString>(
                     std::unexpected(validated.error()));
             }
-            return EncryptedHlsPackaging::encryptHlsDirectory(directoryPath,
+            return EncryptedHlsPackaging::encryptHlsDirectory(staging->path(),
                                                               sourceFileName,
-                                                              m_cancelRequested,
+                                                              *canceled,
                                                               progressCallback);
         }));
 }
 
 void EncryptedHlsPackager::handleEncryptionFinished()
 {
+    m_progressTimer.stop();
     if (!m_running || m_terminalReported) {
         return;
     }
     auto prepared = m_encryptionWatcher.result();
-    if (m_cancelRequested.load(std::memory_order_relaxed)) {
+    if (m_cancelRequested->load(std::memory_order_relaxed)) {
         finishCanceled();
         return;
     }
@@ -853,11 +867,21 @@ void EncryptedHlsPackager::handleEncryptionFinished()
 
     setPhase(QStringLiteral("archiving"));
     setProgress(0.96);
-    const auto stagingPath = m_stagingDirectory->path();
+    // Build on the output filesystem, but keep the unpublished archive owned by
+    // the worker. Closing the app cannot leave a final archive without its TSSL.
+    m_tarDirectory = std::make_shared<QTemporaryDir>(
+        QDir(m_outputDirectory).filePath(QStringLiteral(".m3u8sp-publish-XXXXXX")));
+    if (!m_tarDirectory->isValid()) {
+        finishFailure(QStringLiteral("Unable to prepare the completed M3U8SP output file"));
+        return;
+    }
+    const auto staging = m_stagingDirectory;
+    const auto publish = m_tarDirectory;
+    const auto canceled = m_cancelRequested;
     const auto manifestName = m_pendingPreparedPackage.manifestFileName;
-    const auto outputPath = m_finalOutputPath;
-    m_tarWatcher.setFuture(QtConcurrent::run([this, stagingPath, outputPath, manifestName]() {
-        return EncryptedHlsTarContainer::build(stagingPath, outputPath, manifestName, &m_cancelRequested);
+    m_tarWatcher.setFuture(QtConcurrent::run([staging, publish, canceled, manifestName]() {
+        return EncryptedHlsTarContainer::build(staging->path(),
+            publish->filePath(QStringLiteral("package.m3u8sp")), manifestName, canceled.get());
     }));
 }
 
@@ -867,7 +891,7 @@ void EncryptedHlsPackager::handleCodecProbeFinished()
         return;
     }
     auto codec = m_codecProbeWatcher.result();
-    if (m_cancelRequested.load(std::memory_order_relaxed)) {
+    if (m_cancelRequested->load(std::memory_order_relaxed)) {
         finishCanceled();
         return;
     }
@@ -899,17 +923,22 @@ void EncryptedHlsPackager::handleTarFinished()
 {
     if (!m_running || m_terminalReported) return;
     auto tar = m_tarWatcher.result();
-    if (m_cancelRequested.load(std::memory_order_relaxed)) { finishCanceled(); return; }
+    if (m_cancelRequested->load(std::memory_order_relaxed)) { finishCanceled(); return; }
     if (!tar) { finishFailure(tar.error()); return; }
     m_pendingPreparedPackage.tsslPackage.version = 4;
     m_pendingPreparedPackage.tsslPackage.containerFormat = QStringLiteral("m3u8sp-tar-index-v1");
     m_pendingPreparedPackage.tsslPackage.containerIndexSha256 = tar->sha256;
     m_pendingPreparedPackage.tsslPackage.containerLength = tar->containerLength;
     if (auto saved = m_store.savePackage(m_pendingPreparedPackage.tsslPackage); !saved) {
-        QFile::remove(m_finalOutputPath);
         finishFailure(saved.error());
         return;
     }
+    if (!QFile::rename(m_tarDirectory->filePath(QStringLiteral("package.m3u8sp")), m_finalOutputPath)) {
+        m_store.deleteByRootDigest(m_pendingPreparedPackage.tsslPackage.rootManifestDigest);
+        finishFailure(QStringLiteral("Unable to publish the completed M3U8SP output file"));
+        return;
+    }
+    m_tarDirectory.reset();
 
     const EncryptedHlsPackageResult result {
         .outputDirectory = m_finalOutputPath,
@@ -957,6 +986,8 @@ void EncryptedHlsPackager::finishFailure(QString error)
     m_terminalReported = true;
     m_running = false;
     m_stagingDirectory.reset();
+    m_tarDirectory.reset();
+    m_progressTimer.stop();
     setPhase(QStringLiteral("failed"));
     emit runningChanged();
     AppLogger::warning(QStringLiteral("encrypted-hls"), QStringLiteral("M3U8S packaging failed: %1").arg(error));
@@ -971,6 +1002,8 @@ void EncryptedHlsPackager::finishCanceled()
     m_terminalReported = true;
     m_running = false;
     m_stagingDirectory.reset();
+    m_tarDirectory.reset();
+    m_progressTimer.stop();
     setPhase(QStringLiteral("canceled"));
     emit runningChanged();
     AppLogger::info(QStringLiteral("encrypted-hls"), QStringLiteral("Canceled M3U8S packaging"));
@@ -980,6 +1013,8 @@ void EncryptedHlsPackager::finishCanceled()
 void EncryptedHlsPackager::resetRunState()
 {
     m_stagingDirectory.reset();
+    m_tarDirectory.reset();
+    m_progressTimer.stop();
     m_outputDirectory.clear();
     m_sourceFileName.clear();
     m_finalOutputPath.clear();

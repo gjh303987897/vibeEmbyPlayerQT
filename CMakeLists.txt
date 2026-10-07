@@ -449,6 +449,27 @@ install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+    add_executable(session_credentials_test tests/SessionCredentialsTest.cpp)
+    target_link_libraries(session_credentials_test PRIVATE vibeCore Qt6::Test)
+    add_test(NAME session_credentials COMMAND session_credentials_test
+        -o "${CMAKE_CURRENT_BINARY_DIR}/session-credentials-results.txt,txt")
+    set_tests_properties(session_credentials PROPERTIES TIMEOUT 120
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME session_credentials_unavailable COMMAND session_credentials_test --probe-unavailable)
+        set_tests_properties(session_credentials_unavailable PROPERTIES TIMEOUT 25
+            ENVIRONMENT "DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent-vibeplayer-test-bus")
+    endif()
+    set(_viewmodel_test_sources ${_desktop_sources})
+    list(FILTER _viewmodel_test_sources INCLUDE REGEX "\\.(cpp|h)$")
+    list(FILTER _viewmodel_test_sources EXCLUDE REGEX "src/app/(main|TrayController|ThemeSnapshotController|WindowAppearanceController)\\.(cpp|h)$|src/player/(MpvWidget|MpvVideoItem)\\.(cpp|h)$")
+    add_executable(app_viewmodel_state_test tests/AppViewModelStateTest.cpp ${_viewmodel_test_sources})
+    target_link_libraries(app_viewmodel_state_test PRIVATE vibeCore Qt6::Quick Qt6::Widgets Qt6::Test ${MPV_LINK_TARGET})
+    target_compile_definitions(app_viewmodel_state_test PRIVATE VIBEPLAYER_VERSION="${VIBEPLAYER_SEMVER_FULL}")
+    add_test(NAME app_viewmodel_state COMMAND app_viewmodel_state_test -o "${CMAKE_CURRENT_BINARY_DIR}/app-viewmodel-state-results.txt,txt")
+    set_tests_properties(app_viewmodel_state PROPERTIES TIMEOUT 30
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     add_executable(qml_utility_test tests/QmlUtilityTest.cpp src/app/ThemeSnapshotController.cpp
         src/player/PlayerController.cpp src/player/MpvVideoItem.cpp)
     target_link_libraries(qml_utility_test PRIVATE vibeCore Qt6::Quick Qt6::Test ${MPV_LINK_TARGET})
@@ -578,7 +599,6 @@ if(BUILD_TESTING)
 
     add_executable(link_playback_history_test
         tests/LinkPlaybackHistoryTest.cpp
-        src/database/SessionRepository.cpp
         src/database/SessionRepository.h
         src/models/LinkPlaybackHistoryItem.h
         src/viewmodels/LinkPlaybackHistoryListModel.cpp
@@ -589,6 +609,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_link_libraries(link_playback_history_test PRIVATE
+        vibeCore
         Qt6::Sql
         Qt6::Test
     )
@@ -600,7 +621,6 @@ if(BUILD_TESTING)
 
     add_executable(playback_history_test
         tests/PlaybackHistoryTest.cpp
-        src/database/SessionRepository.cpp
         src/database/SessionRepository.h
         src/models/DailyUsageStat.h
         src/models/IptvChannel.h
@@ -621,6 +641,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_link_libraries(playback_history_test PRIVATE
+        vibeCore
         Qt6::Sql
         Qt6::Test
     )

@@ -9,6 +9,7 @@
 #include "models/ScheduledPlaybackTask.h"
 #include "models/ServiceCard.h"
 #include "models/UserSession.h"
+#include "database/SessionTokenCipher.h"
 
 #include <QByteArray>
 #include <QDateTime>
@@ -31,7 +32,8 @@ public:
     enum class OpenMode { ReadWrite, ReadOnly };
     explicit SessionRepository(QString connectionName = QStringLiteral("vibeplayer_session"),
                                QString databasePathOverride = {},
-                               OpenMode openMode = OpenMode::ReadWrite);
+                               OpenMode openMode = OpenMode::ReadWrite,
+                               SessionTokenCipher::Protection tokenProtection = SessionTokenCipher::Protection::PlatformDefault);
     ~SessionRepository();
 
     std::expected<void, QString> initialize();
@@ -206,6 +208,10 @@ private:
     std::expected<void, QString> ensureColumn(const QString& table, const QString& column, const QString& definition);
     std::expected<void, QString> migrateSessionsTable();
     std::expected<void, QString> protectLegacySessionTokens();
+    std::expected<void, QString> initializeSessionTokenCleanup();
+    std::expected<void, QString> installSessionTokenCleanupTriggers();
+    std::expected<void, QString> collectUnusedSessionCredentials();
+    void discardUncommittedSessionCredential(const QString& reference);
     std::expected<void, QString> migrateDailyUsageStatsTable();
     std::expected<std::optional<UserSession>, QString> sessionFromQuery(QSqlQuery& query);
 
@@ -214,4 +220,5 @@ private:
     QSqlDatabase m_database;
     QSettings m_settings;
     OpenMode m_openMode;
+    SessionTokenCipher::Protection m_tokenProtection;
 };

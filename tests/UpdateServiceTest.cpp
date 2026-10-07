@@ -1,6 +1,32 @@
 #include "services/update/UpdateService.h"
 
 #include <QtTest>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSysInfo>
+
+namespace {
+QString nativePackageName()
+{
+#if defined(Q_OS_WIN)
+    const QString platform = "windows";
+#elif defined(Q_OS_MACOS)
+    const QString platform = "macos";
+#else
+    const QString platform = "linux";
+#endif
+    const auto cpu = QSysInfo::currentCpuArchitecture();
+    const auto arch = cpu == "arm64" || cpu == "aarch64" ? "arm64" : "x86_64";
+    return QStringLiteral("vibePlayerQT-%1-%2.zip").arg(platform, arch);
+}
+QJsonObject release(const QString& version, const QString& package = nativePackageName())
+{
+    return {{"tag_name", version}, {"draft", false}, {"body", "notes"},
+            {"assets", QJsonArray {QJsonObject {{"name", package},
+                {"browser_download_url", "https://example.test/" + package}}}}};
+}
+}
 
 class UpdateServiceTest final : public QObject {
     Q_OBJECT
@@ -11,6 +37,7 @@ private slots:
     void filtersChannels();
     void parsesChecksumSidecar();
     void selectsHighestRelease();
+    void skipsReleasesWithoutPlatformAssets();
 };
 
 void UpdateServiceTest::parsesStrictVersions()
@@ -68,15 +95,26 @@ void UpdateServiceTest::parsesChecksumSidecar()
 void UpdateServiceTest::selectsHighestRelease()
 {
     const auto current = *UpdateService::parseVersion(QStringLiteral("1.0.0-stable"));
-    const auto json = QByteArrayLiteral(R"json([
-        {"tag_name":"v1.0.1-stable","draft":false,"body":"stable","assets":[]},
-        {"tag_name":"v1.0.3","draft":true,"body":"draft","assets":[]},
-        {"tag_name":"v1.0.2-stable","draft":false,"body":"new","assets":[]}
-    ])json");
+    auto draft = release("v1.0.3-stable"); draft.insert("draft", true);
+    auto latest = release("v1.0.2-stable"); latest.insert("body", "new");
+    const auto json = QJsonDocument(QJsonArray {release("v1.0.1-stable"), draft, latest}).toJson();
     const auto result = UpdateService::parseReleases(json, UpdateChannel::Stable, current);
     QVERIFY(result);
     QCOMPARE(result->version.toString(), QStringLiteral("1.0.2-stable"));
     QCOMPARE(result->notes, QStringLiteral("new"));
+    QCOMPARE(result->assets.size(), 1);
+}
+
+void UpdateServiceTest::skipsReleasesWithoutPlatformAssets()
+{
+    const auto current = *UpdateService::parseVersion("1.0.0-stable");
+    auto empty = release("v1.0.4-stable"); empty.insert("assets", QJsonArray {});
+    const auto wrong = release("v1.0.3-stable", "vibePlayerQT-unsupported-platform.zip");
+    const auto supported = release("v1.0.2-stable");
+    const auto result = UpdateService::parseReleases(QJsonDocument(QJsonArray {empty, wrong, supported}).toJson(), UpdateChannel::Stable, current);
+    QVERIFY(result);
+    QCOMPARE(result->version.toString(), QString("1.0.2-stable"));
+    QVERIFY(!UpdateService::parseReleases(QJsonDocument(QJsonArray {empty, wrong}).toJson(), UpdateChannel::Stable, current));
 }
 
 QTEST_MAIN(UpdateServiceTest)

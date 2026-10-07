@@ -149,6 +149,9 @@ jobs:
             build-essential \
             libgl1-mesa-dev \
             libmpv-dev \
+            libsecret-1-dev \
+            dbus-x11 \
+            gnome-keyring \
             libxcb-cursor-dev \
             libxcb-icccm4 \
             libxcb-image0 \
@@ -318,7 +321,13 @@ jobs:
         run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
 
       - name: Run CTest
+        if: runner.os == 'Windows'
         run: ctest --test-dir build --build-config ${{ env.BUILD_TYPE }} --output-on-failure
+
+      - name: Run CTest with an isolated system keyring
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/test-with-system-credentials.sh --test-dir build --build-config "$BUILD_TYPE" --output-on-failure
 
       - name: Install deployable bundle on Windows
         if: runner.os == 'Windows'
@@ -604,7 +613,7 @@ jobs:
           sudo apt-get update
           case "${{ matrix.cpack-generator }}" in
             DEB)
-              sudo apt-get install -y dpkg-dev libcjson1 libmariadb3 libmysofa1
+              sudo apt-get install -y dpkg-dev libcjson1 libmariadb3 libmysofa1 libsecret-1-0
               ;;
             RPM)
               sudo apt-get install -y rpm

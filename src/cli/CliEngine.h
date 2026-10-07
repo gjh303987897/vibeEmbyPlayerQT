@@ -15,6 +15,8 @@ public:
     std::expected<QStringList, Error> expand(const QStringList& words) const;
     Result transferControl(const QString& action);
     bool privateAccess() const { return m_private; }
+    // Metadata only: completion must not read credentials or decrypt tokens.
+    QStringList serviceNamesForCompletion() const;
     void setCheckpointDirectory(QString path) { m_checkpointDirectory = std::move(path); }
     void setProgressObserver(std::function<void(qint64,qint64)> observer) { m_progressObserver = std::move(observer); }
 
