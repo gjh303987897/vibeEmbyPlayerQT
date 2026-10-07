@@ -659,7 +659,7 @@ void TransferManager::cancelTask(const QString& taskId)
             if (task.id == queued.task.id) {
                 task.status = statusCanceled();
                 task.detail = QStringLiteral("Canceled");
-                if (queued.direction == Direction::Download) {
+                if (queued.direction == Direction::Download && !queued.retainPartial) {
                     QFile::remove(queued.localPath);
                     task.bytesDone = 0;
                     task.bytesPerSecond = 0;
@@ -737,14 +737,14 @@ void TransferManager::cancelGroup(const QString& groupId)
             task.detail = QStringLiteral("Canceled");
             // An upload's localPath is the user's source file; only downloads
             // own partial artifacts that cancellation may delete.
-            if (!group->isUpload) {
+            if (!group->isUpload && !queued.retainPartial) {
                 QFile::remove(queued.localPath);
             }
-            task.bytesDone = 0;
+            if (!queued.retainPartial) task.bytesDone = 0;
             task.bytesPerSecond = 0;
             task.averageBytesPerSecond = 0;
             task.bytesRemaining = task.bytesTotal;
-            task.progress = 0.0;
+            if (!queued.retainPartial) task.progress = 0.0;
             task.cancellable = false;
             task.canPause = false;
             task.canResume = false;
@@ -783,17 +783,19 @@ void TransferManager::cancelGroup(const QString& groupId)
             continue;
         }
         const auto wasFinished = finishedStatus(task.status);
-        const auto definition = m_taskDefinitions.value(task.id);
-        if (definition.direction == Direction::Download) {
-            QFile::remove(definition.localPath);
+        const auto definition = m_taskDefinitions.constFind(task.id);
+        if (!group->isUpload && definition != m_taskDefinitions.cend() &&
+            definition->direction == Direction::Download && !definition->retainPartial) {
+            QFile::remove(definition->localPath);
         }
         task.status = statusCanceled();
         task.detail = QStringLiteral("Canceled");
-        task.bytesDone = 0;
+        const auto retained = definition != m_taskDefinitions.cend() && definition->retainPartial;
+        if (!retained) task.bytesDone = 0;
         task.bytesPerSecond = 0;
         task.averageBytesPerSecond = 0;
         task.bytesRemaining = task.bytesTotal;
-        task.progress = 0.0;
+        if (!retained) task.progress = 0.0;
         task.cancellable = false;
         task.canPause = false;
         task.canResume = false;
@@ -1585,7 +1587,7 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
         if (ok && task.bytesTotal > 0) {
             task.bytesDone = task.bytesTotal;
         } else if (!ok &&
-                   (active->queued.direction == Direction::Download ||
+                   ((active->queued.direction == Direction::Download && !active->queued.retainPartial) ||
                     (status == statusCanceled() && active->queued.direction == Direction::Upload))) {
             task.bytesDone = 0;
             task.progress = 0.0;
@@ -1896,9 +1898,14 @@ void TransferManager::cleanupGroupFiles(const QString& groupId)
         // Upload groups have nothing local to clean up; deleting source files
         // on cancel would destroy user data.
         if (!group->isUpload) {
+            bool retainedFiles = false;
             for (const auto& taskId : group->taskIds) {
                 const auto definition = m_taskDefinitions.constFind(taskId);
                 if (definition == m_taskDefinitions.cend() || definition->direction != Direction::Download) {
+                    continue;
+                }
+                if (definition->retainPartial) {
+                    retainedFiles = true;
                     continue;
                 }
                 if (!QFileInfo::exists(definition->localPath)) {
@@ -1907,12 +1914,12 @@ void TransferManager::cleanupGroupFiles(const QString& groupId)
                 cleanupOk = QFile::remove(definition->localPath) && cleanupOk;
             }
 
-            if (group->targetIsDirectory) {
+            if (!retainedFiles && group->targetIsDirectory) {
                 QDir targetDirectory(group->targetPath);
                 if (targetDirectory.exists()) {
                     cleanupOk = targetDirectory.removeRecursively() && cleanupOk;
                 }
-            } else if (QFileInfo::exists(group->targetPath)) {
+            } else if (!retainedFiles && QFileInfo::exists(group->targetPath)) {
                 cleanupOk = QFile::remove(group->targetPath) && cleanupOk;
             }
         }

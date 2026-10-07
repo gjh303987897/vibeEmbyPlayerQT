@@ -76,6 +76,7 @@ QByteArray reasonPhrase(int statusCode)
     case 403: return QByteArrayLiteral("Forbidden");
     case 404: return QByteArrayLiteral("Not Found");
     case 405: return QByteArrayLiteral("Method Not Allowed");
+    case 408: return QByteArrayLiteral("Request Timeout");
     case 410: return QByteArrayLiteral("Gone");
     case 413: return QByteArrayLiteral("Content Too Large");
     case 416: return QByteArrayLiteral("Range Not Satisfiable");
@@ -592,7 +593,8 @@ constexpr int previewRetryBaseMs = 300;
 // transient; a misclassified permanent error costs at most the retry budget.
 bool isTransientPreviewError(const QString& error)
 {
-    static constexpr std::array<QStringView, 13> permanentNeedles = {
+    static constexpr std::array<QStringView, 14> permanentNeedles = {
+        u"exceeds the configured size limit",
         u"Invalid M3U8SP",
         u"Unsupported M3U8SP",
         u"M3U8SP manifest entry digest mismatch",
@@ -1103,14 +1105,19 @@ QNetworkReply* EncryptedHlsPlaybackProxy::fetchRemoteRange(
             m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
             buffer->append(chunk);
         }
-        if (buffer->size() > maximumBytes && reply->isRunning()) reply->abort();
+        if (buffer->size() > maximumBytes && reply->isRunning()) {
+            reply->setProperty("encryptedHlsTooLarge", true);
+            reply->abort();
+        }
     });
     connect(reply, &QNetworkReply::finished, reply,
-            [reply, buffer, start, end, expectedEtag, callback = std::move(callback)]() mutable {
+            [reply, buffer, start, end, maximumBytes, expectedEtag, callback = std::move(callback)]() mutable {
         const auto chunk = reply->isOpen() ? reply->readAll() : QByteArray {};
         if (!chunk.isEmpty()) buffer->append(chunk);
         const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (reply->error() != QNetworkReply::NoError) {
+        if (reply->property("encryptedHlsTooLarge").toBool() || buffer->size() > maximumBytes) {
+            callback(std::unexpected(QStringLiteral("Remote encrypted HLS object exceeds the configured size limit")));
+        } else if (reply->error() != QNetworkReply::NoError) {
             callback(std::unexpected(status == 412 ? QStringLiteral("Remote M3U8SP object changed") : reply->errorString()));
         } else if (status != 206) {
             callback(std::unexpected(QStringLiteral("Remote M3U8SP server does not support byte ranges")));
@@ -1220,18 +1227,34 @@ void EncryptedHlsPlaybackProxy::handlePendingConnection()
 {
     while (auto* socket = m_server.nextPendingConnection()) {
         auto buffer = std::make_shared<QByteArray>();
-        connect(socket, &QTcpSocket::readyRead, socket, [this, socket, buffer]() {
-            buffer->append(socket->readAll());
-            if (buffer->size() > maximumRequestHeaderBytes) {
+        auto* deadline = new QTimer(socket);
+        deadline->setSingleShot(true);
+        connect(deadline, &QTimer::timeout, socket, [socket] {
+            socket->setProperty("encryptedHlsRequestStarted", true);
+            writeError(socket, 408);
+        });
+        deadline->start(15'000);
+        connect(socket, &QTcpSocket::readyRead, socket, [this, socket, buffer, deadline]() {
+            if (socket->property("encryptedHlsRequestStarted").toBool()) {
+                while (socket->bytesAvailable() > 0) socket->read(8192);
+                return;
+            }
+            buffer->append(socket->read(maximumRequestHeaderBytes + 1 - buffer->size()));
+            const auto headerEnd = buffer->indexOf("\r\n\r\n");
+            if ((headerEnd < 0 && buffer->size() >= maximumRequestHeaderBytes) ||
+                headerEnd + 4 > maximumRequestHeaderBytes) {
+                deadline->stop();
+                socket->setProperty("encryptedHlsRequestStarted", true);
+                while (socket->bytesAvailable() > 0) socket->read(8192);
                 writeError(socket, 431);
                 return;
             }
-            const auto headerEnd = buffer->indexOf("\r\n\r\n");
             if (headerEnd < 0) {
                 return;
             }
             const auto request = buffer->left(headerEnd + 4);
             buffer->clear();
+            deadline->stop();
             // One response per connection; never start multiple full-segment
             // allocations for pipelined/repeated request headers.
             if (socket->property("encryptedHlsRequestStarted").toBool()) return;

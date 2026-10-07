@@ -7,6 +7,7 @@
 #include <QFutureWatcher>
 #include <QTimer>
 #include <QPointer>
+#include <QThread>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -75,17 +76,28 @@ ResultType await(Start start, Cancel cancel)
 template<typename T>
 T awaitFuture(QFuture<T> future)
 {
-    // Some workers capture their command's inputs by reference. An application
-    // quit must not unwind that command while its worker still uses those inputs.
-    auto pending = future;
-    return await<T>([future = std::move(future)](auto complete) mutable {
-        auto* watcher = new QFutureWatcher<T>(QCoreApplication::instance());
-        QObject::connect(watcher, &QFutureWatcher<T>::finished, watcher, [watcher, complete]() {
-            auto value = watcher->future().takeResult();
-            watcher->deleteLater();
-            complete(std::move(value));
-        });
-        watcher->setFuture(future);
-    }, [pending = std::move(pending)]() mutable { pending.waitForFinished(); });
+    QEventLoop loop;
+    QFutureWatcher<T> watcher;
+    QTimer timer;
+    QObject::connect(&watcher, &QFutureWatcher<T>::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&timer, &QTimer::timeout, &loop, [] {
+        // Workers check the shared cancellation flag at block boundaries.
+        // Keep processing events while their cleanup completes.
+        if (CliConsole::pollCancellation()) CliConsole::transferPaused.store(false);
+    });
+    timer.start(50);
+    watcher.setFuture(future);
+    if (!future.isFinished()) loop.exec();
+    if (!future.isFinished()) {
+        // Application quit can stop nested exec immediately. The command's
+        // inputs must still outlive a worker capturing them by reference.
+        CliConsole::canceled.store(true);
+        CliConsole::transferPaused.store(false);
+        while (!future.isFinished()) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+            QThread::msleep(1);
+        }
+    }
+    return future.takeResult();
 }
 }

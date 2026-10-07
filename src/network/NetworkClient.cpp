@@ -104,6 +104,7 @@ void NetworkClient::send(QNetworkAccessManager::Operation operation,
     QNetworkReply* reply = nullptr;
     switch (operation) {
     case QNetworkAccessManager::GetOperation:
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
         reply = m_manager.get(request);
         break;
     case QNetworkAccessManager::PostOperation:

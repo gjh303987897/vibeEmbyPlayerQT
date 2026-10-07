@@ -60,11 +60,13 @@ QString cleanName(QString value)
 QHash<QString, QString> parseAttributes(const QString& value)
 {
     QHash<QString, QString> attributes;
-    static const QRegularExpression attributePattern(QStringLiteral(R"m3u(([A-Za-z0-9_-]+)\s*=\s*"([^"]*)")m3u"));
+    static const QRegularExpression attributePattern(QStringLiteral(R"m3u(([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s,]+)))m3u"));
     auto match = attributePattern.globalMatch(value);
     while (match.hasNext()) {
         const auto item = match.next();
-        attributes.insert(item.captured(1).toLower(), item.captured(2).trimmed());
+        const auto attributeValue = item.capturedStart(2) >= 0 ? item.captured(2) :
+            item.capturedStart(3) >= 0 ? item.captured(3) : item.captured(4);
+        attributes.insert(item.captured(1).toLower(), attributeValue.trimmed());
     }
     return attributes;
 }
@@ -97,7 +99,15 @@ bool isUrlLine(const QString& line)
     }
 
     const auto url = QUrl(line);
-    return url.isValid() || line.endsWith(QStringLiteral(".m3u8"), Qt::CaseInsensitive);
+    if (!url.isValid()) return false;
+    // Keep local playlist entries, but reject arbitrary prose as a stream URL.
+    if (url.isRelative()) {
+        static const QStringList mediaExtensions {"m3u", "m3u8", "ts", "mp4", "mkv", "avi", "webm",
+            "mpeg", "mpg", "m4v", "mp3", "aac", "m4a", "ogg", "flac", "wav"};
+        return mediaExtensions.contains(QFileInfo(url.path()).suffix(), Qt::CaseInsensitive);
+    }
+    return !url.scheme().isEmpty() &&
+        (url.isLocalFile() || !url.host().isEmpty());
 }
 
 bool looksLikeHlsManifest(const QString& text)

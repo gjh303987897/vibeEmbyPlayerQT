@@ -7,6 +7,7 @@
 #include <QStringList>
 #include <QTimer>
 #include <QTimeZone>
+#include <QPointer>
 #include <QUrl>
 
 #include <algorithm>
@@ -468,8 +469,8 @@ void ScheduledPlaybackManager::fetchCandidates()
     const auto generation = ++m_generation;
     m_embyClient.fetchRandomPlayableItems(*m_currentSession,
                                           randomCandidateCount,
-                                          [this, generation](ItemResult result) {
-        if (generation != m_generation || !m_currentTask) {
+                                          [this, guard = QPointer<ScheduledPlaybackManager>(this), generation](ItemResult result) {
+        if (!guard || generation != m_generation || !m_currentTask) {
             return;
         }
         if (!result) {
@@ -486,7 +487,13 @@ void ScheduledPlaybackManager::fetchCandidates()
         }
         if (m_candidates.empty()) {
             m_recentItemIds.clear();
-            m_candidates = std::move(*result);
+            for (auto& item : *result) {
+                if (!item.id.isEmpty()) m_candidates.push_back(std::move(item));
+            }
+        }
+        if (m_candidates.empty()) {
+            failTask(QStringLiteral("The selected Emby source has no playable candidates"));
+            return;
         }
         tryNextCandidate();
     });
@@ -517,8 +524,8 @@ void ScheduledPlaybackManager::tryNextCandidate()
     const auto generation = m_generation;
     m_embyClient.fetchPlaybackUrl(*m_currentSession,
                                   item,
-                                  [this, generation, item](PlaybackUrlResult result) mutable {
-        if (generation != m_generation || !m_currentTask) {
+                                  [this, guard = QPointer<ScheduledPlaybackManager>(this), generation, item](PlaybackUrlResult result) mutable {
+        if (!guard || generation != m_generation || !m_currentTask) {
             return;
         }
         if (!result) {

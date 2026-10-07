@@ -1,4 +1,5 @@
 #include "services/webdav/WebDavClient.h"
+#include <QCoreApplication>
 
 #include "utils/AppLogger.h"
 
@@ -129,12 +130,14 @@ QString normalizedPath(QUrl url)
     return path;
 }
 
-std::vector<WebDavItem> parseList(const QByteArray& body, const QUrl& baseUrl, bool includeSelf = false)
+WebDavListResult parseList(const QByteArray& body, const QUrl& baseUrl, bool includeSelf = false)
 {
     QDomDocument document;
     if (!document.setContent(body)) {
-        return {};
+        return std::unexpected(NetworkError {NetworkErrorKind::Parse, QStringLiteral("Invalid WebDAV XML response")});
     }
+    if (localName(document.documentElement()).compare(QStringLiteral("multistatus"), Qt::CaseInsensitive) != 0)
+        return std::unexpected(NetworkError {NetworkErrorKind::Parse, QStringLiteral("WebDAV response is not a multistatus document")});
 
     const auto basePath = normalizedPath(baseUrl);
     std::vector<WebDavItem> items;
@@ -277,17 +280,18 @@ void WebDavClient::listDirectory(const ServerConfig& server,
         // Large WebDAV directories can contain thousands of XML response
         // nodes.  DOM construction, item mapping, and locale-aware sorting
         // must not block the Qt Quick render thread while the page opens.
-        auto* watcher = new QFutureWatcher<std::vector<WebDavItem>>(this);
+        auto* watcher = new QFutureWatcher<WebDavListResult>(this);
         connect(watcher, &QFutureWatcherBase::finished, watcher,
                 [watcher, directoryUrl, bodySize, callback = std::move(callback)]() mutable {
             auto items = watcher->future().takeResult();
-            if (items.empty()) {
+            if (items && items->empty()) {
                 AppLogger::warning(QStringLiteral("webdav"),
                                    QStringLiteral("PROPFIND returned no visible items for %1, bodyBytes=%2")
                                        .arg(directoryUrl.toString(), QString::number(bodySize)));
             }
-            callback(std::move(items));
             watcher->deleteLater();
+            watcher->setParent(QCoreApplication::instance());
+            callback(std::move(items));
         });
         watcher->setFuture(QtConcurrent::run(
             [body = std::move(body), directoryUrl]() {
@@ -324,7 +328,9 @@ void WebDavClient::statItem(const ServerConfig& server,
             return;
         }
         auto parsed = parseList(body, itemUrl, true);
-        if (parsed.empty()) {
+        if (!parsed) {
+            callback(std::unexpected(parsed.error()));
+        } else if (parsed->empty()) {
             WebDavItem item;
             item.name = decodedSegmentName(itemUrl);
             item.url = itemUrl;
@@ -336,7 +342,7 @@ void WebDavClient::statItem(const ServerConfig& server,
                 (isAudioFile(item.name) || item.contentType.startsWith(QStringLiteral("audio/"), Qt::CaseInsensitive));
             callback(std::move(item));
         } else {
-            callback(std::move(parsed.front()));
+            callback(std::move(parsed->front()));
         }
         reply->deleteLater();
     });

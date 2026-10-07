@@ -6,6 +6,7 @@
 #endif
 
 #include <QByteArray>
+#include <QScopeGuard>
 
 namespace {
 QString targetName(const QString& key)
@@ -40,7 +41,8 @@ std::expected<void, QString> CredentialStore::savePassword(const QString& key,
 #ifdef Q_OS_WIN
     const auto target = targetName(key).toStdWString();
     const auto user = username.toStdWString();
-    const auto secret = password.toUtf8();
+    auto secret = password.toUtf8();
+    const auto wipe = qScopeGuard([&] { SecureZeroMemory(secret.data(), secret.size()); });
 
     CREDENTIALW credential {};
     credential.Type = CRED_TYPE_GENERIC;
@@ -75,9 +77,9 @@ std::expected<std::optional<QString>, QString> CredentialStore::loadPassword(con
         return std::unexpected(QStringLiteral("Unable to read password from Windows Credential Manager"));
     }
 
-    const QByteArray secret(reinterpret_cast<const char*>(credential->CredentialBlob),
-                            static_cast<int>(credential->CredentialBlobSize));
-    const auto password = QString::fromUtf8(secret);
+    const auto password = QString::fromUtf8(reinterpret_cast<const char*>(credential->CredentialBlob),
+                                           credential->CredentialBlobSize);
+    SecureZeroMemory(credential->CredentialBlob, credential->CredentialBlobSize);
     CredFree(credential);
     return std::optional<QString> { password };
 #else
@@ -107,7 +109,8 @@ std::expected<void, QString> CredentialStore::saveSecret(const QString& key, con
 {
 #ifdef Q_OS_WIN
     const auto target = secretTargetName(key).toStdWString();
-    const auto bytes = secret.toUtf8();
+    auto bytes = secret.toUtf8();
+    const auto wipe = qScopeGuard([&] { SecureZeroMemory(bytes.data(), bytes.size()); });
     CREDENTIALW credential {};
     credential.Type = CRED_TYPE_GENERIC;
     credential.TargetName = const_cast<LPWSTR>(target.c_str());
@@ -136,9 +139,9 @@ std::expected<std::optional<QString>, QString> CredentialStore::loadSecret(const
         }
         return std::unexpected(QStringLiteral("Unable to read secret from Windows Credential Manager"));
     }
-    const QByteArray bytes(reinterpret_cast<const char*>(credential->CredentialBlob),
-                           static_cast<int>(credential->CredentialBlobSize));
-    const auto result = QString::fromUtf8(bytes);
+    const auto result = QString::fromUtf8(reinterpret_cast<const char*>(credential->CredentialBlob),
+                                         credential->CredentialBlobSize);
+    SecureZeroMemory(credential->CredentialBlob, credential->CredentialBlobSize);
     CredFree(credential);
     return std::optional<QString> { result };
 #else

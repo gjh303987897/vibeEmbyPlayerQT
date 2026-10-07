@@ -449,8 +449,12 @@ install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
-    add_executable(audit_regression_test tests/AuditRegressionTest.cpp)
-    target_link_libraries(audit_regression_test PRIVATE vibeCli Qt6::Test)
+    add_executable(audit_regression_test tests/AuditRegressionTest.cpp
+        src/services/scheduler/ScheduledPlaybackManager.cpp
+        src/services/scheduler/ScheduledPlaybackSchedule.cpp
+        src/services/emby/EmbyRecommendationCache.cpp
+        src/player/PlayerController.cpp)
+    target_link_libraries(audit_regression_test PRIVATE vibeCli Qt6::Test Qt6::Gui ${MPV_LINK_TARGET})
     add_test(NAME audit_regression COMMAND audit_regression_test
         -o "${CMAKE_CURRENT_BINARY_DIR}/audit-regression-results.txt,txt")
     set_tests_properties(audit_regression PROPERTIES TIMEOUT 60

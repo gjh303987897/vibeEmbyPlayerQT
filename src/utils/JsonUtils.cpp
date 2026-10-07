@@ -1,6 +1,20 @@
 #include "utils/JsonUtils.h"
 
 #include <QJsonValue>
+#include <limits>
+#include <optional>
+#include <cmath>
+
+namespace {
+std::optional<qint64> integerValue(const QJsonValue& value)
+{
+    if (!value.isDouble()) return std::nullopt;
+    const auto low = value.toInteger(std::numeric_limits<qint64>::min());
+    const auto high = value.toInteger(std::numeric_limits<qint64>::max());
+    if (low != high) return std::nullopt;
+    return low;
+}
+}
 
 QString jsonString(const QJsonObject& object, const QString& key)
 {
@@ -9,7 +23,8 @@ QString jsonString(const QJsonObject& object, const QString& key)
         return value.toString();
     }
     if (value.isDouble()) {
-        return QString::number(value.toDouble());
+        if (const auto integer = integerValue(value)) return QString::number(*integer);
+        return QString::number(value.toDouble(), 'g', std::numeric_limits<double>::max_digits10);
     }
     return {};
 }
@@ -30,7 +45,9 @@ int jsonIntAny(const QJsonObject& object, std::initializer_list<QString> keys, i
     for (const auto& key : keys) {
         const auto value = object.value(key);
         if (value.isDouble()) {
-            return value.toInt();
+            if (const auto integer = integerValue(value); integer &&
+                *integer >= std::numeric_limits<int>::min() && *integer <= std::numeric_limits<int>::max())
+                return static_cast<int>(*integer);
         }
         if (value.isString()) {
             bool ok = false;
@@ -48,7 +65,7 @@ qint64 jsonInt64Any(const QJsonObject& object, std::initializer_list<QString> ke
     for (const auto& key : keys) {
         const auto value = object.value(key);
         if (value.isDouble()) {
-            return static_cast<qint64>(value.toDouble());
+            if (const auto integer = integerValue(value)) return *integer;
         }
         if (value.isString()) {
             bool ok = false;

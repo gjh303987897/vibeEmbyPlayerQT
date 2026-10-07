@@ -264,7 +264,8 @@ std::expected<EncryptedHlsTarIndex, QString> build(const QString& directoryPath,
     for (const auto& file : files) {
         const auto relative = QDir(directoryPath).relativeFilePath(file.filePath()).replace('\\', '/');
         auto path = safePath(relative);
-        if (!path || relative == QStringLiteral("index.m3u8")) continue;
+        if (!path) return std::unexpected(path.error());
+        if (relative == QStringLiteral("index.m3u8")) continue;
         EncryptedHlsTarEntry entry;
         entry.path = *path;
         entry.size = file.size();

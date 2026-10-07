@@ -15,6 +15,18 @@ constexpr qsizetype maximumManifestBytes = 4 * 1024 * 1024;
 constexpr auto identifierPrefix = "#M3U8S-IDENTIFIER:";
 constexpr auto sourceNamePrefix = "#M3U8S-SOURCE-NAME:";
 
+qsizetype manifestHeaderEnd(const QByteArray& bytes)
+{
+    qsizetype start = 0;
+    while (start < bytes.size()) {
+        const auto end = bytes.indexOf('\n', start);
+        if (end < 0) return -1;
+        if (!bytes.mid(start, end - start).trimmed().isEmpty()) return end;
+        start = end + 1;
+    }
+    return -1;
+}
+
 bool isValidIdentifier(QByteArrayView identifier)
 {
     if (identifier.size() != m3u8sIdentifierLength) {
@@ -338,7 +350,7 @@ std::expected<QByteArray, QString> insertM3u8sIdentifier(QByteArrayView manifest
     if (bytes.contains(identifierPrefix)) {
         return std::unexpected(QStringLiteral("HLS manifest already contains an M3U8S identifier"));
     }
-    const auto firstLineEnd = bytes.indexOf('\n');
+    const auto firstLineEnd = manifestHeaderEnd(bytes);
     if (firstLineEnd < 0) {
         return std::unexpected(QStringLiteral("HLS manifest must contain content after #EXTM3U"));
     }
@@ -369,7 +381,7 @@ std::expected<QByteArray, QString> insertEncryptedSourceFileName(
     if (bytes.contains(sourceNamePrefix)) {
         return std::unexpected(QStringLiteral("HLS manifest already contains an encrypted source filename"));
     }
-    const auto firstLineEnd = bytes.indexOf('\n');
+    const auto firstLineEnd = manifestHeaderEnd(bytes);
     if (firstLineEnd < 0) {
         return std::unexpected(QStringLiteral("HLS manifest must contain content after #EXTM3U"));
     }

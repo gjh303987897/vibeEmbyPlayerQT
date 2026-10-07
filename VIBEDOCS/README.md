@@ -8,6 +8,8 @@
 
 当前文档：
 
+- [BoundedReplyWriter.md](BoundedReplyWriter.md)：普通 WebDAV 播放的有界转发与背压。
+
 - [AuditFixes-2026-10-07.md](AuditFixes-2026-10-07.md)：缺陷修复、回归证据与尚未验证的边界。
 - [SqlTransaction.md](SqlTransaction.md)：SQLite 提交失败后的统一事务清理。
 - [SessionTokenCipher.md](SessionTokenCipher.md)：Windows Token 加密、旧会话迁移和平台边界。

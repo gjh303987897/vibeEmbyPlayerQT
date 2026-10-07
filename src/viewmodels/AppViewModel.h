@@ -1123,6 +1123,7 @@ private:
     quint64 m_webDavDirectoryRequestGeneration { 0 };
     std::optional<MediaLibrary> m_currentLibrary;
     QString m_currentMediaParentId;
+    quint64 m_mediaDirectoryRequestGeneration { 0 };
     QString m_currentMediaParentName;
     std::vector<std::pair<QString, QString>> m_mediaParentHistory;
     std::optional<MediaItem> m_selectedItem;

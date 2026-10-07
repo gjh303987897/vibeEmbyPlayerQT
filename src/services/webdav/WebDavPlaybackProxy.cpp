@@ -1,4 +1,5 @@
 #include "services/webdav/WebDavPlaybackProxy.h"
+#include "services/webdav/BoundedReplyWriter.h"
 #include <QPointer>
 
 #include "utils/AppLogger.h"
@@ -180,6 +181,7 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
     QNetworkRequest request(stream.remoteUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("vibePlayerQT/0.1"));
     request.setRawHeader("Accept", "*/*");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::SameOriginRedirectPolicy);
     if (requestHeaders.contains("range")) {
         request.setRawHeader("Range", requestHeaders.value("range"));
     }
@@ -199,7 +201,7 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
         *headersSent = true;
         auto statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (statusCode <= 0) {
-            statusCode = 200;
+            statusCode = reply->error() == QNetworkReply::NoError ? 200 : 502;
         }
         socket->write("HTTP/1.1 " + QByteArray::number(statusCode) + ' ' + responseReason(statusCode) + "\r\n");
         const auto headers = reply->rawHeaderPairs();
@@ -213,32 +215,8 @@ void WebDavPlaybackProxy::proxyRemoteRequest(QTcpSocket* socket,
         socket->write("Connection: close\r\n\r\n");
     };
 
-    connect(reply, &QNetworkReply::readyRead, reply, [this, reply, socket = guardedSocket, sendHeaders, server]() {
-        sendHeaders();
-        if (socket && socket->state() != QAbstractSocket::UnconnectedState) {
-            const auto chunk = reply->readAll();
-            if (!chunk.isEmpty()) {
-                m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), chunk.size(), 0);
-                socket->write(chunk);
-            }
-        }
-    });
-    connect(reply, &QNetworkReply::finished, reply, [this, reply, socket = guardedSocket, headersSent, sendHeaders, server]() {
-        sendHeaders();
-        if (socket && socket->state() != QAbstractSocket::UnconnectedState) {
-            const auto rest = reply->readAll();
-            if (!rest.isEmpty()) {
-                m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), rest.size(), 0);
-                socket->write(rest);
-            }
-            socket->disconnectFromHost();
-        }
-        reply->deleteLater();
-    });
-    connect(socket, &QTcpSocket::disconnected, reply, [reply]() {
-        if (reply->isRunning()) {
-            reply->abort();
-        }
+    new BoundedReplyWriter(reply, socket, std::move(sendHeaders), [this, server](qint64 count) {
+        m_traffic.record(server.id, server.name, serviceTypeToString(server.serviceType), count, 0);
     });
 }
 
@@ -246,10 +224,19 @@ void WebDavPlaybackProxy::wireReply(QNetworkReply* reply, const ServerConfig& se
 {
     auto* timeout = new QTimer(reply);
     timeout->setSingleShot(true);
-    connect(timeout, &QTimer::timeout, reply, [reply]() {
+    connect(timeout, &QTimer::timeout, reply, [reply, timeout]() {
+        // A paused local player applies backpressure; it is not an upstream stall.
+        if (reply->property("downstreamBlocked").toBool()) {
+            timeout->start(requestTimeoutMs);
+            return;
+        }
         reply->abort();
     });
     timeout->start(requestTimeoutMs);
+    connect(reply, &QNetworkReply::downloadProgress, timeout, [timeout] {
+        timeout->start(requestTimeoutMs);
+    });
+    connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
 
     connect(reply, &QNetworkReply::sslErrors, reply, [reply, allowSelfSigned = server.trustSelfSignedCertificate](const QList<QSslError>&) {
         if (!allowSelfSigned) {

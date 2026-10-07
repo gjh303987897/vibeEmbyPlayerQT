@@ -8934,12 +8934,13 @@ void AppViewModel::refreshEmbyRecommendationGenres()
     m_embyRecommendationGenresLoading = true;
     emit embyRecommendationSettingsChanged();
     m_embyClient.fetchSeriesGenres(*m_session, [this, serverId, requestId, requestGeneration](GenreResult result) {
-        if (requestGeneration != m_homeRequestGeneration) {
-            return;
-        }
         const auto isLatestRequest = requestId == m_embyRecommendationGenreRequestId;
         if (isLatestRequest) {
             m_embyRecommendationGenresLoading = false;
+        }
+        if (requestGeneration != m_homeRequestGeneration) {
+            if (isLatestRequest) emit embyRecommendationSettingsChanged();
+            return;
         }
         if (!result) {
             AppLogger::warning(QStringLiteral("recommendations"),
@@ -9057,6 +9058,7 @@ void AppViewModel::loadServerSearchResults(bool resetItems)
 
 void AppViewModel::resetMediaDirectory(const QString& id, const QString& name)
 {
+    ++m_mediaDirectoryRequestGeneration;
     const auto changed = m_currentMediaParentId != id || m_currentMediaParentName != name;
     m_currentMediaParentId = id;
     m_currentMediaParentName = name;
@@ -9096,18 +9098,19 @@ void AppViewModel::loadMediaDirectory(bool resetItems)
     }
 
     const auto requestParentId = m_currentMediaParentId;
+    const auto requestGeneration = ++m_mediaDirectoryRequestGeneration;
     auto* client = clientFor(m_session->server.serviceType);
     setLibraryItemsLoading(true);
     setLoading(true);
     AppLogger::info(QStringLiteral("items"),
                     QStringLiteral("Fetching items for parent %1").arg(requestParentId));
-    client->fetchLibraryItems(*m_session, *m_currentLibrary, requestParentId, m_nextItemStartIndex, m_itemPageSize, [this, requestParentId](ItemResult result) {
-        setLibraryItemsLoading(false);
-        setLoading(false);
-        if (requestParentId != m_currentMediaParentId) {
+    client->fetchLibraryItems(*m_session, *m_currentLibrary, requestParentId, m_nextItemStartIndex, m_itemPageSize, [this, requestParentId, requestGeneration](ItemResult result) {
+        if (requestGeneration != m_mediaDirectoryRequestGeneration || requestParentId != m_currentMediaParentId) {
             AppLogger::info(QStringLiteral("items"), QStringLiteral("Ignoring stale item page for parent %1").arg(requestParentId));
             return;
         }
+        setLibraryItemsLoading(false);
+        setLoading(false);
         if (!result) {
             AppLogger::warning(QStringLiteral("items"), QStringLiteral("Fetch items failed: %1").arg(displayNetworkError(result.error())));
             setError(displayNetworkError(result.error()));
@@ -9443,7 +9446,9 @@ void AppViewModel::openMediaItemDetails(const MediaItem& item, bool returnToSear
     }
     auto* client = clientFor(m_session->server.serviceType);
     setLoading(true);
-    client->fetchItemDetails(*m_session, item.id, [this](std::expected<MediaItem, NetworkError> result) {
+    const auto generation = ++m_episodeDetailRequestGeneration;
+    client->fetchItemDetails(*m_session, item.id, [this, generation](std::expected<MediaItem, NetworkError> result) {
+        if (generation != m_episodeDetailRequestGeneration) return;
         setLoading(false);
         if (!result) {
             setError(displayNetworkError(result.error()));

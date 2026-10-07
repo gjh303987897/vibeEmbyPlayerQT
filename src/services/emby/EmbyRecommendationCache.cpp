@@ -85,6 +85,14 @@ QJsonObject itemToJson(const MediaItem& item)
         { QStringLiteral("runTime"), item.runTime },
         { QStringLiteral("runTimeTicks"), item.runTimeTicks },
         { QStringLiteral("genres"), item.genres },
+        { QStringLiteral("folder"), item.folder },
+        { QStringLiteral("people"), item.people },
+        { QStringLiteral("seasonName"), item.seasonName },
+        { QStringLiteral("indexNumber"), item.indexNumber },
+        { QStringLiteral("parentIndexNumber"), item.parentIndexNumber },
+        { QStringLiteral("played"), item.played },
+        { QStringLiteral("playedPercentage"), item.playedPercentage },
+        { QStringLiteral("playbackPositionTicks"), item.playbackPositionTicks },
     };
 }
 
@@ -125,6 +133,16 @@ MediaItem itemFromJson(const QJsonObject& object, const QString& accessToken)
     item.runTime = object.value(QStringLiteral("runTime")).toString();
     item.runTimeTicks = object.value(QStringLiteral("runTimeTicks")).toInteger();
     item.genres = object.value(QStringLiteral("genres")).toString();
+    item.folder = object.value(QStringLiteral("folder")).toBool(
+        item.itemType == QStringLiteral("Series") || item.itemType == QStringLiteral("Season") ||
+        item.itemType == QStringLiteral("Folder") || item.itemType == QStringLiteral("CollectionFolder"));
+    item.people = object.value(QStringLiteral("people")).toString();
+    item.seasonName = object.value(QStringLiteral("seasonName")).toString();
+    item.indexNumber = object.value(QStringLiteral("indexNumber")).toString();
+    item.parentIndexNumber = object.value(QStringLiteral("parentIndexNumber")).toString();
+    item.played = object.value(QStringLiteral("played")).toBool();
+    item.playedPercentage = object.value(QStringLiteral("playedPercentage")).toDouble();
+    item.playbackPositionTicks = object.value(QStringLiteral("playbackPositionTicks")).toInteger();
     return item;
 }
 }

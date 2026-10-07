@@ -2,6 +2,7 @@
 #include "app/ThemeSnapshotController.h"
 #include "app/WindowAppearanceController.h"
 #include "utils/AppLogger.h"
+#include "utils/ErrorPresentation.h"
 #include "viewmodels/AppViewModel.h"
 
 #include <QApplication>
@@ -42,6 +43,7 @@ void applyApplicationIcon(TrayController& trayController)
 
 int main(int argc, char* argv[])
 {
+    AppLogger::setSanitizer([](const QString& message) { return ErrorPresentation::sanitizeDetails(message); });
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("vibePlayerQT"));
     QApplication::setApplicationVersion(QStringLiteral(VIBEPLAYER_VERSION));

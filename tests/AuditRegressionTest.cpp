@@ -3,6 +3,13 @@
 #include "database/SessionTokenCipher.h"
 #include "services/backup/TsslBackupService.h"
 #include "services/emby/EmbyClient.h"
+#include "services/emby/EmbyRecommendationCache.h"
+#include "services/scheduler/ScheduledPlaybackManager.h"
+#include "services/webdav/BoundedReplyWriter.h"
+#include "services/webdav/HlsManifestValidator.h"
+#include "utils/JsonUtils.h"
+#include <QJsonDocument>
+#include <QNetworkAccessManager>
 #include "services/iptv/IptvParser.h"
 #include "services/webdav/WebDavClient.h"
 #include "services/webdav/WebDavPlaybackProxy.h"
@@ -276,6 +283,135 @@ private slots:
         QVERIFY(channels && channels->size() == 1);
         QCOMPARE(channels->front().name, QString("Proper Name"));
         QCOMPARE(channels->front().groupName, QString("Movies"));
+    }
+    void playlistRejectsProseAndReadsAttributeStyles()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("styles.m3u");
+        QVERIFY(writeFile(path,
+            "#EXTM3U\n#EXTINF:-1 group-title='News, live' tvg-logo=https://example.com/logo.png,News\n"
+            "random prose\n123\nhttps://example.com/live\n"));
+        const auto channels = IptvParser::parseFile(path);
+        QVERIFY(channels && channels->size() == 1);
+        QCOMPARE(channels->front().groupName, QString("News, live"));
+        QCOMPARE(channels->front().logoUrl, QString("https://example.com/logo.png"));
+        QCOMPARE(channels->front().streamUrl, QString("https://example.com/live"));
+    }
+    void jsonNumbersPreserveIntegersAndRejectOverflow()
+    {
+        const auto object = QJsonDocument::fromJson(
+            "{\"id\":1234567890,\"ticks\":100000000000000001,\"large\":2147483648,\"fraction\":1.5,\"overflow\":1e30}").object();
+        QCOMPARE(jsonString(object, "id"), QString("1234567890"));
+        QCOMPARE(jsonInt64Any(object, {"ticks"}), qint64(100000000000000001LL));
+        QCOMPARE(jsonString(object, "ticks"), QString("100000000000000001"));
+        QCOMPARE(jsonIntAny(object, {"large"}, -9), -9);
+        QCOMPARE(jsonInt64Any(object, {"overflow"}, -9), qint64(-9));
+        QCOMPARE(jsonInt64Any(object, {"fraction"}, -9), qint64(-9));
+    }
+    void recommendationCachePreservesNavigationAndResume()
+    {
+        MediaItem item {.id = "show", .itemType = "Series"};
+        item.folder = true; item.played = true; item.playbackPositionTicks = 1234567890123;
+        item.seasonName = "Season One"; item.indexNumber = "2"; item.people = "Person";
+        const std::vector<MediaItem> items {item};
+        const auto cached = EmbyRecommendationCache::deserialize(EmbyRecommendationCache::serialize(items), "fake");
+        QVERIFY(cached && cached->size() == 1);
+        QVERIFY(cached->front().folder); QVERIFY(cached->front().played);
+        QCOMPARE(cached->front().playbackPositionTicks, item.playbackPositionTicks);
+        QCOMPARE(cached->front().seasonName, item.seasonName);
+        QCOMPARE(cached->front().people, item.people);
+        const auto legacy = EmbyRecommendationCache::deserialize("[{\"id\":\"old\",\"itemType\":\"Series\"}]", "fake");
+        QVERIFY(legacy && legacy->front().folder);
+    }
+    void hlsTagsFollowTheActualHeader()
+    {
+        const QByteArray manifest = "\n \r\n#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts\n#EXT-X-ENDLIST\n";
+        const auto withIdentifier = HlsManifestValidator::insertM3u8sIdentifier(manifest, QByteArray(4096, 'A'));
+        QVERIFY(withIdentifier);
+        QVERIFY(HlsManifestValidator::validate(*withIdentifier));
+        const auto withSource = HlsManifestValidator::insertEncryptedSourceFileName(*withIdentifier, QByteArray(48, 'x'));
+        QVERIFY(withSource);
+        QVERIFY(HlsManifestValidator::validate(*withSource));
+        QVERIFY(withSource->indexOf("#EXTM3U") < withSource->indexOf("#M3U8S-SOURCE-NAME:"));
+    }
+    void webdavInvalidXmlIsNotAnEmptyDirectory()
+    {
+        Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+        endpoint.handler = [](QTcpSocket* socket, const QByteArray&) {
+            Endpoint::respond(socket, "<broken>", "207 Multi-Status");
+        };
+        WebDavClient client;
+        std::optional<WebDavListResult> result;
+        client.listDirectory(serverConfig(), {}, endpoint.url(), [&](auto value) { result = std::move(value); });
+        QTRY_VERIFY(result.has_value()); QVERIFY(!*result);
+        QCOMPARE(result->error().kind, NetworkErrorKind::Parse);
+        std::optional<WebDavItemResult> stat;
+        client.statItem(serverConfig(), {}, endpoint.url(), [&](auto value) { stat = std::move(value); });
+        QTRY_VERIFY(stat.has_value()); QVERIFY(!*stat);
+        QCOMPARE(stat->error().kind, NetworkErrorKind::Parse);
+    }
+    void emptyScheduledCandidatesStopRequests()
+    {
+        Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+        endpoint.handler = [](QTcpSocket* socket, const QByteArray&) { Endpoint::respond(socket, "{\"Items\":[]}"); };
+        QTemporaryDir directory;
+        SessionRepository repository(uniqueId(), directory.filePath("db.sqlite")); QVERIFY(repository.initialize());
+        auto server = serverConfig(); server.baseUrl = endpoint.url().toString();
+        QVERIFY(repository.saveSession(UserSession {.server = server, .userId = "user", .username = "test", .accessToken = "fake", .createdAt = QDateTime::currentDateTimeUtc()}));
+        NetworkClient network; EmbyClient client(network);
+        ScheduledPlaybackManager manager(client, repository);
+        manager.runNow(ScheduledPlaybackTask {.id = "task", .serverId = server.id});
+        QTRY_VERIFY(!manager.errorMessage().isEmpty());
+        QVERIFY(!manager.active());
+        QTest::qWait(250);
+        QCOMPARE(endpoint.requests.size(), 1);
+    }
+    void destroyedSchedulerIgnoresPendingReply()
+    {
+        Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+        endpoint.handler = [](QTcpSocket* socket, const QByteArray&) {
+            QTimer::singleShot(100, socket, [socket] { Endpoint::respond(socket, "{\"Items\":[]}"); });
+        };
+        QTemporaryDir directory;
+        SessionRepository repository(uniqueId(), directory.filePath("db.sqlite")); QVERIFY(repository.initialize());
+        auto server = serverConfig(); server.baseUrl = endpoint.url().toString();
+        QVERIFY(repository.saveSession(UserSession {.server = server, .userId = "user", .username = "test", .accessToken = "fake", .createdAt = QDateTime::currentDateTimeUtc()}));
+        NetworkClient network; EmbyClient client(network);
+        auto manager = std::make_unique<ScheduledPlaybackManager>(client, repository);
+        manager->runNow(ScheduledPlaybackTask {.id = "task", .serverId = server.id});
+        QTRY_COMPARE(endpoint.requests.size(), 1);
+        manager.reset();
+        QTest::qWait(250);
+        QCOMPARE(endpoint.requests.size(), 1);
+    }
+    void replyWriterBoundsSlowConsumerAndDrainsTail()
+    {
+        Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+        const QByteArray body(8 * 1024 * 1024, 'x');
+        endpoint.handler = [body](QTcpSocket* socket, const QByteArray&) { Endpoint::respond(socket, body); };
+        QTcpServer downstream; QVERIFY(downstream.listen(QHostAddress::LocalHost));
+        QTcpSocket consumer; consumer.setReadBufferSize(1024);
+        consumer.connectToHost(QHostAddress::LocalHost, downstream.serverPort());
+        QVERIFY(consumer.waitForConnected(1000));
+        QTRY_VERIFY(downstream.hasPendingConnections());
+        auto* producer = downstream.nextPendingConnection();
+        QNetworkAccessManager manager; auto* reply = manager.get(QNetworkRequest(endpoint.url()));
+        QPointer<QNetworkReply> guard(reply);
+        qint64 received = 0, peak = 0;
+        new BoundedReplyWriter(reply, producer, [] {}, [&](qint64 bytes) {
+            received += bytes; peak = std::max(peak, producer->bytesToWrite() + bytes);
+        });
+        QTest::qWait(200);
+        QVERIFY(received < body.size());
+        QVERIFY(peak <= BoundedReplyWriter::maximumBufferedBytes);
+        QCOMPARE(reply->readBufferSize(), BoundedReplyWriter::maximumBufferedBytes);
+        QByteArray result;
+        connect(&consumer, &QTcpSocket::readyRead, &consumer, [&] { result += consumer.readAll(); });
+        consumer.setReadBufferSize(0); result += consumer.readAll();
+        QTRY_COMPARE_WITH_TIMEOUT(result.size(), body.size(), 8000);
+        QCOMPARE(result, body);
+        QTRY_VERIFY(guard.isNull());
+        producer->deleteLater();
     }
     void malformedMediaListsFail_data()
     {
