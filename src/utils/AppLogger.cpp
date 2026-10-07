@@ -10,6 +10,7 @@ Q_LOGGING_CATEGORY(vibePlayerLog, "vibeplayer")
 
 namespace AppLogger {
 namespace {
+std::function<QString(const QString&)> messageSanitizer;
 void appendLine(const QString& level, const QString& area, const QString& message)
 {
     const auto logPath = qEnvironmentVariable("VIBEPLAYER_LOG_FILE");
@@ -27,16 +28,23 @@ void appendLine(const QString& level, const QString& area, const QString& messag
 }
 }
 
+void setSanitizer(std::function<QString(const QString&)> sanitizer)
+{
+    messageSanitizer = std::move(sanitizer);
+}
+
 void info(const QString& area, const QString& message)
 {
-    qCInfo(vibePlayerLog).noquote() << QStringLiteral("[%1]").arg(area) << message;
-    appendLine(QStringLiteral("info"), area, message);
+    const auto safe = messageSanitizer ? messageSanitizer(message) : message;
+    qCInfo(vibePlayerLog).noquote() << QStringLiteral("[%1]").arg(area) << safe;
+    appendLine(QStringLiteral("info"), area, safe);
 }
 
 void warning(const QString& area, const QString& message)
 {
-    qCWarning(vibePlayerLog).noquote() << QStringLiteral("[%1]").arg(area) << message;
-    appendLine(QStringLiteral("warning"), area, message);
+    const auto safe = messageSanitizer ? messageSanitizer(message) : message;
+    qCWarning(vibePlayerLog).noquote() << QStringLiteral("[%1]").arg(area) << safe;
+    appendLine(QStringLiteral("warning"), area, safe);
 }
 
 }

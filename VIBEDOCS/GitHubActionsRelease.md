@@ -164,7 +164,23 @@ GitHub always shows generated "Source code" zip/tar links for a Release tag. The
 
 The release job also inspects the generated source archive and every uploaded binary asset before publishing. It uses format-aware listing for ZIP/tar, NSIS/MSI/DMG, DEB, RPM, and Flatpak artifacts. If a package contains development or local-data paths such as `tests`, `resources`, `fixtures`, `samples`, `cache`, `VIBEDOCS`, `.github`, or scripts, the release job fails before uploading assets. When updating an existing Release, the job deletes old assets before uploading the newly verified files.
 
-## Notes
+## CLI entry points
+
+The installed bundle includes the headless CLI: `bin/vibePlayerQT.com` on Windows,
+`vibePlayerQT.app/Contents/MacOS/vibePlayerQT-cli` on macOS, and
+`bin/vibePlayerQT-cli` on Linux. Windows keeps the same-name desktop `.exe`;
+the Linux portable launcher and AppImage `AppRun` forward arguments to the CLI.
+Flatpak supports `flatpak run --command=vibePlayerQT-cli io.github.gjh303987897.vibeEmbyPlayerQT list`.
+
+The build runs the shared CLI unit and integration tests. Installed packages run
+the version and an isolated JSON list smoke check before packaging. The macOS
+deployment step includes the additional executable for library path rewriting.
+The bundle also installs vibePlayerPlayback, the independent CLI playback host;
+Windows package validation requires its executable alongside .com, .exe and libmpv.
+See [CLI.md](CLI.md) for commands and [CliVerification.md](CliVerification.md)
+for the Windows verification scope; this local change did not trigger Actions.
+
+## Runner notes
 
 Runner labels were checked against GitHub's hosted runner reference:
 

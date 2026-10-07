@@ -344,6 +344,9 @@ jobs:
           #!/usr/bin/env bash
           set -euo pipefail
           app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          if [[ $# -gt 0 ]]; then
+            exec "$app_dir/bin/vibePlayerQT-cli" "$@"
+          fi
           exec "$app_dir/bin/vibePlayerQT" "$@"
           EOF
           sed -i 's/^          //' "$PACKAGE_DIR/vibePlayerQT.sh"
@@ -354,6 +357,12 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path "$env:PACKAGE_DIR\bin\vibePlayerQT.exe")) { throw "Missing vibePlayerQT.exe" }
+          if (!(Test-Path "$env:PACKAGE_DIR\bin\vibePlayerQT.com")) { throw "Missing CLI entry" }
+          if (!(Test-Path "$env:PACKAGE_DIR\bin\vibePlayerPlayback.exe")) { throw "Missing CLI playback host" }
+          & "$env:PACKAGE_DIR\bin\vibePlayerQT.com" --version
+          if ($LASTEXITCODE -ne 0) { throw "CLI failed to start" }
+          $result = & "$env:PACKAGE_DIR\bin\vibePlayerQT.com" list --json --data-dir "$env:RUNNER_TEMP\cli-empty-profile"
+          if ($LASTEXITCODE -ne 0 -or !($result | ConvertFrom-Json).ok) { throw "CLI JSON smoke check failed" }
           if (!(Test-Path "$env:PACKAGE_DIR\bin\libmpv-2.dll")) { throw "Missing libmpv-2.dll" }
           if (!(Test-Path "$env:PACKAGE_DIR\bin\vulkan-1.dll")) { throw "Missing vulkan-1.dll" }
           Get-ChildItem -Recurse "$env:PACKAGE_DIR" | Select-Object FullName, Length
@@ -364,6 +373,9 @@ jobs:
         run: |
           app="$PACKAGE_DIR/vibePlayerQT.app"
           test -x "$app/Contents/MacOS/vibePlayerQT"
+          test -x "$app/Contents/MacOS/vibePlayerQT-cli"
+          "$app/Contents/MacOS/vibePlayerQT-cli" --version
+          "$app/Contents/MacOS/vibePlayerQT-cli" list --json --data-dir "$RUNNER_TEMP/cli-empty-profile"
           test -f "$app/Contents/Resources/app_icon.icns"
           plutil -extract CFBundleIconFile raw -o - "$app/Contents/Info.plist" | grep -Fx 'app_icon.icns'
           test -d "$app/Contents/Frameworks"
@@ -383,6 +395,9 @@ jobs:
         shell: bash
         run: |
           test -x "$PACKAGE_DIR/bin/vibePlayerQT"
+          test -x "$PACKAGE_DIR/bin/vibePlayerQT-cli"
+          "$PACKAGE_DIR/bin/vibePlayerQT-cli" --version
+          "$PACKAGE_DIR/bin/vibePlayerQT-cli" list --json --data-dir "$RUNNER_TEMP/cli-empty-profile"
           test -x "$PACKAGE_DIR/vibePlayerQT.sh"
           test -f "$PACKAGE_DIR/share/applications/vibePlayerQT.desktop"
           test -f "$PACKAGE_DIR/share/icons/hicolor/1024x1024/apps/vibePlayerQT.png"
@@ -761,6 +776,9 @@ jobs:
           set -euo pipefail
           app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           export LD_LIBRARY_PATH="$app_dir/lib:${LD_LIBRARY_PATH:-}"
+          if [[ $# -gt 0 ]]; then
+            exec "$app_dir/bin/vibePlayerQT-cli" "$@"
+          fi
           exec "$app_dir/bin/vibePlayerQT" "$@"
           EOF
           chmod +x "$appdir/AppRun"

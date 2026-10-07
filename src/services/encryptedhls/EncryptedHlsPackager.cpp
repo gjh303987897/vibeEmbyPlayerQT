@@ -733,7 +733,7 @@ void EncryptedHlsPackager::handleFfmpegFinished(int exitCode, QProcess::ExitStat
         return;
     }
     if (exitStatus != QProcess::NormalExit || exitCode != 0) {
-        auto detail = QString::fromUtf8(m_diagnostics.last(4000)).trimmed();
+        auto detail = QString::fromUtf8(m_diagnostics.last(std::min<qsizetype>(4000,m_diagnostics.size()))).trimmed();
         finishFailure(detail.isEmpty()
                           ? QStringLiteral("FFmpeg failed to create HLS segments")
                           : QStringLiteral("FFmpeg failed: %1").arg(detail));

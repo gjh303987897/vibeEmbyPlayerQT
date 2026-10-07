@@ -273,6 +273,8 @@ qt_add_executable(vibePlayerQT
     src/viewmodels/WebDavItemListModel.h
 )
 
+include(cmake/Cli.cmake)
+
 qt_add_qml_module(vibePlayerQT
     URI VibePlayer
     VERSION 1.0
@@ -408,6 +410,10 @@ if(UNIX AND NOT APPLE)
 endif()
 
 set(VIBEPLAYER_DEPLOY_OPTIONS NO_TRANSLATIONS)
+if(APPLE)
+    list(APPEND VIBEPLAYER_DEPLOY_OPTIONS DEPLOY_TOOL_OPTIONS
+        "-executable=\${QT_DEPLOY_PREFIX}/vibePlayerQT.app/Contents/MacOS/$<TARGET_FILE_NAME:vibePlayerCLI>")
+endif()
 if(UNIX AND NOT APPLE)
     list(APPEND VIBEPLAYER_DEPLOY_OPTIONS
         POST_EXCLUDE_REGEXES
@@ -439,6 +445,17 @@ install(SCRIPT ${VIBEPLAYER_DEPLOY_SCRIPT})
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+    add_executable(cli_test tests/CliTest.cpp)
+    target_link_libraries(cli_test PRIVATE vibeCli Qt6::Test)
+    add_executable(cli_integration_test tests/CliIntegrationTest.cpp)
+    target_link_libraries(cli_integration_test PRIVATE vibeCli Qt6::Test)
+    target_compile_definitions(cli_integration_test PRIVATE CLI_EXECUTABLE="$<TARGET_FILE:vibePlayerCLI>")
+    add_dependencies(cli_integration_test vibePlayerCLI vibePlayerPlayback)
+    add_test(NAME cli COMMAND cli_test)
+    add_test(NAME cli_integration COMMAND cli_integration_test)
+    set_tests_properties(cli cli_integration PROPERTIES
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+    set_tests_properties(cli_integration PROPERTIES TIMEOUT 240)
 
     add_executable(file_dialog_controller_test
         tests/FileDialogControllerTest.cpp

@@ -15,6 +15,11 @@
 
 #include <algorithm>
 
+void WebDavClient::cancelRequests()
+{
+    for (auto* reply : m_manager.findChildren<QNetworkReply*>()) reply->abort();
+}
+
 namespace {
 constexpr auto requestTimeoutMs = 30000;
 
@@ -124,7 +129,7 @@ QString normalizedPath(QUrl url)
     return path;
 }
 
-std::vector<WebDavItem> parseList(const QByteArray& body, const QUrl& baseUrl)
+std::vector<WebDavItem> parseList(const QByteArray& body, const QUrl& baseUrl, bool includeSelf = false)
 {
     QDomDocument document;
     if (!document.setContent(body)) {
@@ -143,7 +148,7 @@ std::vector<WebDavItem> parseList(const QByteArray& body, const QUrl& baseUrl)
 
         auto itemUrl = resolvedUrl(baseUrl, href);
         const auto itemPath = normalizedPath(itemUrl);
-        if (itemPath == basePath) {
+        if (!includeSelf && itemPath == basePath) {
             continue;
         }
 
@@ -172,6 +177,7 @@ std::vector<WebDavItem> parseList(const QByteArray& body, const QUrl& baseUrl)
         item.relativePath = name;
         item.contentType = childText(prop, QStringLiteral("getcontenttype"));
         item.lastModified = childText(prop, QStringLiteral("getlastmodified"));
+        item.etag = childText(prop,QStringLiteral("getetag"));
         item.directory = isDirectory;
         item.playable = !isDirectory && isVideoFile(name);
         item.encryptedHls = !isDirectory && (name.endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive) ||
@@ -204,6 +210,7 @@ QByteArray propfindBody()
     <D:getcontentlength/>
     <D:getcontenttype/>
     <D:getlastmodified/>
+    <D:getetag/>
   </D:prop>
 </D:propfind>)");
 }
@@ -316,7 +323,7 @@ void WebDavClient::statItem(const ServerConfig& server,
             reply->deleteLater();
             return;
         }
-        auto parsed = parseList(body, itemUrl);
+        auto parsed = parseList(body, itemUrl, true);
         if (parsed.empty()) {
             WebDavItem item;
             item.name = decodedSegmentName(itemUrl);
@@ -400,6 +407,32 @@ void WebDavClient::configureRequest(QNetworkRequest& request,
         const auto credentials = server.username.toUtf8() + QByteArrayLiteral(":") + password.toUtf8();
         request.setRawHeader("Authorization", QByteArrayLiteral("Basic ") + credentials.toBase64());
     }
+}
+
+void WebDavClient::mutate(const ServerConfig& server, const QString& password, Mutation operation,
+                         const QUrl& source, const QUrl& destination, bool overwrite,
+                         std::function<void(WebDavVoidResult)> callback)
+{
+    QNetworkRequest request(source);
+    configureRequest(request,server,password);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
+    if (operation != Mutation::Remove) {
+        request.setRawHeader("Destination",destination.toEncoded());
+        request.setRawHeader("Overwrite",overwrite ? "T" : "F");
+        request.setRawHeader("Depth","infinity");
+    }
+    const auto method = operation == Mutation::Remove ? QByteArray("DELETE") :
+                        operation == Mutation::Move ? QByteArray("MOVE") : QByteArray("COPY");
+    auto* reply = m_manager.sendCustomRequest(request,method);
+    wireReply(reply,server);
+    connect(reply,&QNetworkReply::finished,reply,[reply,callback = std::move(callback)]() mutable {
+        const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        // 207 may contain per-resource failures: never report it as unconditional success.
+        if (reply->error() == QNetworkReply::NoError && (status == 200 || status == 201 || status == 204))
+            callback({});
+        else callback(std::unexpected(NetworkError {NetworkErrorKind::Http,QStringLiteral("HTTP %1").arg(status),status}));
+        reply->deleteLater();
+    });
 }
 
 void WebDavClient::wireReply(QNetworkReply* reply, const ServerConfig& server)

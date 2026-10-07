@@ -8,6 +8,12 @@ vibePlayerQT 是一个基于 Qt Quick、C++23 和 libmpv 的跨平台桌面媒�
 
 ## 功能亮点
 
+控制台支持服务管理、WebDAV/SMB 传输、TSSL 备份、视频加密/还原、媒体库查询、
+播放控制和后台任务。Windows 在
+程序目录执行 `.\vibePlayerQT list` 或 `.\vibePlayerQT shell`；
+完整命令、参数和自动化示例见 [CLI 完整使用教程](VIBEDOCS/CLI-Tutorial.md)，
+实现说明见 [CLI 模块文档](VIBEDOCS/CLI.md)。
+
 - 原生 Qt 6 / Qt Quick 桌面应用。
 - 使用 libmpv Window Embedding 播放，播放生命周期统一由 `PlayerController` 管理。
 - 支持 Emby 和 Jellyfin 登录、媒体库浏览、继续观看、媒体详情、剧集季/集列表。
@@ -19,6 +25,28 @@ vibePlayerQT 是一个基于 Qt Quick、C++23 和 libmpv 的跨平台桌面媒�
 - 支持深色/浅色/跟随系统主题、中英文界面文本和最小化到系统托盘。
 - 使用 CMake 构建，并通过 GitHub Actions 打包 Windows、macOS、Linux 版本。
 
+## CLI 使用
+
+在安装后的 `bin` 目录打开终端：
+
+```powershell
+.\vibePlayerQT.com --version
+.\vibePlayerQT.com list
+.\vibePlayerQT.com help webdav
+.\vibePlayerQT.com shell
+```
+
+`.com` 是控制台入口；不带命令运行会打开桌面应用。以下链接可在 GitHub 中直接跳转：
+
+| 教程入口 | 内容 |
+| --- | --- |
+| [CLI 完整使用教程](VIBEDOCS/CLI-Tutorial.md) | 全部命令、参数、配置键和常见问题 |
+| [快速开始](VIBEDOCS/CLI-Tutorial.md#quick-start) | 运行入口和第一次 WebDAV 上传 |
+| [TSSL 与视频加密/解密](VIBEDOCS/CLI-Tutorial.md#video) | 加密打包、保管密钥和解密还原 |
+| [后台任务与重启恢复](VIBEDOCS/CLI-Tutorial.md#tasks) | 提交、暂停、取消和恢复 |
+| [JSON 与脚本自动化](VIBEDOCS/CLI-Tutorial.md#automation) | 退出码、PowerShell/CMD 和 GitHub Actions 示例 |
+| [CLI 模块说明](VIBEDOCS/CLI.md) | 实现与验证信息 |
+
 ## 项目状态
 
 | 模块 | 状态 |
@@ -28,7 +56,7 @@ vibePlayerQT 是一个基于 Qt Quick、C++23 和 libmpv 的跨平台桌面媒�
 | WebDAV | 已实现 PROPFIND 浏览、MKCOL、GET/PUT 传输、传输列表、空间提示和视频播放。 |
 | IPTV | 已实现本地 M3U/M3U8 导入、频道列表、分组、搜索和播放。 |
 | 链接播放 | 已实现 HTTP/HTTPS 直接媒体与 HLS 播放、按日期展示的历史、单条删除与流量统计。 |
-| SMB | 规划中。SMB2/SMB3 应通过 libsmb2 等成熟库实现，不自行实现协议。 |
+| SMB | Windows CLI 已通过系统 SMB 后端支持浏览、传输、复制/移动/删除及播放；桌面 SMB 浏览页仍在规划中。 |
 | 打包 | CI 会构建 Windows 便携 ZIP/NSIS/MSI、macOS ZIP/DMG，以及 Linux tar.gz/AppImage/DEB/RPM/Flatpak 发布包。 |
 
 ## 架构
@@ -143,6 +171,8 @@ Linux 和 macOS 上，CMake 通过 `pkg-config` 查找 libmpv。
 
 建议从这些文件开始：
 
+- [CLI 完整使用教程](VIBEDOCS/CLI-Tutorial.md)
+- [CLI 命令与模块说明](VIBEDOCS/CLI.md)
 - `docs/BuildWindows.md`
 - `docs/DevelopmentEnvironment.md`（本机已验证的开发环境清单）
 - `VIBEDOCS/MediaServices.md`
@@ -167,5 +197,5 @@ Linux 和 macOS 上，CMake 通过 `pkg-config` 查找 libmpv。
 - 增加图片代理/缓存，避免 QML 直接持有含 Token 的图片 URL。
 - 增强播放错误映射和外挂字幕支持。
 - 在更多 WebDAV/IPTV 服务实现上验证播放兼容性。
-- 通过 libsmb2 或其他成熟库加入 SMB2/SMB3 支持。
+- 增加桌面 SMB 浏览，并通过成熟库补充其他平台的 SMB2/SMB3 后端。
 - 扩展自动化测试和发布包冒烟验证。

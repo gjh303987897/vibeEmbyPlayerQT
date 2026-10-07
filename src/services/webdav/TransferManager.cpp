@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QSet>
 #include <QTimer>
 #include <QUuid>
@@ -363,7 +364,7 @@ QString TransferManager::enqueueUpload(const ServerConfig& server,
                                        const QString& password,
                                        const QString& localPath,
                                        const QUrl& remoteUrl,
-                                       qint64 totalBytes)
+                                       qint64 totalBytes, OverwritePolicy overwritePolicy)
 {
     QueuedTask queued;
     queued.server = server;
@@ -371,6 +372,7 @@ QString TransferManager::enqueueUpload(const ServerConfig& server,
     queued.remoteUrl = remoteUrl;
     queued.localPath = localPath;
     queued.direction = Direction::Upload;
+    queued.overwritePolicy = overwritePolicy;
     queued.task = TransferTask {
         .id = makeTaskId(),
         .title = fileNameFor(localPath),
@@ -392,13 +394,15 @@ QString TransferManager::enqueueDownload(const ServerConfig& server,
                                          const QString& password,
                                          const QUrl& remoteUrl,
                                          const QString& localPath,
-                                         qint64 totalBytes)
+                                         qint64 totalBytes, bool retainPartial, const QString& resumeEtag)
 {
     std::vector<TaskRequest> requests;
     requests.push_back(TaskRequest {
         .remoteUrl = remoteUrl,
         .localPath = localPath,
         .totalBytes = totalBytes,
+        .retainPartial = retainPartial,
+        .resumeEtag = resumeEtag,
     });
     return enqueueDownloads(server,
                             password,
@@ -424,6 +428,8 @@ QString TransferManager::enqueueDownloads(const ServerConfig& server,
         queued.remoteUrl = request.remoteUrl;
         queued.localPath = request.localPath;
         queued.direction = Direction::Download;
+        queued.retainPartial = request.retainPartial;
+        queued.resumeEtag = request.resumeEtag;
         queued.task = TransferTask {
             .id = makeTaskId(),
             .title = request.title.isEmpty() ? fileNameFor(request.localPath) : request.title,
@@ -479,6 +485,8 @@ QString TransferManager::enqueueDownloads(const ServerConfig& server,
         queued.remoteUrl = std::move(request.remoteUrl);
         queued.localPath = std::move(request.localPath);
         queued.direction = Direction::Download;
+        queued.retainPartial = request.retainPartial;
+        queued.resumeEtag = request.resumeEtag;
         queued.task = TransferTask {
             .id = makeTaskId(),
             .parentId = groupId,
@@ -523,7 +531,8 @@ QString TransferManager::enqueueUploads(const ServerConfig& server,
     // A plain single-file upload keeps the historical flat row.
     if (requests.size() == 1 && !requests.front().directory) {
         const auto& request = requests.front();
-        return enqueueUpload(server, password, request.localPath, request.remoteUrl, request.totalBytes);
+        return enqueueUpload(server, password, request.localPath, request.remoteUrl, request.totalBytes,
+                             request.overwritePolicy);
     }
 
     const auto groupId = makeGroupId();
@@ -559,6 +568,7 @@ QString TransferManager::enqueueUploads(const ServerConfig& server,
         queued.remoteUrl = std::move(request.remoteUrl);
         queued.localPath = std::move(request.localPath);
         queued.direction = request.directory ? Direction::CreateDirectory : Direction::Upload;
+        queued.overwritePolicy = request.overwritePolicy;
         queued.task = TransferTask {
             .id = makeTaskId(),
             .parentId = groupId,
@@ -679,7 +689,7 @@ void TransferManager::cancelTask(const QString& taskId)
         }
         const auto definition = m_taskDefinitions.value(taskId);
         const auto canRetryCanceled = canRetryCanceledTransfer(definition.direction);
-        if (definition.direction == Direction::Download) {
+        if (definition.direction == Direction::Download && !definition.retainPartial) {
             QFile::remove(definition.localPath);
             task.bytesDone = 0;
             task.bytesPerSecond = 0;
@@ -1159,6 +1169,8 @@ void TransferManager::startTask(QueuedTask task)
     if (active->queued.direction == Direction::CreateDirectory) {
         reply = m_manager.sendCustomRequest(request, QByteArrayLiteral("MKCOL"));
     } else if (active->queued.direction == Direction::Upload) {
+        if (active->queued.overwritePolicy == OverwritePolicy::Refuse)
+            request.setRawHeader("If-None-Match", "*");
         auto* file = new QFile(active->queued.localPath);
         if (!file->open(QIODevice::ReadOnly)) {
             file->deleteLater();
@@ -1170,17 +1182,59 @@ void TransferManager::startTask(QueuedTask task)
         active->file = file;
     } else {
         auto* file = new QFile(active->queued.localPath);
-        if (!file->open(QIODevice::WriteOnly)) {
+        const auto savedSize = QFileInfo(active->queued.localPath).size();
+        const auto offset = active->queued.retainPartial && !active->queued.resumeEtag.isEmpty() && QFileInfo::exists(active->queued.localPath) &&
+            (active->queued.task.bytesTotal < 0 || savedSize < active->queued.task.bytesTotal)
+            ? QFileInfo(active->queued.localPath).size() : 0;
+        if (!file->open(offset > 0 ? QIODevice::ReadWrite : QIODevice::WriteOnly)) {
             file->deleteLater();
             finishActive(taskId, false, QStringLiteral("Unable to open local file for download"));
             return;
         }
+        if (offset > 0) {
+            if (!file->seek(offset)) {
+                file->deleteLater();
+                finishActive(taskId,false,QStringLiteral("Unable to seek the partial download"));
+                return;
+            }
+            request.setRawHeader("Range","bytes=" + QByteArray::number(offset) + '-');
+            request.setRawHeader("If-Range",active->queued.resumeEtag.toUtf8());
+        }
         reply = m_manager.get(request);
+        reply->setProperty("resumeOffset",offset);
+        reply->setProperty("resumeChecked",false);
+        reply->setProperty("resumeExpectedSize",active->queued.task.bytesTotal);
         file->setParent(reply);
         active->file = file;
         connect(reply, &QNetworkReply::readyRead, reply, [reply, file]() {
             if (!file->isOpen()) {
                 return;
+            }
+            if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() >= 400) { reply->readAll(); return; }
+            if (!reply->property("resumeChecked").toBool()) {
+                reply->setProperty("resumeChecked",true);
+                const auto status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                const auto offset = reply->property("resumeOffset").toLongLong();
+                if (status >= 400) { reply->readAll(); return; }
+                if (offset > 0 && status == 200) {
+                    if (!file->resize(0) || !file->seek(0)) {
+                        reply->setProperty("transferWriteError","Unable to restart partial download"); reply->abort(); return;
+                    }
+                    reply->setProperty("resumeOffset",0);
+                } else if (offset > 0) {
+                    static const QRegularExpression range(QStringLiteral("^bytes (\\d+)-(\\d+)/(\\d+)$"));
+                    const auto match = range.match(QString::fromLatin1(reply->rawHeader("Content-Range")));
+                    bool startOk = false,endOk = false,totalOk = false;
+                    const auto begin = match.captured(1).toLongLong(&startOk), end = match.captured(2).toLongLong(&endOk),
+                               total = match.captured(3).toLongLong(&totalOk);
+                    const auto expected = reply->property("resumeExpectedSize").toLongLong();
+                    const auto length = reply->header(QNetworkRequest::ContentLengthHeader);
+                    if (status != 206 || !match.hasMatch() || !startOk || !endOk || !totalOk || begin != offset ||
+                        end < begin || total <= end || end != total - 1 || (expected >= 0 && total != expected) ||
+                        (length.isValid() && length.toLongLong() != end - begin + 1)) {
+                        reply->setProperty("transferWriteError","Invalid resumed download response"); reply->abort(); return;
+                    }
+                }
             }
             const auto data = reply->readAll();
             if (!data.isEmpty() && file->write(data) != data.size()) {
@@ -1200,8 +1254,9 @@ void TransferManager::startTask(QueuedTask task)
             updateProgress(taskId, done, total);
         });
     } else if (active->queued.direction == Direction::Download) {
-        connect(reply, &QNetworkReply::downloadProgress, reply, [this, taskId](qint64 done, qint64 total) {
-            updateProgress(taskId, done, total);
+        connect(reply, &QNetworkReply::downloadProgress, reply, [this, taskId,reply](qint64 done, qint64 total) {
+            const auto offset = reply->property("resumeOffset").toLongLong();
+            updateProgress(taskId, done + offset, total < 0 ? total : total + offset);
         });
     }
 
@@ -1219,6 +1274,10 @@ void TransferManager::startTask(QueuedTask task)
             return;
         }
 
+        if (active && active->queued.retainPartial && active->file && active->queued.task.bytesTotal >= 0 &&
+            reply->error() == QNetworkReply::NoError &&
+            active->file->size() != active->queued.task.bytesTotal)
+            reply->setProperty("transferWriteError","Resumed download size does not match the expected resource");
         const auto writeError = reply->property("transferWriteError").toString();
         const auto timedOut = reply->property("transferTimedOut").toBool();
         const auto canceled = reply->error() == QNetworkReply::OperationCanceledError && !timedOut && writeError.isEmpty();
@@ -1502,7 +1561,7 @@ void TransferManager::finishActive(const QString& taskId, bool ok, const QString
     if (active->file && active->queued.direction == Direction::Download) {
         active->file->close();
     }
-    if (!ok && active->queued.direction == Direction::Download) {
+    if (!ok && active->queued.direction == Direction::Download && !active->queued.retainPartial) {
         QFile::remove(active->queued.localPath);
     }
     m_active.remove(taskId);
@@ -1583,7 +1642,7 @@ void TransferManager::finishPaused(const QString& taskId)
     if (active->file && active->queued.direction == Direction::Download) {
         active->file->close();
     }
-    if (active->queued.direction == Direction::Download) {
+    if (active->queued.direction == Direction::Download && !active->queued.retainPartial) {
         QFile::remove(active->queued.localPath);
     }
     m_active.remove(taskId);

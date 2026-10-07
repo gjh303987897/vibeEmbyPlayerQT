@@ -179,6 +179,15 @@ void WebDavDownloadPlanner::buildPlan(const ServerConfig& server,
                 }
 
                 for (const auto& child : *result) {
+                    const auto parentUrl = pending.remoteUrl.adjusted(QUrl::NormalizePathSegments);
+                    const auto childUrl = child.url.adjusted(QUrl::NormalizePathSegments);
+                    if (childUrl.scheme() != parentUrl.scheme() || childUrl.host() != parentUrl.host() ||
+                        childUrl.port() != parentUrl.port() || !childUrl.userInfo().isEmpty() ||
+                        !childUrl.path().startsWith(ensureDirectoryUrl(parentUrl).path())) {
+                        finishError({NetworkErrorKind::InvalidUrl,
+                            QStringLiteral("WebDAV resource is outside the requested directory"), 0});
+                        return;
+                    }
                     const auto childPath = reserveLocalPath(pending.localPath,
                                                             child.name,
                                                             child.directory,

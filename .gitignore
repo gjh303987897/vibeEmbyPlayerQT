@@ -25,6 +25,8 @@ aqtinstall.log
 *.sqlite3-*
 resources/
 tests/*
+!tests/CliTest.cpp
+!tests/CliIntegrationTest.cpp
 !tests/FileDialogControllerTest.cpp
 !tests/TransferManagerTest.cpp
 !tests/ScheduledPlaybackScheduleTest.cpp

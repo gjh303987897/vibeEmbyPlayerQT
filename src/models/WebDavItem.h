@@ -9,6 +9,7 @@ struct WebDavItem {
     QString relativePath;
     QString contentType;
     QString lastModified;
+    QString etag;
     qint64 size { -1 };
     bool directory { false };
     bool playable { false };

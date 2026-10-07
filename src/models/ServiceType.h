@@ -7,6 +7,7 @@ enum class ServiceType {
     Jellyfin,
     IPTV,
     WebDAV,
+    SMB,
     Link,
 };
 
@@ -23,12 +24,15 @@ inline QString serviceTypeToString(ServiceType type)
         return QStringLiteral("WebDAV");
     case ServiceType::Link:
         return QStringLiteral("Link");
+    case ServiceType::SMB:
+        return QStringLiteral("SMB");
     }
     return QStringLiteral("Emby");
 }
 
 inline ServiceType serviceTypeFromString(const QString& value)
 {
+    if (value.compare(QStringLiteral("SMB"),Qt::CaseInsensitive) == 0) return ServiceType::SMB;
     if (value.compare(QStringLiteral("Jellyfin"), Qt::CaseInsensitive) == 0) {
         return ServiceType::Jellyfin;
     }

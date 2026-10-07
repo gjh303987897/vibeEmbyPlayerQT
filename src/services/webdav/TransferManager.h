@@ -23,6 +23,7 @@ class TransferManager final : public QObject {
     Q_OBJECT
 
 public:
+    enum class OverwritePolicy { Allow, Refuse };
     struct TaskRequest {
         QUrl remoteUrl;
         QString localPath;
@@ -32,6 +33,9 @@ public:
         QString title;
         // MKCOL child for directory-creating entries in an upload batch.
         bool directory { false };
+        OverwritePolicy overwritePolicy { OverwritePolicy::Allow };
+        bool retainPartial {false};
+        QString resumeEtag;
     };
 
     enum class Direction {
@@ -65,12 +69,13 @@ public:
                           const QString& password,
                           const QString& localPath,
                           const QUrl& remoteUrl,
-                          qint64 totalBytes);
+                          qint64 totalBytes,
+                          OverwritePolicy overwritePolicy = OverwritePolicy::Allow);
     QString enqueueDownload(const ServerConfig& server,
                             const QString& password,
                             const QUrl& remoteUrl,
                             const QString& localPath,
-                            qint64 totalBytes);
+                            qint64 totalBytes, bool retainPartial = false, const QString& resumeEtag = {});
     QString enqueueDownloads(const ServerConfig& server,
                              const QString& password,
                              const QString& groupTitle,
@@ -117,9 +122,12 @@ private:
         QUrl remoteUrl;
         QString localPath;
         Direction direction { Direction::Download };
+        OverwritePolicy overwritePolicy { OverwritePolicy::Allow };
         qint64 countedBytesReceived { 0 };
         qint64 countedBytesSent { 0 };
         int automaticRetryCount { 0 };
+        bool retainPartial {false};
+        QString resumeEtag;
     };
 
     enum class RequestedStop {

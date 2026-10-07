@@ -89,11 +89,14 @@ std::expected<void, QString> createDailyUsageStatsTable(QSqlDatabase& database)
 }
 }
 
-SessionRepository::SessionRepository(QString connectionName, QString databasePathOverride)
+SessionRepository::SessionRepository(QString connectionName, QString databasePathOverride, OpenMode openMode)
     : m_connectionName(std::move(connectionName))
     , m_databasePathOverride(std::move(databasePathOverride))
-    , m_settings(QStringLiteral("vibePlayerQT"), QStringLiteral("vibePlayerQT"))
+    , m_settings(QSettings::defaultFormat(), QSettings::UserScope,
+                 QStringLiteral("vibePlayerQT"), QStringLiteral("vibePlayerQT"))
+    , m_openMode(openMode)
 {
+    if (QSettings::defaultFormat() == QSettings::IniFormat) m_settings.setFallbacksEnabled(false);
 }
 
 SessionRepository::~SessionRepository()
@@ -110,6 +113,8 @@ SessionRepository::~SessionRepository()
 
 std::expected<void, QString> SessionRepository::initialize()
 {
+    if (m_openMode == OpenMode::ReadOnly)
+        return std::unexpected(QStringLiteral("Cannot initialize a read-only repository"));
     if (auto openResult = ensureOpen(); !openResult) {
         return openResult;
     }
@@ -516,7 +521,8 @@ std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerCon
         channelQuery.bindValue(QStringLiteral(":playlist_id"), playlist.id);
         channelQuery.bindValue(QStringLiteral(":name"), channel.name);
         channelQuery.bindValue(QStringLiteral(":group_name"), channel.groupName);
-        channelQuery.bindValue(QStringLiteral(":logo_url"), channel.logoUrl);
+        // A missing optional logo is an empty SQL string, not a NULL QVariant.
+        channelQuery.bindValue(QStringLiteral(":logo_url"), channel.logoUrl.isNull() ? QStringLiteral("") : channel.logoUrl);
         channelQuery.bindValue(QStringLiteral(":stream_url"), channel.streamUrl);
         channelQuery.bindValue(QStringLiteral(":sort_order"), channel.sortOrder);
         if (!channelQuery.exec()) {
@@ -1021,6 +1027,7 @@ std::expected<void, QString> SessionRepository::deletePlaybackHistory(const QStr
 
 std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceCards(bool privacyMode)
 {
+    if (m_openMode == OpenMode::ReadOnly && !databaseExists()) return std::vector<ServiceCard> {};
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -1065,6 +1072,7 @@ std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadServiceC
 
 std::expected<std::vector<ServiceCard>, QString> SessionRepository::loadAllServiceCards()
 {
+    if (m_openMode == OpenMode::ReadOnly && !databaseExists()) return std::vector<ServiceCard> {};
     if (auto openResult = ensureOpen(); !openResult) {
         return std::unexpected(openResult.error());
     }
@@ -1653,6 +1661,21 @@ std::expected<void, QString> SessionRepository::setServerPrivateMode(const QStri
     return {};
 }
 
+bool SessionRepository::databaseExists() const
+{
+    return QFileInfo::exists(databasePath());
+}
+
+std::expected<void, QString> SessionRepository::clearServerSession(const QString& serverId)
+{
+    if (auto result = ensureOpen(); !result) return result;
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral("DELETE FROM sessions WHERE server_id = :id"));
+    query.bindValue(QStringLiteral(":id"), serverId);
+    if (!query.exec()) return std::unexpected(sqlError(query));
+    return {};
+}
+
 std::expected<void, QString> SessionRepository::clearSession()
 {
     if (auto openResult = ensureOpen(); !openResult) {
@@ -1685,6 +1708,7 @@ void SessionRepository::setPrivacyPinHash(const QString& salt, const QString& ha
 {
     m_settings.setValue(QStringLiteral("privacy/pinSalt"), salt);
     m_settings.setValue(QStringLiteral("privacy/pinHash"), hash);
+    m_settings.sync();
 }
 
 bool SessionRepository::minimizeToTray() const
@@ -2154,11 +2178,11 @@ QString SessionRepository::databasePath() const
 {
     if (!m_databasePathOverride.isEmpty()) {
         const QFileInfo overrideInfo(m_databasePathOverride);
-        QDir().mkpath(overrideInfo.absolutePath());
+        if (m_openMode == OpenMode::ReadWrite) QDir().mkpath(overrideInfo.absolutePath());
         return overrideInfo.absoluteFilePath();
     }
     const auto directory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(directory);
+    if (m_openMode == OpenMode::ReadWrite) QDir().mkpath(directory);
     return QDir(directory).filePath(QStringLiteral("vibeplayer.sqlite3"));
 }
 
@@ -2175,6 +2199,9 @@ std::expected<void, QString> SessionRepository::ensureOpen()
     }
 
     m_database.setDatabaseName(databasePath());
+    m_database.setConnectOptions(m_openMode == OpenMode::ReadOnly
+        ? QStringLiteral("QSQLITE_OPEN_READONLY;QSQLITE_BUSY_TIMEOUT=3000")
+        : QStringLiteral("QSQLITE_BUSY_TIMEOUT=3000"));
     if (!m_database.open()) {
         return std::unexpected(m_database.lastError().text());
     }

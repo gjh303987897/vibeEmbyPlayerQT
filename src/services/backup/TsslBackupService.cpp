@@ -289,9 +289,13 @@ QNetworkRequest signedS3Request(const TsslBackupTarget& target,
     const auto date = now.toString(QStringLiteral("yyyyMMdd"));
     const auto timestamp = now.toString(QStringLiteral("yyyyMMdd'T'HHmmss'Z'"));
     const auto host = url.host() + (url.port() > 0 ? QStringLiteral(":%1").arg(url.port()) : QString());
-    const auto canonicalHeaders = QStringLiteral("host:%1\nx-amz-content-sha256:%2\nx-amz-date:%3\n")
+    auto canonicalHeaders = QStringLiteral("host:%1\nx-amz-content-sha256:%2\nx-amz-date:%3\n")
         .arg(host, QString::fromLatin1(payloadHash), timestamp);
-    const auto signedHeaders = QStringLiteral("host;x-amz-content-sha256;x-amz-date");
+    auto signedHeaders = QStringLiteral("host;x-amz-content-sha256;x-amz-date");
+    if (!target.s3SessionToken.isEmpty()) {
+        canonicalHeaders += "x-amz-security-token:" + target.s3SessionToken.trimmed() + '\n';
+        signedHeaders += ";x-amz-security-token";
+    }
     auto queryItems = QUrlQuery(url).queryItems(QUrl::FullyEncoded);
     std::ranges::sort(queryItems, [](const auto& left, const auto& right) {
         if (left.first == right.first) return left.second < right.second;
@@ -324,6 +328,7 @@ QNetworkRequest signedS3Request(const TsslBackupTarget& target,
     request.setRawHeader("Host", host.toUtf8());
     request.setRawHeader("x-amz-content-sha256", payloadHash);
     request.setRawHeader("x-amz-date", timestamp.toUtf8());
+    if (!target.s3SessionToken.isEmpty()) request.setRawHeader("x-amz-security-token",target.s3SessionToken.toUtf8());
     request.setRawHeader("Authorization", QStringLiteral("AWS4-HMAC-SHA256 Credential=%1/%2, SignedHeaders=%3, Signature=%4")
         .arg(target.s3AccessKey, credentialScope, signedHeaders, signature).toUtf8());
     return request;

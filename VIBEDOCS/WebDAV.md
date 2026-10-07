@@ -1,5 +1,8 @@
 # WebDAV 模块说明
 
+桌面与 CLI 共用 `WebDavUploadPlanner` 的文件夹规划；CLI 的条件 PUT、目录
+路径和下载无覆盖发布见 [CLI.md](CLI.md)、[SharedWorkflows.md](SharedWorkflows.md)。
+
 ## Audio player window controls
 
 The WebDAV audio player has a dedicated top bar when the application uses a
@@ -248,7 +251,10 @@ SQLite 不保存 WebDAV 密码。
 - 重试只重新排队状态为失败或已取消的文件，已经完成的文件不会重复下载；总任务的重试按钮会重试该任务中的全部失败或已取消文件，文件明细的重试按钮只重试对应文件。
 - 单文件取消会关闭活动写入并删除对应本地文件；总任务取消会移除排队任务、中止运行任务，并删除该任务已产生的全部本地文件，文件夹下载会清理本次规划得到的独立目标目录。
 - 取消后的下载定义会保留到用户清除已结束任务，因此完成本地清理后仍可重做；重试时会重新创建已被总任务取消删除的目标目录。
-- 第一版不支持 HTTP Range 断点续传，不跨应用重启恢复暂停任务。
+- 桌面默认队列不使用 HTTP Range，也不跨应用重启恢复暂停任务。CLI 可通过
+  retainPartial/resumeEtag 请求保留独立暂存，强 ETag 配合 Range/If-Range；
+  200 安全截断重下，206 检查偏移。持久检查点由 CLI 宿主维护，见
+  [CliBackgroundTasks.md](CliBackgroundTasks.md)。
 - 文件夹上传会把远程目录创建和文件上传按队列执行。
 - 上传文件任务支持暂停、继续、取消和重新上传。运行中暂停会中止当前 `PUT` 并释放本地只读文件，继续时从文件开头重新上传；排队中的上传可直接暂停而不发起请求。
 - 取消或上传失败后会保留本地源文件与任务定义，用户可在清除已结束任务前重新上传。远程建目录任务不提供暂停，取消上传也不会删除本地源文件。
@@ -309,6 +315,19 @@ WebDAV 视频和音频播放都通过本地 `WebDavPlaybackProxy` 把远程内�
 - `file (2).ext`
 
 文件夹同理。
+
+## CLI 文件操作和传输策略
+
+WebDavClient::mutate 使用标准 DELETE/COPY/MOVE，目标 Destination 必须同源，
+Overwrite 默认 F，显式覆盖为 T，Depth 为 infinity；207 多状态结果不视为全部成功。
+CLI remove 需要确认并拒绝根目录；mkdir --parents 逐级 stat/MKCOL。
+下载 --overwrite 在最终发布时使用 QSaveFile；默认不覆盖重命名保护竞争。
+前台 --resume 或后台任务保存 ETag/摘要和暂存，桌面调用保留原有默认行为。
+PROPFIND 新增 getetag 属性，WebDavItem 的 etag 提供恢复时的修订校验。
+
+EncryptedHlsPlaybackProxy::cancelNetworkRequests 中止当前远程准备请求，
+让正常的完成回调报告失败；CLI stop 等待回调清理后退出宿主。
+本地准备使用现有有界工作线程读取。桌面没有调用新增取消接口。
 
 ## M3U8S remote export
 

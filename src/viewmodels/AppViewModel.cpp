@@ -3,8 +3,11 @@
 #include "services/emby/EmbyRecommendationCache.h"
 #include "services/credentials/CredentialStore.h"
 #include "services/encryptedhls/EncryptedHlsSourcePlanner.h"
+#include "services/management/ServiceOperations.h"
+#include "services/management/WorkflowSettings.h"
+#include "services/webdav/WebDavUploadPlanner.h"
+#include "services/backup/TsslImportWorkflow.h"
 #include "services/iptv/IptvParser.h"
-#include "services/iptv/IptvPlaylistStore.h"
 #include "services/link/LinkPlaybackService.h"
 #include "services/scheduler/ScheduledPlaybackSchedule.h"
 #include "utils/AppLogger.h"
@@ -141,12 +144,7 @@ struct ServiceActivationData final {
 
 using ServiceActivationResult = std::expected<ServiceActivationData, QString>;
 
-struct TsslRestoreSummary final {
-    int restored { 0 };
-    int alreadyExists { 0 };
-    int failed { 0 };
-    QString firstError;
-};
+using TsslRestoreSummary = TsslImportSummary;
 
 struct GlobalHistoryPageData final {
     std::vector<PlaybackHistoryItem> items;
@@ -279,14 +277,12 @@ QString serverIdFor(const QString& baseUrl, ServiceType type)
 
 QString cardIdFor(const QString& baseUrl, ServiceType type, const QString& username)
 {
-    const auto source = serviceTypeToString(type).toUtf8() + ':' + baseUrl.trimmed().toUtf8() + ':' + username.trimmed().toUtf8();
-    return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Sha256).toHex());
+    return ServiceOperations::cardId(baseUrl, type, username);
 }
 
 QString iptvServiceIdFor(const QString& sourcePath)
 {
-    const auto source = QByteArray("IPTV:") + sourcePath.trimmed().toUtf8();
-    return QString::fromLatin1(QCryptographicHash::hash(source, QCryptographicHash::Sha256).toHex());
+    return ServiceOperations::iptvId(sourcePath);
 }
 
 QString localMediaRootIdFor(const QString& path)
@@ -296,11 +292,6 @@ QString localMediaRootIdFor(const QString& path)
     normalized = normalized.toCaseFolded();
 #endif
     return QString::fromLatin1(QCryptographicHash::hash(normalized.toUtf8(), QCryptographicHash::Sha256).toHex());
-}
-
-QString iptvPlaylistIdFor(const QString& serviceId)
-{
-    return QStringLiteral("iptv-playlist-%1").arg(serviceId);
 }
 
 QString defaultIptvGroup()
@@ -575,36 +566,6 @@ bool copyM3u8sPath(const QString& sourcePath, const QString& targetRoot)
         }
     }
     return true;
-}
-
-EncryptedHlsVideoEncoding m3u8sVideoEncodingFor(const QString& value)
-{
-    if (value == QStringLiteral("copy")) {
-        return EncryptedHlsVideoEncoding::Copy;
-    }
-    if (value == QStringLiteral("auto")) {
-        return EncryptedHlsVideoEncoding::Auto;
-    }
-    return value == QStringLiteral("h265")
-        ? EncryptedHlsVideoEncoding::H265
-        : EncryptedHlsVideoEncoding::H264;
-}
-
-EncryptedHlsAudioEncoding m3u8sAudioEncodingFor(const QString& value)
-{
-    return value == QStringLiteral("copy")
-        ? EncryptedHlsAudioEncoding::Copy
-        : EncryptedHlsAudioEncoding::Aac;
-}
-
-EncryptedHlsVideoQuality m3u8sVideoQualityFor(const QString& value)
-{
-    if (value == QStringLiteral("high")) {
-        return EncryptedHlsVideoQuality::High;
-    }
-    return value == QStringLiteral("compact")
-        ? EncryptedHlsVideoQuality::Compact
-        : EncryptedHlsVideoQuality::Balanced;
 }
 
 QString systemLanguage()
@@ -2332,13 +2293,6 @@ QString normalizedM3u8sContainerFormat(const QString& value)
     return value.compare(QStringLiteral("m3u8s"), Qt::CaseInsensitive) == 0
         ? QStringLiteral("m3u8s")
         : QStringLiteral("m3u8sp");
-}
-
-EncryptedHlsContainerFormat m3u8sContainerFormatFor(const QString& value)
-{
-    return value.compare(QStringLiteral("m3u8s"), Qt::CaseInsensitive) == 0
-        ? EncryptedHlsContainerFormat::DirectoryM3u8s
-        : EncryptedHlsContainerFormat::TarM3u8sp;
 }
 
 QString AppViewModel::serverUrl() const
@@ -4493,28 +4447,12 @@ void AppViewModel::saveServiceCard()
             return;
         }
 
-        auto channelsResult = IptvParser::parseFile(m_iptvFilePath);
-        if (!channelsResult) {
-            setError(channelsResult.error());
-            return;
-        }
-
-        auto channels = std::move(*channelsResult);
-        const auto playlistResult = importIptvPlaylistFile(server, channels);
-        if (!playlistResult) {
-            setError(playlistResult.error());
-            return;
-        }
-
-        auto storedServer = server;
-        storedServer.baseUrl = playlistResult->importedPath;
-        if (m_pendingServiceCard && m_pendingServiceCard->server.id != storedServer.id) {
-            m_repository.deleteServer(m_pendingServiceCard->server.id, false);
-        }
-        if (auto saveResult = m_repository.saveIptvPlaylist(storedServer, *playlistResult, channels); !saveResult) {
+        if (auto saveResult = ServiceOperations::savePlaylist(m_repository, server, m_iptvFilePath); !saveResult) {
             setError(saveResult.error());
             return;
         }
+        if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id)
+            m_repository.deleteServer(m_pendingServiceCard->server.id, false);
 
         AppLogger::info(QStringLiteral("iptv"),
                         QStringLiteral("Imported IPTV playlist into managed application storage"));
@@ -4541,7 +4479,7 @@ void AppViewModel::saveServiceCard()
             saveWebDavCredentials(server, m_password);
         }
 
-        if (auto saveResult = m_repository.saveServer(server); !saveResult) {
+        if (auto saveResult = ServiceOperations::save(m_repository, server); !saveResult) {
             setError(saveResult.error());
             return;
         }
@@ -4568,7 +4506,7 @@ void AppViewModel::saveServiceCard()
     if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id) {
         m_repository.deleteServer(m_pendingServiceCard->server.id, false);
     }
-    if (auto saveResult = m_repository.saveServer(server); !saveResult) {
+    if (auto saveResult = ServiceOperations::save(m_repository, server); !saveResult) {
         setError(saveResult.error());
         return;
     }
@@ -6451,7 +6389,7 @@ void AppViewModel::uploadWebDavFolder(const QUrl& folderUrl)
     emit webDavUploadPreparingChanged();
     AppLogger::info(QStringLiteral("webdav"), QStringLiteral("Preparing a folder upload in the background"));
 
-    using UploadRequests = std::vector<TransferManager::TaskRequest>;
+    using UploadRequests = std::expected<std::vector<TransferManager::TaskRequest>, QString>;
     auto* watcher = new QFutureWatcher<UploadRequests>(this);
     connect(watcher, &QFutureWatcherBase::finished, this,
             [this, watcher, generation, server, password, rootInfo, rootRemote]() {
@@ -6466,57 +6404,22 @@ void AppViewModel::uploadWebDavFolder(const QUrl& folderUrl)
         m_webDavUploadPreparing = false;
         m_webDavUploadScanCanceled.reset();
         emit webDavUploadPreparingChanged();
+        if (!requests) {
+            setError(requests.error());
+            return;
+        }
         AppLogger::info(QStringLiteral("webdav"),
-                        QStringLiteral("Queued a folder upload with %1 entries").arg(requests.size()));
+                        QStringLiteral("Queued a folder upload with %1 entries").arg(requests->size()));
         m_transferManager.enqueueUploads(server, password, rootInfo.fileName(),
-                                         rootRemote.toString(), std::move(requests));
+                                         rootRemote.toString(), std::move(*requests));
         if (m_currentView == QStringLiteral("webdav")) {
             openTransfers();
         }
     });
     // The worker owns only value snapshots; it cannot access the ViewModel or
     // TransferManager after either object has been destroyed.
-    watcher->setFuture(QtConcurrent::run([folder, rootInfo, rootRemote, cancelFlag]() {
-        UploadRequests requests;
-        requests.push_back(TransferManager::TaskRequest {
-            .remoteUrl = rootRemote,
-            .title = QStringLiteral("%1/").arg(rootInfo.fileName()),
-            .directory = true,
-        });
-        UploadRequests directoryRequests;
-        UploadRequests fileRequests;
-        QDirIterator iterator(folder, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
-        while (!cancelFlag->load(std::memory_order_relaxed) && iterator.hasNext()) {
-            iterator.next();
-            const QFileInfo info(iterator.fileInfo());
-            const auto relative = QDir(folder).relativeFilePath(info.absoluteFilePath()).replace(QLatin1Char('\\'), QLatin1Char('/'));
-            auto remoteUrl = rootRemote.resolved(QUrl(QString::fromUtf8(QUrl::toPercentEncoding(relative))));
-            if (info.isDir()) {
-                remoteUrl = ensureDirectoryUrl(remoteUrl);
-                directoryRequests.push_back(TransferManager::TaskRequest {
-                    .remoteUrl = std::move(remoteUrl),
-                    .title = relative + QLatin1Char('/'),
-                    .directory = true,
-                });
-            } else if (info.isFile()) {
-                fileRequests.push_back(TransferManager::TaskRequest {
-                    .remoteUrl = std::move(remoteUrl),
-                    .localPath = info.absoluteFilePath(),
-                    .totalBytes = info.size(),
-                    .title = relative,
-                });
-            }
-        }
-        // Keep the existing grouped upload order: root MKCOL, all parent
-        // directories before their children, and finally file PUT requests.
-        std::ranges::sort(directoryRequests, {}, [](const auto& request) { return request.title; });
-        requests.insert(requests.end(),
-                        std::make_move_iterator(directoryRequests.begin()),
-                        std::make_move_iterator(directoryRequests.end()));
-        requests.insert(requests.end(),
-                        std::make_move_iterator(fileRequests.begin()),
-                        std::make_move_iterator(fileRequests.end()));
-        return requests;
+    watcher->setFuture(QtConcurrent::run([folder, rootRemote, cancelFlag]() {
+        return WebDavUploadPlanner::plan(folder, rootRemote, *cancelFlag);
     }));
 }
 
@@ -7092,21 +6995,7 @@ void AppViewModel::restoreTsslBackupFiles(QStringList sourcePaths)
     });
     watcher->setFuture(QtConcurrent::run(
         [store = m_tsslStore, sourcePaths = std::move(sourcePaths)]() mutable {
-            TsslRestoreSummary summary;
-            for (const auto& sourcePath : sourcePaths) {
-                const auto restored = store.restoreFromFile(sourcePath);
-                if (restored) {
-                    ++summary.restored;
-                } else if (restored.error() == TsslStore::packageAlreadyExistsError()) {
-                    ++summary.alreadyExists;
-                } else {
-                    ++summary.failed;
-                    if (summary.firstError.isEmpty()) {
-                        summary.firstError = restored.error();
-                    }
-                }
-            }
-            return summary;
+            return TsslImportWorkflow::run(store, sourcePaths);
         }));
 }
 
@@ -7545,11 +7434,14 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     emit m3u8sSourceSelectionChanged();
     const auto outputRoot = outputDirectory.absoluteFilePath();
     const auto segmentDuration = m_m3u8sSegmentDuration;
-    const auto videoEncoding = m3u8sVideoEncodingFor(m_m3u8sVideoEncoding);
-    const auto autoVideoTarget = m3u8sVideoEncodingFor(m_m3u8sAutoVideoTarget);
-    const auto audioEncoding = m3u8sAudioEncodingFor(m_m3u8sAudioEncoding);
-    const auto videoQuality = m3u8sVideoQualityFor(m_m3u8sVideoQuality);
-    const auto containerFormat = m3u8sContainerFormatFor(m_m3u8sContainerFormat);
+    auto workflowSettings = WorkflowSettings::snapshot();
+    workflowSettings["m3u8s/videoEncoding"] = m_m3u8sVideoEncoding;
+    workflowSettings["m3u8s/autoVideoTarget"] = m_m3u8sAutoVideoTarget;
+    workflowSettings["m3u8s/autoVideoCodecs"] = m_m3u8sAutoVideoCodecs;
+    workflowSettings["m3u8s/audioEncoding"] = m_m3u8sAudioEncoding;
+    workflowSettings["m3u8s/videoQuality"] = m_m3u8sVideoQuality;
+    workflowSettings["m3u8s/containerFormat"] = m_m3u8sContainerFormat;
+    workflowSettings["m3u8s/temporaryDirectory"] = m_m3u8sTemporaryDirectory;
     const auto parallelJobs = m_m3u8sParallelJobs;
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.discoveringStatus"));
@@ -7572,9 +7464,7 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     auto* watcher = new QFutureWatcher<PlanResult>(this);
     const auto cancelFlag = m_m3u8sSourceScanCanceled;
     connect(watcher, &QFutureWatcherBase::finished, this,
-            [this, watcher, cancelFlag, segmentDuration, videoEncoding, autoVideoTarget,
-             autoVideoCodecs = m_m3u8sAutoVideoCodecs, audioEncoding, videoQuality, containerFormat,
-             parallelJobs]() {
+            [this, watcher, cancelFlag, segmentDuration, workflowSettings, parallelJobs]() {
         auto plan = watcher->result();
         watcher->deleteLater();
         const auto canceled = cancelFlag->load(std::memory_order_relaxed);
@@ -7604,18 +7494,12 @@ bool AppViewModel::createM3u8sFromSelectedSources()
         batch.parallelJobs = parallelJobs;
         batch.packages.reserve(plan->sources.size());
         for (const auto& source : plan->sources) {
-            batch.packages.append(EncryptedHlsPackageRequest {
-                .sourcePath = source.sourcePath,
-                .outputDirectory = source.outputDirectory,
-                .temporaryDirectory = m_m3u8sTemporaryDirectory,
-                .segmentDurationSeconds = segmentDuration,
-                .videoEncoding = videoEncoding,
-                .autoCopyVideoCodecs = autoVideoCodecs,
-                .autoFallbackVideoEncoding = autoVideoTarget,
-                .audioEncoding = audioEncoding,
-                .videoQuality = videoQuality,
-                .containerFormat = containerFormat,
-            });
+            EncryptedHlsPackageRequest request;
+            request.sourcePath = source.sourcePath;
+            request.outputDirectory = source.outputDirectory;
+            request.segmentDurationSeconds = segmentDuration;
+            WorkflowSettings::applyPackaging(workflowSettings, request);
+            batch.packages.append(std::move(request));
         }
         const auto started = m_m3u8sPackager.start(std::move(batch));
         m_m3u8sPreparing = false;
@@ -8158,7 +8042,8 @@ void AppViewModel::deleteServiceCard(int row, bool deleteLocalData)
         return;
     }
 
-    if (auto result = m_repository.deleteServer(card->server.id, deleteLocalData); !result) {
+    if (auto result = ServiceOperations::remove(m_repository, card->server.id, deleteLocalData,
+            card->server.serviceType == ServiceType::WebDAV && deleteLocalData); !result) {
         setError(result.error());
         return;
     }
@@ -8173,9 +8058,6 @@ void AppViewModel::deleteServiceCard(int row, bool deleteLocalData)
         if (m_currentView == QStringLiteral("iptv")) {
             setCurrentView(QStringLiteral("services"));
         }
-    }
-    if (card->server.serviceType == ServiceType::WebDAV && deleteLocalData) {
-        CredentialStore::deletePassword(card->server.id);
     }
     if (m_currentWebDavCard && m_currentWebDavCard->server.id == card->server.id) {
         clearWebDavState();
@@ -10076,6 +9958,8 @@ MediaServiceClient* AppViewModel::clientFor(ServiceType type)
         return nullptr;
     case ServiceType::WebDAV:
         return nullptr;
+    case ServiceType::SMB:
+        return nullptr;
     case ServiceType::Link:
         return nullptr;
     }
@@ -10518,39 +10402,6 @@ void AppViewModel::applyIptvFilters()
     }
 
     m_iptvChannels.setChannels(std::move(filtered));
-}
-
-std::expected<IptvPlaylist, QString> AppViewModel::importIptvPlaylistFile(const ServerConfig& server,
-                                                                         std::vector<IptvChannel>& channels) const
-{
-    const QFileInfo sourceInfo(m_iptvFilePath);
-    if (!sourceInfo.exists() || !sourceInfo.isFile()) {
-        return std::unexpected(QStringLiteral("Selected IPTV playlist file does not exist"));
-    }
-
-    const auto playlistId = iptvPlaylistIdFor(server.id);
-    const auto targetPath = IptvPlaylistStore::importFile(sourceInfo.absoluteFilePath(), server.id);
-    if (!targetPath) {
-        AppLogger::warning(QStringLiteral("iptv"), targetPath.error());
-        return std::unexpected(targetPath.error());
-    }
-
-    for (auto& channel : channels) {
-        channel.playlistId = playlistId;
-        if (channel.streamUrl == QUrl::fromLocalFile(sourceInfo.absoluteFilePath()).toString()) {
-            channel.streamUrl = QUrl::fromLocalFile(*targetPath).toString();
-        }
-    }
-
-    return IptvPlaylist {
-        .id = playlistId,
-        .serviceId = server.id,
-        .name = server.name,
-        .sourceType = QStringLiteral("LocalFile"),
-        .sourcePath = sourceInfo.absoluteFilePath(),
-        .importedPath = *targetPath,
-        .importedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate),
-    };
 }
 
 void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& password)
@@ -11596,12 +11447,7 @@ void AppViewModel::saveSession()
 
 bool AppViewModel::verifyPrivacyPin(const QString& pin) const
 {
-    const auto salt = m_repository.privacyPinSalt();
-    const auto hash = m_repository.privacyPinHash();
-    if (salt.isEmpty() || hash.isEmpty()) {
-        return false;
-    }
-    return privacyPinHash(pin, salt) == hash;
+    return ServiceOperations::verifyPrivacyPin(m_repository, pin);
 }
 
 QString AppViewModel::privacyPinHash(const QString& pin, const QString& salt) const

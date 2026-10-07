@@ -1,5 +1,9 @@
 # TSSL Backup
 
+CLI backup/restore uses this same backend for WebDAV and S3. Local and downloaded
+package imports now share `TsslImportWorkflow` with the Settings page; see
+[CLI.md](CLI.md) and [SharedWorkflows.md](SharedWorkflows.md).
+
 The M3U8S manager keeps TSSL key packages in the local encrypted-HLS storage. The
 Settings page can copy valid `.tssl` packages to one configured backup target:
 

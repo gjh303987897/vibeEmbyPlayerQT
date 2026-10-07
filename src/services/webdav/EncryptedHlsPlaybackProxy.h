@@ -70,6 +70,8 @@ public:
                                   const QString& revision,
                                   std::function<void(EncryptedHlsIdentifierPreviewResult)> callback);
     void revoke(const QString& sessionId);
+    // Used by the CLI host to stop an in-flight remote preparation before exit.
+    void cancelNetworkRequests();
 
 signals:
     // Consumers producing an output file must treat any rejected resource as

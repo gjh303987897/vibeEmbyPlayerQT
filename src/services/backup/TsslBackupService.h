@@ -27,6 +27,7 @@ struct TsslBackupTarget final {
     QString s3Prefix;
     QString s3AccessKey;
     QString s3SecretKey;
+    QString s3SessionToken;
     bool trustSelfSignedCertificate { false };
 };
 

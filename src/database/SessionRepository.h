@@ -28,8 +28,10 @@ struct RecommendationCacheRecord final {
 
 class SessionRepository final {
 public:
+    enum class OpenMode { ReadWrite, ReadOnly };
     explicit SessionRepository(QString connectionName = QStringLiteral("vibeplayer_session"),
-                               QString databasePathOverride = {});
+                               QString databasePathOverride = {},
+                               OpenMode openMode = OpenMode::ReadWrite);
     ~SessionRepository();
 
     std::expected<void, QString> initialize();
@@ -98,10 +100,13 @@ public:
     std::expected<void, QString> moveServerTo(const QString& serverId, int targetIndex, bool privacyMode);
     std::expected<void, QString> setServerPrivateMode(const QString& serverId, bool privateMode);
     std::expected<void, QString> clearSession();
+    std::expected<void, QString> clearServerSession(const QString& serverId);
+    bool databaseExists() const;
 
     bool privacyPinConfigured() const;
     QString privacyPinSalt() const;
     QString privacyPinHash() const;
+    void refreshSettings() { m_settings.sync(); }
     void setPrivacyPinHash(const QString& salt, const QString& hash);
     bool minimizeToTray() const;
     void setMinimizeToTray(bool enabled);
@@ -206,4 +211,5 @@ private:
     QString m_databasePathOverride;
     QSqlDatabase m_database;
     QSettings m_settings;
+    OpenMode m_openMode;
 };

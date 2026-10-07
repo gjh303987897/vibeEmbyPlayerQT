@@ -350,6 +350,14 @@ EncryptedHlsPlaybackProxy::EncryptedHlsPlaybackProxy(TsslStore& store, QObject* 
             this, &EncryptedHlsPlaybackProxy::networkTrafficSample);
 }
 
+void EncryptedHlsPlaybackProxy::cancelNetworkRequests()
+{
+    QList<QPointer<QNetworkReply>> replies;
+    for (auto* reply : m_manager.findChildren<QNetworkReply*>()) replies += reply;
+    for (const auto& reply : replies)
+        if (reply && reply->isRunning()) reply->abort();
+}
+
 void EncryptedHlsPlaybackProxy::prepareStream(const ServerConfig& server,
                                               const QString& password,
                                               const QUrl& rootManifestUrl,

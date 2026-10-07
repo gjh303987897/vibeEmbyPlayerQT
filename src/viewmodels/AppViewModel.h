@@ -925,7 +925,6 @@ private:
                           std::vector<IptvChannel> channels);
     void clearIptvState();
     void applyIptvFilters();
-    std::expected<IptvPlaylist, QString> importIptvPlaylistFile(const ServerConfig& server, std::vector<IptvChannel>& channels) const;
     void loadWebDavService(const ServiceCard& card, const QString& password);
     void clearWebDavState();
     void loadWebDavDirectory(const QUrl& url);

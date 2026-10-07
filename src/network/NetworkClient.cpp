@@ -1,5 +1,4 @@
 #include "network/NetworkClient.h"
-
 #include "utils/AppLogger.h"
 
 #include <QJsonDocument>
@@ -8,6 +7,11 @@
 #include <QTimer>
 
 #include <utility>
+
+void NetworkClient::cancelRequests()
+{
+    for (auto* reply : m_manager.findChildren<QNetworkReply*>()) reply->abort();
+}
 
 namespace {
 constexpr auto requestTimeoutMs = 30000;

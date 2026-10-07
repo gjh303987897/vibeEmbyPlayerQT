@@ -23,6 +23,11 @@ class WebDavClient final : public QObject {
 
 public:
     explicit WebDavClient(QObject* parent = nullptr);
+    void cancelRequests();
+    enum class Mutation { Remove, Move, Copy };
+    void mutate(const ServerConfig& server, const QString& password, Mutation operation,
+                const QUrl& source, const QUrl& destination, bool overwrite,
+                std::function<void(WebDavVoidResult)> callback);
 
     static std::expected<QUrl, QString> childDirectoryUrl(const QUrl& parentUrl, const QString& name);
 

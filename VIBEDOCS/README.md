@@ -8,6 +8,15 @@
 
 当前文档：
 
+- [CLI-Tutorial.md](CLI-Tutorial.md)：完整用户教程，覆盖全部 CLI 命令、参数、配置键、视频加密/还原、后台任务，以及 PowerShell/CMD/GitHub Actions 自动化示例。
+- `CLI.md`：控制台入口、全部命令、Shell、隐私/凭据、JSON/退出码和自动化示例。
+- `CliMedia.md`、`CliBackgroundTasks.md`、`CliShell.md`：媒体宿主、持久任务续传、交互表达式。
+- `SmbClient.md`、`S3CredentialProvider.md`：Windows SMB、S3 临时凭据与 STS 角色。
+- `CliOutput.md`：终端表格、完整 ID/路径、中文宽度、批量明细、JSON 兼容与重定向。
+- `CliVerification.md`：Windows 本地构建、25 项测试、真实终端、安装包与验收范围。
+- `SharedWorkflows.md`：服务管理、配置快照、文件夹上传规划、TSSL 导入的共享服务层。
+- `ServiceOperations.md`、`WorkflowSettings.md`、`WebDavUploadPlanner.md`、`TsslImportWorkflow.md`：各共享模块的接口与边界。
+
 - `FileSelection.md`：统一的异步文件/文件夹选择控制器、原生优先策略、批量目录兼容实现与生命周期测试。
 - `EncryptedHlsRestore.md`：视频还原服务卡片、M3U8S/M3U8SP 批量解密重封装、原文件名恢复、完整性校验与取消清理。
 - `EmbyJellyfinApi.md`：Emby / Jellyfin 第一阶段登录、媒体库与库内列表 API 调研。
