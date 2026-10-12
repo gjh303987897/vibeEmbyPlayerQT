@@ -1,4 +1,22 @@
 #include "viewmodels/AppViewModel.h"
+#include "app/TrayController.h"
+#include "app/ThemeSnapshotController.h"
+#include "app/WindowAppearanceController.h"
+#include "player/MpvVideoItem.h"
+#include "NativeFileDialogTestHelpers.h"
+#include <QApplication>
+#include <QFile>
+#include <QFileDialog>
+#include <QRegularExpression>
+#include <QQmlExpression>
+#include <QQmlApplicationEngine>
+#include <QQuickStyle>
+#include <QQuickWindow>
+#include <QProcess>
+#include <QStandardPaths>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QElapsedTimer>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -72,6 +90,350 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDirectory.path());
     }
     void cleanupTestCase() { QSettings::setDefaultFormat(m_originalFormat); }
+    void mergedIptvPlaybackSelectsRoutesAndPersistsActualInformation()
+    {
+        QTemporaryDir temporary;
+        const auto path = temporary.filePath("multisource.db");
+        SessionRepository repository("iptv_multisource_fixture", path);
+        QVERIFY(repository.initialize());
+        ServerConfig server {.id = "multi", .name = "Multiple routes", .baseUrl = "test.m3u",
+            .username = "", .serviceType = ServiceType::IPTV};
+        IptvPlaylist playlist {"p", "multi", "TV", "LocalFile", "test.m3u", "test.m3u", "2026-10-12"};
+        const auto now = QDateTime::currentDateTimeUtc();
+        IptvChannel hd {.id = "old-hd", .name = "Channel", .groupName = "News", .streamUrl = "https://test/hd"};
+        hd.streamInfo = {{.url = hd.streamUrl, .available = true, .width = 1920, .height = 1080,
+            .bitrate = 5'000'000, .checkedAt = now}};
+        auto sd = hd;
+        sd.id = "old-sd";
+        sd.streamUrl = "https://test/sd";
+        sd.streamInfo = {{.url = sd.streamUrl, .available = true, .width = 640, .height = 360,
+            .bitrate = 1'000'000, .checkedAt = now}};
+        QVERIFY(repository.saveIptvPlaylist(server, playlist, {hd, sd}));
+        AppViewModel vm(nullptr, path);
+        vm.backToServices();
+        QTRY_COMPARE(vm.services()->count(), 1);
+        vm.selectServiceCard(0);
+        QTRY_COMPARE(vm.currentView(), QString("iptv"));
+        QCOMPARE(vm.iptvChannels()->count(), 1);
+        QCOMPARE(vm.iptvChannels()->channelAt(0)->streamUrls.size(), 2);
+        vm.setIptvStreamPreference("dataSaver");
+        vm.playIptvChannel(0);
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/sd"));
+        vm.reportIptvPlaybackInfo(vm.currentIptvChannelId(), "854x480", "h264", "1.2 Mbps");
+        // Reset/stale notifications must not erase valid playback information.
+        vm.reportIptvPlaybackInfo(vm.currentIptvChannelId(), "", "", "");
+        vm.reportIptvPlaybackInfo("old-sd", "1x1", "wrong", "0");
+        QCOMPARE(vm.iptvChannels()->channelAt(0)->width, 854);
+        auto corrected = [&] {
+            const auto loaded = repository.loadIptvChannels("multi");
+            if (!loaded || loaded->empty()) return false;
+            const auto& infos = loaded->front().streamInfo;
+            const auto info = std::ranges::find(infos, QString("https://test/sd"), &IptvStreamInfo::url);
+            return info != infos.end() && info->width == 854 && info->bitrate == 1'200'000
+                && info->state == "playback";
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(corrected(), 5000);
+        vm.setIptvStreamPreference("quality");
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/sd")); // No disruption mid-playback.
+        vm.playIptvChannel(0);
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/hd"));
+        const auto streams = vm.iptvPlaybackStreams();
+        QCOMPARE(streams.size(), 2);
+        const auto hdId = streams[0].toMap().value("id").toString();
+        const auto sdId = streams[1].toMap().value("id").toString();
+        QVERIFY(!streams[0].toMap().contains("url"));
+        QVERIFY(!streams[0].toMap().value("detail").toString().contains("https://"));
+        vm.switchIptvPlaybackStream("invalid-menu-id");
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/hd"));
+        vm.reportPlaybackError("Unable to load external subtitle: missing file");
+        QVERIFY(vm.hasError()); // Unrelated errors must not initiate failover.
+        vm.clearError();
+        vm.reportPlaybackError("Playback failed: HTTP 404");
+        QVERIFY(!vm.hasError());
+        vm.reportPlaybackEnded(0.0, false, true);
+        QTRY_COMPARE(vm.currentPlaybackUrl(), QUrl("https://test/sd"));
+        QVERIFY(!vm.hasError());
+        vm.reportPlaybackEnded(1.0, false, false); // Stop/replacement is not failure.
+        QTest::qWait(20);
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/sd"));
+        vm.reportPlaybackEnded(1.0, true, false); // Normal EOF is not failure.
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/sd"));
+        vm.reportPlaybackError("Playback failed: disconnected");
+        vm.reportPlaybackEnded(0.0, false, true);
+        QVERIFY(vm.hasError());
+        const auto exhaustedUrl = vm.currentPlaybackUrl();
+        QTest::qWait(50);
+        QCOMPARE(vm.currentPlaybackUrl(), exhaustedUrl); // Never cycle endlessly.
+        vm.switchIptvPlaybackStream(hdId); // Explicit retry starts a new attempt round.
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/hd"));
+        QVERIFY(!vm.hasError());
+        vm.reportPlaybackEnded(0.0, false, true);
+        vm.switchIptvPlaybackStream(sdId); // Supersede a queued automatic retry.
+        QTest::qWait(50);
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl("https://test/sd"));
+        vm.switchIptvPlaybackStream(hdId);
+        auto* startupTimeout = vm.findChild<QTimer*>("iptvStartupTimeout");
+        QVERIFY(startupTimeout);
+        QVERIFY(startupTimeout->isActive());
+        QVERIFY(QMetaObject::invokeMethod(startupTimeout, "timeout"));
+        QTRY_COMPARE(vm.currentPlaybackUrl(), QUrl("https://test/sd"));
+        vm.reportPlaybackStarted();
+        QVERIFY(!startupTimeout->isActive());
+        vm.switchIptvPlaybackStream(hdId);
+        vm.reportPlaybackEnded(0.0, false, true);
+        vm.closePlayerToDetails();
+        QTest::qWait(20);
+        QVERIFY(vm.currentPlaybackUrl().isEmpty());
+        QVERIFY(vm.iptvPlaybackStreams().isEmpty());
+    }
+    void iptvImportKeepsEventLoopRunningAndPreservesANewEditor_data()
+    {
+        QTest::addColumn<bool>("replaceEditor");
+        QTest::newRow("complete-import") << false;
+        QTest::newRow("new-editor-during-import") << true;
+    }
+    void iptvImportKeepsEventLoopRunningAndPreservesANewEditor()
+    {
+        QFETCH(bool, replaceEditor);
+        QTemporaryDir temporary;
+        const auto databasePath = temporary.filePath("import.db");
+        SessionRepository repository("iptv_import_fixture", databasePath);
+        QVERIFY(repository.initialize());
+        AppViewModel vm(nullptr, databasePath);
+        QFile source(temporary.filePath("channels.m3u"));
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        source.write("#EXTM3U\n");
+        for (int i = 0; i < 100; ++i)
+            source.write(QString("#EXTINF:-1,Channel %1\nhttp://127.0.0.1:1/%1.ts\n").arg(i).toUtf8());
+        source.close();
+        vm.beginAddServiceCard();
+        vm.setServiceType("IPTV");
+        vm.setServerName("Imported channels");
+        vm.setIptvFilePath(source.fileName());
+        {
+            auto locked = QSqlDatabase::addDatabase("QSQLITE", "iptv_import_lock");
+            locked.setDatabaseName(databasePath);
+            QVERIFY(locked.open());
+            QSqlQuery query(locked);
+            QVERIFY(query.exec("BEGIN IMMEDIATE"));
+            vm.saveServiceCard();
+            vm.saveServiceCard(); // A second click cannot start a competing import.
+            QVERIFY(vm.loading());
+            int heartbeats = 0;
+            QTimer timer;
+            connect(&timer, &QTimer::timeout, [&] { ++heartbeats; });
+            timer.start(10);
+            QTest::qWait(120);
+            QVERIFY(heartbeats >= 3);
+            QVERIFY(vm.loading());
+            if (replaceEditor) {
+                vm.beginAddServiceCard();
+                vm.setServiceType("IPTV");
+                vm.setServerName("Next playlist");
+                vm.setIptvFilePath(source.fileName());
+            }
+            QVERIFY(query.exec("COMMIT"));
+            locked.close();
+        }
+        QSqlDatabase::removeDatabase("iptv_import_lock");
+        QTRY_VERIFY(!vm.loading());
+        QTRY_COMPARE(vm.services()->count(), 1);
+        auto channels = repository.loadIptvChannels(vm.services()->cardAt(0)->server.id);
+        QVERIFY(channels);
+        QCOMPARE(channels->size(), size_t{100});
+        QVERIFY(!vm.hasError());
+        if (replaceEditor) {
+            QCOMPARE(vm.serverName(), QString("Next playlist"));
+            QCOMPARE(vm.iptvFilePath(), source.fileName());
+        } else {
+            QVERIFY(vm.iptvFilePath().isEmpty());
+        }
+    }
+    void nativeIptvPlaybackThenImport()
+    {
+#ifdef Q_OS_WIN
+        if (QGuiApplication::platformName() != "windows") QSKIP("Requires native Windows desktop");
+        QTest::failOnWarning(QRegularExpression(".*Thread failed to finish.*"));
+        QTest::failOnWarning(QRegularExpression(".*ReferenceError.*"));
+        const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+        if (ffmpeg.isEmpty()) QSKIP("Requires FFmpeg for the temporary local stream");
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        const auto video = temporary.filePath("iptv.mp4");
+        QProcess generator;
+        generator.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25",
+            "-t", "10", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", video});
+        QVERIFY(generator.waitForFinished(15000));
+        QCOMPARE(generator.exitCode(), 0);
+        const auto backupVideo = temporary.filePath("backup.mp4");
+        QVERIFY(QFile::copy(video, backupVideo));
+        QFile playlist(temporary.filePath("channels.m3u"));
+        QVERIFY(playlist.open(QIODevice::WriteOnly));
+        playlist.write("#EXTM3U\n");
+        for (int i = 0; i < 100; ++i) {
+            if (i == 0) {
+                playlist.write(QString("#EXTINF:-1 group-title=\"Local\",Channel 0\n%1\n")
+                    .arg(QUrl::fromLocalFile(temporary.filePath("missing-hd.mp4")).toString()).toUtf8());
+            }
+            playlist.write(QString("#EXTINF:-1 group-title=\"Local\",Channel %1\n%2\n")
+                .arg(i).arg(QUrl::fromLocalFile(video).toString()).toUtf8());
+            if (i == 0) {
+                playlist.write(QString("#EXTINF:-1 group-title=\"Local\",Channel 0\n%1\n")
+                    .arg(QUrl::fromLocalFile(backupVideo).toString()).toUtf8());
+            }
+        }
+        playlist.close();
+        qmlRegisterType<MpvVideoItem>("VibePlayer", 1, 0, "MpvVideoItem");
+        QQuickStyle::setStyle("Fusion");
+        AppViewModel vm(nullptr, temporary.filePath("session.db"));
+        vm.setAutomaticUpdateCheck(false);
+        TrayController tray;
+        WindowAppearanceController appearance;
+        ThemeSnapshotController snapshot;
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("appViewModel", &vm);
+        engine.rootContext()->setContextProperty("trayController", &tray);
+        engine.rootContext()->setContextProperty("windowAppearanceController", &appearance);
+        engine.rootContext()->setContextProperty("themeSnapshotController", &snapshot);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        engine.load(QUrl::fromLocalFile(QStringLiteral(VIBEPLAYER_SOURCE_DIR) + "/qml/Main.qml"));
+        qInfo() << "Native IPTV loaded:" << elapsed.elapsed();
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto* root = engine.rootObjects().first();
+        auto* window = qobject_cast<QQuickWindow*>(root);
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        vm.setServiceType("IPTV");
+        vm.setServerName("Native IPTV test");
+        vm.setIptvFilePath(playlist.fileName());
+        vm.saveServiceCard();
+        QTRY_COMPARE(vm.services()->count(), 1);
+        {
+            SessionRepository fixture("native-iptv-quality", temporary.filePath("session.db"));
+            const auto serviceId = vm.services()->cardAt(0)->server.id;
+            const auto channels = fixture.loadIptvChannels(serviceId);
+            QVERIFY(channels && !channels->empty());
+            const auto& channel = channels->front();
+            QCOMPARE(channel.streamUrls.size(), 3);
+            const auto now = QDateTime::currentDateTimeUtc();
+            std::vector<IptvStreamInfo> infos {
+                {.url = channel.streamUrls[0], .available = true, .width = 1920, .height = 1080, .checkedAt = now},
+                {.url = channel.streamUrls[1], .available = true, .width = 1280, .height = 720, .checkedAt = now},
+                {.url = channel.streamUrls[2], .available = true, .width = 640, .height = 360, .checkedAt = now}};
+            QVERIFY(fixture.updateIptvChannelProbe(channel.playlistId, channel.id, 1920, 1080, 0, "h264", "available", infos));
+        }
+        qInfo() << "Native IPTV imported:" << elapsed.elapsed();
+        vm.selectServiceCard(0);
+        QTRY_COMPARE(vm.currentView(), QString("iptv"));
+        QCOMPARE(vm.iptvChannels()->count(), 100);
+        vm.playIptvChannel(0);
+        QTRY_COMPARE(vm.currentView(), QString("player"));
+        auto* player = root->findChild<MpvVideoItem*>();
+        QVERIFY(player);
+        QTRY_VERIFY(player->liveStream());
+        QTRY_VERIFY(player->position() > 0.1);
+        QCOMPARE(vm.currentPlaybackUrl(), QUrl::fromLocalFile(video)); // Failed HD fell back to SD.
+        QVERIFY(!vm.hasError());
+        QTRY_COMPARE(vm.iptvChannels()->channelAt(0)->width, 1280);
+        QTRY_COMPARE(vm.iptvChannels()->channelAt(0)->height, 720);
+        auto* streamButton = root->findChild<QQuickItem*>("iptvStreamButton");
+        QVERIFY(streamButton);
+        QVERIFY(streamButton->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(streamButton, "clicked"));
+        auto* streamMenu = root->findChild<QQuickItem*>("iptvStreamMenu");
+        QVERIFY(streamMenu);
+        QTRY_VERIFY(streamMenu->window() && streamMenu->window()->isVisible());
+        QCOMPARE(streamMenu->property("count").toInt(), 3);
+        const auto streams = vm.iptvPlaybackStreams();
+        const auto backupId = streams[1].toMap().value("id").toString();
+        QQmlExpression menuReady(qmlContext(streamMenu), streamMenu, "itemAtIndex(1) !== null");
+        QTRY_VERIFY(menuReady.evaluate().toBool());
+        QQmlExpression selectBackup(qmlContext(streamMenu), streamMenu,
+            "itemAtIndex(1).clicked()");
+        selectBackup.evaluate();
+        QVERIFY2(!selectBackup.hasError(), qPrintable(selectBackup.error().toString()));
+        QTRY_COMPARE(vm.currentPlaybackUrl(), QUrl::fromLocalFile(backupVideo));
+        QTRY_VERIFY(player->position() > 0.1);
+        QVERIFY(!vm.hasError());
+        bool backupSelected = false;
+        for (const auto& row : vm.iptvPlaybackStreams()) {
+            const auto item = row.toMap();
+            if (item.value("id").toString() == backupId) backupSelected = item.value("current").toBool();
+        }
+        QVERIFY(backupSelected);
+        QString primaryId;
+        for (const auto& row : streams) {
+            const auto item = row.toMap();
+            if (item.value("current").toBool()) primaryId = item.value("id").toString();
+        }
+        QVERIFY(!primaryId.isEmpty());
+        vm.switchIptvPlaybackStream(primaryId);
+        vm.switchIptvPlaybackStream(backupId); // Old queued file events cannot fail the latest route.
+        QTRY_COMPARE(vm.currentPlaybackUrl(), QUrl::fromLocalFile(backupVideo));
+        QTRY_VERIFY(player->position() > 0.1);
+        QTest::qWait(100);
+        QVERIFY(!vm.hasError());
+        vm.setPlayerLayout("traditional");
+        auto* traditionalStreamButton = root->findChild<QQuickItem*>("traditionalIptvStreamButton");
+        QVERIFY(traditionalStreamButton);
+        QTRY_VERIFY(traditionalStreamButton->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(traditionalStreamButton, "clicked"));
+        QTRY_VERIFY(streamMenu->window() && streamMenu->window()->isVisible());
+        QQmlExpression closeStreams(qmlContext(streamMenu), streamMenu, "playerPage.closeTrackMenu()");
+        closeStreams.evaluate();
+        QVERIFY2(!closeStreams.hasError(), qPrintable(closeStreams.error().toString()));
+        vm.setPlayerLayout("trendy");
+        qInfo() << "Native IPTV playing:" << elapsed.elapsed();
+        QTest::qWait(2000);
+        vm.closePlayerToDetails();
+        vm.backToServices();
+        qInfo() << "Native IPTV left playback:" << elapsed.elapsed();
+        QTest::qWait(500);
+        vm.beginAddServiceCard();
+        vm.setServiceType("IPTV");
+        QQmlExpression showForm(qmlContext(root), root, "serviceDialog.open()");
+        showForm.evaluate();
+        QVERIFY2(!showForm.hasError(), qPrintable(showForm.error().toString()));
+        QTest::qWait(250);
+        QQmlExpression header(qmlContext(root), root, "windowHeader");
+        QQmlExpression page(qmlContext(root), root, "mainPageRoot");
+        const auto headerItem = header.evaluate().value<QObject*>();
+        const auto pageItem = page.evaluate().value<QObject*>();
+        QVERIFY(headerItem && pageItem);
+        const auto backdropSources = [&]() {
+            QList<QQuickItem*> sources;
+            QList<QQuickItem*> pending{window->contentItem()};
+            while (!pending.isEmpty()) {
+                auto* item = pending.takeLast();
+                pending.append(item->childItems());
+                if (!item->inherits("QQuickShaderEffectSource")) continue;
+                const auto source = item->property("sourceItem").value<QObject*>();
+                if (source == headerItem || source == pageItem) sources.append(item);
+            }
+            return sources;
+        };
+        QTRY_COMPARE(backdropSources().size(), 2);
+        for (auto* item : backdropSources()) QCOMPARE(item->window(), window);
+        vm.chooseIptvPlaylistFile();
+        QTest::qWait(800);
+        QFileDialog* picker = nullptr;
+        for (auto* widget : QApplication::topLevelWidgets()) {
+            if (widget->objectName() == "fileSelectionDialog" && widget->isVisible())
+                picker = qobject_cast<QFileDialog*>(widget);
+        }
+        QVERIFY2(picker, "IPTV picker rejected itself after playback and service form opening");
+        QTRY_VERIFY(nativeFileDialogVisible(picker->windowTitle()));
+        picker->reject();
+        QQmlExpression hideForm(qmlContext(root), root, "serviceDialog.close()");
+        hideForm.evaluate();
+        window->hide();
+        QTest::qWait(1200); // Let the native Shell and its deferred helper cleanup finish.
+        qInfo() << "Native IPTV workflow milliseconds:" << elapsed.elapsed();
+#else
+        QSKIP("Windows native IPTV and file picker integration");
+#endif
+    }
     void uploadsCoalesceDirectoryRefreshAndDiscardNavigation_data()
     {
         QTest::addColumn<bool>("leavePage");

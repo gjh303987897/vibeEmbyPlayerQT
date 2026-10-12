@@ -42,6 +42,14 @@ public:
     std::expected<void, QString> saveIptvPlaylist(const ServerConfig& server,
                                                   const IptvPlaylist& playlist,
                                                   const std::vector<IptvChannel>& channels);
+    std::expected<void, QString> updateIptvChannelProbe(const QString& playlistId,
+                                                        const QString& channelId,
+                                                        int width,
+                                                        int height,
+                                                        qint64 bitrate,
+                                                        const QString& codec,
+                                                        const QString& state,
+                                                        const std::vector<IptvStreamInfo>& streamInfo = {});
     std::expected<void, QString> addDailyUsage(const ServerConfig& server,
                                                bool privacyMode,
                                                qint64 watchSeconds,
@@ -187,6 +195,8 @@ public:
     void setM3u8sAudioEncoding(const QString& encoding);
     QString m3u8sVideoQuality() const;
     void setM3u8sVideoQuality(const QString& quality);
+    QString iptvStreamPreference() const;
+    void setIptvStreamPreference(const QString& preference);
     QString m3u8sContainerFormat() const;
     void setM3u8sContainerFormat(const QString& format);
     int m3u8sParallelJobs() const;

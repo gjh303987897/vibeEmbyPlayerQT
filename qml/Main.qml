@@ -7709,6 +7709,7 @@ ApplicationWindow {
     // only one and stretching it across the overlay reads as a dark halo
     // around the dialog instead of a blurred background.
     component DialogBackdropBlur: Item {
+        id: backdropBlur
         // Light mode needs a much softer dim; the full-strength black wash that
         // reads well over a dark page turns a light page muddy.
         property real dimOpacity: darkTheme ? 0.35 : 0.16
@@ -7720,7 +7721,11 @@ ApplicationWindow {
             height: windowHeader.height
             visible: height > 0
             source: ShaderEffectSource {
-                sourceItem: windowHeader
+                // Property-owned Items need an explicit visual parent so Qt
+                // balances their scene/window references during popup teardown.
+                parent: backdropBlur
+                visible: false
+                sourceItem: backdropBlur.visible ? windowHeader : null
                 hideSource: false
             }
             autoPaddingEnabled: false
@@ -7739,7 +7744,9 @@ ApplicationWindow {
             anchors.top: parent.top
             anchors.topMargin: windowHeader.height
             source: ShaderEffectSource {
-                sourceItem: mainPageRoot
+                parent: backdropBlur
+                visible: false
+                sourceItem: backdropBlur.visible ? mainPageRoot : null
                 hideSource: false
             }
             autoPaddingEnabled: false
@@ -9468,6 +9475,8 @@ ApplicationWindow {
         property string title: ""
         property string groupName: ""
         property string logoUrl: ""
+        property int streamCount: 1
+        property string resolution: ""
 
         radius: 10
         color: channelMouse.containsMouse ? theme.elevatedHover : theme.elevated
@@ -9535,6 +9544,15 @@ ApplicationWindow {
             MutedText {
                 Layout.fillWidth: true
                 text: channelCard.groupName
+                elide: Text.ElideRight
+            }
+
+            MutedText {
+                Layout.fillWidth: true
+                visible: channelCard.streamCount > 1 || channelCard.resolution.length > 0
+                text: (channelCard.resolution.length > 0 ? channelCard.resolution + "  " : "")
+                    + (channelCard.streamCount > 1
+                        ? t("iptv.streamCount").arg(channelCard.streamCount) : "")
                 elide: Text.ElideRight
             }
         }
@@ -12023,6 +12041,11 @@ ApplicationWindow {
             revealControls()
         }
 
+        function selectIptvStream(selectionId) {
+            closeTrackMenu()
+            appViewModel.switchIptvPlaybackStream(selectionId)
+        }
+
         function loadExternalSubtitle(url) {
             closeTrackMenu(false)
             mpvVideo.loadExternalSubtitle(url)
@@ -12068,6 +12091,7 @@ ApplicationWindow {
         }
 
         function trackMenuTitle() {
+            if (trackMenuMode === "iptv") return t("iptv.playbackStreams")
             if (trackMenuMode === "subtitle") {
                 return t("player.subtitles")
             }
@@ -12078,6 +12102,7 @@ ApplicationWindow {
         }
 
         function trackMenuHint() {
+            if (trackMenuMode === "iptv") return t("iptv.streamCount").arg(appViewModel.iptvPlaybackStreams.length)
             if (trackMenuMode === "subtitle") {
                 return mpvVideo.subtitleTracks.count + " " + t("player.tracks")
             }
@@ -12142,6 +12167,7 @@ ApplicationWindow {
             httpPassword: appViewModel.playbackHttpPassword
             allowInsecureTls: appViewModel.playbackAllowInsecureTls
             localEncryptedPlayback: appViewModel.localEncryptedPlayback
+            liveStream: appViewModel.iptvPlaybackActive
             source: appViewModel.currentPlaybackUrl
             onErrorOccurred: function(message) {
                 appViewModel.reportPlaybackError(message)
@@ -12152,6 +12178,15 @@ ApplicationWindow {
             }
             onPlaybackNetworkBytes: function(bytesReceived) {
                 appViewModel.recordPlaybackNetworkBytes(bytesReceived)
+            }
+            onVideoInfoChanged: {
+                if (appViewModel.iptvPlaybackActive) {
+                    appViewModel.reportIptvPlaybackInfo(
+                        appViewModel.currentIptvChannelId,
+                        videoResolution,
+                        videoCodec,
+                        videoBitrate)
+                }
             }
             onPlaybackRestarted: {
                 playerPage.finishSeekLoading()
@@ -12179,6 +12214,11 @@ ApplicationWindow {
             Component.onCompleted: {
                 play()
             }
+        }
+
+        Connections {
+            target: appViewModel
+            function onIptvStreamReloadRequested() { mpvVideo.play() }
         }
 
         Rectangle {
@@ -13139,9 +13179,11 @@ ApplicationWindow {
                 var speedRowCount = Math.max(1, Math.ceil(playerPage.playbackSpeedOptions.length / 3))
                 var rowCount = subtitleMenu
                     ? Math.max(1, mpvVideo.subtitleTracks.count + 1)
+                    : playerPage.trackMenuMode === "iptv" ? Math.max(1, appViewModel.iptvPlaybackStreams.length)
                     : Math.max(1, mpvVideo.audioTracks.count)
                 var panelHeight = speedMenu ? 96 + speedRowCount * 68
                     : subtitleMenu ? Math.min(420, 154 + rowCount * 48)
+                    : playerPage.trackMenuMode === "iptv" ? Math.min(440, 104 + rowCount * 68)
                     : Math.min(390, 104 + rowCount * 48)
                 var margin = 20
                 var playerOrigin = playerPage.mapToGlobal(0, 0)
@@ -13208,6 +13250,15 @@ ApplicationWindow {
             Connections {
                 target: mpvVideo
                 function onTracksChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
+            }
+
+            Connections {
+                target: appViewModel
+                function onIptvPlaybackStreamsChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
+                function onPlaybackChanged() {
+                    if (playerPage.trackMenuMode === "iptv" && !appViewModel.iptvPlaybackActive)
+                        playerPage.closeTrackMenu(false)
+                }
             }
 
             NumberAnimation {
@@ -13304,6 +13355,7 @@ ApplicationWindow {
                                 anchors.centerIn: parent
                                 text: playerPage.trackMenuMode === "speed"
                                     ? playerPage.speedLabel(mpvVideo.speed)
+                                    : playerPage.trackMenuMode === "iptv" ? "HD"
                                     : playerPage.trackMenuMode === "subtitle" ? "CC" : "A"
                                 color: "#eaf2ff"
                                 font.pixelSize: playerPage.trackMenuMode === "speed" ? 11 : 13
@@ -13503,10 +13555,69 @@ ApplicationWindow {
                     }
 
                     ListView {
+                        id: iptvStreamMenu
+                        objectName: "iptvStreamMenu"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: playerPage.trackMenuMode === "iptv"
+                        clip: true
+                        spacing: 6
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: visible ? appViewModel.iptvPlaybackStreams : []
+                        delegate: Button {
+                            id: iptvStreamItem
+                            required property var modelData
+                            width: ListView.view.width
+                            height: 62
+                            hoverEnabled: true
+                            leftPadding: 12
+                            rightPadding: 12
+                            Accessible.name: modelData.label + " " + modelData.detail
+                            contentItem: RowLayout {
+                                spacing: 10
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 3
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: iptvStreamItem.modelData.label
+                                        color: "#edf4ff"
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: iptvStreamItem.modelData.detail
+                                        color: iptvStreamItem.modelData.failed ? "#e69b9b" : "#aeb8c6"
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                Label {
+                                    visible: iptvStreamItem.modelData.current
+                                    text: t("player.current")
+                                    color: "#cfe1ff"
+                                    font.pixelSize: 11
+                                }
+                            }
+                            background: Rectangle {
+                                radius: 9
+                                color: iptvStreamItem.modelData.current ? "#ad243f61"
+                                    : iptvStreamItem.down ? "#a030465e" : iptvStreamItem.hovered ? "#78223446" : "#12ffffff"
+                                border.width: iptvStreamItem.activeFocus ? 2 : 1
+                                border.color: iptvStreamItem.modelData.current ? "#638fca" : "#2affffff"
+                            }
+                            onClicked: {
+                                playerPage.selectIptvStream(modelData.id)
+                            }
+                        }
+                    }
+
+                    ListView {
                         id: trackMenuList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: playerPage.trackMenuMode !== "speed"
+                        visible: playerPage.trackMenuMode !== "speed" && playerPage.trackMenuMode !== "iptv"
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         spacing: 6
@@ -13937,7 +14048,11 @@ ApplicationWindow {
 
                                         MutedText {
                                             Layout.fillWidth: true
-                                            text: model.groupName && model.groupName.length > 0 ? model.groupName : t("iptv.allGroups")
+                                            text: (model.groupName && model.groupName.length > 0 ? model.groupName : t("iptv.allGroups"))
+                                                + ((model.resolution && model.resolution.length > 0)
+                                                    ? " · " + model.resolution : "")
+                                                + (model.streamCount > 1
+                                                    ? " · " + t("iptv.streamCount").arg(model.streamCount) : "")
                                             color: "#93a4b8"
                                             elide: Text.ElideRight
                                         }
@@ -14280,6 +14395,20 @@ ApplicationWindow {
                                 }
 
                                 PlayerChromeButton {
+                                    id: traditionalIptvStreamButton
+                                    objectName: "traditionalIptvStreamButton"
+                                    compact: true
+                                    visible: appViewModel.iptvPlaybackActive
+                                    iconText: "HD"
+                                    enabled: appViewModel.iptvPlaybackStreams.length > 0
+                                    Accessible.name: t("iptv.playbackStreams")
+                                    onClicked: {
+                                        playerPage.openTrackMenu("iptv", traditionalIptvStreamButton)
+                                        playerPage.revealControls()
+                                    }
+                                }
+
+                                PlayerChromeButton {
                                     id: traditionalInfoButton
                                     compact: true
                                     iconText: "i"
@@ -14571,6 +14700,20 @@ ApplicationWindow {
                         Accessible.name: text
                         onClicked: {
                             playerPage.openIptvChannelList()
+                            playerPage.revealControls()
+                        }
+                    }
+
+                    PlayerChromeButton {
+                        id: iptvStreamButton
+                        objectName: "iptvStreamButton"
+                        visible: appViewModel.iptvPlaybackActive
+                        iconText: "HD"
+                        text: t("iptv.playbackStreams")
+                        enabled: appViewModel.iptvPlaybackStreams.length > 0
+                        Accessible.name: text
+                        onClicked: {
+                            playerPage.openTrackMenu("iptv", iptvStreamButton)
                             playerPage.revealControls()
                         }
                     }
@@ -15695,37 +15838,17 @@ ApplicationWindow {
                 cellWidth: Math.max(196, width / Math.max(1, Math.floor(width / 214)))
                 cellHeight: 176
 
-                delegate: Item {
+                // GridView already incubates buffered delegates across frames.
+                // Avoid another Loader and opacity animation for every channel.
+                delegate: IptvChannelCard {
                     width: iptvGrid.cellWidth - 14
                     height: 164
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 10
-                        color: theme.elevated
-                        border.color: theme.border
-                        opacity: channelCardLoader.status === Loader.Ready ? 0 : 1
-
-                        Behavior on opacity { NumberAnimation { duration: 120 } }
-                    }
-
-                    Loader {
-                        id: channelCardLoader
-                        anchors.fill: parent
-                        asynchronous: true
-                        opacity: status === Loader.Ready ? 1 : 0
-
-                        Behavior on opacity {
-                            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
-                        }
-
-                        sourceComponent: IptvChannelCard {
-                            title: model.name
-                            groupName: model.groupName
-                            logoUrl: model.logoUrl
-                            onActivated: appViewModel.playIptvChannel(index)
-                        }
-                    }
+                    title: model.name
+                    groupName: model.groupName
+                    logoUrl: model.logoUrl
+                    streamCount: model.streamCount
+                    resolution: model.resolution
+                    onActivated: appViewModel.playIptvChannel(index)
                 }
             }
 
@@ -18657,7 +18780,7 @@ ApplicationWindow {
         // that make up the category's right-hand content, in display order.
         readonly property var categories: [
             { title: t("settings.appearance"), groups: [appearanceGroup] },
-            { title: t("settings.category.general"), groups: [desktopGroup, historyGroup, privacyGroup] },
+            { title: t("settings.category.general"), groups: [desktopGroup, historyGroup, iptvGroup, privacyGroup] },
             { title: t("settings.recommendations"), groups: [recommendationsGroup] },
             { title: t("settings.webdav"), groups: [webdavGroup] },
             { title: t("settings.tsslBackup"), groups: [tsslBackupGroup] },
@@ -19015,6 +19138,26 @@ ApplicationWindow {
                             : appViewModel.historyRetentionDays === 90 ? 4
                             : appViewModel.historyRetentionDays === 180 ? 5 : 6
                         onActivated: appViewModel.historyRetentionDays = model[index].value
+                    }
+                }
+            }
+
+            SettingsGroup {
+                id: iptvGroup
+                title: t("settings.iptv")
+
+                SettingRow {
+                    label: t("settings.iptvStreamPreference")
+                    ModernComboBox {
+                        Layout.preferredWidth: 260
+                        textRole: "label"
+                        valueRole: "value"
+                        model: [
+                            { label: t("iptv.preferenceQuality"), value: "quality" },
+                            { label: t("iptv.preferenceDataSaver"), value: "dataSaver" }
+                        ]
+                        currentIndex: appViewModel.iptvStreamPreference === "dataSaver" ? 1 : 0
+                        onActivated: appViewModel.iptvStreamPreference = model[index].value
                     }
                 }
             }

@@ -281,6 +281,19 @@ void MpvVideoItem::setLocalEncryptedPlayback(bool value)
     emit localEncryptedPlaybackChanged();
 }
 
+bool MpvVideoItem::liveStream() const
+{
+    return m_liveStream;
+}
+
+void MpvVideoItem::setLiveStream(bool value)
+{
+    if (m_liveStream == value) return;
+    m_liveStream = value;
+    m_controller.setLiveStream(value);
+    emit liveStreamChanged();
+}
+
 void MpvVideoItem::setAudioOnly(bool value)
 {
     if (m_audioOnly == value) {

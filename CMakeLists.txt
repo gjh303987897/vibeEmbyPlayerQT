@@ -201,6 +201,10 @@ qt_add_executable(vibePlayerQT
     src/services/credentials/CredentialStore.h
     src/services/iptv/IptvParser.cpp
     src/services/iptv/IptvParser.h
+    src/services/iptv/IptvProbe.cpp
+    src/services/iptv/IptvProbe.h
+    src/services/iptv/IptvStreamSelector.cpp
+    src/services/iptv/IptvStreamSelector.h
     src/services/iptv/IptvPlaylistStore.cpp
     src/services/iptv/IptvPlaylistStore.h
     src/services/jellyfin/JellyfinClient.cpp
@@ -292,10 +296,7 @@ qt_add_qml_module(vibePlayerQT
         qml/DataWorker.mjs
 )
 
-qt_add_resources(vibePlayerQT "app_icons"
-    PREFIX "/app/icons"
-    BASE "${CMAKE_CURRENT_SOURCE_DIR}/icon"
-    FILES
+set(VIBEPLAYER_APP_ICON_FILES
         icon/icon_black.png
         icon/glyphs/chart.svg
         icon/glyphs/check.svg
@@ -312,6 +313,11 @@ qt_add_resources(vibePlayerQT "app_icons"
         icon/glyphs/sliders.svg
         icon/glyphs/square.svg
         icon/glyphs/x.svg
+)
+qt_add_resources(vibePlayerQT "app_icons"
+    PREFIX "/app/icons"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/icon"
+    FILES ${VIBEPLAYER_APP_ICON_FILES}
 )
 
 if(WIN32)
@@ -359,6 +365,11 @@ endif()
 
 if(WIN32)
     add_custom_command(TARGET vibePlayerQT POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:vibePlayerQT>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Qt6::QWindowsIntegrationPlugin>"
+            "$<TARGET_FILE_DIR:vibePlayerQT>/platforms/$<TARGET_FILE_NAME:Qt6::QWindowsIntegrationPlugin>"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${MPV_RUNTIME_DLL}"
             "$<TARGET_FILE_DIR:vibePlayerQT>/libmpv-2.dll"
@@ -463,26 +474,49 @@ if(BUILD_TESTING)
     set(_viewmodel_test_sources ${_desktop_sources})
     list(FILTER _viewmodel_test_sources INCLUDE REGEX "\\.(cpp|h)$")
     list(FILTER _viewmodel_test_sources EXCLUDE REGEX "src/app/(main|TrayController|ThemeSnapshotController|WindowAppearanceController)\\.(cpp|h)$|src/player/(MpvWidget|MpvVideoItem)\\.(cpp|h)$")
-    add_executable(app_viewmodel_state_test tests/AppViewModelStateTest.cpp ${_viewmodel_test_sources})
-    target_link_libraries(app_viewmodel_state_test PRIVATE vibeCore Qt6::Quick Qt6::Widgets Qt6::Test ${MPV_LINK_TARGET})
-    target_compile_definitions(app_viewmodel_state_test PRIVATE VIBEPLAYER_VERSION="${VIBEPLAYER_SEMVER_FULL}")
+    add_executable(app_viewmodel_state_test tests/AppViewModelStateTest.cpp ${_viewmodel_test_sources}
+        src/player/MpvVideoItem.cpp src/app/TrayController.cpp src/app/ThemeSnapshotController.cpp
+        src/app/WindowAppearanceController.cpp)
+    target_link_libraries(app_viewmodel_state_test PRIVATE vibeCore Qt6::Quick Qt6::QuickControls2 Qt6::Widgets Qt6::Test ${MPV_LINK_TARGET})
+    target_compile_definitions(app_viewmodel_state_test PRIVATE VIBEPLAYER_VERSION="${VIBEPLAYER_SEMVER_FULL}"
+        VIBEPLAYER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    qt_add_resources(app_viewmodel_state_test "test_desktop_qml"
+        PREFIX "/qt/qml/VibePlayer"
+        FILES qml/ImageCacheManager.qml qml/ImagePreloader.qml qml/DataProcessManager.qml
+            qml/BindingOptimizer.qml qml/DataWorker.mjs)
+    qt_add_resources(app_viewmodel_state_test "test_desktop_icons"
+        PREFIX "/app/icons" BASE "${CMAKE_CURRENT_SOURCE_DIR}/icon"
+        FILES ${VIBEPLAYER_APP_ICON_FILES})
+    if(WIN32)
+        target_link_libraries(app_viewmodel_state_test PRIVATE dwmapi)
+    endif()
     add_test(NAME app_viewmodel_state COMMAND app_viewmodel_state_test -o "${CMAKE_CURRENT_BINARY_DIR}/app-viewmodel-state-results.txt,txt")
     set_tests_properties(app_viewmodel_state PROPERTIES TIMEOUT 30
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>;QT_QUICK_BACKEND=software"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
-    add_executable(qml_utility_test tests/QmlUtilityTest.cpp src/app/ThemeSnapshotController.cpp
+    add_executable(qml_utility_test tests/QmlUtilityTest.cpp src/app/ThemeSnapshotController.cpp src/app/FileDialogController.cpp
         src/player/PlayerController.cpp src/player/MpvVideoItem.cpp)
-    target_link_libraries(qml_utility_test PRIVATE vibeCore Qt6::Quick Qt6::Test ${MPV_LINK_TARGET})
+    target_link_libraries(qml_utility_test PRIVATE vibeCore Qt6::Quick Qt6::Widgets Qt6::Test ${MPV_LINK_TARGET})
     target_compile_definitions(qml_utility_test PRIVATE VIBEPLAYER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME qml_utility COMMAND qml_utility_test -o "${CMAKE_CURRENT_BINARY_DIR}/qml-utility-results.txt,txt")
     set_tests_properties(qml_utility PROPERTIES TIMEOUT 30
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>;QT_QUICK_BACKEND=software"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     if(WIN32)
         add_test(NAME native_player_host COMMAND qml_utility_test nativeHostMovesToTheNewWindow
             -o "${CMAKE_CURRENT_BINARY_DIR}/native-player-host-results.txt,txt")
         set_tests_properties(native_player_host PROPERTIES TIMEOUT 30
             ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_QUICK_BACKEND=software"
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+        add_test(NAME native_video_file_picker COMMAND qml_utility_test nativePickerSurvivesVideoPlayback
+            -o "${CMAKE_CURRENT_BINARY_DIR}/native-video-file-picker-results.txt,txt")
+        set_tests_properties(native_video_file_picker PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE
+            ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_QUICK_BACKEND=software"
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+        add_test(NAME native_iptv_import_playback COMMAND app_viewmodel_state_test nativeIptvPlaybackThenImport
+            -o "${CMAKE_CURRENT_BINARY_DIR}/native-iptv-import-playback-results.txt,txt")
+        set_tests_properties(native_iptv_import_playback PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE
+            ENVIRONMENT "QT_QPA_PLATFORM=windows;QSG_RHI_BACKEND=d3d11;QSG_RHI_PREFER_SOFTWARE_RENDERER=1"
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     endif()
     add_executable(audit_regression_test tests/AuditRegressionTest.cpp
@@ -494,6 +528,11 @@ if(BUILD_TESTING)
     add_test(NAME audit_regression COMMAND audit_regression_test
         -o "${CMAKE_CURRENT_BINARY_DIR}/audit-regression-results.txt,txt")
     set_tests_properties(audit_regression PROPERTIES TIMEOUT 60
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
+    add_executable(iptv_multi_source_test tests/IptvMultiSourceTest.cpp)
+    target_link_libraries(iptv_multi_source_test PRIVATE vibeCore Qt6::Test)
+    add_test(NAME iptv_multi_source COMMAND iptv_multi_source_test)
+    set_tests_properties(iptv_multi_source PROPERTIES TIMEOUT 30
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     add_executable(cli_test tests/CliTest.cpp)
     target_link_libraries(cli_test PRIVATE vibeCli Qt6::Test)

@@ -2,17 +2,22 @@
 #include "database/SqlTransaction.h"
 #include "database/SessionTokenCipher.h"
 #include "utils/AppLogger.h"
+#include "services/iptv/IptvStreamSelector.h"
 
 #include <QDateTime>
 #include <QDate>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QSqlRecord>
 #include <QStandardPaths>
 #include <QVariant>
 #include <QScopeGuard>
 
+#include <array>
 #include <algorithm>
 #include <optional>
 #include <utility>
@@ -26,6 +31,31 @@ QString sqlError(const QSqlQuery& query)
 QString nonNullText(const QString& value)
 {
     return value.isNull() ? QStringLiteral("") : value;
+}
+
+QString streamUrlsJson(const IptvChannel& channel)
+{
+    QJsonArray urls;
+    const auto values = channel.streamUrls.isEmpty()
+        ? QStringList {channel.streamUrl} : channel.streamUrls;
+    for (const auto& url : values) {
+        if (!url.isEmpty()) urls.append(url);
+    }
+    return QString::fromUtf8(QJsonDocument(urls).toJson(QJsonDocument::Compact));
+}
+
+QStringList parseStreamUrls(const QString& value, const QString& primary)
+{
+    QStringList urls;
+    const auto document = QJsonDocument::fromJson(value.toUtf8());
+    if (document.isArray()) {
+        for (const auto& item : document.array()) {
+            const auto url = item.toString();
+            if (!url.isEmpty() && !urls.contains(url)) urls.append(url);
+        }
+    }
+    if (urls.isEmpty() && !primary.isEmpty()) urls.append(primary);
+    return urls;
 }
 
 std::expected<void, QString> upsertServer(QSqlDatabase& database, const ServerConfig& server, bool markUsed = false)
@@ -189,14 +219,36 @@ std::expected<void, QString> SessionRepository::initialize()
             "id TEXT NOT NULL,"
             "playlist_id TEXT NOT NULL,"
             "name TEXT NOT NULL,"
+            "tvg_id TEXT NOT NULL DEFAULT '',"
             "group_name TEXT NOT NULL,"
             "logo_url TEXT NOT NULL DEFAULT '',"
             "stream_url TEXT NOT NULL,"
+            "stream_urls TEXT NOT NULL DEFAULT '',"
+            "stream_info TEXT NOT NULL DEFAULT '',"
             "sort_order INTEGER NOT NULL DEFAULT 0,"
+            "width INTEGER NOT NULL DEFAULT 0,"
+            "height INTEGER NOT NULL DEFAULT 0,"
+            "bitrate INTEGER NOT NULL DEFAULT 0,"
+            "codec TEXT NOT NULL DEFAULT '',"
+            "probe_state TEXT NOT NULL DEFAULT '',"
             "PRIMARY KEY(id, playlist_id),"
             "FOREIGN KEY(playlist_id) REFERENCES iptv_playlists(id) ON DELETE CASCADE"
             ")"))) {
         return std::unexpected(sqlError(channelQuery));
+    }
+    for (const auto& column : std::array {
+             std::pair {QStringLiteral("tvg_id"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+             std::pair {QStringLiteral("stream_urls"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+             std::pair {QStringLiteral("stream_info"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+             std::pair {QStringLiteral("width"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+             std::pair {QStringLiteral("height"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+             std::pair {QStringLiteral("bitrate"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+             std::pair {QStringLiteral("codec"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+             std::pair {QStringLiteral("probe_state"), QStringLiteral("TEXT NOT NULL DEFAULT ''")},
+         }) {
+        if (auto result = ensureColumn(QStringLiteral("iptv_channels"), column.first, column.second); !result) {
+            return result;
+        }
     }
 
     if (auto migrateUsageResult = migrateDailyUsageStatsTable(); !migrateUsageResult) {
@@ -549,23 +601,59 @@ std::expected<void, QString> SessionRepository::saveIptvPlaylist(const ServerCon
 
     QSqlQuery channelQuery(m_database);
     channelQuery.prepare(QStringLiteral(
-        "INSERT INTO iptv_channels (id, playlist_id, name, group_name, logo_url, stream_url, sort_order) "
-        "VALUES (:id, :playlist_id, :name, :group_name, :logo_url, :stream_url, :sort_order)"));
+        "INSERT INTO iptv_channels (id, playlist_id, name, tvg_id, group_name, logo_url, stream_url, stream_urls, sort_order, width, height, bitrate, codec, probe_state, stream_info) "
+        "VALUES (:id, :playlist_id, :name, :tvg_id, :group_name, :logo_url, :stream_url, :stream_urls, :sort_order, :width, :height, :bitrate, :codec, :probe_state, :stream_info)"));
     for (const auto& channel : channels) {
         channelQuery.bindValue(QStringLiteral(":id"), channel.id);
         channelQuery.bindValue(QStringLiteral(":playlist_id"), playlistId);
         channelQuery.bindValue(QStringLiteral(":name"), channel.name);
+        channelQuery.bindValue(QStringLiteral(":tvg_id"), nonNullText(channel.tvgId));
         channelQuery.bindValue(QStringLiteral(":group_name"), channel.groupName);
         // A missing optional logo is an empty SQL string, not a NULL QVariant.
         channelQuery.bindValue(QStringLiteral(":logo_url"), channel.logoUrl.isNull() ? QStringLiteral("") : channel.logoUrl);
         channelQuery.bindValue(QStringLiteral(":stream_url"), channel.streamUrl);
+        channelQuery.bindValue(QStringLiteral(":stream_urls"), streamUrlsJson(channel));
         channelQuery.bindValue(QStringLiteral(":sort_order"), channel.sortOrder);
+        channelQuery.bindValue(QStringLiteral(":width"), channel.width);
+        channelQuery.bindValue(QStringLiteral(":height"), channel.height);
+        channelQuery.bindValue(QStringLiteral(":bitrate"), channel.bitrate);
+        channelQuery.bindValue(QStringLiteral(":codec"), nonNullText(channel.codec));
+        channelQuery.bindValue(QStringLiteral(":probe_state"), nonNullText(channel.probeState));
+        channelQuery.bindValue(QStringLiteral(":stream_info"), QString::fromUtf8(
+            QJsonDocument(IptvStreamSelector::serialize(channel.streamInfo)).toJson(QJsonDocument::Compact)));
         if (!channelQuery.exec()) {
             return std::unexpected(sqlError(channelQuery));
         }
     }
 
     return transaction.commit();
+}
+
+std::expected<void, QString> SessionRepository::updateIptvChannelProbe(const QString& playlistId,
+                                                                        const QString& channelId,
+                                                                        int width,
+                                                                        int height,
+                                                                        qint64 bitrate,
+                                                                        const QString& codec,
+                                                                        const QString& state,
+                                                                        const std::vector<IptvStreamInfo>& streamInfo)
+{
+    if (auto openResult = ensureOpen(); !openResult) return openResult;
+    QSqlQuery query(m_database);
+    query.prepare(QStringLiteral(
+        "UPDATE iptv_channels SET width = :width, height = :height, bitrate = :bitrate, "
+        "codec = :codec, probe_state = :state, stream_info = :stream_info WHERE playlist_id = :playlist_id AND id = :id"));
+    query.bindValue(QStringLiteral(":width"), std::max(0, width));
+    query.bindValue(QStringLiteral(":height"), std::max(0, height));
+    query.bindValue(QStringLiteral(":bitrate"), std::max<qint64>(0, bitrate));
+    query.bindValue(QStringLiteral(":codec"), nonNullText(codec));
+    query.bindValue(QStringLiteral(":state"), nonNullText(state));
+    query.bindValue(QStringLiteral(":stream_info"), QString::fromUtf8(
+        QJsonDocument(IptvStreamSelector::serialize(streamInfo)).toJson(QJsonDocument::Compact)));
+    query.bindValue(QStringLiteral(":playlist_id"), playlistId);
+    query.bindValue(QStringLiteral(":id"), channelId);
+    if (!query.exec()) return std::unexpected(sqlError(query));
+    return {};
 }
 
 std::expected<void, QString> SessionRepository::addDailyUsage(const ServerConfig& server,
@@ -1166,12 +1254,25 @@ std::expected<std::vector<IptvChannel>, QString> SessionRepository::loadIptvChan
         return std::unexpected(openResult.error());
     }
 
+    // CLI queries must also read a pre-migration database without modifying it.
+    const auto columns = m_database.record(QStringLiteral("iptv_channels"));
+    auto optionalColumn = [&columns](const QString& name, const QString& fallback) {
+        return columns.indexOf(name) >= 0 ? name : fallback + QStringLiteral(" AS ") + name;
+    };
     QSqlQuery query(m_database);
     query.prepare(QStringLiteral(
-        "SELECT id, playlist_id, name, group_name, logo_url, stream_url, sort_order "
+        "SELECT id, playlist_id, name, %1, group_name, logo_url, stream_url, %2, sort_order, %3, %4, %5, %6, %7, %8 "
         "FROM iptv_channels "
         "WHERE playlist_id = :playlist_id "
-        "ORDER BY group_name COLLATE NOCASE ASC, sort_order ASC, name COLLATE NOCASE ASC"));
+        "ORDER BY group_name COLLATE NOCASE ASC, sort_order ASC, name COLLATE NOCASE ASC")
+        .arg(optionalColumn(QStringLiteral("tvg_id"), QStringLiteral("''")),
+             optionalColumn(QStringLiteral("stream_urls"), QStringLiteral("''")),
+             optionalColumn(QStringLiteral("width"), QStringLiteral("0")),
+             optionalColumn(QStringLiteral("height"), QStringLiteral("0")),
+             optionalColumn(QStringLiteral("bitrate"), QStringLiteral("0")),
+             optionalColumn(QStringLiteral("codec"), QStringLiteral("''")),
+             optionalColumn(QStringLiteral("probe_state"), QStringLiteral("''")),
+             optionalColumn(QStringLiteral("stream_info"), QStringLiteral("''"))));
     query.bindValue(QStringLiteral(":playlist_id"), playlistResult->value().id);
     if (!query.exec()) {
         return std::unexpected(sqlError(query));
@@ -1179,14 +1280,24 @@ std::expected<std::vector<IptvChannel>, QString> SessionRepository::loadIptvChan
 
     std::vector<IptvChannel> channels;
     while (query.next()) {
+        const auto primary = query.value(6).toString();
         channels.push_back(IptvChannel {
             .id = query.value(0).toString(),
             .playlistId = query.value(1).toString(),
             .name = query.value(2).toString(),
-            .groupName = query.value(3).toString(),
-            .logoUrl = query.value(4).toString(),
-            .streamUrl = query.value(5).toString(),
-            .sortOrder = query.value(6).toInt(),
+            .groupName = query.value(4).toString(),
+            .logoUrl = query.value(5).toString(),
+            .streamUrl = primary,
+            .sortOrder = query.value(8).toInt(),
+            .tvgId = query.value(3).toString(),
+            .streamUrls = parseStreamUrls(query.value(7).toString(), primary),
+            .width = query.value(9).toInt(),
+            .height = query.value(10).toInt(),
+            .bitrate = query.value(11).toLongLong(),
+            .codec = query.value(12).toString(),
+            .probeState = query.value(13).toString(),
+            .streamInfo = IptvStreamSelector::deserialize(QJsonDocument::fromJson(
+                query.value(14).toString().toUtf8()).array()),
         });
     }
     return channels;
@@ -2135,6 +2246,21 @@ QString SessionRepository::m3u8sVideoQuality() const
 void SessionRepository::setM3u8sVideoQuality(const QString& quality)
 {
     m_settings.setValue(QStringLiteral("m3u8s/videoQuality"), quality);
+}
+
+QString SessionRepository::iptvStreamPreference() const
+{
+    const auto preference = m_settings.value(QStringLiteral("iptv/streamPreference"),
+                                             QStringLiteral("quality")).toString().trimmed().toLower();
+    return preference == QStringLiteral("datasaver") ? QStringLiteral("dataSaver")
+                                                       : QStringLiteral("quality");
+}
+
+void SessionRepository::setIptvStreamPreference(const QString& preference)
+{
+    m_settings.setValue(QStringLiteral("iptv/streamPreference"),
+                        preference.trimmed().compare(QStringLiteral("dataSaver"), Qt::CaseInsensitive) == 0
+                            ? QStringLiteral("dataSaver") : QStringLiteral("quality"));
 }
 
 QString SessionRepository::m3u8sContainerFormat() const

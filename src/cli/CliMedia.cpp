@@ -4,6 +4,8 @@
 #include "services/emby/EmbyClient.h"
 #include "services/jellyfin/JellyfinClient.h"
 #include "services/smb/SmbClient.h"
+#include "services/iptv/IptvParser.h"
+#include "services/iptv/IptvStreamSelector.h"
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -83,12 +85,14 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
     if (server.serviceType == ServiceType::IPTV) {
         auto channels = repository.loadIptvChannels(server.id);
         if (!channels) return failure(ExitCode::Failed,channels.error());
+        *channels = IptvParser::mergeChannels(std::move(*channels));
         QJsonArray rows;
         std::optional<IptvChannel> selected;
         const auto target = invocation.arguments.value(1);
         for (const auto& channel : *channels) {
-            rows += QJsonObject {{"id",channel.id},{"name",channel.name},{"group",channel.groupName}};
-            if (channel.id == target) { selected = channel; break; }
+            rows += QJsonObject {{"id",channel.id},{"name",channel.name},{"group",channel.groupName},
+                {"streamCount",channel.streamUrls.size()}};
+            if (channel.id == target) selected = channel;
         }
         if (invocation.command == "media channels" || invocation.command == "media ls") return success(rows);
         if (invocation.command != "play") return failure(ExitCode::Usage,"IPTV supports media channels and play");
@@ -97,7 +101,8 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
             selected = channel;
         }
         if (!selected) return failure(ExitCode::NotFound,"IPTV channel not found");
-        request["url"] = selected->streamUrl; request["title"] = selected->name;
+        request["url"] = IptvStreamSelector::select(*selected,repository.iptvStreamPreference()).playbackUrl;
+        request["title"] = selected->name;
         return startPlayback(invocation,request);
     }
     if (server.serviceType == ServiceType::WebDAV || server.serviceType == ServiceType::SMB) {

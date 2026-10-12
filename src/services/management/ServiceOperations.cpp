@@ -65,14 +65,20 @@ std::expected<void, QString> savePlaylist(SessionRepository& repository, const S
     stored.baseUrl = *path;
     const auto playlistId = QStringLiteral("iptv-playlist-%1").arg(stored.id);
     for (auto& channel : *channels) {
-        channel.playlistId = playlistId;
         if (!origin.isEmpty()) {
             const auto stream = QUrl(channel.streamUrl);
             channel.streamUrl = stream.isLocalFile() ? origin.toString() : origin.resolved(stream).toString();
+            channel.streamUrls = {channel.streamUrl};
             if (!channel.logoUrl.isEmpty()) channel.logoUrl = origin.resolved(QUrl(channel.logoUrl)).toString();
-        } else if (channel.streamUrl == QUrl::fromLocalFile(QFileInfo(source).absoluteFilePath()).toString())
+        } else if (channel.streamUrl == QUrl::fromLocalFile(QFileInfo(source).absoluteFilePath()).toString()) {
             channel.streamUrl = QUrl::fromLocalFile(*path).toString();
+            channel.streamUrls = {channel.streamUrl};
+        }
+        if (channel.streamUrls.isEmpty()) channel.streamUrls = {channel.streamUrl};
+        channel.playlistId = playlistId;
     }
+    *channels = IptvParser::mergeChannels(std::move(*channels));
+    for (auto& channel : *channels) channel.playlistId = playlistId;
     return repository.saveIptvPlaylist(stored, IptvPlaylist {
         .id = playlistId, .serviceId = stored.id,
         .name = stored.name, .sourceType = origin.isEmpty() ? QStringLiteral("LocalFile") : QStringLiteral("RemoteURL"),

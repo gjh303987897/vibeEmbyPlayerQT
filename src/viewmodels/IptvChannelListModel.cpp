@@ -36,6 +36,14 @@ QVariant IptvChannelListModel::data(const QModelIndex& index, int role) const
         return channel.logoUrl;
     case StreamUrlRole:
         return channel.streamUrl;
+    case StreamCountRole:
+        return channel.streamUrls.isEmpty() ? 1 : channel.streamUrls.size();
+    case ResolutionRole:
+        return channel.width > 0 && channel.height > 0
+            ? QStringLiteral("%1x%2").arg(channel.width).arg(channel.height)
+            : QString {};
+    case CodecRole:
+        return channel.codec;
     default:
         return {};
     }
@@ -49,6 +57,9 @@ QHash<int, QByteArray> IptvChannelListModel::roleNames() const
         { GroupNameRole, "groupName" },
         { LogoUrlRole, "logoUrl" },
         { StreamUrlRole, "streamUrl" },
+        { StreamCountRole, "streamCount" },
+        { ResolutionRole, "resolution" },
+        { CodecRole, "codec" },
     };
 }
 
@@ -72,6 +83,27 @@ void IptvChannelListModel::setChannels(std::vector<IptvChannel> channels)
     m_channels = std::move(channels);
     endResetModel();
     emit countChanged();
+}
+
+void IptvChannelListModel::updateChannelProbe(const QString& channelId,
+                                              int width,
+                                              int height,
+                                              qint64 bitrate,
+                                              const QString& codec,
+                                              const QString& probeState)
+{
+    for (auto index = 0; index < rowCount(); ++index) {
+        auto& channel = m_channels[static_cast<size_t>(index)];
+        if (channel.id != channelId) continue;
+        channel.width = width;
+        channel.height = height;
+        channel.bitrate = bitrate;
+        channel.codec = codec;
+        channel.probeState = probeState;
+        emit dataChanged(this->index(index), this->index(index),
+                         {ResolutionRole, CodecRole});
+        return;
+    }
 }
 
 void IptvChannelListModel::clear()

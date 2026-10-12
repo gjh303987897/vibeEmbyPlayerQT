@@ -148,6 +148,10 @@ void FileDialogController::open(Mode mode, const QString& title, const QString& 
 
     m_handler = std::move(handler);
     connect(dialog, &QDialog::finished, this, [this, dialog](int result) {
+        // A native completion can follow reject() after its continuation has
+        // opened a new picker. Old replies must never consume that new request.
+        if (m_dialog.get() != dialog) return;
+        disconnect(dialog, nullptr, this, nullptr);
         QStringList paths;
         if (result == QDialog::Accepted) {
             for (const auto& url : dialog->selectedUrls()) {
@@ -159,7 +163,15 @@ void FileDialogController::open(Mode mode, const QString& title, const QString& 
         auto handler = std::move(m_handler);
         // Clear ownership before the continuation can navigate or open a picker.
         m_dialog.release();
+#ifdef Q_OS_WIN
+        // Qt 6.7's Shell thread may still be unwinding COM after finished is
+        // delivered. Immediate destruction waits up to 500 ms on the GUI
+        // thread, which prevents that thread's marshalled calls from finishing.
+        // Keep pumping the normal event loop before releasing the native helper.
+        QTimer::singleShot(1000, dialog, &QObject::deleteLater);
+#else
         dialog->deleteLater();
+#endif
         AppLogger::info(QStringLiteral("file-dialog"),
                         result == QDialog::Accepted ? QStringLiteral("Selection accepted (%1 paths)").arg(paths.size())
                                                     : QStringLiteral("Selection canceled"));

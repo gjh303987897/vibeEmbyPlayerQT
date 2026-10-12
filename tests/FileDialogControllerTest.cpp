@@ -125,6 +125,33 @@ private slots:
         QVERIFY(!picker.isOpen());
     }
 
+    void lateNativeCompletionDoesNotConsumeTheNextPicker()
+    {
+        QWindow window;
+        FileDialogController picker;
+        picker.attachWindow(&window);
+        int firstCompletions = 0;
+        int nextCompletions = 0;
+        picker.openFile("First", {}, {}, [&](const QString&) {
+            ++firstCompletions;
+            picker.openFile("Next", {}, {}, [&](const QString&) { ++nextCompletions; });
+        });
+        auto* oldDialog = activePicker();
+        QVERIFY(oldDialog);
+        picker.cancel();
+        QCOMPARE(firstCompletions, 1);
+        auto* nextDialog = activePicker();
+        QVERIFY(nextDialog && nextDialog != oldDialog);
+        // Simulate a queued Shell rejection arriving after synchronous cancel.
+        QVERIFY(QMetaObject::invokeMethod(oldDialog, "finished", Qt::DirectConnection,
+                                         Q_ARG(int, QDialog::Rejected)));
+        QVERIFY(picker.isOpen());
+        QCOMPARE(activePicker(), nextDialog);
+        QCOMPARE(nextCompletions, 0);
+        picker.cancel();
+        QCOMPARE(nextCompletions, 1);
+    }
+
     void saveAddsSuffixWithoutWritingOnAcceptance()
     {
         QTemporaryDir directory;

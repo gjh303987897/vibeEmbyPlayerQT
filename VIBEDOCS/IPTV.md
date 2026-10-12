@@ -10,6 +10,8 @@ IPTV 模块为桌面播放器提供本地 M3U/M3U8 播放列表导入、频道�
 - `src/models/IptvChannel.h`：IPTV 频道模型。
 - `src/services/iptv/IptvParser.h`
 - `src/services/iptv/IptvParser.cpp`：M3U/M3U8 解析器。
+- `src/services/iptv/IptvProbe.h`
+- `src/services/iptv/IptvProbe.cpp`：异步线路探测与 HLS 主清单媒体信息解析。
 - `src/services/iptv/IptvPlaylistStore.*`：应用私有目录中的播放列表受管副本。
 - `src/viewmodels/IptvChannelListModel.h`
 - `src/viewmodels/IptvChannelListModel.cpp`：暴露给 QML 的频道列表模型。
@@ -38,7 +40,12 @@ IPTV 模块为桌面播放器提供本地 M3U/M3U8 播放列表导入、频道�
 - `group_name`：频道分组。
 - `logo_url`：台标 URL。
 - `stream_url`：播放地址。
+- `tvg_id`：频道的外部稳定标识；存在时优先用于合并同名线路。
+- `stream_urls`：同一频道合并后的全部播放地址，以紧凑 JSON 数组保存。
 - `sort_order`：播放列表中的顺序。
+- `width`、`height`、`bitrate`、`codec`：最近一次探测或真实播放得到的媒体信息。
+- `probe_state`：线路探测状态，例如 `available`、`unavailable`、`playback`。
+- `stream_info`：每条线路的可用性、媒体参数、检查时间和 HLS 子清单信息，以 JSON 保存。
 
 ## 解析规则
 
@@ -65,6 +72,58 @@ IPTV 模块为桌面播放器提供本地 M3U/M3U8 播放列表导入、频道�
 - IPTV 不调用 `MediaServiceClient`。
 - IPTV 播放不向 Emby/Jellyfin 上报播放进度。
 - QML 只负责显示、文件路径输入和用户交互，导入解析、过滤和播放状态设置都在 C++ 层。
+
+## 多线路合并与探测
+
+- 导入只做静态解析和合并，不发起线路探测。优先按 `tvg-id` 合并；缺失时按
+  去除首尾空白、折叠连续空白并忽略大小写后的名称和分组合并。不同 `tvg-id`、
+  不同分组且没有标识的同名频道保留独立显示；不猜测 HD/4K 后缀是否表示同一频道。
+- URL 去重并保留原始顺序；兼容加载旧数据库时保留第一条旧频道 ID，播放历史仍可定位。
+  卡片和播放器侧栏显示线路数以及已知分辨率。
+- 后台串行处理服务页首批 12 个频道、最多 36 条 HTTP(S) 线路。点击频道会取消旧探测，
+  优先探测该频道最多 36 条线路。播放立即使用已有信息启动，不等待全部探测完成，
+  后台结果不会切断当前播放；实际失败或 20 秒未开始时自动尝试下一候选。搜索和分组变化会再次调度当前列表首批频道。
+- 每条线路最多读取 128 KiB，网络超时 6 秒；可选 FFprobe 只读取本地样本，超时 2 秒。
+  HLS 主清单解析分辨率、码率、编码和子清单 URL；含独立音轨/字幕时保留主清单。
+  HLS 媒体清单或样本不足的流暂不展示未知参数，等真实播放校正。
+- 设置 → 常规 → IPTV 提供“高画质优先”和“省流优先”。高画质优先按已知分辨率、
+  码率排序；省流优先在两条线路都有码率时先比较码率，再比较分辨率。
+  可用线路优先于未知线路，失败线路最后保留。未知参数不视为最低码率或最低分辨率。
+- 信息按 URL 保存：成功缓存有效期 6 小时，失败 1 分钟，过期后再次按需探测。
+  播放器回报实际分辨率、编码和码率后校正当前线路与子清单；真实播放优先于晚到的
+  探测结果。元数据合并为快照并在后台串行写库，避免在界面线程持续执行 SQL。
+- 桌面和 CLI 共用线路选择器。CLI IPTV 播放使用保存的信息和偏好，不自行启动后台探测。
+
+播放器工具栏增加“播放线路”菜单，允许手动选择当前频道的原始线路及已知 HLS
+清晰度；显示当前项与已知媒体信息。手动选择开启新一轮回退，每个实际播放 URL
+一轮只尝试一次，全部失败后停止并提示。正常 EOF、停止和暂停不触发自动回退。
+
+模块接口、边界和测试见 [IPTV 线路选择与探测](IptvStreamSelection.md)。
+
+## 导入与播放性能
+
+- 桌面保存 IPTV 服务时，`AppViewModel` 用 `QtConcurrent` 调用共享的
+  `ServiceOperations::savePlaylist`。解析、受管副本复制和批量 SQL 写入均在后台执行；
+  `SessionRepository` 连接在同一后台线程创建和销毁，不跨线程使用界面连接。
+- 导入期间 `loading` 保持为真，重复保存不会启动第二个导入。完成后异步刷新服务卡；
+  如果用户已经离开或编辑了下一张卡，旧任务不会清空新表单或改变当前页面。
+- 自定义数据库路径的调用者使用数据库父目录保存受管副本；普通桌面运行仍使用应用数据目录。
+- `MpvVideoItem.liveStream` 绑定 `iptvPlaybackActive`，由 `PlayerController` 为 IPTV
+  设置 `video-sync=audio`、`interpolation=no`，避免为直播额外生成插值帧。
+  硬件解码仍使用 `hwdec=auto`；切换回普通视频会恢复现有平滑播放设置。
+- 频道卡片直接作为 `GridView` 的 delegate，保留缓存与复用；由视图分帧创建缓存区
+  delegate，不再为每个频道增加第二层异步 `Loader` 和淡入动画。台标继续异步加载。
+
+参考：[mpv 视频同步与插帧](https://mpv.io/manual/stable/#video-synchronization)。
+
+`AppViewModelStateTest` 使用 100 个临时频道验证后台导入、数据库忙时的界面计时器响应、
+重复保存以及导入过程中开始编辑下一张服务卡的状态保护。
+
+Windows 的 `native_iptv_import_playback` 测试装载完整 `Main.qml`，导入 100 个临时频道、
+实际播放本地 720p/25fps 测试视频、返回服务页、打开添加 IPTV 表单和原生文件窗口，
+检查弹窗背景捕获对象的窗口归属，并正常销毁整个界面。使用 D3D11 WARP 渲染界面以避开
+测试机器的旧 Intel 驱动启动异常；视频仍由 libmpv 单独渲染。缺少 FFmpeg 时跳过该测试。
+该用例覆盖本地 IPTV 流程，不能替代用户实际直播源和显卡负载的验收。
 
 ## 后续扩展
 

@@ -10,6 +10,7 @@
 class IptvParser final {
 public:
     static std::expected<std::vector<IptvChannel>, QString> parseFile(const QString& filePath);
+    static std::vector<IptvChannel> mergeChannels(std::vector<IptvChannel> channels);
 
 private:
     static std::expected<QString, QString> readPlaylistText(const QString& filePath);

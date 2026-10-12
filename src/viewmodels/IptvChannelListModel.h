@@ -17,7 +17,10 @@ public:
         NameRole,
         GroupNameRole,
         LogoUrlRole,
-        StreamUrlRole
+        StreamUrlRole,
+        StreamCountRole,
+        ResolutionRole,
+        CodecRole
     };
 
     explicit IptvChannelListModel(QObject* parent = nullptr);
@@ -29,6 +32,12 @@ public:
     Q_INVOKABLE int indexOfChannelId(const QString& channelId) const;
 
     void setChannels(std::vector<IptvChannel> channels);
+    void updateChannelProbe(const QString& channelId,
+                            int width,
+                            int height,
+                            qint64 bitrate,
+                            const QString& codec,
+                            const QString& probeState);
     void clear();
     std::optional<IptvChannel> channelAt(int row) const;
 

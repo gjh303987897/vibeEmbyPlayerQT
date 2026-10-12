@@ -47,3 +47,27 @@ Current setting:
 - Windows tray behavior should be verified directly.
 - macOS may present the icon in the menu bar area and still has Dock behavior to validate.
 - Linux tray support varies by desktop environment and should be validated on at least one GNOME/KDE-style setup.
+
+## Windows graphics startup diagnostics
+
+For local builds, `scripts/run-desktop.ps1` provides Qt/OpenSSL runtime paths
+without changing persistent environment settings. Hardware graphics remain the
+default. `-SoftwareRendering` opts into Qt's D3D11 WARP interface renderer for
+machines whose graphics driver crashes during startup. It preserves RHI effects
+and leaves the separately embedded libmpv renderer unchanged.
+
+The 2026-10-08 startup crash was reproduced in Intel driver
+`igd10iumd64.dll` (`27.20.100.9565`, offset `0x291660`, invalid read at `0xE8`).
+WARP passed a 90-second native debug-event observation without an access
+violation. See [Windows build notes](../docs/BuildWindows.md#intel-d3d11-startup-crash-workaround)
+for the launch command, limitations and the official Qt graphics reference.
+
+## Modal backdrop ownership
+
+`DialogBackdropBlur` assigns an explicit visual parent to each
+`ShaderEffectSource` created inside a `MultiEffect.source` property. Captures
+clear `sourceItem` while the backdrop is hidden. In Qt 6.7.3, parentless captures
+can retain scene/window references after the popup closes; the IPTV playback,
+service-popup and picker regression previously crashed during root-window focus
+cleanup. The corrected ownership is covered by `native_iptv_import_playback`.
+See [file-selection lifecycle](FileSelection.md) for details and verification.

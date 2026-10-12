@@ -11,6 +11,8 @@ set(VIBE_CORE_SOURCES
     src/services/credentials/CredentialStore.cpp
     src/services/credentials/NativeCredentialStore.cpp
     src/services/iptv/IptvParser.cpp
+    src/services/iptv/IptvProbe.cpp
+    src/services/iptv/IptvStreamSelector.cpp
     src/services/iptv/IptvPlaylistStore.cpp
     src/services/webdav/WebDavClient.cpp
     src/services/webdav/WebDavPlaybackProxy.cpp

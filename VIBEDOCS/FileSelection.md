@@ -51,7 +51,15 @@ application because those URLs are not local filesystem folders.
   and owner destruction cancel the active picker. Controller destruction
   disconnects completion and never runs business callbacks.
 - Ownership is cleared before invoking a continuation, so it can navigate
-  or open another picker safely. The finished dialog uses `deleteLater()`.
+  or open another picker safely. Completion checks the dialog identity and
+  disconnects its handler before invoking the continuation. A late native
+  reply from a canceled dialog cannot consume a newly opened picker's request.
+- On Windows, the finished dialog stays alive for a one-second event-loop
+  grace period before `deleteLater()`. Qt 6.7.3's native Shell thread can still
+  be unwinding COM when `finished` arrives; immediate helper destruction waits
+  up to 500 ms on the GUI thread and can log `Thread failed to finish`.
+  Other platforms use `deleteLater()` immediately. The controller already
+  considers the operation complete during the grace period.
 - URLs are restricted to the local `file` scheme. Logs record operation
   outcome and selected count, without file paths or credentials.
 
@@ -67,6 +75,7 @@ so overwrite confirmation and the actual export refer to the same path.
 `file_dialog_controller_test` exercises all modes, window ownership,
 asynchronous timer delivery, duplicate requests, acceptance/cancellation,
 multiple file/folder selection, save suffixes, reentrant continuations,
+late completion from a previously canceled picker,
 owner hiding/destruction and controller teardown without business callbacks.
 It operates only on temporary paths and does not upload, import or export
 user data.
@@ -76,6 +85,28 @@ installed `Qt6::QOffscreenIntegrationPlugin` target. The application deploys
 the normal desktop platform plugin; the offscreen plugin is needed only for
 this test. These tests verify the shared controller and Qt fallback behavior,
 not the visual appearance of each operating system's native picker.
+
+`QmlUtilityTest::nativePickerSurvivesVideoPlayback` additionally opens and
+cancels the Windows Shell picker before and after real embedded video playback,
+using a temporary FFmpeg-generated fixture and the installed libmpv runtime.
+CTest registers it as `native_video_file_picker`; it waits for deferred cleanup
+and treats `Thread failed to finish` as a failure. The full
+`native_iptv_import_playback` test also exercises the add-service popup after
+IPTV playback, including normal destruction of the root Quick window.
+
+Both native tests use `tests/NativeFileDialogTestHelpers.h` to enumerate only
+visible Windows Shell dialog windows (`#32770`) with the current test process
+ID and expected caption. A visible QFileDialog host alone does not satisfy the
+check. The helper is compiled only on Windows and never reads user files.
+
+The add-service popup uses `DialogBackdropBlur` in `Main.qml`. Its two
+property-owned `ShaderEffectSource` objects have an explicit visual parent,
+are invisible themselves, and release `sourceItem` when the backdrop is hidden.
+Qt 6.7.3's `setSourceItem` takes a window reference even when the capture object
+has no window, while its destructor balances that reference only when it has a
+window. The previous parentless captures retained scene references and the full
+Windows test crashed in focus cleanup during root-window destruction. With
+visual ownership and hidden-source release, that same workflow exits normally.
 
 ## Official references
 

@@ -45,12 +45,12 @@ QString safeMpvLogText(const QString& text)
         : text;
 }
 
-void configureSmoothVideoPlayback(mpv_handle* handle)
+void configureSmoothVideoPlayback(mpv_handle* handle, bool liveStream)
 {
     const std::initializer_list<std::pair<const char*, const char*>> options {
         { "hwdec", "auto" },
-        { "video-sync", "display-resample" },
-        { "interpolation", "yes" },
+        { "video-sync", liveStream ? "audio" : "display-resample" },
+        { "interpolation", liveStream ? "no" : "yes" },
         { "tscale", "oversample" },
     };
 
@@ -68,7 +68,9 @@ void configureSmoothVideoPlayback(mpv_handle* handle)
     }
 
     if (allConfigured) {
-        AppLogger::info(QStringLiteral("player"), QStringLiteral("Configured smooth video playback profile"));
+        AppLogger::info(QStringLiteral("player"), liveStream
+            ? QStringLiteral("Configured live playback without frame interpolation")
+            : QStringLiteral("Configured smooth video playback profile"));
     }
 }
 
@@ -295,7 +297,7 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
             mpv_set_option_string(m_mpv, "ao", "null");
         }
     } else {
-        configureSmoothVideoPlayback(m_mpv);
+        configureSmoothVideoPlayback(m_mpv, m_liveStream);
     }
     const auto caBundle = TlsCertificateStore::ensureSystemCaBundle();
     if (caBundle) {
@@ -359,6 +361,23 @@ bool PlayerController::initializeInternal(qintptr windowId, bool headless)
                     m_headless ? QStringLiteral("libmpv initialized for headless playback")
                                : QStringLiteral("libmpv initialized with window embedding"));
     return true;
+}
+
+void PlayerController::setLiveStream(bool enabled)
+{
+    if (m_liveStream == enabled) return;
+    m_liveStream = enabled;
+    if (!m_mpv || m_headless) return;
+    // QML bindings may arrive after source initialization. Apply the same mode
+    // to an existing handle, and restore the VOD profile when leaving IPTV.
+    for (const auto& [name, value] : std::initializer_list<std::pair<const char*, const char*>> {
+             {"video-sync", enabled ? "audio" : "display-resample"},
+             {"interpolation", enabled ? "no" : "yes"}}) {
+        const auto result = mpv_set_property_string(m_mpv, name, value);
+        if (result < 0) AppLogger::warning(QStringLiteral("player"),
+            QStringLiteral("Unable to set live playback option %1: %2")
+                .arg(QString::fromLatin1(name), QString::fromUtf8(mpv_error_string(result))));
+    }
 }
 
 bool PlayerController::paused() const
@@ -575,6 +594,7 @@ void PlayerController::playUrl(const QString& url,
         fileOptions.append(QByteArrayLiteral("start=") + QByteArray::number(startSeconds, 'f', 3));
     }
     bool requested = false;
+    QString requestError;
     if (!fileOptions.isEmpty()) {
         // mpv 0.38 inserted a positional index before options. Named arguments
         // work with both 0.37 (Ubuntu 24.04) and newer runtimes. The command key
@@ -593,17 +613,26 @@ void PlayerController::playUrl(const QString& url,
         const auto status = mpv_command_node(m_mpv, &args, nullptr);
         requested = status >= 0;
         if (!requested) {
-            emit errorOccurred(QString::fromUtf8(mpv_error_string(status)));
+            requestError = QString::fromUtf8(mpv_error_string(status));
         }
     } else {
         const char* args[] = { "loadfile", encoded.constData(), "replace", nullptr };
-        requested = command(args);
+        const auto status = mpv_command(m_mpv, args);
+        requested = status >= 0;
+        if (!requested) requestError = QString::fromUtf8(mpv_error_string(status));
     }
     if (!requested) {
         m_networkStatsActive = false;
         m_loading = false;
         emit playbackStateChanged();
+        emit errorOccurred(QStringLiteral("Playback failed: %1").arg(requestError));
+        emit playbackEnded(0.0, false, true);
     } else {
+        // loadfile replaces the playlist synchronously, while file events arrive later.
+        // An old END_FILE must not fail the new IPTV route during a manual switch.
+        int64_t requestedEntry = -1;
+        m_requestedPlaylistEntryId = mpv_get_property(m_mpv, "playlist/0/id", MPV_FORMAT_INT64, &requestedEntry) >= 0
+            ? requestedEntry : -1;
         m_networkStatsActive = true;
         m_networkSampleElapsed.restart();
     }
@@ -647,6 +676,7 @@ void PlayerController::stop()
     command(args);
     m_networkStatsActive = false;
     m_activePlaylistEntryId = -1;
+    m_requestedPlaylistEntryId = -1;
     resetPlaybackState();
 }
 
@@ -658,6 +688,7 @@ void PlayerController::shutdown()
     m_playbackMetricsTimer.stop();
     m_networkStatsActive = false;
     m_activePlaylistEntryId = -1;
+    m_requestedPlaylistEntryId = -1;
     if (m_mpv) {
         mpv_command_string(m_mpv, "stop");
         mpv_terminate_destroy(m_mpv);
@@ -819,6 +850,10 @@ void PlayerController::processEvents()
         // end-file payload must survive destruction of libmpv's event storage.
         const auto eventValue = *next;
         const auto* event = &eventValue;
+        if (m_liveStream && m_requestedPlaylistEntryId >= 0 &&
+            m_activePlaylistEntryId != m_requestedPlaylistEntryId &&
+            (event->event_id == MPV_EVENT_PROPERTY_CHANGE || event->event_id == MPV_EVENT_FILE_LOADED ||
+             event->event_id == MPV_EVENT_VIDEO_RECONFIG || event->event_id == MPV_EVENT_PLAYBACK_RESTART)) continue;
 
         if (event->event_id == MPV_EVENT_PROPERTY_CHANGE) {
             const auto* property = static_cast<mpv_event_property*>(event->data);
@@ -860,6 +895,8 @@ void PlayerController::processEvents()
             }
         } else if (event->event_id == MPV_EVENT_START_FILE) {
             const auto* startFile = static_cast<mpv_event_start_file*>(event->data);
+            if (m_liveStream && startFile && m_requestedPlaylistEntryId >= 0 &&
+                startFile->playlist_entry_id != m_requestedPlaylistEntryId) continue;
             m_activePlaylistEntryId = startFile ? startFile->playlist_entry_id : -1;
             if (!m_stopRequested) {
                 m_loading = true;
@@ -877,6 +914,8 @@ void PlayerController::processEvents()
             const auto endFileValue = event->data
                 ? std::optional<mpv_event_end_file>(*static_cast<mpv_event_end_file*>(event->data)) : std::nullopt;
             const auto* endFile = endFileValue ? &*endFileValue : nullptr;
+            if (m_liveStream && endFile && m_requestedPlaylistEntryId >= 0 &&
+                endFile->playlist_entry_id != m_requestedPlaylistEntryId) continue;
             const auto finalPosition = m_position;
             auto failed = false;
             const auto supersededEntry = endFile && m_activePlaylistEntryId >= 0 &&

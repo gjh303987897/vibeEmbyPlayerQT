@@ -7,6 +7,8 @@
 #include <QStringConverter>
 #include <QUrl>
 
+#include <algorithm>
+
 namespace {
 constexpr auto defaultGroupName = "Default";
 
@@ -55,6 +57,24 @@ QString cleanName(QString value)
         value = value.mid(1, value.size() - 2).trimmed();
     }
     return value;
+}
+
+QString normalizedIdentityPart(QString value)
+{
+    value = value.trimmed().toCaseFolded();
+    value.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" "));
+    return value;
+}
+
+QString channelIdentity(const IptvChannel& channel)
+{
+    const auto tvgId = normalizedIdentityPart(channel.tvgId);
+    if (!tvgId.isEmpty()) {
+        return QStringLiteral("tvg:%1").arg(tvgId);
+    }
+    return QStringLiteral("name:%1|group:%2")
+        .arg(normalizedIdentityPart(channel.name),
+             normalizedIdentityPart(channel.groupName));
 }
 
 QHash<QString, QString> parseAttributes(const QString& value)
@@ -138,6 +158,7 @@ std::expected<std::vector<IptvChannel>, QString> IptvParser::parseFile(const QSt
             channel.name = QFileInfo(filePath).completeBaseName();
             channel.groupName = QString::fromLatin1(defaultGroupName);
             channel.streamUrl = trimmed;
+            channel.streamUrls = {trimmed};
             channels.push_back(std::move(channel));
         }
     }
@@ -179,6 +200,7 @@ std::vector<IptvChannel> IptvParser::parsePlaylistText(const QString& text, cons
         if (line.startsWith(QStringLiteral("#EXTINF"), Qt::CaseInsensitive)) {
             const auto attributes = parseAttributes(line);
             pending = {};
+            pending.tvgId = attributes.value(QStringLiteral("tvg-id"));
             pending.name = attributes.value(QStringLiteral("tvg-name"));
             if (pending.name.isEmpty()) {
                 pending.name = extinfTitle(line);
@@ -202,6 +224,7 @@ std::vector<IptvChannel> IptvParser::parsePlaylistText(const QString& text, cons
 
         auto channel = hasPending ? pending : IptvChannel {};
         channel.streamUrl = line;
+        channel.streamUrls = {line};
         channel.sortOrder = sortOrder++;
         if (channel.name.isEmpty()) {
             channel.name = QFileInfo(QUrl(line).path()).completeBaseName();
@@ -212,12 +235,60 @@ std::vector<IptvChannel> IptvParser::parsePlaylistText(const QString& text, cons
         if (channel.groupName.isEmpty()) {
             channel.groupName = QString::fromLatin1(defaultGroupName);
         }
-        channel.id = stableIdFor(channel.name + QLatin1Char('|') + channel.groupName + QLatin1Char('|') + channel.streamUrl);
+        channel.id = stableIdFor(QStringLiteral("IPTV|") + channelIdentity(channel));
         channels.push_back(std::move(channel));
         hasPending = false;
     }
 
     return channels;
+}
+
+std::vector<IptvChannel> IptvParser::mergeChannels(std::vector<IptvChannel> channels)
+{
+    std::vector<IptvChannel> merged;
+    QHash<QString, qsizetype> indexes;
+    merged.reserve(channels.size());
+
+    for (auto& channel : channels) {
+        if (channel.streamUrl.isEmpty() && !channel.streamUrls.isEmpty()) {
+            channel.streamUrl = channel.streamUrls.front();
+        }
+        if (channel.streamUrls.isEmpty() && !channel.streamUrl.isEmpty()) {
+            channel.streamUrls = {channel.streamUrl};
+        }
+        channel.streamUrls.removeDuplicates();
+        if (channel.groupName.isEmpty()) {
+            channel.groupName = QString::fromLatin1(defaultGroupName);
+        }
+
+        const auto identity = channelIdentity(channel);
+        const auto existing = indexes.constFind(identity);
+        if (existing == indexes.cend()) {
+            if (channel.id.isEmpty()) {
+                channel.id = stableIdFor(QStringLiteral("IPTV|") + identity);
+            }
+            indexes.insert(identity, merged.size());
+            merged.push_back(std::move(channel));
+            continue;
+        }
+
+        auto& target = merged[static_cast<size_t>(*existing)];
+        for (const auto& url : channel.streamUrls) {
+            if (!url.isEmpty() && !target.streamUrls.contains(url)) {
+                target.streamUrls.push_back(url);
+            }
+        }
+        if (target.streamUrl.isEmpty() && !target.streamUrls.isEmpty()) {
+            target.streamUrl = target.streamUrls.front();
+        }
+        if (target.logoUrl.isEmpty()) target.logoUrl = channel.logoUrl;
+        if (target.tvgId.isEmpty()) target.tvgId = channel.tvgId;
+        for (auto& info : channel.streamInfo) {
+            if (std::ranges::find(target.streamInfo, info.url, &IptvStreamInfo::url) == target.streamInfo.end())
+                target.streamInfo.push_back(std::move(info));
+        }
+    }
+    return merged;
 }
 
 IptvChannel IptvParser::channelFromHlsManifest(const QString& filePath)
@@ -228,5 +299,6 @@ IptvChannel IptvParser::channelFromHlsManifest(const QString& filePath)
     channel.name = info.completeBaseName().isEmpty() ? QStringLiteral("IPTV Channel") : info.completeBaseName();
     channel.groupName = QString::fromLatin1(defaultGroupName);
     channel.streamUrl = QUrl::fromLocalFile(info.absoluteFilePath()).toString();
+    channel.streamUrls = {channel.streamUrl};
     return channel;
 }

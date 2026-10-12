@@ -22,6 +22,7 @@
 #include "services/scheduler/ScheduledPlaybackManager.h"
 #include "services/update/UpdateService.h"
 #include "services/management/ServiceCardLoader.h"
+#include "services/iptv/IptvProbe.h"
 #include "utils/ErrorPresentation.h"
 #include "viewmodels/IptvChannelListModel.h"
 #include "viewmodels/EncryptedHlsRestoreViewModel.h"
@@ -41,6 +42,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -70,9 +72,11 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(QString iptvSearchText READ iptvSearchText WRITE setIptvSearchText NOTIFY iptvSearchTextChanged)
     Q_PROPERTY(QString iptvSelectedGroup READ iptvSelectedGroup NOTIFY iptvSelectedGroupChanged)
     Q_PROPERTY(QStringList iptvGroups READ iptvGroups NOTIFY iptvGroupsChanged)
+    Q_PROPERTY(QString iptvStreamPreference READ iptvStreamPreference WRITE setIptvStreamPreference NOTIFY iptvStreamPreferenceChanged)
     Q_PROPERTY(IptvChannelListModel* iptvChannels READ iptvChannels CONSTANT)
     Q_PROPERTY(bool iptvPlaybackActive READ iptvPlaybackActive NOTIFY playbackChanged)
     Q_PROPERTY(QString currentIptvChannelId READ currentIptvChannelId NOTIFY playbackChanged)
+    Q_PROPERTY(QVariantList iptvPlaybackStreams READ iptvPlaybackStreams NOTIFY iptvPlaybackStreamsChanged)
     Q_PROPERTY(LocalMediaRootListModel* localMediaRoots READ localMediaRoots CONSTANT)
     Q_PROPERTY(LocalMediaItemListModel* localMediaItems READ localMediaItems CONSTANT)
     Q_PROPERTY(QString localMediaCurrentPath READ localMediaCurrentPath NOTIFY localMediaDirectoryChanged)
@@ -330,9 +334,13 @@ public:
     void setIptvSearchText(const QString& value);
     QString iptvSelectedGroup() const;
     QStringList iptvGroups() const;
+    QString iptvStreamPreference() const;
+    void setIptvStreamPreference(const QString& value);
     IptvChannelListModel* iptvChannels();
     bool iptvPlaybackActive() const;
     QString currentIptvChannelId() const;
+    QVariantList iptvPlaybackStreams() const;
+    Q_INVOKABLE void switchIptvPlaybackStream(const QString& selectionId);
     LocalMediaRootListModel* localMediaRoots();
     LocalMediaItemListModel* localMediaItems();
     QString localMediaCurrentPath() const;
@@ -632,6 +640,10 @@ public:
     Q_INVOKABLE void chooseExternalSubtitle();
     Q_INVOKABLE void selectIptvGroup(const QString& groupName);
     Q_INVOKABLE void playIptvChannel(int row);
+    Q_INVOKABLE void reportIptvPlaybackInfo(const QString& channelId,
+                                            const QString& resolution,
+                                            const QString& codec,
+                                            const QString& bitrate);
     Q_INVOKABLE void openLocalMedia();
     Q_INVOKABLE void chooseLocalMediaFolder();
     Q_INVOKABLE void addLocalMediaRoot(const QUrl& folderUrl);
@@ -790,6 +802,8 @@ public:
     void openLocalPlaybackForVerification(const QUrl& url);
 
 signals:
+    void iptvPlaybackStreamsChanged();
+    void iptvStreamReloadRequested();
     void externalSubtitleSelected(const QUrl& file);
     void externalSubtitleSelectionCanceled();
     void serverUrlChanged();
@@ -803,6 +817,7 @@ signals:
     void iptvSearchTextChanged();
     void iptvSelectedGroupChanged();
     void iptvGroupsChanged();
+    void iptvStreamPreferenceChanged();
     void localMediaDirectoryChanged();
     void localMediaLoadingChanged();
     void linkPlaybackAddressChanged();
@@ -971,7 +986,11 @@ private:
     void refreshLinkPlaybackHistory();
     void recordLinkPlaybackHistory(const QString& recordId, const QUrl& playbackUrl, const QDateTime& playedAt);
     bool startLinkPlayback(const QUrl& playbackUrl, double startPositionSeconds = 0.0);
-    void startIptvChannelPlayback(const IptvChannel& channel);
+    void startIptvChannelPlayback(const IptvChannel& channel, const QString& selectionId = {}, bool preserveAttempts = false);
+    void retryIptvPlayback();
+    void scheduleIptvProbes(bool includeAllCurrentChannelSources = false);
+    void startNextIptvProbe();
+    void persistIptvMetadata(const IptvChannel& channel);
     void loadGlobalHistoryPage(bool resetItems);
     void loadGlobalHistoryManagementDates();
     void loadTsslPackagePage(bool resetItems);
@@ -1103,6 +1122,8 @@ private:
     AppErrorPresentation m_errorPresentation;
     std::optional<UserSession> m_session;
     std::optional<ServiceCard> m_pendingServiceCard;
+    quint64 m_serviceEditorRevision { 0 };
+    bool m_iptvImportRunning { false };
     QString m_publishedLoadingServiceCardId;
     quint64 m_serviceActivationGeneration { 0 };
     bool m_serviceActivationInFlight { false };
@@ -1112,6 +1133,7 @@ private:
     std::optional<ServiceCard> m_currentIptvCard;
     std::optional<IptvPlaylist> m_currentIptvPlaylist;
     QString m_currentIptvChannelId;
+    QString m_iptvStreamPreference { QStringLiteral("quality") };
     std::optional<LocalMediaRoot> m_currentLocalMediaRoot;
     QString m_localMediaCurrentPath;
     bool m_localMediaLoading { false };
@@ -1321,6 +1343,24 @@ private:
     QHash<QString, PlaybackProgressSnapshot> m_recentPlaybackProgress;
     QTimer m_usageFlushTimer;
     std::vector<IptvChannel> m_allIptvChannels;
+    struct IptvProbeRequest final {
+        QString channelId;
+        QUrl url;
+    };
+    IptvProbe m_iptvProbe;
+    std::vector<IptvProbeRequest> m_iptvProbeQueue;
+    bool m_iptvProbeInFlight { false };
+    QString m_iptvProbeActiveUrl;
+    QString m_currentIptvSourceUrl;
+    QString m_currentIptvSelectionId;
+    QSet<QString> m_attemptedIptvStreams;
+    bool m_iptvFailurePending { false };
+    QString m_iptvLastPlaybackError;
+    quint64 m_iptvPlaybackGeneration { 0 };
+    QTimer m_iptvStartupTimer;
+    QTimer m_iptvMetadataTimer;
+    bool m_iptvMetadataWriteInFlight { false };
+    QHash<QString, IptvChannel> m_pendingIptvMetadata;
     PersonListModel m_selectedPeople;
     std::function<void(bool)> m_pendingDownloadWarningReply;
     std::function<void()> m_pendingFolderDownload;

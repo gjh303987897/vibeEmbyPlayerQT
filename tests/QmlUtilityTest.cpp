@@ -1,5 +1,7 @@
 #include "app/ThemeSnapshotController.h"
+#include "app/FileDialogController.h"
 #include "player/MpvVideoItem.h"
+#include "NativeFileDialogTestHelpers.h"
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlContext>
@@ -12,6 +14,9 @@
 #include <QPointer>
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QProcess>
+#include <QStandardPaths>
+#include <QRegularExpression>
 #include <QtTest>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -22,6 +27,52 @@ class QmlUtilityTest final : public QObject {
 private:
     QUrl source(const QString& name) { return QUrl::fromLocalFile(QStringLiteral(VIBEPLAYER_SOURCE_DIR) + "/qml/" + name); }
 private slots:
+    void nativePickerSurvivesVideoPlayback()
+    {
+#ifdef Q_OS_WIN
+        if (QGuiApplication::platformName() != "windows") QSKIP("Requires the native Windows platform");
+        QTest::failOnWarning(QRegularExpression(".*Thread failed to finish.*"));
+        const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+        if (ffmpeg.isEmpty()) QSKIP("Requires FFmpeg to generate a local video fixture");
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        const auto video = temporary.filePath("native-picker.mp4");
+        QProcess generator;
+        generator.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+            "-t", "3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", video});
+        QVERIFY(generator.waitForFinished(15000));
+        QCOMPARE(generator.exitCode(), 0);
+        QQuickWindow window;
+        window.resize(640, 360);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        FileDialogController picker;
+        picker.attachWindow(&window);
+        const auto checkPicker = [&]() {
+            int completions = 0;
+            const auto title = QStringLiteral("Automatic native picker check (closes shortly)");
+            picker.openFile(title, temporary.path(), "Videos (*.mp4)",
+                [&](const QString&) { ++completions; });
+            QTRY_VERIFY(nativeFileDialogVisible(title));
+            QTest::qWait(800);
+            const auto remainedOpen = picker.isOpen();
+            picker.cancel();
+            QTRY_COMPARE(completions, 1);
+            QVERIFY2(remainedOpen, "Native picker rejected itself before cancellation");
+        };
+        checkPicker();
+        MpvVideoItem item;
+        item.setSize(QSizeF(640, 360));
+        item.setParentItem(window.contentItem());
+        item.setSource(QUrl::fromLocalFile(video));
+        QTRY_VERIFY(item.position() > 0.1);
+        item.stop();
+        checkPicker();
+        QTest::qWait(1200); // Exercise both native helpers' deferred cleanup.
+#else
+        QSKIP("Windows native picker integration");
+#endif
+    }
     void nativeHostMovesToTheNewWindow()
     {
 #ifdef Q_OS_WIN

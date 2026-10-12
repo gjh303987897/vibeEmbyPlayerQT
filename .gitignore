@@ -51,6 +51,8 @@ tests/*
 !tests/LinkPlaybackHistoryTest.cpp
 !tests/PlaybackHistoryTest.cpp
 !tests/IptvPlaylistStoreTest.cpp
+!tests/IptvMultiSourceTest.cpp
+!tests/NativeFileDialogTestHelpers.h
 !tests/EmbyRecommendationCacheTest.cpp
 !tests/UpdateServiceTest.cpp
 !tests/FfmpegCapabilityTest.cpp

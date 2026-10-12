@@ -8,6 +8,7 @@
 #include "services/webdav/WebDavUploadPlanner.h"
 #include "services/backup/TsslImportWorkflow.h"
 #include "services/iptv/IptvParser.h"
+#include "services/iptv/IptvStreamSelector.h"
 #include "services/link/LinkPlaybackService.h"
 #include "services/scheduler/ScheduledPlaybackSchedule.h"
 #include "utils/AppLogger.h"
@@ -28,6 +29,7 @@
 #include <QRegularExpression>
 #include <QStorageInfo>
 #include <QStandardPaths>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtMath>
@@ -41,6 +43,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iterator>
 #include <memory>
 #include <utility>
 
@@ -690,6 +693,16 @@ const QHash<QString, QString>& englishTexts()
         { QStringLiteral("iptv.search"), QStringLiteral("Search channels") },
         { QStringLiteral("iptv.allGroups"), QStringLiteral("All") },
         { QStringLiteral("iptv.noChannels"), QStringLiteral("No channels found") },
+        { QStringLiteral("iptv.streamCount"), QStringLiteral("%1 sources") },
+        { QStringLiteral("settings.iptv"), QStringLiteral("IPTV") },
+        { QStringLiteral("settings.iptvStreamPreference"), QStringLiteral("IPTV source preference") },
+        { QStringLiteral("iptv.preferenceQuality"), QStringLiteral("Prefer high quality") },
+        { QStringLiteral("iptv.playbackStreams"), QStringLiteral("Streams") },
+        { QStringLiteral("iptv.routeLabel"), QStringLiteral("Stream %1") },
+        { QStringLiteral("iptv.qualityUnknown"), QStringLiteral("Quality unknown") },
+        { QStringLiteral("iptv.routeUnavailable"), QStringLiteral("Temporarily unavailable") },
+        { QStringLiteral("iptv.allStreamsFailed"), QStringLiteral("All streams for this channel failed. Select a stream to retry.") },
+        { QStringLiteral("iptv.preferenceDataSaver"), QStringLiteral("Prefer lower data use") },
         { QStringLiteral("webdav.title"), QStringLiteral("WebDAV Files") },
         { QStringLiteral("webdav.newFolder"), QStringLiteral("New folder") },
         { QStringLiteral("webdav.folderName"), QStringLiteral("Folder name") },
@@ -1794,6 +1807,16 @@ const QHash<QString, QString>& iptvChineseTexts()
         { QStringLiteral("iptv.search"), QStringLiteral("搜索频道") },
         { QStringLiteral("iptv.allGroups"), QStringLiteral("全部") },
         { QStringLiteral("iptv.noChannels"), QStringLiteral("没有找到频道") },
+        { QStringLiteral("iptv.streamCount"), QStringLiteral("%1 个播放源") },
+        { QStringLiteral("settings.iptv"), QStringLiteral("IPTV") },
+        { QStringLiteral("settings.iptvStreamPreference"), QStringLiteral("IPTV 播放线路偏好") },
+        { QStringLiteral("iptv.preferenceQuality"), QStringLiteral("高画质优先") },
+        { QStringLiteral("iptv.playbackStreams"), QStringLiteral("播放线路") },
+        { QStringLiteral("iptv.routeLabel"), QStringLiteral("线路 %1") },
+        { QStringLiteral("iptv.qualityUnknown"), QStringLiteral("画质未知") },
+        { QStringLiteral("iptv.routeUnavailable"), QStringLiteral("暂不可用") },
+        { QStringLiteral("iptv.allStreamsFailed"), QStringLiteral("当前频道的所有播放线路均失败，请选择线路重试。") },
+        { QStringLiteral("iptv.preferenceDataSaver"), QStringLiteral("省流优先") },
     };
     return texts;
 }
@@ -2049,6 +2072,79 @@ AppViewModel::AppViewModel(QObject* parent, QString databasePath)
     });
     connect(this, &AppViewModel::currentViewChanged, &m_fileDialogs, &FileDialogController::cancel);
     connect(this, &AppViewModel::currentServerChanged, &m_fileDialogs, &FileDialogController::cancel);
+    connect(&m_iptvProbe, &IptvProbe::finished, this,
+        [this](const QString& channelId, const QUrl& url, const IptvProbeResult& result) {
+            m_iptvProbeInFlight = false;
+            m_iptvProbeActiveUrl.clear();
+            const auto channel = std::ranges::find(m_allIptvChannels, channelId, &IptvChannel::id);
+            if (channel != m_allIptvChannels.end()) {
+                auto info = std::ranges::find(channel->streamInfo, url.toString(), &IptvStreamInfo::url);
+                if (info == channel->streamInfo.end()) {
+                    channel->streamInfo.push_back({.url = url.toString()});
+                    info = std::prev(channel->streamInfo.end());
+                }
+                // Actual playback wins over a late background answer.
+                if ((info->state != QStringLiteral("playback") && info->state != QStringLiteral("playback-failed")) || !IptvStreamSelector::fresh(*info)) {
+                    *info = {.url = url.toString(), .available = result.available,
+                        .width = result.width, .height = result.height, .bitrate = result.bitrate,
+                        .codec = result.codec, .state = result.state,
+                        .checkedAt = QDateTime::currentDateTimeUtc(), .variants = result.variants};
+                }
+                const auto selected = IptvStreamSelector::select(*channel, m_iptvStreamPreference);
+                if (selected.info.available && channelId != m_currentIptvChannelId) {
+                    channel->width = selected.info.width;
+                    channel->height = selected.info.height;
+                    channel->bitrate = selected.info.bitrate;
+                    channel->codec = selected.info.codec;
+                    channel->probeState = selected.info.state;
+                    m_iptvChannels.updateChannelProbe(channel->id, channel->width, channel->height,
+                        channel->bitrate, channel->codec, channel->probeState);
+                }
+                persistIptvMetadata(*channel);
+                emit iptvPlaybackStreamsChanged();
+            }
+            QTimer::singleShot(0, this, &AppViewModel::startNextIptvProbe);
+        });
+    connect(this, &AppViewModel::playbackChanged, this, &AppViewModel::iptvPlaybackStreamsChanged);
+    connect(this, &AppViewModel::languageModeChanged, this, &AppViewModel::iptvPlaybackStreamsChanged);
+    connect(this, &AppViewModel::iptvStreamPreferenceChanged, this, &AppViewModel::iptvPlaybackStreamsChanged);
+    m_iptvStartupTimer.setSingleShot(true);
+    m_iptvStartupTimer.setParent(this);
+    m_iptvStartupTimer.setInterval(20'000);
+    m_iptvStartupTimer.setObjectName(QStringLiteral("iptvStartupTimeout"));
+    connect(&m_iptvStartupTimer, &QTimer::timeout, this, [this] {
+        if (iptvPlaybackActive() && !m_playbackStartedReported) {
+            m_iptvLastPlaybackError = QStringLiteral("IPTV stream did not start within 20 seconds");
+            reportPlaybackEnded(0.0, false, true);
+        }
+    });
+    m_iptvMetadataTimer.setSingleShot(true);
+    m_iptvMetadataTimer.setInterval(2000);
+    connect(&m_iptvMetadataTimer, &QTimer::timeout, this, [this] {
+        if (m_iptvMetadataWriteInFlight || m_pendingIptvMetadata.isEmpty()) return;
+        m_iptvMetadataWriteInFlight = true;
+        const auto pending = std::exchange(m_pendingIptvMetadata, {});
+        const auto path = m_databasePathOverride;
+        auto* watcher = new QFutureWatcher<QString>(this);
+        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {
+            m_iptvMetadataWriteInFlight = false;
+            const auto error = watcher->result();
+            if (!error.isEmpty())
+                AppLogger::warning(QStringLiteral("iptv"), QStringLiteral("Save stream metadata failed: %1").arg(error));
+            watcher->deleteLater();
+            if (!m_pendingIptvMetadata.isEmpty()) m_iptvMetadataTimer.start();
+        });
+        watcher->setFuture(QtConcurrent::run([pending, path] {
+            SessionRepository repository(serviceActivationConnectionName(), path);
+            for (const auto& channel : pending) {
+                const auto saved = repository.updateIptvChannelProbe(channel.playlistId, channel.id,
+                    channel.width, channel.height, channel.bitrate, channel.codec,
+                    channel.probeState, channel.streamInfo);
+                if (!saved) return saved.error();
+            }
+            return QString {};
+        }));
+    });
     m_homeCacheWarmTimer.setSingleShot(true);
     connect(&m_homeCacheWarmTimer, &QTimer::timeout, this, &AppViewModel::backgroundRefreshHome);
     wireUsageSignals();
@@ -2060,6 +2156,9 @@ AppViewModel::AppViewModel(QObject* parent, QString databasePath)
     m_usageFlushTimer.start();
     if (auto* app = QCoreApplication::instance()) {
         connect(app, &QCoreApplication::aboutToQuit, this, [this]() {
+            m_iptvProbe.cancel();
+            m_iptvProbeQueue.clear();
+            m_iptvProbeInFlight = false;
             m_scheduledPlaybackManager.stop();
             m_encryptedHlsRestore.cancel();
             finishPlaybackUsageTracking();
@@ -2352,6 +2451,7 @@ void AppViewModel::setServerName(const QString& value)
         return;
     }
     m_serverName = value;
+    ++m_serviceEditorRevision;
     emit serverNameChanged();
 }
 
@@ -2395,6 +2495,7 @@ void AppViewModel::setServiceType(const QString& value)
         return;
     }
     m_serviceType = type;
+    ++m_serviceEditorRevision;
     emit serviceTypeChanged();
 }
 
@@ -2438,6 +2539,7 @@ void AppViewModel::setIptvFilePath(const QString& value)
         return;
     }
     m_iptvFilePath = normalized;
+    ++m_serviceEditorRevision;
     emit iptvFilePathChanged();
 }
 
@@ -2466,6 +2568,24 @@ QStringList AppViewModel::iptvGroups() const
     return m_iptvGroups;
 }
 
+QString AppViewModel::iptvStreamPreference() const
+{
+    return m_iptvStreamPreference;
+}
+
+void AppViewModel::setIptvStreamPreference(const QString& value)
+{
+    const auto normalized = value.trimmed().compare(QStringLiteral("dataSaver"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("dataSaver") : QStringLiteral("quality");
+    if (m_iptvStreamPreference == normalized) return;
+    m_iptvStreamPreference = normalized;
+    m_repository.setIptvStreamPreference(normalized);
+    emit iptvStreamPreferenceChanged();
+    if (m_currentIptvCard) {
+        applyIptvFilters();
+    }
+}
+
 IptvChannelListModel* AppViewModel::iptvChannels()
 {
     return &m_iptvChannels;
@@ -2479,6 +2599,47 @@ bool AppViewModel::iptvPlaybackActive() const
 QString AppViewModel::currentIptvChannelId() const
 {
     return m_currentIptvChannelId;
+}
+
+QVariantList AppViewModel::iptvPlaybackStreams() const
+{
+    QVariantList rows;
+    const auto channel = std::ranges::find(m_allIptvChannels, m_currentIptvChannelId, &IptvChannel::id);
+    if (!iptvPlaybackActive() || channel == m_allIptvChannels.end()) return rows;
+    const auto sources = channel->streamUrls.isEmpty() ? QStringList {channel->streamUrl} : channel->streamUrls;
+    for (const auto& candidate : IptvStreamSelector::candidates(*channel, m_iptvStreamPreference)) {
+        const auto id = IptvStreamSelector::selectionId(candidate);
+        QStringList details;
+        if (candidate.info.width > 0 && candidate.info.height > 0)
+            details << QStringLiteral("%1×%2").arg(candidate.info.width).arg(candidate.info.height);
+        else details << trText(QStringLiteral("iptv.qualityUnknown"));
+        if (candidate.info.bitrate > 0)
+            details << QStringLiteral("%1 Mbps").arg(candidate.info.bitrate / 1'000'000.0, 0, 'f', 1);
+        if (!candidate.info.codec.isEmpty()) details << candidate.info.codec.toUpper();
+        const auto failed = !candidate.info.available && candidate.info.checkedAt.isValid();
+        if (failed) details << trText(QStringLiteral("iptv.routeUnavailable"));
+        rows.append(QVariantMap {{QStringLiteral("id"), id},
+            {QStringLiteral("label"), trText(QStringLiteral("iptv.routeLabel")).arg(sources.indexOf(candidate.sourceUrl) + 1)},
+            {QStringLiteral("detail"), details.join(QStringLiteral(" · "))},
+            {QStringLiteral("current"), id == m_currentIptvSelectionId}, {QStringLiteral("failed"), failed}});
+    }
+    return rows;
+}
+
+void AppViewModel::switchIptvPlaybackStream(const QString& selectionId)
+{
+    if (!iptvPlaybackActive() || m_currentView != QStringLiteral("player")) return;
+    if (selectionId == m_currentIptvSelectionId && !hasError() && !m_iptvFailurePending) return;
+    const auto channel = std::ranges::find(m_allIptvChannels, m_currentIptvChannelId, &IptvChannel::id);
+    if (channel == m_allIptvChannels.end()) return;
+    const auto candidates = IptvStreamSelector::candidates(*channel, m_iptvStreamPreference);
+    const auto selected = std::ranges::find_if(candidates, [&](const auto& candidate) {
+        return IptvStreamSelector::selectionId(candidate) == selectionId;
+    });
+    if (selected == candidates.end()) return;
+    clearError();
+    startIptvChannelPlayback(*channel, selectionId);
+    AppLogger::info(QStringLiteral("iptv"), QStringLiteral("User selected a playback stream"));
 }
 
 LocalMediaRootListModel* AppViewModel::localMediaRoots()
@@ -3674,7 +3835,7 @@ int AppViewModel::translationRevision() const
 
 bool AppViewModel::loading() const
 {
-    return m_loading;
+    return m_loading || m_iptvImportRunning;
 }
 
 QString AppViewModel::loadingServiceCardId() const
@@ -4384,6 +4545,8 @@ void AppViewModel::initialize()
     m_m3u8sAudioEncoding = normalizedM3u8sAudioEncoding(m_repository.m3u8sAudioEncoding());
     m_m3u8sVideoQuality = normalizedM3u8sVideoQuality(m_repository.m3u8sVideoQuality());
     m_m3u8sContainerFormat = normalizedM3u8sContainerFormat(m_repository.m3u8sContainerFormat());
+    m_iptvStreamPreference = m_repository.iptvStreamPreference();
+    emit iptvStreamPreferenceChanged();
     m_m3u8sParallelJobs = std::clamp(m_repository.m3u8sParallelJobs(),
                                      1,
                                      EncryptedHlsBatchPackager::maximumParallelJobs());
@@ -4444,6 +4607,7 @@ void AppViewModel::initialize()
 
 void AppViewModel::beginAddServiceCard()
 {
+    ++m_serviceEditorRevision;
     m_pendingHistoryReplay.reset();
     setPendingServiceCard(std::nullopt);
     setServerName(QString {});
@@ -4471,6 +4635,7 @@ void AppViewModel::login()
 
 void AppViewModel::saveServiceCard()
 {
+    if (m_iptvImportRunning) return;
     clearError();
     const auto server = makeServerConfig();
     if (server.serviceType == ServiceType::IPTV) {
@@ -4479,20 +4644,43 @@ void AppViewModel::saveServiceCard()
             return;
         }
 
-        if (auto saveResult = ServiceOperations::savePlaylist(m_repository, server, m_iptvFilePath); !saveResult) {
-            setError(saveResult.error());
-            return;
-        }
-        if (m_pendingServiceCard && m_pendingServiceCard->server.id != server.id)
-            m_repository.deleteServer(m_pendingServiceCard->server.id, false);
-
-        AppLogger::info(QStringLiteral("iptv"),
-                        QStringLiteral("Imported IPTV playlist into managed application storage"));
-
-        setPendingServiceCard(std::nullopt);
-        setIptvFilePath(QString {});
-        refreshServiceCards();
-        setCurrentView(QStringLiteral("services"));
+        using Result = std::expected<void, QString>;
+        const auto source = m_iptvFilePath;
+        const auto previousId = m_pendingServiceCard ? m_pendingServiceCard->server.id : QString{};
+        const auto revision = m_serviceEditorRevision;
+        const auto originatingView = m_currentView;
+        auto* watcher = new QFutureWatcher<Result>(this);
+        m_iptvImportRunning = true;
+        emit loadingChanged();
+        connect(watcher, &QFutureWatcherBase::finished, this,
+                [this, watcher, revision, originatingView] {
+            auto result = watcher->future().takeResult();
+            watcher->deleteLater();
+            m_iptvImportRunning = false;
+            emit loadingChanged();
+            refreshServiceCards();
+            if (revision != m_serviceEditorRevision || originatingView != m_currentView) {
+                if (!result) AppLogger::warning(QStringLiteral("iptv"), result.error());
+                return;
+            }
+            if (!result) { setError(result.error()); return; }
+            AppLogger::info(QStringLiteral("iptv"),
+                            QStringLiteral("Imported IPTV playlist into managed application storage"));
+            setPendingServiceCard(std::nullopt);
+            setIptvFilePath(QString{});
+            setCurrentView(QStringLiteral("services"));
+        });
+        // Parsing, copying and SQL writes use only captured values and a
+        // connection created/destroyed on this worker; no GUI repository crosses threads.
+        watcher->setFuture(QtConcurrent::run([path = m_databasePathOverride, server, source, previousId]() -> Result {
+            SessionRepository repository(QStringLiteral("iptv_import_%1").arg(
+                QUuid::createUuid().toString(QUuid::WithoutBraces)), path);
+            if (auto initialized = repository.initialize(); !initialized) return initialized;
+            const auto storageRoot = path.isEmpty() ? QString{} : QFileInfo(path).absolutePath();
+            if (auto saved = ServiceOperations::savePlaylist(repository, server, source, storageRoot); !saved) return saved;
+            if (!previousId.isEmpty() && previousId != server.id) return repository.deleteServer(previousId, false);
+            return {};
+        }));
         return;
     }
 
@@ -4781,6 +4969,7 @@ void AppViewModel::serviceCardTransitionCanceled()
 
 void AppViewModel::editServiceCard(int row)
 {
+    ++m_serviceEditorRevision;
     const auto card = m_services.cardAt(row);
     if (!card) {
         return;
@@ -5851,19 +6040,37 @@ void AppViewModel::playIptvChannel(int row)
     startIptvChannelPlayback(*channel);
 }
 
-void AppViewModel::startIptvChannelPlayback(const IptvChannel& channel)
+void AppViewModel::startIptvChannelPlayback(const IptvChannel& channel, const QString& selectionId, bool preserveAttempts)
 {
-    clearCurrentPlayback();
-
-    const auto playbackUrl = QUrl(channel.streamUrl);
-    if (!playbackUrl.isValid() && !QFileInfo::exists(channel.streamUrl)) {
+    const auto stored = std::ranges::find(m_allIptvChannels, channel.id, &IptvChannel::id);
+    const auto candidates = IptvStreamSelector::candidates(
+        stored == m_allIptvChannels.end() ? channel : *stored, m_iptvStreamPreference);
+    if (candidates.empty()) { setError(QStringLiteral("IPTV channel has no playback streams")); return; }
+    const auto chosen = selectionId.isEmpty() ? candidates.begin() :
+        std::ranges::find_if(candidates, [&](const auto& value) { return IptvStreamSelector::selectionId(value) == selectionId; });
+    if (chosen == candidates.end()) return;
+    const auto selected = *chosen;
+    const auto selectedUrl = selected.playbackUrl;
+    const auto playbackUrl = QUrl(selectedUrl);
+    if (!playbackUrl.isValid() || selectedUrl.isEmpty()) {
         setError(QStringLiteral("IPTV channel URL is invalid"));
         return;
     }
+    const auto previousUrl = m_currentPlaybackUrl;
+    auto attempts = preserveAttempts ? m_attemptedIptvStreams : QSet<QString> {};
+    clearCurrentPlayback();
+    clearError();
+    m_attemptedIptvStreams = std::move(attempts);
+    m_attemptedIptvStreams.insert(selected.playbackUrl);
+    m_currentIptvChannelId = channel.id;
+    m_currentIptvSourceUrl = selected.sourceUrl;
+    m_currentIptvSelectionId = IptvStreamSelector::selectionId(selected);
+    scheduleIptvProbes(true);
+    m_iptvStartupTimer.start();
 
     setForegroundPlaybackActive(true);
     m_playbackOrigin = PlaybackOrigin::Iptv;
-    m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(channel.streamUrl) : playbackUrl;
+    m_currentPlaybackUrl = playbackUrl.scheme().isEmpty() ? QUrl::fromLocalFile(selectedUrl) : playbackUrl;
     m_currentIptvChannelId = channel.id;
     m_currentMediaSourceId.clear();
     m_currentPlaySessionId.clear();
@@ -5883,7 +6090,175 @@ void AppViewModel::startIptvChannelPlayback(const IptvChannel& channel)
     emit selectedItemChanged();
     emit playbackChanged();
     setCurrentView(QStringLiteral("player"));
+    if (previousUrl == m_currentPlaybackUrl) emit iptvStreamReloadRequested();
     AppLogger::info(QStringLiteral("iptv"), QStringLiteral("Opening IPTV channel playback"));
+}
+
+void AppViewModel::retryIptvPlayback()
+{
+    if (!iptvPlaybackActive() || m_currentView != QStringLiteral("player") || m_iptvFailurePending) return;
+    const auto channel = std::ranges::find(m_allIptvChannels, m_currentIptvChannelId, &IptvChannel::id);
+    if (channel == m_allIptvChannels.end()) return;
+    auto info = std::ranges::find(channel->streamInfo, m_currentIptvSourceUrl, &IptvStreamInfo::url);
+    if (info == channel->streamInfo.end()) {
+        channel->streamInfo.push_back({.url = m_currentIptvSourceUrl});
+        info = std::prev(channel->streamInfo.end());
+    }
+    const auto now = QDateTime::currentDateTimeUtc();
+    bool variantFailure = false;
+    for (auto& variant : info->variants) {
+        const IptvStreamSelector::Selection candidate {.sourceUrl = m_currentIptvSourceUrl, .playbackUrl = variant.url};
+        if (IptvStreamSelector::selectionId(candidate) != m_currentIptvSelectionId) continue;
+        variant.failedAt = now;
+        variantFailure = true;
+    }
+    if (!variantFailure) info->available = false;
+    info->state = QStringLiteral("playback-failed");
+    info->checkedAt = now;
+    persistIptvMetadata(*channel);
+    emit iptvPlaybackStreamsChanged();
+    const auto candidates = IptvStreamSelector::candidates(*channel, m_iptvStreamPreference);
+    const auto next = std::ranges::find_if(candidates, [this](const auto& value) {
+        return !m_attemptedIptvStreams.contains(value.playbackUrl);
+    });
+    if (next == candidates.end()) {
+        setError(trText(QStringLiteral("iptv.allStreamsFailed")) +
+            (m_iptvLastPlaybackError.isEmpty() ? QString {} : QStringLiteral("\n") + m_iptvLastPlaybackError));
+        return;
+    }
+    m_iptvFailurePending = true;
+    const auto id = IptvStreamSelector::selectionId(*next);
+    const auto channelId = channel->id;
+    const auto generation = m_iptvPlaybackGeneration;
+    AppLogger::info(QStringLiteral("iptv"), QStringLiteral("Playback stream failed; trying another stream"));
+    // Avoid replacing media synchronously while PlayerController is draining END_FILE.
+    QTimer::singleShot(0, this, [this, id, channelId, generation] {
+        if (generation != m_iptvPlaybackGeneration || !m_iptvFailurePending || !iptvPlaybackActive()) return;
+        const auto channel = std::ranges::find(m_allIptvChannels, channelId, &IptvChannel::id);
+        if (channel != m_allIptvChannels.end()) startIptvChannelPlayback(*channel, id, true);
+    });
+}
+
+void AppViewModel::persistIptvMetadata(const IptvChannel& channel)
+{
+    auto snapshot = channel;
+    if (snapshot.playlistId.isEmpty() && m_currentIptvPlaylist)
+        snapshot.playlistId = m_currentIptvPlaylist->id;
+    if (snapshot.playlistId.isEmpty()) return;
+    const auto key = snapshot.playlistId + QLatin1Char('/') + snapshot.id;
+    m_pendingIptvMetadata.insert(key, std::move(snapshot));
+    if (!m_iptvMetadataTimer.isActive()) m_iptvMetadataTimer.start();
+}
+
+void AppViewModel::scheduleIptvProbes(bool includeAllCurrentChannelSources)
+{
+    if (!m_currentIptvCard || m_allIptvChannels.empty()) return;
+    constexpr size_t maximumQueuedSources = 36;
+    if (includeAllCurrentChannelSources) {
+        m_iptvProbe.cancel();
+        m_iptvProbeInFlight = false;
+        m_iptvProbeActiveUrl.clear();
+        m_iptvProbeQueue.clear();
+    }
+    QSet<QString> queuedKeys {m_iptvProbeActiveUrl};
+    for (const auto& request : m_iptvProbeQueue) queuedKeys.insert(request.url.toString());
+    auto enqueue = [this, &queuedKeys](const IptvChannel& channel) {
+        const auto urls = channel.streamUrls.isEmpty() ? QStringList {channel.streamUrl} : channel.streamUrls;
+        for (const auto& source : urls) {
+            if (m_iptvProbeQueue.size() >= maximumQueuedSources) break;
+            const QUrl url(source);
+            if (!url.isValid() || url.host().isEmpty() ||
+                (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))) continue;
+            const auto key = url.toString();
+            const auto info = std::ranges::find(channel.streamInfo, key, &IptvStreamInfo::url);
+            if (queuedKeys.contains(key) || (info != channel.streamInfo.end() && IptvStreamSelector::fresh(*info))) continue;
+            m_iptvProbeQueue.push_back({channel.id, url});
+            queuedKeys.insert(key);
+        }
+    };
+    if (includeAllCurrentChannelSources) {
+        const auto current = std::ranges::find(m_allIptvChannels, m_currentIptvChannelId, &IptvChannel::id);
+        if (current != m_allIptvChannels.end()) enqueue(*current);
+    } else {
+        for (int row = 0; row < std::min(12, m_iptvChannels.count()); ++row) {
+            const auto visible = m_iptvChannels.channelAt(row);
+            if (visible) {
+                const auto channel = std::ranges::find(m_allIptvChannels, visible->id, &IptvChannel::id);
+                if (channel != m_allIptvChannels.end()) enqueue(*channel);
+            }
+        }
+    }
+    QTimer::singleShot(0, this, &AppViewModel::startNextIptvProbe);
+}
+
+void AppViewModel::startNextIptvProbe()
+{
+    if (m_iptvProbeInFlight || m_iptvProbeQueue.empty()) return;
+    const auto request = std::move(m_iptvProbeQueue.front());
+    m_iptvProbeQueue.erase(m_iptvProbeQueue.begin());
+    m_iptvProbeInFlight = true;
+    m_iptvProbeActiveUrl = request.url.toString();
+    m_iptvProbe.probe(request.channelId, request.url, m_iptvStreamPreference);
+}
+
+void AppViewModel::reportIptvPlaybackInfo(const QString& channelId,
+                                          const QString& resolution,
+                                          const QString& codec,
+                                          const QString& bitrate)
+{
+    if (!m_currentIptvPlaylist || channelId.isEmpty() || channelId != m_currentIptvChannelId
+        || resolution.isEmpty()) return;
+    auto it = std::ranges::find(m_allIptvChannels, channelId, &IptvChannel::id);
+    if (it == m_allIptvChannels.end()) return;
+
+    int width = 0;
+    int height = 0;
+    const auto parts = resolution.split(QLatin1Char('x'));
+    if (parts.size() == 2) {
+        width = parts.at(0).toInt();
+        height = parts.at(1).toInt();
+    }
+    QString normalizedBitrate = bitrate.trimmed().toLower();
+    normalizedBitrate.remove(QLatin1Char(','));
+    qint64 bitrateValue = 0;
+    if (normalizedBitrate.endsWith(QStringLiteral("mbps"))) {
+        bitrateValue = static_cast<qint64>(normalizedBitrate.left(normalizedBitrate.size() - 4).toDouble() * 1'000'000.0);
+    } else if (normalizedBitrate.endsWith(QStringLiteral("kbps"))) {
+        bitrateValue = static_cast<qint64>(normalizedBitrate.left(normalizedBitrate.size() - 4).toDouble() * 1'000.0);
+    } else {
+        bitrateValue = normalizedBitrate.toLongLong();
+    }
+    if (width <= 0 || height <= 0) return;
+    it->width = width;
+    it->height = height;
+    it->bitrate = std::max<qint64>(0, bitrateValue);
+    it->codec = codec;
+    it->probeState = QStringLiteral("playback");
+    if (m_currentPlaybackUrl.isValid()) {
+        auto info = std::ranges::find(it->streamInfo, m_currentIptvSourceUrl, &IptvStreamInfo::url);
+        if (info == it->streamInfo.end()) {
+            it->streamInfo.push_back({.url = m_currentIptvSourceUrl});
+            info = std::prev(it->streamInfo.end());
+        }
+        info->available = true;
+        info->width = width;
+        info->height = height;
+        if (bitrateValue > 0) info->bitrate = bitrateValue;
+        if (!codec.isEmpty()) info->codec = codec;
+        info->state = QStringLiteral("playback");
+        info->checkedAt = QDateTime::currentDateTimeUtc();
+        for (auto& variant : info->variants) {
+            if (variant.url != m_currentPlaybackUrl.toString()) continue;
+            variant.failedAt = {};
+            variant.width = width;
+            variant.height = height;
+            if (bitrateValue > 0) variant.bitrate = bitrateValue;
+            if (!codec.isEmpty()) variant.codec = codec;
+        }
+    }
+    m_iptvChannels.updateChannelProbe(channelId, width, height, it->bitrate, codec, it->probeState);
+    persistIptvMetadata(*it);
+    emit iptvPlaybackStreamsChanged();
 }
 
 void AppViewModel::openWebDavItem(int row)
@@ -8129,6 +8504,7 @@ void AppViewModel::logout()
 
 void AppViewModel::backToServices()
 {
+    ++m_serviceEditorRevision;
     invalidateServiceActivation();
     invalidateHomeLoading();
     setLoading(false);
@@ -9291,6 +9667,13 @@ void AppViewModel::loadSeasonEpisodes(const MediaItem& season)
 
 void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
 {
+    ++m_iptvPlaybackGeneration;
+    m_iptvStartupTimer.stop();
+    m_iptvFailurePending = false;
+    m_iptvLastPlaybackError.clear();
+    m_currentIptvSourceUrl.clear();
+    m_currentIptvSelectionId.clear();
+    m_attemptedIptvStreams.clear();
     ++m_encryptedHlsPrepareGeneration;
     if (m_encryptedHlsPreparing) {
         m_encryptedHlsPreparing = false;
@@ -9789,6 +10172,7 @@ void AppViewModel::finishGlobalPlaybackHistory(double positionSeconds, bool comp
 
 void AppViewModel::reportPlaybackStarted()
 {
+    m_iptvStartupTimer.stop();
     if (m_playbackOrigin == PlaybackOrigin::None) {
         return;
     }
@@ -9899,6 +10283,10 @@ void AppViewModel::reportPlaybackEnded(double positionSeconds, bool reachedEnd, 
 {
     finishGlobalPlaybackHistory(positionSeconds, reachedEnd && !failed);
     reportPlaybackStopped(positionSeconds);
+    if (iptvPlaybackActive()) {
+        m_iptvStartupTimer.stop();
+        if (failed) retryIptvPlayback();
+    }
 }
 
 void AppViewModel::reportPlaybackError(const QString& message)
@@ -9909,6 +10297,11 @@ void AppViewModel::reportPlaybackError(const QString& message)
     }
 
     AppLogger::warning(QStringLiteral("player"), normalized);
+    if (iptvPlaybackActive() && m_currentView == QStringLiteral("player") &&
+        normalized.startsWith(QStringLiteral("Playback failed:"))) {
+        m_iptvLastPlaybackError = normalized;
+        return; // END_FILE drives bounded failover; avoid a modal error for each attempt.
+    }
     setError(normalized);
 }
 
@@ -10375,6 +10768,10 @@ void AppViewModel::applyIptvService(const ServiceCard& card,
                                     std::vector<IptvChannel> channels)
 {
     clearError();
+    m_iptvProbe.cancel();
+    m_iptvProbeQueue.clear();
+    m_iptvProbeActiveUrl.clear();
+    m_iptvProbeInFlight = false;
     m_session.reset();
     m_currentIptvCard = card;
     m_currentIptvPlaylist = std::move(playlist);
@@ -10400,7 +10797,7 @@ void AppViewModel::applyIptvService(const ServiceCard& card,
     emit selectedItemChanged();
     emit playbackChanged();
 
-    m_allIptvChannels = std::move(channels);
+    m_allIptvChannels = IptvParser::mergeChannels(std::move(channels));
 
     QStringList groups { allIptvGroup() };
     for (const auto& channel : m_allIptvChannels) {
@@ -10421,6 +10818,7 @@ void AppViewModel::applyIptvService(const ServiceCard& card,
     }
     applyIptvFilters();
     setCurrentView(QStringLiteral("iptv"));
+    scheduleIptvProbes(false);
 }
 
 void AppViewModel::clearIptvState()
@@ -10430,6 +10828,10 @@ void AppViewModel::clearIptvState()
     }
 
     const auto hadIptvPlayback = !m_currentIptvChannelId.isEmpty();
+    m_iptvProbe.cancel();
+    m_iptvProbeQueue.clear();
+    m_iptvProbeActiveUrl.clear();
+    m_iptvProbeInFlight = false;
     m_currentIptvCard.reset();
     m_currentIptvPlaylist.reset();
     m_currentIptvChannelId.clear();
@@ -10464,6 +10866,7 @@ void AppViewModel::applyIptvFilters()
     }
 
     m_iptvChannels.setChannels(std::move(filtered));
+    scheduleIptvProbes(false);
 }
 
 void AppViewModel::loadWebDavService(const ServiceCard& card, const QString& password)

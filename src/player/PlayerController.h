@@ -89,6 +89,7 @@ public:
 
     bool initialize(qintptr windowId);
     bool initializeHeadless(bool enableAudioOutput = false);
+    void setLiveStream(bool enabled);
     bool paused() const;
     bool loading() const;
     bool buffering() const;
@@ -187,6 +188,7 @@ private:
     mpv_handle* m_mpv { nullptr };
     qintptr m_windowId { 0 };
     bool m_headless { false };
+    bool m_liveStream { false };
     bool m_headlessAudioOutput { false };
     bool m_paused { false };
     bool m_loading { false };
@@ -227,6 +229,7 @@ private:
     bool m_networkStatsActive { false };
     bool m_networkPlayback { false };
     qint64 m_activePlaylistEntryId { -1 };
+    qint64 m_requestedPlaylistEntryId { -1 };
     bool m_stopRequested { false };
     quint64 m_handleGeneration = 0;
     int m_preferredSubtitleStreamIndex { -1 };

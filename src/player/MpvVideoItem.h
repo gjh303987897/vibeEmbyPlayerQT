@@ -24,6 +24,7 @@ class MpvVideoItem : public QQuickItem {
     Q_PROPERTY(bool allowInsecureTls READ allowInsecureTls WRITE setAllowInsecureTls NOTIFY httpAuthChanged)
     Q_PROPERTY(bool audioOnly READ audioOnly WRITE setAudioOnly NOTIFY audioOnlyChanged)
     Q_PROPERTY(bool localEncryptedPlayback READ localEncryptedPlayback WRITE setLocalEncryptedPlayback NOTIFY localEncryptedPlaybackChanged)
+    Q_PROPERTY(bool liveStream READ liveStream WRITE setLiveStream NOTIFY liveStreamChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY playbackStateChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY playbackStateChanged)
     Q_PROPERTY(bool buffering READ buffering NOTIFY playbackStateChanged)
@@ -69,6 +70,8 @@ public:
     bool audioOnly() const;
     void setAudioOnly(bool value);
     bool localEncryptedPlayback() const;
+    bool liveStream() const;
+    void setLiveStream(bool value);
     void setLocalEncryptedPlayback(bool value);
     bool paused() const;
     bool loading() const;
@@ -116,6 +119,7 @@ signals:
     void httpAuthChanged();
     void audioOnlyChanged();
     void localEncryptedPlaybackChanged();
+    void liveStreamChanged();
     void errorOccurred(const QString& message);
     void playbackStateChanged();
     void volumeChanged();
@@ -161,6 +165,7 @@ private:
     bool m_allowInsecureTls { false };
     bool m_audioOnly { false };
     bool m_localEncryptedPlayback { false };
+    bool m_liveStream { false };
     double m_startPosition { 0.0 };
     int m_preferredSubtitleStreamIndex { -1 };
     qreal m_lastNativeDevicePixelRatio { 0.0 };

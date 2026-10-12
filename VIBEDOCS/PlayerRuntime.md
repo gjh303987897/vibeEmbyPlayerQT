@@ -126,7 +126,7 @@ QML owns only the page layout and buttons. It does not call libmpv directly.
 - subtitle and audio track switching through libmpv properties
 - asynchronous external subtitle loading through libmpv `sub-add`
 
-Embedded video instances use a smooth-playback profile before libmpv
+Ordinary embedded video instances use a smooth-playback profile before libmpv
 initialization. Hardware decoding uses `hwdec=auto`, which keeps libmpv's
 software fallback when no compatible decoder is available. Video timing uses
 `video-sync=display-resample` with temporal interpolation and the low-overhead
@@ -134,6 +134,14 @@ software fallback when no compatible decoder is available. Video timing uses
 drops or repeats when a selected playback speed does not divide evenly into the
 display refresh rate, while reducing decoder pressure at higher speeds. The
 profile is not applied to scheduled headless playback or audio-only playback.
+
+IPTV supplies an explicit `liveStream` flag through `MpvVideoItem` to
+`PlayerController`. Live playback uses `video-sync=audio` and
+`interpolation=no`, avoiding extra interpolation work for live streams with
+variable frame timing. Hardware decoding and its software fallback remain
+enabled. Changing the flag also updates an already initialized handle, because
+QML can apply the source and mode bindings in either order. Leaving IPTV
+restores `display-resample` and interpolation for ordinary video.
 
 Reference: <https://mpv.io/manual/master/#video-synchronization>
 
@@ -348,6 +356,14 @@ The playback URL currently contains an access token because libmpv receives a UR
 Future work should prefer passing authorization headers to libmpv when practical, or move playback URL construction behind a short-lived local proxy if needed for stricter token isolation.
 
 ## Window and event lifetime (2026-10-07)
+
+IPTV adds a bounded stream retry flow in AppViewModel and a “Streams” menu in the
+existing player tool window. Failed loads or a 20-second initial startup timeout
+try the next unattempted candidate; ordinary stop and EOF do not. Manual selection
+starts a new round and cancels pending replacement callbacks. PlayerController uses
+`playlist/0/id` to ignore superseded IPTV lifecycle/property events after loadfile
+replacement. See [IPTV stream selection](IptvStreamSelection.md) for cache rules,
+menu fields, cancellation and CLI scope.
 
 `MpvVideoItem` shuts down libmpv before destroying its host HWND/QWindow. A
 teardown guard blocks nested teardown and native-window creation from synchronous
