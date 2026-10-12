@@ -280,6 +280,10 @@ private slots:
             if (i == 0) {
                 playlist.write(QString("#EXTINF:-1 group-title=\"Local\",Channel 0\n%1\n")
                     .arg(QUrl::fromLocalFile(backupVideo).toString()).toUtf8());
+                for (int route = 0; route < 4; ++route) {
+                    playlist.write(QString("#EXTINF:-1 group-title=\"Local\",Channel 0\n%1\n")
+                        .arg(QUrl::fromLocalFile(temporary.filePath(QString("missing-%1.mp4").arg(route))).toString()).toUtf8());
+                }
             }
         }
         playlist.close();
@@ -315,7 +319,7 @@ private slots:
             const auto channels = fixture.loadIptvChannels(serviceId);
             QVERIFY(channels && !channels->empty());
             const auto& channel = channels->front();
-            QCOMPARE(channel.streamUrls.size(), 3);
+            QCOMPARE(channel.streamUrls.size(), 7);
             const auto now = QDateTime::currentDateTimeUtc();
             std::vector<IptvStreamInfo> infos {
                 {.url = channel.streamUrls[0], .available = true, .width = 1920, .height = 1080, .checkedAt = now},
@@ -344,7 +348,43 @@ private slots:
         auto* streamMenu = root->findChild<QQuickItem*>("iptvStreamMenu");
         QVERIFY(streamMenu);
         QTRY_VERIFY(streamMenu->window() && streamMenu->window()->isVisible());
-        QCOMPARE(streamMenu->property("count").toInt(), 3);
+        QCOMPARE(streamMenu->property("count").toInt(), 7);
+        // Tool windows must not overlap: repeatedly raising the controls under
+        // the translucent menu exposes the progress bar through its lower rows.
+        const auto menuAboveControls = [](QQuickItem* menu, QQuickItem* button) {
+            return menu->window()->y() + menu->window()->height() <= button->window()->y() - 10;
+        };
+        QTRY_VERIFY(menuAboveControls(streamMenu, streamButton));
+        const auto originalWindowSize = window->size();
+        window->resize(980, 640);
+        // QWindow applies native resize events asynchronously. Wait for the
+        // capped menu size before measuring hover stability.
+        QTRY_VERIFY(streamMenu->window()->height() < 440);
+        QTRY_VERIFY(menuAboveControls(streamMenu, streamButton));
+        QQmlExpression menuWithinPlayer(qmlContext(streamMenu), streamMenu,
+            "playerTrackMenuWindow.y >= playerPage.mapToGlobal(0, 0).y + 12");
+        QTRY_VERIFY(menuWithinPlayer.evaluate().toBool());
+        QTRY_VERIFY(streamMenu->property("contentHeight").toReal() > streamMenu->height());
+        QQmlExpression menuFullyOpen(qmlContext(streamMenu), streamMenu,
+            "playerTrackMenuRoot.revealProgress === 1");
+        QTRY_VERIFY(menuFullyOpen.evaluate().toBool());
+        // Hovering the lower rows must leave both native surfaces in place.
+        const auto menuGeometry = streamMenu->window()->geometry();
+        for (int move = 0; move < 5; ++move) {
+            QTest::mouseMove(streamMenu->window(), QPoint(25 + move * 10, streamMenu->window()->height() - 25));
+        }
+        QCOMPARE(streamMenu->window()->geometry(), menuGeometry);
+        // Changing layout while the menu is open must also update its bounds.
+        vm.setPlayerLayout("traditional");
+        auto* traditionalStreamButton = root->findChild<QQuickItem*>("traditionalIptvStreamButton");
+        QVERIFY(traditionalStreamButton);
+        QTRY_VERIFY(traditionalStreamButton->isVisible());
+        QTRY_VERIFY(menuAboveControls(streamMenu, traditionalStreamButton));
+        vm.setPlayerLayout("trendy");
+        QTRY_VERIFY(menuAboveControls(streamMenu, streamButton));
+        window->resize(originalWindowSize);
+        QTRY_COMPARE(streamMenu->window()->height(), 440);
+        QTRY_VERIFY(menuAboveControls(streamMenu, streamButton));
         const auto streams = vm.iptvPlaybackStreams();
         const auto backupId = streams[1].toMap().value("id").toString();
         QQmlExpression menuReady(qmlContext(streamMenu), streamMenu, "itemAtIndex(1) !== null");
@@ -375,11 +415,10 @@ private slots:
         QTest::qWait(100);
         QVERIFY(!vm.hasError());
         vm.setPlayerLayout("traditional");
-        auto* traditionalStreamButton = root->findChild<QQuickItem*>("traditionalIptvStreamButton");
-        QVERIFY(traditionalStreamButton);
         QTRY_VERIFY(traditionalStreamButton->isVisible());
         QVERIFY(QMetaObject::invokeMethod(traditionalStreamButton, "clicked"));
         QTRY_VERIFY(streamMenu->window() && streamMenu->window()->isVisible());
+        QTRY_VERIFY(menuAboveControls(streamMenu, traditionalStreamButton));
         QQmlExpression closeStreams(qmlContext(streamMenu), streamMenu, "playerPage.closeTrackMenu()");
         closeStreams.evaluate();
         QVERIFY2(!closeStreams.hasError(), qPrintable(closeStreams.error().toString()));

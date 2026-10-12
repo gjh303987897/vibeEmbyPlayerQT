@@ -11764,8 +11764,13 @@ ApplicationWindow {
         }
 
         function revealControls() {
+            var wasVisible = controlsVisible
             controlsVisible = true
-            Qt.callLater(raiseChromeWindows)
+            // Pointer movement only extends visibility. Raising every native
+            // Tool window again changes their stacking order during rendering.
+            if (!wasVisible) {
+                Qt.callLater(raiseChromeWindows)
+            }
             if (!exitConfirmVisible && !trackMenuVisible && !iptvChannelListVisible) {
                 controlsHideTimer.restart()
             }
@@ -13186,6 +13191,12 @@ ApplicationWindow {
                     : playerPage.trackMenuMode === "iptv" ? Math.min(440, 104 + rowCount * 68)
                     : Math.min(390, 104 + rowCount * 48)
                 var margin = 20
+                var minimumY = playerPage.topChromeMargin + playerPage.topChromeHeight + 12
+                // Keep the entire menu above the native control window, not
+                // above its button centre (which overlaps progress and buttons).
+                var menuBottom = playerPage.height - playerPage.bottomChromeHeight
+                    - playerPage.bottomChromeMargin - 12
+                panelHeight = Math.min(panelHeight, Math.max(1, menuBottom - minimumY))
                 var playerOrigin = playerPage.mapToGlobal(0, 0)
                 var localX = 0
                 if (playerPage.trackMenuAnchorItem) {
@@ -13201,13 +13212,7 @@ ApplicationWindow {
                     localX = playerPage.width / 2 - panelWidth / 2
                 }
                 localX = Math.max(margin, Math.min(localX, playerPage.width - panelWidth - margin))
-                var localY = playerPage.trackMenuAnchorGlobalY >= 0
-                    ? playerPage.trackMenuAnchorGlobalY - playerOrigin.y - panelHeight
-                    : playerPage.height - playerPage.bottomChromeHeight
-                        - playerPage.bottomChromeMargin - panelHeight - 12
-                var minimumY = playerPage.topChromeMargin + playerPage.topChromeHeight + 12
-                var maximumY = playerPage.height - panelHeight - margin
-                localY = Math.max(minimumY, Math.min(localY, maximumY))
+                var localY = Math.max(minimumY, menuBottom - panelHeight)
                 x = Math.round(playerOrigin.x + localX)
                 y = Math.round(playerOrigin.y + localY)
                 width = Math.round(panelWidth)
@@ -13243,6 +13248,9 @@ ApplicationWindow {
                 target: playerPage
                 function onWidthChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
                 function onHeightChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
+                function onTopChromeHeightChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
+                function onBottomChromeHeightChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
+                function onBottomChromeMarginChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
                 function onTrackMenuModeChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
                 function onTrackMenuAnchorItemChanged() { playerTrackMenuWindow.syncTrackMenuGeometry() }
             }

@@ -200,6 +200,15 @@ frame remains available unless the user enters system fullscreen.
 
 With libmpv Window Embedding, the video surface is a platform-native child window and can cover ordinary QML items that overlap it. The current layout avoids mixing player startup with overlay state: `MpvVideoItem` owns only the native video window, while the top title / exit bar and bottom playback controls live in two narrow transparent Qt Quick tool windows that follow the player page geometry.
 
+Track menus (streams, subtitles, audio and speed) sit entirely above the bottom
+control window with a 12-pixel gap. Their height is capped to the available player
+area so long lists scroll without intersecting the controls, including while
+switching layouts. Pointer movement over already visible controls does not raise
+the native windows again; opening overlays and native video refreshes still restore
+their stacking order. Repeatedly raising overlapping translucent windows had
+exposed the progress bar through the lower stream rows and caused flicker.
+See [Qt QWindow::raise](https://doc.qt.io/qt-6/qwindow.html#raise) for native stacking behavior.
+
 The top and bottom chrome windows cover only their own control-bar heights. The center of the video is not covered by a transparent window, so pointer reveal and double-click fullscreen behavior still come from the main player page. The application enables `QQuickWindow::setDefaultAlphaBuffer(true)` before creating QML windows so the floating chrome remains transparent on Windows.
 
 The player view deliberately skips the application's translated/scaled page-entry animation. The embedded video surface and chrome bars are separate native windows, while the animation transforms only the Qt Quick item hierarchy. Calculating their global geometry during that transform would leave controls offset after opening playback until an unrelated main-window move or resize resynchronized them. Other pages retain the normal transition animation, and the player chrome is raised and resynchronized after the stable player layout is selected.
