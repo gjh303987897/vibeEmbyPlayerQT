@@ -249,6 +249,73 @@ private slots:
             QVERIFY(vm.iptvFilePath().isEmpty());
         }
     }
+    void iptvMenuProbesAllRoutesAndReusesCache()
+    {
+        QTcpServer endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+        int requests = 0;
+        connect(&endpoint, &QTcpServer::newConnection, &endpoint, [&] {
+            while (auto* socket = endpoint.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                    auto data = socket->property("request").toByteArray() + socket->readAll();
+                    socket->setProperty("request", data);
+                    if (!data.contains("\r\n\r\n") || socket->property("handled").toBool()) return;
+                    socket->setProperty("handled", true);
+                    ++requests;
+                    const auto index = data.split(' ').value(1).mid(1).toInt();
+                    const auto body = QString("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=%1,RESOLUTION=%2x%3\nvideo%4.m3u8\n")
+                        .arg((index + 1) * 100000).arg(320 + index * 16).arg(180 + index * 9).arg(index).toUtf8();
+                    socket->write(index == 39 ? "HTTP/1.1 404 Not Found\r\n" : "HTTP/1.1 200 OK\r\n");
+                    socket->write("Content-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+        QTemporaryDir temporary;
+        const auto path = temporary.filePath("menu.db");
+        SessionRepository repository("iptv_menu_fixture", path);
+        QVERIFY(repository.initialize());
+        ServerConfig server {.id = "menu", .name = "Menu", .baseUrl = "test.m3u", .username = "", .serviceType = ServiceType::IPTV};
+        IptvPlaylist playlist {"p", "menu", "TV", "LocalFile", "test.m3u", "test.m3u", "2026-10-13"};
+        IptvChannel channel {.id = "all-routes", .name = "Channel", .groupName = "News"};
+        for (int i = 0; i < 40; ++i)
+            channel.streamUrls << QString("http://127.0.0.1:%1/%2").arg(endpoint.serverPort()).arg(i);
+        channel.streamUrl = channel.streamUrls.front();
+        QVERIFY(repository.saveIptvPlaylist(server, playlist, {channel}));
+        AppViewModel vm(nullptr, path);
+        vm.backToServices();
+        QTRY_COMPARE(vm.services()->count(), 1);
+        vm.selectServiceCard(0);
+        QTRY_COMPARE(vm.currentView(), QString("iptv"));
+        vm.playIptvChannel(0);
+        vm.reportIptvPlaybackInfo(vm.currentIptvChannelId(), "320x180", "h264", "100000");
+        const auto playing = vm.currentPlaybackUrl();
+        vm.setIptvStreamMenuVisible(true);
+        auto finished = [&] {
+            const auto rows = vm.iptvPlaybackStreams();
+            return rows.size() == 40 && rows[38].toMap().value("detail").toString().contains("928×522")
+                && rows[39].toMap().value("failed").toBool();
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(finished(), 12000);
+        QCOMPARE(vm.currentPlaybackUrl(), playing);
+        for (const auto& row : vm.iptvPlaybackStreams()) {
+            const auto detail = row.toMap().value("detail").toString();
+            QVERIFY(!detail.contains("未知"));
+            QVERIFY(!detail.contains("unknown", Qt::CaseInsensitive));
+        }
+        const auto previousRequests = requests;
+        vm.setIptvStreamMenuVisible(false);
+        vm.setIptvStreamMenuVisible(true);
+        QTest::qWait(300);
+        QCOMPARE(requests, previousRequests);
+        vm.setIptvStreamMenuVisible(false);
+        vm.setIptvStreamPreference("quality");
+        vm.playIptvChannel(0);
+        QVERIFY(vm.currentPlaybackUrl().path().endsWith("video38.m3u8"));
+        vm.closePlayerToDetails();
+    }
+
     void nativeIptvPlaybackThenImport()
     {
 #ifdef Q_OS_WIN
@@ -386,11 +453,11 @@ private slots:
         QTRY_COMPARE(streamMenu->window()->height(), 440);
         QTRY_VERIFY(menuAboveControls(streamMenu, streamButton));
         const auto streams = vm.iptvPlaybackStreams();
-        const auto backupId = streams[1].toMap().value("id").toString();
-        QQmlExpression menuReady(qmlContext(streamMenu), streamMenu, "itemAtIndex(1) !== null");
+        const auto backupId = streams[2].toMap().value("id").toString();
+        QQmlExpression menuReady(qmlContext(streamMenu), streamMenu, "itemAtIndex(2) !== null");
         QTRY_VERIFY(menuReady.evaluate().toBool());
         QQmlExpression selectBackup(qmlContext(streamMenu), streamMenu,
-            "itemAtIndex(1).clicked()");
+            "itemAtIndex(2).clicked()");
         selectBackup.evaluate();
         QVERIFY2(!selectBackup.hasError(), qPrintable(selectBackup.error().toString()));
         QTRY_COMPARE(vm.currentPlaybackUrl(), QUrl::fromLocalFile(backupVideo));

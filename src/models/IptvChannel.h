@@ -12,6 +12,7 @@ struct IptvStreamVariant final {
     qint64 bitrate { 0 };
     QString codec;
     QDateTime failedAt;
+    QString probeState;
 };
 
 // Information belongs to a particular route, not to the merged channel.
@@ -26,6 +27,7 @@ struct IptvStreamInfo final {
     QString state;
     QDateTime checkedAt;
     std::vector<IptvStreamVariant> variants;
+    QDateTime qualityCheckedAt;
 };
 
 struct IptvChannel {

@@ -9,7 +9,50 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QtTest>
+
+class ProbeEndpoint final : public QTcpServer {
+public:
+    QHash<QByteArray, QByteArray> bodies;
+    QList<QByteArray> requests;
+    ProbeEndpoint() {
+        connect(this, &QTcpServer::newConnection, this, [this] {
+            while (auto* socket = nextPendingConnection()) {
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
+                    auto request = socket->property("request").toByteArray() + socket->readAll();
+                    socket->setProperty("request", request);
+                    if (!request.contains("\r\n\r\n") || socket->property("handled").toBool()) return;
+                    socket->setProperty("handled", true);
+                    const auto path = request.split(' ').value(1);
+                    requests.push_back(path);
+                    if (path == "/hang") return;
+                    if (path == "/redirect") {
+                        socket->write("HTTP/1.1 302 Found\r\nLocation: /live/media.m3u8\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    } else if (path.startsWith("/reject-") && request.contains("Range:")) {
+                        socket->write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    } else {
+                        auto body = bodies.value(path);
+                        if (path == "/ranges") {
+                            const auto match = QRegularExpression("Range: bytes=(\\d+)-(\\d+)").match(QString::fromLatin1(request));
+                            const auto offset = match.captured(1).toLongLong();
+                            const auto end = std::min(match.captured(2).toLongLong(), body.size() - 1);
+                            socket->write("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes " + QByteArray::number(offset) + "-" +
+                                QByteArray::number(end) + "/" + QByteArray::number(body.size()) + "\r\n");
+                            body = body.mid(offset, end - offset + 1);
+                        } else
+                        socket->write(bodies.contains(path) ? "HTTP/1.1 200 OK\r\n" : "HTTP/1.1 404 Not Found\r\n");
+                        socket->write("Content-Length: " + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+                    }
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+    }
+    QUrl url(const QString& path) const { return QUrl(QString("http://127.0.0.1:%1%2").arg(serverPort()).arg(path)); }
+};
 
 class IptvMultiSourceTest final : public QObject {
     Q_OBJECT
@@ -22,6 +65,8 @@ private slots:
     void readsLegacySchemaWithoutMigration();
     void boundsNetworkReadAndCancelsReplacement();
     void failedHlsVariantFallsBackAndExpires();
+    void samplesHlsAndDirectStreams();
+    void boundsHlsTraversalAndReportsFailures();
 };
 
 void IptvMultiSourceTest::mergesIdentityAndPreservesRoutes()
@@ -118,7 +163,9 @@ void IptvMultiSourceTest::resolvesHlsVariantsAndKeepsExternalTracks()
     QCOMPARE(IptvStreamSelector::select(channel, "dataSaver").playbackUrl, "https://test/sd.m3u8");
     auto external = manifest;
     external.replace("CODECS=\"avc1\"", "AUDIO=\"audio\",CODECS=\"avc1\"");
-    QVERIFY(IptvProbe::parse(external, 200, "quality", base).variants.empty());
+    const auto externalResult = IptvProbe::parse(external, 200, "quality", base);
+    QVERIFY(externalResult.variants.empty());
+    QCOMPARE(externalResult.width, 1920);
     QVERIFY(!IptvProbe::parse(manifest, 404, "quality", base).available);
 }
 
@@ -136,7 +183,8 @@ void IptvMultiSourceTest::persistsPerRouteInformation()
     QVERIFY(repository.saveIptvPlaylist(server, playlist, {channel}).has_value());
     const std::vector<IptvStreamInfo> infos {{.url = channel.streamUrl, .available = true,
         .width = 1920, .height = 1080, .bitrate = 5'000'000, .codec = "h264", .state = "playback",
-        .checkedAt = QDateTime::currentDateTimeUtc(), .variants = {{"https://test/hd", 1920, 1080, 5'000'000, "h264"}}}};
+        .checkedAt = QDateTime::currentDateTimeUtc(), .variants = {{"https://test/hd", 1920, 1080, 5'000'000, "h264", {}, "measured"}},
+        .qualityCheckedAt = QDateTime::currentDateTimeUtc()}};
     QVERIFY(repository.updateIptvChannelProbe("playlist", "channel", 1920, 1080, 5'000'000, "h264", "playback", infos).has_value());
     SessionRepository reader("iptv-read", path, SessionRepository::OpenMode::ReadOnly);
     const auto loaded = reader.loadIptvChannels("service");
@@ -145,6 +193,8 @@ void IptvMultiSourceTest::persistsPerRouteInformation()
     QCOMPARE(loaded->front().streamUrls, channel.streamUrls);
     QCOMPARE(loaded->front().streamInfo[0].variants[0].url, "https://test/hd");
     QVERIFY(IptvStreamSelector::fresh(loaded->front().streamInfo[0]));
+    QCOMPARE(loaded->front().streamInfo[0].variants[0].probeState, QString("measured"));
+    QCOMPARE(loaded->front().streamInfo[0].qualityCheckedAt, infos[0].qualityCheckedAt);
 }
 
 void IptvMultiSourceTest::readsLegacySchemaWithoutMigration()
@@ -183,7 +233,7 @@ void IptvMultiSourceTest::boundsNetworkReadAndCancelsReplacement()
             // Advertise a never-ending response and leave the socket open.
             // Completion before the six-second timeout requires the sample cap.
             socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 1073741824\r\n\r\n");
-            socket->write(QByteArray(256 * 1024, 'x'));
+            socket->write(QByteArray(1024 * 1024, 'x'));
         });
         connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
     });
@@ -199,6 +249,97 @@ void IptvMultiSourceTest::boundsNetworkReadAndCancelsReplacement()
     probe.probe("unsupported-new", QUrl("file:///same"), "quality");
     QTRY_COMPARE(completed.count(), 2);
     QCOMPARE(completed[1][0].toString(), "unsupported-new");
+    probe.probe("deep", QUrl(base + "/large"), "quality", true);
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 3, 3500); // Shorter than the 4-second request timeout.
+    QVERIFY(qvariant_cast<IptvProbeResult>(completed[2][2]).detailed);
+}
+
+void IptvMultiSourceTest::samplesHlsAndDirectStreams()
+{
+    const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+    if (ffmpeg.isEmpty() || QStandardPaths::findExecutable("ffprobe").isEmpty()) QSKIP("Requires FFmpeg and FFprobe");
+    QTemporaryDir temporary;
+    QProcess generator;
+    const auto generate = [&](const QString& file, const QStringList& format) {
+        QStringList arguments {"-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10",
+            "-t", "1", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1"};
+        arguments.append(format);
+        arguments << "-y" << temporary.filePath(file);
+        generator.start(ffmpeg, arguments);
+        if (!generator.waitForFinished(10000) || generator.exitCode() != 0) return QByteArray {};
+        QFile output(temporary.filePath(file));
+        if (!output.open(QIODevice::ReadOnly)) return QByteArray {};
+        return output.readAll();
+    };
+    const auto ts = generate("sample.ts", {"-f", "mpegts"});
+    const auto mp4 = generate("sample.mp4", {"-movflags", "frag_keyframe+empty_moov+default_base_moof"});
+    QVERIFY(!ts.isEmpty());
+    const auto boundary = mp4.indexOf("moof") - 4;
+    QVERIFY(boundary > 0);
+    ProbeEndpoint server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    server.bodies = {{"/live/media.m3u8", "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nsample.ts\n"},
+        {"/live/sample.ts", ts}, {"/direct", ts}, {"/reject-range", ts},
+        {"/fmp4.m3u8", "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:1,\nfragment.m4s\n"},
+        {"/init.mp4", mp4.first(boundary)}, {"/fragment.m4s", mp4.mid(boundary)}, {"/ranges", mp4},
+        {"/byterange.m3u8", QString("#EXTM3U\n#EXT-X-MAP:URI=\"ranges\",BYTERANGE=\"%1@0\"\n#EXTINF:1,\n#EXT-X-BYTERANGE:%2@%1\nranges\n")
+            .arg(boundary).arg(mp4.size() - boundary).toUtf8()},
+        {"/master", "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=900000\nlive/media.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nfmp4.m3u8\n"}};
+    server.bodies.insert("/reject-master", server.bodies.value("/master"));
+    IptvProbe probe;
+    QSignalSpy finished(&probe, &IptvProbe::finished);
+    int heartbeats = 0;
+    QTimer heartbeat;
+    connect(&heartbeat, &QTimer::timeout, [&] { ++heartbeats; });
+    heartbeat.start(5);
+    for (const auto& path : {"/redirect", "/direct", "/reject-range", "/fmp4.m3u8", "/byterange.m3u8", "/master", "/reject-master"}) {
+        finished.clear();
+        probe.probe("channel", server.url(path), "quality", true);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 10000);
+        const auto result = qvariant_cast<IptvProbeResult>(finished[0][2]);
+        QCOMPARE(result.width, 320);
+        QCOMPARE(result.height, 180);
+        QCOMPARE(result.codec, QString("h264"));
+        QVERIFY(result.detailed);
+        if (QString(path).endsWith("master")) {
+            QCOMPARE(result.variants.size(), size_t(2));
+            QCOMPARE(result.variants[1].height, 180);
+        }
+    }
+    QVERIFY(heartbeats > 10);
+    QCOMPARE(server.requests.count("/reject-range"), 2);
+}
+
+void IptvMultiSourceTest::boundsHlsTraversalAndReportsFailures()
+{
+    ProbeEndpoint server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    server.bodies = {{"/encrypted", "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\n#EXTINF:1,\nsecret.ts\n"},
+        {"/loop", "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=10\nloop\n"},
+        {"/slow", "#EXTM3U\n#EXTINF:1,\nhang\n"},
+        {"/good", "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720\nvideo\n"}};
+    IptvProbe probe;
+    QSignalSpy finished(&probe, &IptvProbe::finished);
+    for (const auto& path : {"/encrypted", "/missing", "/loop"}) {
+        finished.clear();
+        probe.probe("channel", server.url(path), "quality", true);
+        QTRY_COMPARE(finished.size(), 1);
+        const auto result = qvariant_cast<IptvProbeResult>(finished[0][2]);
+        if (QString(path) == "/encrypted") QCOMPARE(result.state, QString("encrypted"));
+        if (QString(path) == "/missing") QCOMPARE(result.state, QString("unavailable"));
+        if (QString(path) == "/loop") QCOMPARE(result.variants.front().probeState, QString("probe-limit"));
+    }
+    QVERIFY(!server.requests.contains("/key"));
+    QVERIFY(!server.requests.contains("/secret.ts"));
+    QVERIFY(server.requests.count("/loop") <= 5);
+    finished.clear();
+    probe.probe("canceled", server.url("/slow"), "quality", true);
+    QTRY_VERIFY(server.requests.contains("/hang"));
+    probe.cancel();
+    probe.probe("replacement", server.url("/good"), "quality", true);
+    QTRY_COMPARE(finished.size(), 1);
+    QCOMPARE(finished[0][0].toString(), QString("replacement"));
+    QCOMPARE(qvariant_cast<IptvProbeResult>(finished[0][2]).height, 720);
 }
 
 QTEST_GUILESS_MAIN(IptvMultiSourceTest)

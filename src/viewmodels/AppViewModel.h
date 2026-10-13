@@ -340,6 +340,7 @@ public:
     bool iptvPlaybackActive() const;
     QString currentIptvChannelId() const;
     QVariantList iptvPlaybackStreams() const;
+    Q_INVOKABLE void setIptvStreamMenuVisible(bool visible);
     Q_INVOKABLE void switchIptvPlaybackStream(const QString& selectionId);
     LocalMediaRootListModel* localMediaRoots();
     LocalMediaItemListModel* localMediaItems();
@@ -1346,11 +1347,14 @@ private:
     struct IptvProbeRequest final {
         QString channelId;
         QUrl url;
+        bool detailed { false };
     };
     IptvProbe m_iptvProbe;
     std::vector<IptvProbeRequest> m_iptvProbeQueue;
     bool m_iptvProbeInFlight { false };
     QString m_iptvProbeActiveUrl;
+    bool m_iptvStreamMenuVisible { false };
+    bool m_iptvProbeDetailed { false };
     QString m_currentIptvSourceUrl;
     QString m_currentIptvSelectionId;
     QSet<QString> m_attemptedIptvStreams;

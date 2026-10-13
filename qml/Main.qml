@@ -11739,6 +11739,8 @@ ApplicationWindow {
         property bool playbackLoadingVisible: false
         property bool videoInfoVisible: false
         property bool trackMenuVisible: false
+        onTrackMenuVisibleChanged: appViewModel.setIptvStreamMenuVisible(trackMenuVisible && trackMenuMode === "iptv")
+        onTrackMenuModeChanged: appViewModel.setIptvStreamMenuVisible(trackMenuVisible && trackMenuMode === "iptv")
         property bool iptvChannelListVisible: false
         property string trackMenuMode: "subtitle"
         property Item trackMenuAnchorItem: null

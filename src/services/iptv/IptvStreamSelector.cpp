@@ -28,7 +28,9 @@ bool IptvStreamSelector::fresh(const IptvStreamInfo& info, const QDateTime& now)
 {
     if (!info.checkedAt.isValid()) return false;
     const auto age = info.checkedAt.secsTo(now);
-    return age >= 0 && age < (info.available ? 6 * 60 * 60 : 60);
+    const auto hasQuality = (info.width > 0 && info.height > 0) ||
+        std::ranges::any_of(info.variants, [](const auto& variant) { return variant.width > 0 && variant.height > 0; });
+    return age >= 0 && age < (info.available && hasQuality ? 6 * 60 * 60 : 60);
 }
 
 QString IptvStreamSelector::selectionId(const Selection& selection)
@@ -63,6 +65,7 @@ std::vector<IptvStreamSelector::Selection> IptvStreamSelector::candidates(
                 child.info.height = variant.height;
                 child.info.bitrate = variant.bitrate;
                 child.info.codec = variant.codec;
+                if (!variant.probeState.isEmpty()) child.info.state = variant.probeState;
                 const auto age = variant.failedAt.secsTo(now);
                 const auto recentlyFailed = variant.failedAt.isValid() && age >= 0 && age < 60;
                 if (recentlyFailed) child.info.available = false;
@@ -101,12 +104,13 @@ QJsonArray IptvStreamSelector::serialize(const std::vector<IptvStreamInfo>& info
         for (const auto& variant : info.variants) {
             variants.append(QJsonObject {{"url", variant.url}, {"width", variant.width},
                 {"height", variant.height}, {"bitrate", variant.bitrate}, {"codec", variant.codec},
-                {"failedAt", variant.failedAt.toUTC().toString(Qt::ISODateWithMs)}});
+                {"failedAt", variant.failedAt.toUTC().toString(Qt::ISODateWithMs)}, {"probeState", variant.probeState}});
         }
         array.append(QJsonObject {{"url", info.url}, {"available", info.available},
             {"width", info.width}, {"height", info.height}, {"bitrate", info.bitrate},
             {"codec", info.codec}, {"state", info.state},
-            {"checkedAt", info.checkedAt.toUTC().toString(Qt::ISODateWithMs)}, {"variants", variants}});
+            {"checkedAt", info.checkedAt.toUTC().toString(Qt::ISODateWithMs)}, {"variants", variants},
+            {"qualityCheckedAt", info.qualityCheckedAt.toUTC().toString(Qt::ISODateWithMs)}});
     }
     return array;
 }
@@ -124,13 +128,14 @@ std::vector<IptvStreamInfo> IptvStreamSelector::deserialize(const QJsonArray& ar
             .bitrate = std::max<qint64>(0, object.value("bitrate").toInteger()),
             .codec = object.value("codec").toString(), .state = object.value("state").toString(),
             .checkedAt = QDateTime::fromString(object.value("checkedAt").toString(), Qt::ISODateWithMs)};
+        info.qualityCheckedAt = QDateTime::fromString(object.value("qualityCheckedAt").toString(), Qt::ISODateWithMs);
         for (const auto& item : object.value("variants").toArray()) {
             const auto variant = item.toObject();
             if (variant.value("url").toString().isEmpty()) continue;
             info.variants.push_back({variant.value("url").toString(),
                 std::max(0, variant.value("width").toInt()), std::max(0, variant.value("height").toInt()),
                 std::max<qint64>(0, variant.value("bitrate").toInteger()), variant.value("codec").toString(),
-                QDateTime::fromString(variant.value("failedAt").toString(), Qt::ISODateWithMs)});
+                QDateTime::fromString(variant.value("failedAt").toString(), Qt::ISODateWithMs), variant.value("probeState").toString()});
         }
         result.push_back(std::move(info));
     }
