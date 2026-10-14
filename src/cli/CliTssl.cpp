@@ -1,6 +1,7 @@
 #include "cli/CliEngine.h"
 #include "cli/CliRuntime.h"
 #include "services/backup/TsslBackupService.h"
+#include "services/backup/TsslBackupArchive.h"
 #include "services/backup/S3CredentialProvider.h"
 #include "services/backup/TsslImportWorkflow.h"
 #include "services/management/WorkflowSettings.h"
@@ -24,8 +25,8 @@ std::expected<QByteArray, Cli::Error> digest(const QString& text)
 Cli::Result importFiles(const TsslStore& store, const QStringList& files)
 {
     const auto summary = Cli::awaitFuture(QtConcurrent::run([store, files] {
-        return TsslImportWorkflow::run(store, files, &CliConsole::canceled, [](int done,int total) {
-            CliConsole::progress(QStringLiteral("TSSL import: %1 / %2").arg(done).arg(total));
+        return TsslImportWorkflow::run(store, files, &CliConsole::canceled, {}, [](const QString& stage, int done,int total) {
+            CliConsole::progress(QStringLiteral("TSSL %1: %2 / %3").arg(stage).arg(done).arg(total));
         });
     }));
     const QJsonObject data {{"imported",summary.restored}, {"duplicates",summary.alreadyExists}, {"failed",summary.failed}};
@@ -133,30 +134,54 @@ Cli::Result Cli::Engine::tssl(const Invocation& invocation, SessionRepository& r
     const auto settings = WorkflowSettings::snapshot();
     const auto targetType = invocation.option("target", settings.value("tsslBackup/target").toString());
     const bool restore = invocation.command == "tssl restore";
+    const auto formatName = invocation.option("format", settings.value("tsslBackup/format").toString());
+    if (!restore && formatName != "zip" && formatName != "files")
+        return failure(ExitCode::Usage, "Select a backup format: zip or files");
+    const auto format = formatName == "files" ? TsslBackupTarget::Format::Files : TsslBackupTarget::Format::Zip;
     if (targetType == "local") {
         const auto path = invocation.option("local-path", settings.value("tsslBackup/localPath").toString());
         if (path.isEmpty()) return failure(ExitCode::Usage, "Configure a local backup path or supply --local-path");
         if (restore) {
-            if (!QFileInfo(path).isDir()) return failure(ExitCode::NotFound, "The backup directory does not exist");
-            QStringList files;
-            for (const auto& item : QDir(path).entryInfoList({"*.tssl"}, QDir::Files | QDir::Readable, QDir::Name))
-                files += item.absoluteFilePath();
-            if (files.isEmpty()) return failure(ExitCode::NotFound, "No TSSL backups found");
-            return importFiles(store, files);
+            const auto files = awaitFuture(QtConcurrent::run([path]() -> std::expected<QStringList,Error> {
+                const QFileInfo directory(path);
+                if (!directory.isDir()) return std::unexpected(Error {ExitCode::NotFound, "The backup directory does not exist"});
+                if (!directory.isReadable()) return std::unexpected(Error {ExitCode::Failed, "The backup directory is not readable"});
+                return TsslBackupArchive::discover(path);
+            }));
+            if (CliConsole::pollCancellation()) return failure(ExitCode::Canceled, "Canceled");
+            if (!files) return failure(files.error());
+            if (files->isEmpty()) return failure(ExitCode::NotFound, "No TSSL backups found");
+            return importFiles(store, *files);
         }
-        if (!QDir().mkpath(path)) return failure(ExitCode::Failed, "Unable to create local backup directory");
-        const auto result = awaitFuture(QtConcurrent::run([store] {
-            auto summaries = store.listPackageSummaries();
-            if (!summaries) return std::expected<std::vector<QByteArray>,QString>(std::unexpected(summaries.error()));
-            std::vector<QByteArray> digests;
-            for (const auto& item : *summaries) digests.push_back(item.rootManifestDigest);
-            return std::expected<std::vector<QByteArray>,QString>(digests);
-        }));
+        // Preserve the legacy CLI's per-package partial-success report.
+        if (format == TsslBackupTarget::Format::Files) {
+            if (!QDir().mkpath(path)) return failure(ExitCode::Failed, "Unable to create local backup directory");
+            const auto selected = awaitFuture(QtConcurrent::run([store]() -> std::expected<std::vector<QByteArray>,QString> {
+                const auto summaries = store.listPackageSummaries();
+                if (!summaries) return std::unexpected(summaries.error());
+                std::vector<QByteArray> digests;
+                for (const auto& package : *summaries) digests.push_back(package.rootManifestDigest);
+                return digests;
+            }));
+            if (CliConsole::pollCancellation()) return failure(ExitCode::Canceled, "Canceled");
+            if (!selected) return failure(ExitCode::Failed, selected.error());
+            if (selected->empty()) return failure(ExitCode::NotFound, "No valid TSSL packages to back up");
+            auto result = exportPackages(store, *selected, path, QStringLiteral("backedUp"));
+            auto data = result.data.toObject();
+            data.insert(QStringLiteral("format"), formatName);
+            result.data = data;
+            return result;
+        }
+        const auto result = awaitFuture(TsslBackupService::backupLocal(store, QFileInfo(path).absoluteFilePath(),format,
+            &CliConsole::canceled, [](const QString& stage,int done,int total) {
+                CliConsole::progress(QStringLiteral("TSSL %1: %2 / %3").arg(stage).arg(done).arg(total));
+            }));
         if (CliConsole::pollCancellation()) return failure(ExitCode::Canceled, "Canceled");
-        return result ? exportPackages(store,*result,QFileInfo(path).absoluteFilePath(),"backedUp")
+        return result ? success(QJsonObject {{"backedUp",*result},{"target",QFileInfo(path).absoluteFilePath()},{"format",formatName}})
                       : failure(ExitCode::Failed, result.error());
     }
     TsslBackupTarget target;
+    target.format = format;
     if (targetType == "webdav") {
         const auto service = invocation.option("service", settings.value("tsslBackup/webDavServiceId").toString());
         auto card = resolve(repository, service, true);
@@ -228,11 +253,8 @@ Cli::Result Cli::Engine::tssl(const Invocation& invocation, SessionRepository& r
         return failure(code,message);
     };
     TsslBackupService backup;
-    QObject::connect(&backup, &TsslBackupService::progressChanged, &backup, [](int done, int total) {
-        CliConsole::progress(QStringLiteral("Backup: %1 / %2").arg(done).arg(total));
-    });
-    QObject::connect(&backup, &TsslBackupService::restoreProgressChanged, &backup, [](int done, int total) {
-        CliConsole::progress(QStringLiteral("Restore: %1 / %2").arg(done).arg(total));
+    QObject::connect(&backup, &TsslBackupService::stageChanged, &backup, [](const QString& stage,int done, int total) {
+        CliConsole::progress(QStringLiteral("TSSL %1: %2 / %3").arg(stage).arg(done).arg(total));
     });
     if (restore) {
         auto files = await<TsslBackupRestoreResult>([&](auto done) { backup.restore(target, done); }, [&] { backup.cancel(); });

@@ -15,11 +15,15 @@
 
 #include <expected>
 #include <functional>
+#include <atomic>
+#include <memory>
 
 struct TsslBackupTarget final {
     enum class Type { WebDav, S3 };
+    enum class Format { Zip, Files };
 
     Type type { Type::WebDav };
+    Format format { Format::Zip };
     ServerConfig webDavServer;
     QString webDavPassword;
     QString webDavPath;
@@ -54,8 +58,13 @@ class TsslBackupService final : public QObject {
 public:
     explicit TsslBackupService(QObject* parent = nullptr);
     explicit TsslBackupService(TsslBackupNetworkPolicy policy, QObject* parent = nullptr);
+    ~TsslBackupService() override;
 
     static QFuture<TsslBackupPackagesResult> preparePackages(TsslStore store);
+    static QFuture<TsslBackupResult> backupLocal(TsslStore store, QString directory,
+        TsslBackupTarget::Format format = TsslBackupTarget::Format::Zip,
+        const std::atomic_bool* canceled = nullptr,
+        const std::function<void(const QString&, int, int)>& progress = {});
     bool isRunning() const;
     void backup(const TsslBackupTarget& target,
                 QStringList localFiles,
@@ -63,17 +72,21 @@ public:
     void restore(const TsslBackupTarget& target,
                  std::function<void(TsslBackupRestoreResult)> callback);
     void cleanupRestoreFiles();
+    // Keep downloaded files alive until a background import releases this lease.
+    std::shared_ptr<QTemporaryDir> restoreFilesLease() const;
     void cancel();
 
 signals:
     void progressChanged(int completed, int total);
     void restoreProgressChanged(int completed, int total);
+    void stageChanged(const QString& stage, int completed, int total);
 
 private:
     void uploadNext();
     void finish(TsslBackupResult result);
-    void uploadWebDav(const QString& localPath, const QByteArray& payload);
-    void uploadS3(const QString& localPath, const QByteArray& payload, const QByteArray& payloadHash);
+    void uploadWebDav(const QString& localPath);
+    void uploadS3(const QString& localPath, const QByteArray& payloadHash);
+    void receiveDownload(QNetworkReply* reply, const QString& name, std::function<void()> retry);
     void listRemoteFiles();
     void listWebDavFiles();
     void listS3Files();
@@ -100,7 +113,7 @@ private:
     int m_s3Pages = 0;
     QElapsedTimer m_s3ListingElapsed;
     QStringList m_downloadedFiles;
-    QTemporaryDir m_restoreDirectory;
+    std::shared_ptr<QTemporaryDir> m_restoreDirectory { std::make_shared<QTemporaryDir>() };
     QString m_restorePath;
     QString m_restoreCleanupPath;
     int m_nextIndex { 0 };
@@ -110,4 +123,7 @@ private:
     bool m_running { false };
     bool m_cancelRequested { false };
     bool m_restoreMode { false };
+    int m_packageCount { 0 };
+    std::shared_ptr<std::atomic_bool> m_workerCanceled;
+    std::shared_ptr<QTemporaryDir> m_uploadDirectory;
 };

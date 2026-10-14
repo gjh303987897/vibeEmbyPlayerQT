@@ -38,6 +38,7 @@ tests/*
 !tests/EncryptedHlsPackagerTest.cpp
 !tests/EncryptedHlsRestorerTest.cpp
 !tests/TsslBackupServiceTest.cpp
+!tests/TsslBackupArchiveTest.cpp
 !tests/AuditRegressionTest.cpp
 !tests/SessionCredentialsTest.cpp
 !tests/QmlUtilityTest.cpp

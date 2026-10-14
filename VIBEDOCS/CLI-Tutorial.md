@@ -404,7 +404,7 @@ TSSL 保存解密 M3U8S/M3U8SP 所需密钥和校验元数据。它不是加密�
 | --- | --- |
 | `tssl list` | 列出本地密钥包 |
 | `tssl show DIGEST` | 查看版本、容器、资源数量和原文件名等元数据 |
-| `tssl import FILE...` | 批量导入，报告成功、重复和失败数量 |
+| `tssl import FILE...` | 批量导入 `.tssl` 或 ZIP 备份，报告成功、重复和失败数量 |
 | `tssl export DIGEST FILE` | 导出一个包到指定文件，已有目标报冲突 |
 | `tssl export DIGEST... --output DIR` | 导出选定多个包 |
 | `tssl export --all --output DIR` | 导出全部包 |
@@ -414,6 +414,7 @@ TSSL 保存解密 M3U8S/M3U8SP 所需密钥和校验元数据。它不是加密�
 .\vibePlayerQT tssl list
 .\vibePlayerQT tssl show DIGEST
 .\vibePlayerQT tssl import "D:\密钥\a.tssl" "D:\密钥\b.tssl"
+.\vibePlayerQT tssl import "D:\密钥备份\tssl-backup-快照.zip"
 .\vibePlayerQT tssl export DIGEST "D:\密钥导出\影片.tssl"
 .\vibePlayerQT tssl export DIGEST_A DIGEST_B --output "D:\密钥导出"
 .\vibePlayerQT tssl export --all --output "D:\密钥导出"
@@ -434,20 +435,31 @@ TSSL 保存解密 M3U8S/M3U8SP 所需密钥和校验元数据。它不是加密�
 
 不传目标参数时使用 `tsslBackup/*` 保存设置。默认目标 `none` 尚未启用备份，需要配置或传 `--target`。临时参数不会修改保存配置。
 
+备份默认生成标准 ZIP：先在本地工作线程整理、压缩全部 TSSL，再向目标上传一个压缩包，减少大量小文件的网络请求。本地目标也使用相同 ZIP 格式。压缩包保留原 `.tssl` 内容，并附带版本及完整性校验清单；**压缩不会给密钥增加密码保护**。
+
+可使用 `tssl backup --format files` 继续逐个备份 `.tssl`，或者通过 `config set tsslBackup/format files` 保存旧模式。`--format zip` 可临时切回压缩包，不改变保存设置。恢复不需要也不接受 `--format`，会自动识别新旧备份。
+
+兼容规则：新版恢复同时支持 ZIP 和旧的散装 `.tssl`；同一个目录有两种格式或多个快照时全部处理，按根摘要跳过重复项。旧版不会自动识别 ZIP，可先手动解压，再指向解压后直接包含 `.tssl` 的目录恢复，也可让新版使用 `files` 模式生成旧备份。ZIP 内文件平铺在根目录，旧版恢复会忽略 `manifest.json`，继续读取 `.tssl`。每次 ZIP 备份使用独立快照名称，保留旧备份，不自动清理旧散装文件。
+
+ZIP 快照命名为 `tssl-backup-UTC时间-UUID.zip`。目录恢复只自动发现符合备份命名规则的 ZIP，避免把无关压缩包当作备份；改名后的合法 ZIP 可用 `tssl import FILE.zip` 直接导入。每个备份压缩包及其解压总量均上限 2 GiB，最多包含 10000 个 TSSL、每包最大 64 MiB；详细格式与校验规则见 [压缩包模块文档](TsslBackupArchive.md)。
+
 ### 8.1 本地目录
 
 ```powershell
 .\vibePlayerQT tssl backup --target local --local-path "D:\备份\TSSL"
+# 为旧客户端生成独立 .tssl 文件
+.\vibePlayerQT tssl backup --target local --local-path "D:\备份\TSSL" --format files
 .\vibePlayerQT tssl restore --target local --local-path "D:\备份\TSSL"
 ```
 
-本地备份目录可以自动创建。本地恢复读取该目录直接包含的 `*.tssl`，不会递归扫描全部子目录。
+本地备份目录可以自动创建。本地恢复读取该目录直接包含的受支持 ZIP 备份和 `*.tssl`，不会递归扫描全部子目录。解压到临时目录并校验后才导入，结束或取消后清理临时文件，已成功导入的包保留。
 
 保存默认目标后可以简写：
 
 ```powershell
 .\vibePlayerQT config set tsslBackup/target local
 .\vibePlayerQT config set tsslBackup/localPath "D:\备份\TSSL"
+.\vibePlayerQT config set tsslBackup/format zip
 .\vibePlayerQT tssl backup
 .\vibePlayerQT tssl restore
 ```
@@ -476,6 +488,7 @@ TSSL 保存解密 M3U8S/M3U8SP 所需密钥和校验元数据。它不是加密�
 | 参数 | 说明 |
 | --- | --- |
 | `--target local\|webdav\|s3` | 临时目标类型 |
+| `--format zip\|files` | 仅 backup：临时压缩包或旧独立文件模式；默认保存值 `zip` |
 | `--local-path DIR` | 本地备份/恢复目录 |
 | `--service SERVICE --path PATH` | WebDAV 服务及备份目录 |
 | `--s3-endpoint URL` | S3 服务端点 |
@@ -492,6 +505,8 @@ TSSL 保存解密 M3U8S/M3U8SP 所需密钥和校验元数据。它不是加密�
 | `--s3-external-id ID` | AssumeRole 的 ExternalId |
 
 S3 使用 HTTPS；仅 `localhost` 开发端点允许 HTTP。服务端点、桶和区域应填写实际存储提供方给出的值。
+
+命令会显示整理、压缩、上传或下载、解压和导入的阶段进度；这些信息写入标准错误，`--json` 的标准输出仍只包含一个结果对象。`backedUp` 统计 TSSL 包数量，ZIP 模式上传文件数通常为 1。恢复的 `imported`、`duplicates`、`failed` 统计导入结果，可用 Ctrl+C 取消。
 
 AWS 环境变量来源读取 `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`，并读取可选 `AWS_SESSION_TOKEN`：
 
@@ -832,6 +847,7 @@ WebDAV 下载有强 ETag 时可恢复当前文件，并校验已完成文件；S
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
 | `tsslBackup/target` | `none` | `none/local/webdav/s3` |
+| `tsslBackup/format` | `zip` | `zip/files`；恢复自动识别两种格式 |
 | `tsslBackup/localPath` | 空 | 本地备份目录 |
 | `tsslBackup/webDavServiceId` | 空 | WebDAV 服务 ID |
 | `tsslBackup/webDavPath` | `vibePlayerQT/tssl` | WebDAV 备份路径 |
@@ -1147,7 +1163,7 @@ $taskId = $job.data.id
 
 - CLI 播放控制与后台任务管理仅针对各自的 CLI 宿主。
 - SMB 直接服务入口在 Windows 实现，添加 SMB 卡片不代表已有桌面 SMB 浏览页。
-- TSSL 文件本身没有密码加密；备份命令不备份视频。
+- TSSL 文件和 ZIP 备份本身没有密码加密；备份命令不备份视频。
 - S3 不支持自动 SSO/MFA/`credential_process`/角色链和长任务中途刷新。
 - Shell 只执行内部 CLI 命令及结果过滤，不是系统 Shell。
 - WebDAV 续传依赖服务器的 ETag/Range；SMB 和视频/TSSL 恢复规则不同。

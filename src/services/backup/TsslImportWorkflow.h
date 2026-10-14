@@ -15,5 +15,6 @@ struct TsslImportSummary final {
 namespace TsslImportWorkflow {
 TsslImportSummary run(const TsslStore& store, const QStringList& paths,
                       const std::atomic_bool* canceled = nullptr,
-                      const std::function<void(int, int)>& progress = {});
+                      const std::function<void(int, int)>& progress = {},
+                      const std::function<void(const QString&, int, int)>& stageProgress = {});
 }

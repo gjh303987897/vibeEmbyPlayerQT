@@ -28,7 +28,7 @@ const QVariantMap& defaults()
         {"m3u8s/audioEncoding", "aac"}, {"m3u8s/videoQuality", "balanced"},
         {"m3u8s/containerFormat", "m3u8sp"}, {"m3u8s/parallelJobs", 1},
         {"encryptedHlsRestore/outputDirectory", ""}, {"encryptedHlsRestore/format", "original"},
-        {"tsslBackup/target", "none"}, {"tsslBackup/localPath", ""}, {"tsslBackup/webDavServiceId", ""},
+        {"tsslBackup/target", "none"}, {"tsslBackup/format", "zip"}, {"tsslBackup/localPath", ""}, {"tsslBackup/webDavServiceId", ""},
         {"tsslBackup/webDavPath", "vibePlayerQT/tssl"}, {"tsslBackup/s3Endpoint", ""},
         {"tsslBackup/s3Bucket", ""}, {"tsslBackup/s3Region", "us-east-1"},
         {"tsslBackup/s3Prefix", "vibePlayerQT/tssl"}, {"tsslBackup/s3AccessKey", ""},
@@ -71,6 +71,7 @@ std::expected<void, QString> WorkflowSettings::validate(const QString& key, QVar
         {"m3u8s/containerFormat", {"m3u8s", "m3u8sp"}},
         {"encryptedHlsRestore/format", {"original", "mkv", "mp4"}},
         {"tsslBackup/target", {"none", "local", "webdav", "s3"}},
+        {"tsslBackup/format", {"zip", "files"}},
     };
     if (choices.contains(key) && !choices.value(key).contains(value.toString()))
         return std::unexpected(QStringLiteral("Invalid value for %1; expected %2").arg(key, choices.value(key).join(", ")));

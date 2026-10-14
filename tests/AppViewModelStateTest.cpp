@@ -3,6 +3,9 @@
 #include "app/ThemeSnapshotController.h"
 #include "app/WindowAppearanceController.h"
 #include "player/MpvVideoItem.h"
+#include "services/backup/TsslBackupArchive.h"
+#include "services/credentials/CredentialStore.h"
+#include "services/management/WorkflowSettings.h"
 #include "NativeFileDialogTestHelpers.h"
 #include <QApplication>
 #include <QFile>
@@ -22,12 +25,107 @@
 #include <QQmlEngine>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QThreadPool>
+#include <QSemaphore>
+#include <QScopeGuard>
+#include <QUuid>
 #include <QtTest>
+#include <QtConcurrentRun>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QHostAddress>
 
 namespace {
+// AppViewModel constructs its TSSL store from QStandardPaths. A unique test
+// application name keeps these fixtures separate from real application data.
+class TsslViewModelProfile final {
+public:
+    TsslViewModelProfile()
+        : m_originalName(QCoreApplication::applicationName()),
+          m_testName(QStringLiteral("vibePlayerQT-tssl-vm-") + QUuid::createUuid().toString(QUuid::WithoutBraces))
+    {
+        QCoreApplication::setApplicationName(m_testName);
+        m_dataRoot = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+        QSettings sharedSettings(QSettings::IniFormat, QSettings::UserScope,
+            QStringLiteral("vibePlayerQT"), QStringLiteral("vibePlayerQT"));
+        for (const auto& key : keys()) m_savedSettings.insert(key, sharedSettings.value(key));
+        sharedSettings.setValue(QStringLiteral("appearance/languageMode"), QStringLiteral("en_US"));
+        sharedSettings.setValue(QStringLiteral("updates/automaticCheck"), false);
+        sharedSettings.remove(QStringLiteral("tsslBackup/format"));
+        sharedSettings.sync();
+    }
+
+    ~TsslViewModelProfile()
+    {
+        QSettings sharedSettings(QSettings::IniFormat, QSettings::UserScope,
+            QStringLiteral("vibePlayerQT"), QStringLiteral("vibePlayerQT"));
+        for (const auto& key : keys()) {
+            if (m_savedSettings.value(key).isValid()) sharedSettings.setValue(key, m_savedSettings.value(key));
+            else sharedSettings.remove(key);
+        }
+        sharedSettings.sync();
+        // Remove only files in this uniquely named profile and then its empty
+        // directories; never recursively remove a computed application path.
+        if (QFileInfo(m_dataRoot).fileName() == m_testName) {
+            const QDir packages(QDir(m_dataRoot).filePath(QStringLiteral("tssl")));
+            for (const auto& name : packages.entryList(QDir::Files)) QFile::remove(packages.filePath(name));
+            QDir(m_dataRoot).rmdir(QStringLiteral("tssl"));
+            const QDir profile(m_dataRoot);
+            for (const auto& name : profile.entryList(QDir::Files)) QFile::remove(profile.filePath(name));
+            QDir().rmdir(m_dataRoot);
+        }
+        QCoreApplication::setApplicationName(m_originalName);
+    }
+
+    TsslStore store() const { return TsslStore(QDir(m_dataRoot).filePath(QStringLiteral("tssl"))); }
+
+private:
+    static QStringList keys()
+    {
+        return {QStringLiteral("tsslBackup/format"), QStringLiteral("tsslBackup/target"),
+            QStringLiteral("tsslBackup/localPath"), QStringLiteral("appearance/languageMode"),
+            QStringLiteral("updates/automaticCheck"), QStringLiteral("tsslBackup/webDavServiceId")};
+    }
+    QString m_originalName;
+    QString m_testName;
+    QString m_dataRoot;
+    QHash<QString, QVariant> m_savedSettings;
+};
+
+TsslPackage tsslFixture(char digest)
+{
+    return {.identifier = QByteArray(TsslPackage::identifierLength, 'A'),
+        .rootManifestDigest = QByteArray(32, digest),
+        .segmentKeys = {{QStringLiteral("segments/0001.ts"), QByteArray(32, 'C')}}};
+}
+
+class TsslWorkerGate final {
+public:
+    TsslWorkerGate() : m_oldMaximum(QThreadPool::globalInstance()->maxThreadCount())
+    {
+        QThreadPool::globalInstance()->setMaxThreadCount(1);
+        m_worker = QtConcurrent::run([this] { m_entered.release(); m_release.acquire(); });
+        m_entered.acquire();
+    }
+    ~TsslWorkerGate()
+    {
+        release();
+        m_worker.waitForFinished();
+        QThreadPool::globalInstance()->waitForDone();
+        QThreadPool::globalInstance()->setMaxThreadCount(m_oldMaximum);
+    }
+    void release()
+    {
+        if (!m_released) { m_released = true; m_release.release(); }
+    }
+private:
+    int m_oldMaximum;
+    QSemaphore m_entered;
+    QSemaphore m_release;
+    QFuture<void> m_worker;
+    bool m_released {false};
+};
+
 ServiceCard card(const QString& id, bool privateMode = false)
 {
     return {.server = {.id = id, .name = id, .baseUrl = "https://localhost/", .username = "tester",
@@ -90,6 +188,181 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDirectory.path());
     }
     void cleanupTestCase() { QSettings::setDefaultFormat(m_originalFormat); }
+    void tsslBackupFormatPersistsAndDefaultsToZip()
+    {
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        AppViewModel vm(nullptr, directory.filePath(QStringLiteral("format.db")));
+        QCOMPARE(vm.tsslBackupFormat(), QStringLiteral("zip"));
+        QSignalSpy changed(&vm, &AppViewModel::tsslBackupChanged);
+        vm.setTsslBackupFormat(QStringLiteral("files"));
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(WorkflowSettings::snapshot().value(QStringLiteral("tsslBackup/format")).toString(), QStringLiteral("files"));
+        AppViewModel reopened(nullptr, directory.filePath(QStringLiteral("reopened.db")));
+        reopened.initialize();
+        QCOMPARE(reopened.tsslBackupFormat(), QStringLiteral("files"));
+        reopened.setTsslBackupFormat(QStringLiteral("zip"));
+        QCOMPARE(WorkflowSettings::snapshot().value(QStringLiteral("tsslBackup/format")).toString(), QStringLiteral("zip"));
+        QTRY_VERIFY(!reopened.tsslPackagesLoading());
+        QVERIFY(!reopened.hasError());
+    }
+    void tsslLocalZipBackupAndMixedLegacyRestore()
+    {
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto store = profile.store();
+        const auto first = tsslFixture('B');
+        const auto second = tsslFixture('D');
+        QVERIFY(store.savePackage(first));
+        QVERIFY(store.savePackage(second));
+        const auto backupDirectory = directory.filePath(QStringLiteral("备份 ZIP"));
+        QVERIFY(QDir().mkpath(backupDirectory));
+        AppViewModel vm(nullptr, directory.filePath(QStringLiteral("backup.db")));
+        vm.setLanguageMode(QStringLiteral("en_US"));
+        vm.setTsslBackupTarget(QStringLiteral("local"));
+        vm.setTsslBackupLocalPath(backupDirectory);
+        QStringList states;
+        connect(&vm, &AppViewModel::tsslBackupChanged, &vm, [&] { states.append(vm.tsslBackupStatus()); });
+        QSignalSpy notices(&vm, &AppViewModel::tsslOperationNoticeRequested);
+        vm.backupTsslToConfiguredTarget();
+        QVERIFY(vm.tsslBackupRunning());
+        QVERIFY(vm.tsslBackupCancelable());
+        vm.backupTsslToConfiguredTarget(); // Repeated clicks cannot publish a second archive.
+        QTRY_VERIFY(!vm.tsslBackupRunning());
+        QVERIFY2(!vm.hasError(), qPrintable(vm.errorMessage()));
+        const auto backupFiles = TsslBackupArchive::discover(backupDirectory);
+        QCOMPARE(backupFiles.size(), 1);
+        QVERIFY(backupFiles.front().endsWith(QStringLiteral(".zip")));
+        QVERIFY(std::ranges::any_of(states, [](const QString& state) { return state.contains(QStringLiteral("Compressing")); }));
+        QCOMPARE(notices.size(), 1);
+        QVERIFY(vm.tsslBackupStatus().contains(QStringLiteral("2 TSSL packages")));
+
+        // A pre-existing independent-file backup remains discoverable beside ZIP.
+        const auto legacyFile = QDir(backupDirectory).filePath(QStringLiteral("legacy.tssl"));
+        QVERIFY(store.exportByRootDigest(first.rootManifestDigest, legacyFile));
+        QVERIFY(store.deleteByRootDigest(first.rootManifestDigest));
+        QVERIFY(store.deleteByRootDigest(second.rootManifestDigest));
+        states.clear();
+        vm.restoreTsslBackup();
+        QVERIFY(vm.tsslBackupRunning());
+        QVERIFY(vm.tsslBackupCancelable());
+        QTRY_VERIFY(!vm.tsslBackupRunning());
+        QVERIFY2(!vm.hasError(), qPrintable(vm.errorMessage()));
+        QCOMPARE(notices.size(), 2);
+        QVERIFY(vm.tsslBackupStatus().contains(QStringLiteral("Restored 2 TSSL packages (1 already existed, 0 failed)")));
+        QVERIFY(std::ranges::any_of(states, [](const QString& state) { return state.contains(QStringLiteral("Extracting")); }));
+        QVERIFY(std::ranges::any_of(states, [](const QString& state) { return state.contains(QStringLiteral("Importing")); }));
+        const auto restored = store.listPackages();
+        QVERIFY(restored);
+        QCOMPARE(restored->size(), size_t(2));
+        const auto restoredFirst = store.packageForRootDigest(first.rootManifestDigest);
+        const auto restoredSecond = store.packageForRootDigest(second.rootManifestDigest);
+        QVERIFY(restoredFirst && restoredFirst->has_value());
+        QVERIFY(restoredSecond && restoredSecond->has_value());
+        QCOMPARE((**restoredFirst).toJson(), first.toJson());
+        QCOMPARE((**restoredSecond).toJson(), second.toJson());
+        QTRY_VERIFY(!vm.tsslPackagesLoading());
+
+        const auto independentDirectory = directory.filePath(QStringLiteral("legacy"));
+        vm.setTsslBackupLocalPath(independentDirectory);
+        vm.setTsslBackupFormat(QStringLiteral("files"));
+        vm.backupTsslToConfiguredTarget();
+        QTRY_VERIFY(!vm.tsslBackupRunning());
+        QVERIFY(!vm.hasError());
+        const auto independentFiles = TsslBackupArchive::discover(independentDirectory);
+        QCOMPARE(independentFiles.size(), 2);
+        for (const auto& file : independentFiles) QVERIFY(file.endsWith(QStringLiteral(".tssl")));
+    }
+    void tsslLocalWorkersCancelWithoutBlockingOrPublishing()
+    {
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(profile.store().savePackage(tsslFixture('B')));
+        const auto backupDirectory = directory.filePath(QStringLiteral("cancel-backup"));
+        AppViewModel vm(nullptr, directory.filePath(QStringLiteral("cancel.db")));
+        vm.setLanguageMode(QStringLiteral("en_US"));
+        vm.setTsslBackupTarget(QStringLiteral("local"));
+        vm.setTsslBackupLocalPath(backupDirectory);
+        {
+            TsslWorkerGate gate;
+            vm.backupTsslToConfiguredTarget();
+            QVERIFY(vm.tsslBackupRunning());
+            QVERIFY(vm.tsslBackupCancelable());
+            int heartbeats = 0;
+            QTimer timer;
+            connect(&timer, &QTimer::timeout, [&] { ++heartbeats; });
+            timer.start(5);
+            vm.cancelTsslBackup();
+            QVERIFY(vm.tsslBackupRunning()); // Busy until the worker has observed cancellation.
+            QVERIFY(!vm.tsslBackupCancelable());
+            vm.backupTsslToConfiguredTarget();
+            QTest::qWait(35);
+            QVERIFY(heartbeats >= 2);
+            QVERIFY(vm.tsslBackupRunning());
+            gate.release();
+            QTRY_VERIFY(!vm.tsslBackupRunning());
+        }
+        QCOMPARE(vm.tsslBackupStatus(), QStringLiteral("TSSL backup canceled"));
+        QVERIFY(!vm.hasError());
+        QVERIFY(TsslBackupArchive::discover(backupDirectory).isEmpty());
+        vm.backupTsslToConfiguredTarget();
+        QTRY_VERIFY(!vm.tsslBackupRunning());
+        QVERIFY(!vm.hasError());
+        QCOMPARE(TsslBackupArchive::discover(backupDirectory).size(), 1);
+        {
+            TsslWorkerGate gate;
+            vm.restoreTsslBackup();
+            QVERIFY(vm.tsslBackupRunning());
+            QVERIFY(vm.tsslBackupCancelable());
+            vm.cancelTsslBackup();
+            QVERIFY(vm.tsslBackupRunning());
+            QVERIFY(!vm.tsslBackupCancelable());
+            gate.release();
+            QTRY_VERIFY(!vm.tsslBackupRunning());
+        }
+        QCOMPARE(vm.tsslBackupStatus(), QStringLiteral("TSSL restore canceled"));
+        QVERIFY(!vm.hasError());
+    }
+    void tsslRemoteRestoreCanCancelFromInitialStatusSignal()
+    {
+        if (!CredentialStore::isAvailable()) QSKIP("Secure password store is unavailable");
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QTcpServer endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+        int connections = 0;
+        connect(&endpoint, &QTcpServer::newConnection, [&] { ++connections; });
+        const auto serviceId = QStringLiteral("tssl-restore-test-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const auto saved = CredentialStore::savePassword(serviceId, QStringLiteral("tester"), QStringLiteral("fixture"));
+        QVERIFY(saved);
+        const auto cleanupCredential = qScopeGuard([&] { static_cast<void>(CredentialStore::deletePassword(serviceId)); });
+        auto service = card(serviceId);
+        service.server.baseUrl = QStringLiteral("http://127.0.0.1:%1/").arg(endpoint.serverPort());
+        AppViewModel vm(nullptr, directory.filePath(QStringLiteral("reentrant-cancel.db")));
+        vm.setLanguageMode(QStringLiteral("en_US"));
+        vm.services()->setCards({service});
+        vm.setTsslBackupTarget(QStringLiteral("webdav"));
+        vm.setTsslBackupWebDavServiceId(serviceId);
+        bool canceled = false;
+        connect(&vm, &AppViewModel::tsslBackupChanged, &vm, [&] {
+            if (!canceled && vm.tsslBackupRunning() && vm.tsslBackupCancelable()) {
+                canceled = true;
+                vm.cancelTsslBackup();
+            }
+        });
+        vm.restoreTsslBackup();
+        QVERIFY(canceled);
+        QVERIFY(!vm.tsslBackupRunning());
+        QVERIFY(!vm.tsslBackupCancelable());
+        QCOMPARE(vm.tsslBackupStatus(), QStringLiteral("TSSL restore canceled"));
+        QTest::qWait(20);
+        QCOMPARE(connections, 0);
+        QVERIFY(!vm.hasError());
+    }
     void mergedIptvPlaybackSelectsRoutesAndPersistsActualInformation()
     {
         QTemporaryDir temporary;

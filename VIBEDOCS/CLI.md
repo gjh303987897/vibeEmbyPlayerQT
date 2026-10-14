@@ -63,12 +63,12 @@ Windows 会话 Token 由用户范围 DPAPI 加密；旧会话在写模式初始�
 | `webdav copy/move/rename SERVICE SOURCE TARGET [--overwrite]` | 标准 COPY/MOVE，默认拒绝覆盖 |
 | `smb ls/stat/mkdir/upload/download/remove/move/copy` | Windows 原生 SMB 文件操作 |
 | `tssl list` / `tssl show DIGEST` | 列表或元数据，不输出密钥 |
-| `tssl import FILE...` | 报告导入、重复、失败数量 |
+| `tssl import FILE...` | 导入 `.tssl` 或 ZIP 备份，报告导入、重复、失败数量 |
 | `tssl export DIGEST FILE` | 导出一个完整密钥包 |
 | `tssl export --all --output DIR` | 导出全部密钥包 |
 | `tssl export DIGEST... --output DIR` | 导出多个选定包，摘要去重 |
 | `tssl remove DIGEST... [--yes]` | 批量删除，一次确认，返回成功/失败数量 |
-| `tssl backup` / `tssl restore` | 备份/恢复，默认保存的目标 |
+| `tssl backup [--format zip\|files]` / `tssl restore` | 默认 ZIP 备份；恢复同时识别 ZIP 和旧 `.tssl`，默认保存的目标 |
 | `video pack SOURCE...` | 文件/目录批量生成 M3U8S/M3U8SP |
 | `video restore PACKAGE_OR_FOLDER... [--service WEBDAV]` | 递归发现本地或远程包并还原 |
 | `media libraries/ls/search/show SERVICE ...` | Emby/Jellyfin 查询；列表支持 offset/limit |
@@ -137,13 +137,25 @@ FFmpeg 未捆绑，由已有定位与能力探测模块处理。
 
 ```powershell
 .\vibePlayerQT tssl backup --target local --local-path "D:\备份\TSSL"
+.\vibePlayerQT tssl backup --target local --local-path "D:\备份\TSSL" --format files
 .\vibePlayerQT tssl restore --target webdav --service "家庭 DAV" --path "/备份/TSSL"
 .\vibePlayerQT tssl backup --target s3 --s3-endpoint "https://s3.example.com" --s3-bucket media --s3-region us-east-1 --s3-prefix tssl --s3-access-key ACCESS_KEY --s3-secret-env S3_SECRET
 ```
 
 不提供目标覆盖时使用 `tsslBackup/*` 保存设置。WebDAV 备份目录需要已存在。
 S3 沿用 SigV4 和现有 HTTPS 要求，仅 `localhost` 开发端点允许 HTTP。
-备份使用摘要命名，沿用已有备份模块的覆盖行为；恢复按摘要去重。
+`tsslBackup/format` 默认 `zip`，也可通过 `config set tsslBackup/format files` 保存独立文件模式。
+`--format zip|files` 仅临时覆盖 backup；restore 自动识别格式，不接受 `--format`。
+ZIP 模式在工作线程先整理和压缩，再上传一个文件，本地备份同样生成 ZIP。
+ZIP 快照命名为 `tssl-backup-UTC时间-UUID.zip`，保留此前有效备份；独立文件模式仍使用 `摘要.tssl`，沿用已有覆盖行为。
+恢复扫描目标直接包含的 ZIP 备份与 `.tssl`，先下载、解压并校验，然后按根摘要去重；
+混合目录、多个快照和本地已有密钥包均保留现有重复跳过规则。
+新版可恢复旧备份；旧版需要使用 `files` 模式，或先手动解压 ZIP，再从包含 `.tssl` 的目录恢复。
+ZIP 内的 `摘要.tssl` 和 `manifest.json` 都在根目录，旧版恢复会忽略清单。
+目录恢复只识别 `tssl-backup-*.zip` 备份命名规则；手动改名的合法 ZIP 可以直接使用 `tssl import FILE.zip` 导入。
+ZIP 文件和解压总量均限制为 2 GiB，最多 10000 个包、每包 64 MiB；详情见 [TsslBackupArchive.md](TsslBackupArchive.md)。
+压缩不增加密码加密，ZIP 仍包含完整密钥，应按密钥文件保管。
+终端阶段进度写入 stderr，包括整理、压缩、上传/下载、解压和导入；JSON 标准输出仍是单个结果对象。
 导出命令产生完整密钥文件，`list/show` 仅显示元数据。
 
 ## 隐私和凭据

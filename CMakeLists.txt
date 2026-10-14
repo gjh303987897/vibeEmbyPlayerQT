@@ -35,6 +35,17 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Pinned, static ZIP/Deflate implementation; no extra runtime DLL or system archiver.
+set(VIBE_MINIZ_SOURCES
+    third_party/miniz/miniz.c third_party/miniz/miniz_tdef.c
+    third_party/miniz/miniz_tinfl.c third_party/miniz/miniz_zip.c)
+set_source_files_properties(${VIBE_MINIZ_SOURCES} PROPERTIES LANGUAGE CXX)
+add_library(vibeMiniz STATIC ${VIBE_MINIZ_SOURCES})
+set_target_properties(vibeMiniz PROPERTIES POSITION_INDEPENDENT_CODE ON AUTOMOC OFF)
+target_include_directories(vibeMiniz PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz)
+target_compile_definitions(vibeMiniz PUBLIC MINIZ_NO_STDIO MINIZ_NO_TIME
+    MINIZ_NO_ZLIB_APIS MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS
     Concurrent
     Qml
@@ -392,6 +403,12 @@ if(APPLE)
 endif()
 
 include(GNUInstallDirs)
+if(APPLE)
+    install(FILES third_party/miniz/LICENSE DESTINATION vibePlayerQT.app/Contents/Resources/licenses
+        RENAME miniz-LICENSE.txt)
+else()
+    install(FILES third_party/miniz/LICENSE DESTINATION licenses RENAME miniz-LICENSE.txt)
+endif()
 
 if(UNIX AND NOT APPLE)
     set_target_properties(vibePlayerQT PROPERTIES
@@ -837,6 +854,8 @@ if(BUILD_TESTING)
         tests/TsslBackupServiceTest.cpp
         src/services/backup/TsslBackupService.cpp
         src/services/backup/TsslBackupService.h
+        src/services/backup/TsslBackupArchive.cpp
+        src/services/backup/TsslImportWorkflow.cpp
         src/services/webdav/TsslStore.cpp
         src/services/webdav/TsslStore.h
         src/services/webdav/AesGcmDecryptor.cpp
@@ -844,7 +863,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(tssl_backup_service_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(tssl_backup_service_test PRIVATE
-        Qt6::Concurrent Qt6::Network Qt6::Test Qt6::Xml ${VIBE_CRYPTO_LIBRARIES}
+        Qt6::Concurrent Qt6::Network Qt6::Test Qt6::Xml vibeMiniz ${VIBE_CRYPTO_LIBRARIES}
     )
     add_test(NAME tssl_backup_service COMMAND tssl_backup_service_test
         -o "${CMAKE_CURRENT_BINARY_DIR}/tssl-backup-service-results.txt,txt"
@@ -853,6 +872,13 @@ if(BUILD_TESTING)
         TIMEOUT 60
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
     )
+
+    add_executable(tssl_backup_archive_test tests/TsslBackupArchiveTest.cpp)
+    target_link_libraries(tssl_backup_archive_test PRIVATE vibeCore Qt6::Test)
+    add_test(NAME tssl_backup_archive COMMAND tssl_backup_archive_test
+        -o "${CMAKE_CURRENT_BINARY_DIR}/tssl-backup-archive-results.txt,txt")
+    set_tests_properties(tssl_backup_archive PROPERTIES TIMEOUT 60
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
 
     add_executable(encrypted_hls_packager_test
         tests/EncryptedHlsPackagerTest.cpp
@@ -866,6 +892,7 @@ if(BUILD_TESTING)
         src/services/encryptedhls/EncryptedHlsSourcePlanner.h
         src/services/backup/TsslBackupService.cpp
         src/services/backup/TsslBackupService.h
+        src/services/backup/TsslBackupArchive.cpp
         src/services/webdav/AesGcmDecryptor.cpp
         src/services/webdav/AesGcmDecryptor.h
         src/services/webdav/HlsManifestValidator.cpp
@@ -883,6 +910,7 @@ if(BUILD_TESTING)
         Qt6::Network
         Qt6::Test
         Qt6::Xml
+        vibeMiniz
         ${VIBE_CRYPTO_LIBRARIES}
     )
 

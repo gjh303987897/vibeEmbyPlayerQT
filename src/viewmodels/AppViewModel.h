@@ -94,6 +94,7 @@ class AppViewModel final : public QObject {
     Q_PROPERTY(bool webDavShowM3u8sSourceFileName READ webDavShowM3u8sSourceFileName WRITE setWebDavShowM3u8sSourceFileName NOTIFY webDavDisplaySettingsChanged)
     Q_PROPERTY(QString webDavTsslStatus READ webDavTsslStatus NOTIFY webDavTsslStatusChanged)
     Q_PROPERTY(QString tsslBackupTarget READ tsslBackupTarget WRITE setTsslBackupTarget NOTIFY tsslBackupChanged)
+    Q_PROPERTY(QString tsslBackupFormat READ tsslBackupFormat WRITE setTsslBackupFormat NOTIFY tsslBackupChanged)
     Q_PROPERTY(QString tsslBackupLocalPath READ tsslBackupLocalPath WRITE setTsslBackupLocalPath NOTIFY tsslBackupChanged)
     Q_PROPERTY(QString tsslBackupWebDavServiceId READ tsslBackupWebDavServiceId WRITE setTsslBackupWebDavServiceId NOTIFY tsslBackupChanged)
     Q_PROPERTY(QString tsslBackupWebDavPath READ tsslBackupWebDavPath WRITE setTsslBackupWebDavPath NOTIFY tsslBackupChanged)
@@ -306,6 +307,7 @@ class AppViewModel final : public QObject {
 
 public:
     explicit AppViewModel(QObject* parent = nullptr, QString databasePath = {});
+    ~AppViewModel() override;
 
     QString serverUrl() const;
     void setServerUrl(const QString& value);
@@ -363,6 +365,8 @@ public:
     QString webDavTsslStatus() const;
     QString tsslBackupTarget() const;
     void setTsslBackupTarget(const QString& value);
+    QString tsslBackupFormat() const;
+    void setTsslBackupFormat(const QString& value);
     QString tsslBackupLocalPath() const;
     void setTsslBackupLocalPath(const QString& value);
     QString tsslBackupWebDavServiceId() const;
@@ -1054,6 +1058,9 @@ private:
     void completeInitialServiceLoad();
     void setError(QString message);
     void restoreTsslBackupFiles(QStringList sourcePaths);
+    void updateTsslBackupProgress(const QString& stage, int completed, int total);
+    std::function<void(const QString&, int, int)> tsslBackupProgressCallback(
+        const std::shared_ptr<std::atomic_bool>& cancellation);
     void setWebDavTsslStatus(QString message);
     void setSession(UserSession session);
     void saveSession();
@@ -1317,6 +1324,7 @@ private:
     QString m_m3u8sVideoQuality { QStringLiteral("balanced") };
     QString m_m3u8sContainerFormat { QStringLiteral("m3u8sp") };
     QString m_tsslBackupTarget { QStringLiteral("none") };
+    QString m_tsslBackupFormat { QStringLiteral("zip") };
     QString m_tsslBackupLocalPath;
     QString m_tsslBackupWebDavServiceId;
     QString m_tsslBackupWebDavPath { QStringLiteral("vibePlayerQT/tssl") };
@@ -1329,6 +1337,7 @@ private:
     bool m_tsslBackupRunning { false };
     bool m_tsslBackupCancelable { false };
     QString m_tsslBackupStatus;
+    std::shared_ptr<std::atomic_bool> m_tsslBackupCancellation;
     qint64 m_historyTotalWatchSeconds { 0 };
     qint64 m_historyTotalNetworkBytes { 0 };
     qint64 m_historyTotalNetworkBytesIn { 0 };

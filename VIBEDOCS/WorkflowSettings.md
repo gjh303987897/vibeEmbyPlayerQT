@@ -15,6 +15,10 @@
 验证拒绝未注册键、非法枚举和并行数，转换布尔/CSV 编码列表，规范化本地路径；
 保存同步检查 QSettings 状态。配置不会在临时命令覆盖时写回。
 
+TSSL 备份格式键 `tsslBackup/format` 默认 `zip`，允许 `zip/files`。桌面选择框
+和 CLI `config set` 使用相同验证与保存接口；`tssl backup --format` 只覆盖
+本次任务，恢复忽略格式设置并同时发现新旧备份。
+
 GUI 在后台发现视频之前冻结当前界面值；CLI 从快照构造请求并应用覆盖；
 二者调用同一个 applyPackaging，避免编码/容器规则随入口漂移。
 FFmpeg 的进程级路径仍由现有定位器管理。

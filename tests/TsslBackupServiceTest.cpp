@@ -1,4 +1,6 @@
 #include "services/backup/TsslBackupService.h"
+#include "services/backup/TsslBackupArchive.h"
+#include "services/backup/TsslImportWorkflow.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -109,6 +111,7 @@ public:
     TsslBackupTarget webDavTarget() const
     {
         TsslBackupTarget target;
+        target.format = TsslBackupTarget::Format::Files;
         target.webDavServer.baseUrl = QStringLiteral("http://localhost:%1/dav").arg(serverPort());
         target.webDavPath = QStringLiteral("backups");
         return target;
@@ -165,6 +168,12 @@ private slots:
     void reportsWebDavListingErrors_data();
     void reportsWebDavListingErrors();
     void destructionDuringRestoreParsingIsSafe();
+    void archivesMultiplePackagesInOneRequest_data();
+    void archivesMultiplePackagesInOneRequest();
+    void restoresMixedArchivesAndLegacyFiles_data();
+    void restoresMixedArchivesAndLegacyFiles();
+    void cancelsArchivePreparationAndRestarts();
+    void rejectsOversizedArchiveDownload();
 };
 
 void TsslBackupServiceTest::preparesOnlyValidPackagesWithoutBlocking()
@@ -260,6 +269,7 @@ void TsslBackupServiceTest::signsS3PayloadPreparedInBackground()
     QVERIFY(endpoint.listen(QHostAddress::LocalHost));
     TsslBackupTarget target;
     target.type = TsslBackupTarget::Type::S3;
+    target.format = TsslBackupTarget::Format::Files;
     target.s3Endpoint = QUrl(QStringLiteral("http://localhost:%1").arg(endpoint.serverPort()));
     target.s3Bucket = QStringLiteral("test-bucket");
     target.s3Region = QStringLiteral("us-east-1");
@@ -338,7 +348,7 @@ void TsslBackupServiceTest::rejectsUnreadableOrInvalidFiles_data()
     QTest::addColumn<QString>("errorText");
     QTest::newRow("missing") << qint64(-1) << QStringLiteral("Unable to read TSSL package");
     QTest::newRow("empty") << qint64(0) << QStringLiteral("size is invalid");
-    QTest::newRow("too large") << qint64(256LL * 1024 * 1024 + 1) << QStringLiteral("exceeds 256 MiB");
+    QTest::newRow("too large") << qint64(256LL * 1024 * 1024 + 1) << QStringLiteral("exceeds its transfer limit");
 }
 
 void TsslBackupServiceTest::rejectsUnreadableOrInvalidFiles()
@@ -501,6 +511,12 @@ void TsslBackupServiceTest::reportsWebDavListingErrors_data()
     QTest::newRow("malformed XML") << QByteArrayLiteral("207 Multi-Status") << QByteArrayLiteral("<broken") << QStringLiteral("XML");
     QTest::newRow("HTML response") << QByteArrayLiteral("200 OK") << QByteArrayLiteral("<html/>") << QStringLiteral("XML");
     QTest::newRow("forbidden") << QByteArrayLiteral("403 Forbidden") << QByteArray() << QStringLiteral("HTTP 403");
+    auto foreign = webDavListing();
+    foreign.replace("first.tssl", "http://foreign.invalid/stolen.tssl");
+    QTest::newRow("foreign backup href") << QByteArrayLiteral("207 Multi-Status") << foreign << QStringLiteral("outside");
+    auto outside = webDavListing();
+    outside.replace("first.tssl", "../stolen.tssl");
+    QTest::newRow("outside backup folder") << QByteArrayLiteral("207 Multi-Status") << outside << QStringLiteral("outside");
 }
 
 void TsslBackupServiceTest::reportsWebDavListingErrors()
@@ -544,6 +560,202 @@ void TsslBackupServiceTest::destructionDuringRestoreParsingIsSafe()
     QCoreApplication::processEvents();
     QVERIFY(!callbackInvoked);
     QCOMPARE(endpoint.requests.size(), 1);
+}
+
+void TsslBackupServiceTest::archivesMultiplePackagesInOneRequest_data()
+{
+    QTest::addColumn<bool>("s3");
+    QTest::newRow("webdav") << false;
+    QTest::newRow("s3") << true;
+}
+
+void TsslBackupServiceTest::archivesMultiplePackagesInOneRequest()
+{
+    QFETCH(bool, s3);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    TsslStore store(directory.filePath(QStringLiteral("密钥")));
+    QStringList files;
+    for (int index = 0; index < 24; ++index) {
+        TsslPackage package {
+            .identifier = QByteArray(TsslPackage::identifierLength, 'A'),
+            .rootManifestDigest = QByteArray(32, char('A' + index)),
+            .segmentKeys = {{QStringLiteral("segments/0001.ts"), QByteArray(32, 'K')}},
+        };
+        QVERIFY(store.savePackage(package).has_value());
+        files.append(QDir(store.storageDirectory()).filePath(QString::fromLatin1(package.rootManifestDigest.toHex()) + ".tssl"));
+    }
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    auto target = endpoint.webDavTarget();
+    target.format = TsslBackupTarget::Format::Zip;
+    if (s3) {
+        target.type = TsslBackupTarget::Type::S3;
+        target.s3Endpoint = QUrl(QStringLiteral("http://localhost:%1").arg(endpoint.serverPort()));
+        target.s3Bucket = QStringLiteral("test-bucket");
+        target.s3Region = QStringLiteral("us-east-1");
+        target.s3Prefix = QStringLiteral("backups");
+        target.s3AccessKey = QStringLiteral("test-access-key");
+        target.s3SecretKey = QStringLiteral("test-secret-key");
+    }
+    TsslBackupService service;
+    QSignalSpy stages(&service, &TsslBackupService::stageChanged);
+    std::optional<TsslBackupResult> result;
+    WorkerGate gate;
+    service.backup(target, files, [&](auto value) { result = std::move(value); });
+    bool eventDelivered = false;
+    QTimer::singleShot(0, this, [&] { eventDelivered = true; });
+    QTRY_VERIFY(eventDelivered);
+    QVERIFY(!result && endpoint.requests.isEmpty());
+    gate.release();
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 10000);
+    if (!result->has_value()) QFAIL(qPrintable(result->error()));
+    QCOMPARE(**result, files.size());
+    QCOMPARE(endpoint.requests.size(), 1);
+    const auto& request = endpoint.requests.first();
+    QVERIFY(request.path.endsWith(".zip"));
+    QCOMPARE(request.headers.value("content-type"), QByteArray("application/zip"));
+    QVERIFY(request.body.startsWith("PK"));
+    if (s3) QCOMPARE(request.headers.value("x-amz-content-sha256"),
+        QCryptographicHash::hash(request.body, QCryptographicHash::Sha256).toHex());
+    const auto archive = directory.filePath(QStringLiteral("received.zip"));
+    QVERIFY(writeBytes(archive, request.body));
+    const auto extracted = TsslBackupArchive::extract(archive, directory.filePath(QStringLiteral("展开")));
+    if (!extracted) QFAIL(qPrintable(extracted.error()));
+    QCOMPARE(extracted->size(), files.size());
+    QVERIFY(stages.size() >= 3);
+    std::optional<TsslBackupResult> second;
+    service.backup(target, files, [&](auto value) { second = std::move(value); });
+    QTRY_VERIFY_WITH_TIMEOUT(second.has_value(), 10000);
+    QVERIFY(second->has_value());
+    QCOMPARE(endpoint.requests.size(), 2);
+    QVERIFY(endpoint.requests[0].path != endpoint.requests[1].path);
+}
+
+void TsslBackupServiceTest::restoresMixedArchivesAndLegacyFiles_data()
+{
+    archivesMultiplePackagesInOneRequest_data();
+}
+
+void TsslBackupServiceTest::restoresMixedArchivesAndLegacyFiles()
+{
+    QFETCH(bool, s3);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    TsslPackage package {
+        .identifier = QByteArray(TsslPackage::identifierLength, 'A'),
+        .rootManifestDigest = QByteArray(32, 'B'),
+        .segmentKeys = {{QStringLiteral("segments/0001.ts"), QByteArray(32, 'K')}},
+    };
+    const auto file = directory.filePath(QStringLiteral("legacy.tssl"));
+    QVERIFY(writeBytes(file, package.toJson()));
+    const auto name = TsslBackupArchive::newFileName();
+    const auto archive = directory.filePath(name);
+    QVERIFY(TsslBackupArchive::create({file}, archive).has_value());
+    QFile archiveFile(archive);
+    QVERIFY(archiveFile.open(QIODevice::ReadOnly));
+    const auto zip = archiveFile.readAll();
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    endpoint.responseHandler = [&](QTcpSocket* socket, const PutRequest& request) {
+        if (request.method == "PROPFIND") {
+            auto xml = webDavListing(false);
+            xml.replace("</D:multistatus>", QByteArray("<D:response><D:href>") + name.toUtf8() +
+                "</D:href><D:propstat><D:prop><D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
+                "<D:response><D:href>legacy.tssl</D:href><D:propstat><D:prop><D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
+                "<D:response><D:href>unrelated.zip</D:href><D:propstat><D:prop><D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>");
+            BackupEndpoint::respond(socket, "207 Multi-Status", xml);
+        } else if (request.path.contains("list-type=")) {
+            BackupEndpoint::respond(socket, "200 OK", QByteArray("<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>backups/") +
+                name.toUtf8() + "</Key></Contents><Contents><Key>backups/legacy.tssl</Key></Contents>"
+                "<Contents><Key>backups/unrelated.zip</Key></Contents></ListBucketResult>");
+        } else {
+            BackupEndpoint::respond(socket, "200 OK", request.path.endsWith(".zip") ? zip : package.toJson());
+        }
+    };
+    auto target = endpoint.webDavTarget();
+    if (s3) {
+        target.type = TsslBackupTarget::Type::S3;
+        target.s3Endpoint = QUrl(QStringLiteral("http://localhost:%1").arg(endpoint.serverPort()));
+        target.s3Bucket = QStringLiteral("test-bucket");
+        target.s3Region = QStringLiteral("us-east-1");
+        target.s3Prefix = QStringLiteral("backups");
+        target.s3AccessKey = QStringLiteral("test-access-key");
+        target.s3SecretKey = QStringLiteral("test-secret-key");
+    }
+    TsslBackupService service;
+    std::optional<TsslBackupRestoreResult> result;
+    service.restore(target, [&](auto value) { result = std::move(value); });
+    QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 10000);
+    if (!result->has_value()) QFAIL(qPrintable(result->error()));
+    QCOMPARE((**result).size(), 2);
+    QCOMPARE(endpoint.requests.size(), 3);
+    TsslStore restored(directory.filePath(QStringLiteral("restored")));
+    const auto summary = TsslImportWorkflow::run(restored, **result);
+    QCOMPARE(summary.restored, 1);
+    QCOMPARE(summary.alreadyExists, 1);
+    QCOMPARE(summary.failed, 0);
+    service.cleanupRestoreFiles();
+    for (const auto& path : **result) QVERIFY(!QFileInfo::exists(path));
+}
+
+void TsslBackupServiceTest::cancelsArchivePreparationAndRestarts()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    TsslPackage package {
+        .identifier = QByteArray(TsslPackage::identifierLength, 'A'),
+        .rootManifestDigest = QByteArray(32, 'B'),
+        .segmentKeys = {{QStringLiteral("segments/0001.ts"), QByteArray(32, 'K')}},
+    };
+    const auto file = directory.filePath(QStringLiteral("package.tssl"));
+    QVERIFY(writeBytes(file, package.toJson()));
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    auto target = endpoint.webDavTarget();
+    target.format = TsslBackupTarget::Format::Zip;
+    TsslBackupService service;
+    std::optional<TsslBackupResult> result;
+    WorkerGate gate;
+    service.backup(target, {file}, [&](auto value) { result = std::move(value); });
+    service.cancel();
+    QVERIFY(service.isRunning());
+    gate.release();
+    QTRY_VERIFY(result.has_value());
+    QVERIFY(!result->has_value());
+    QCOMPARE(result->error(), QStringLiteral("TSSL backup canceled"));
+    QVERIFY(endpoint.requests.isEmpty());
+    result.reset();
+    service.backup(target, {file}, [&](auto value) { result = std::move(value); });
+    QTRY_VERIFY(result.has_value());
+    QVERIFY(result->has_value());
+    QCOMPARE(endpoint.requests.size(), 1);
+}
+
+void TsslBackupServiceTest::rejectsOversizedArchiveDownload()
+{
+    BackupEndpoint endpoint;
+    QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+    const auto name = TsslBackupArchive::newFileName();
+    endpoint.responseHandler = [&](QTcpSocket* socket, const PutRequest& request) {
+        if (request.method == "PROPFIND") {
+            auto xml = webDavListing(false);
+            xml.replace("</D:multistatus>", QByteArray("<D:response><D:href>") + name.toUtf8() +
+                "</D:href><D:propstat><D:prop><D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>");
+            BackupEndpoint::respond(socket, "207 Multi-Status", xml);
+        } else {
+            socket->write(QByteArray("HTTP/1.1 200 OK\r\nContent-Length: ") +
+                QByteArray::number(TsslBackupArchive::maximumArchiveBytes + 1) + "\r\n\r\n");
+        }
+    };
+    TsslBackupService service;
+    std::optional<TsslBackupRestoreResult> result;
+    service.restore(endpoint.webDavTarget(), [&](auto value) { result = std::move(value); });
+    QTRY_VERIFY(result.has_value());
+    QVERIFY(!result->has_value());
+    QVERIFY(result->error().contains("size limit"));
+    QCOMPARE(endpoint.requests.size(), 2);
+    service.cleanupRestoreFiles();
 }
 
 QTEST_GUILESS_MAIN(TsslBackupServiceTest)

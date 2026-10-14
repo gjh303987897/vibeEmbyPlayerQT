@@ -35,8 +35,8 @@ const QMap<QString, Spec>& specs()
         {"tssl import", {1,-1, {}, "tssl import <file...>"}},
         {"tssl export", {0,-1, {"all","output"}, "tssl export <digest...> --output DIR | <digest> <file> | --all --output DIR"}},
         {"tssl remove", {1,-1, {}, "tssl remove <digest...> [--yes]"}},
-        {"tssl backup", {0,0, {"target","local-path","service","path","s3-endpoint","s3-bucket","s3-region","s3-prefix","s3-access-key"},
-            "tssl backup [--target local|webdav|s3] [--local-path DIR | --service ID --path PATH]"}},
+        {"tssl backup", {0,0, {"target","format","local-path","service","path","s3-endpoint","s3-bucket","s3-region","s3-prefix","s3-access-key"},
+            "tssl backup [--target local|webdav|s3] [--format zip|files] [--local-path DIR | --service ID --path PATH]"}},
         {"tssl restore", {0,0, {"target","local-path","service","path","s3-endpoint","s3-bucket","s3-region","s3-prefix","s3-access-key"},
             "tssl restore [--target local|webdav|s3] [--local-path DIR | --service ID --path PATH]"}},
         {"video pack", {1,-1, {"output","webdav","path","container","video","audio","quality","jobs","ffmpeg","temp","keep-local","auto-codecs","auto-target"},
@@ -154,6 +154,9 @@ std::expected<Cli::Invocation, Cli::Error> Cli::parse(const QStringList& input)
         return std::unexpected(Error {ExitCode::Usage, spec.usage});
     if (command.command == "video pack" && command.has("output") && command.has("webdav"))
         return std::unexpected(Error {ExitCode::Usage, QStringLiteral("--output and --webdav are mutually exclusive")});
+    if (command.command == "tssl backup" && command.has("format") &&
+        command.option("format") != "zip" && command.option("format") != "files")
+        return std::unexpected(Error {ExitCode::Usage, QStringLiteral("Backup --format must be zip or files")});
     return command;
 }
 
@@ -222,6 +225,11 @@ QString Cli::help(const QString& command)
         text += QStringLiteral("\nS3 backup options\n"
             "  --s3-endpoint URL   --s3-bucket NAME   --s3-region NAME\n"
             "  --s3-prefix PATH   --s3-access-key KEY\n");
+    if (command.isEmpty() || command == "tssl" || command == "tssl backup" || command == "tssl restore")
+        text += QStringLiteral("\nTSSL backup format\n"
+            "  --format zip|files    Backup override; default is the saved tsslBackup/format (zip)\n"
+            "  Restore discovers ZIP archives and legacy .tssl files together; no --format is needed.\n"
+            "  ZIP compression does not encrypt the TSSL keys. Progress is written to stderr.\n");
     text += QStringLiteral("\nExamples\n"
         "  vibePlayerQT list\n"
         "  vibePlayerQT webdav ls \"My WebDAV\" /\n"

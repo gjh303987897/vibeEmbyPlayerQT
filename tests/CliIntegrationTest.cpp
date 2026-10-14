@@ -677,7 +677,7 @@ private slots:
             QTimer::singleShot(0,this,[] { CliConsole::canceled.store(true); });
             QCOMPARE(engine.execute(*Cli::parse({"tssl","backup","--target","local","--local-path",directory.filePath("canceled-backup")})).code,
                      Cli::ExitCode::Canceled);
-            QVERIFY(QDir(directory.filePath("canceled-backup")).entryList({"*.tssl"},QDir::Files).isEmpty());
+            QVERIFY(QDir(directory.filePath("canceled-backup")).entryList({"*.tssl","*.zip"},QDir::Files).isEmpty());
         }
         QCOMPARE(run({"tssl","remove",digest},directory.path()).code,2);
         for (const auto& target : QStringList {"local","webdav","s3"}) {
@@ -691,10 +691,29 @@ private slots:
                 "--s3-prefix","backups","--s3-access-key","test-access","--s3-secret-env","CLI_TEST_SECRET","--s3-session-token-env","CLI_TEST_S3_TOKEN"};
             const auto backup = run(QStringList {"tssl","backup"} + options,directory.path());
             QVERIFY2(backup.code == 0,(target.toUtf8() + ": " + backup.errors).constData());
+            QCOMPARE(backup.json["data"].toObject()["backedUp"].toInt(),1);
+            if (target == "local") {
+                const auto archives = QDir(directory.filePath("backups")).entryList({"*.zip"},QDir::Files);
+                QCOMPARE(archives.size(),1);
+                QVERIFY(read(QDir(directory.filePath("backups")).filePath(archives.first())).startsWith("PK"));
+                QVERIFY(QDir(directory.filePath("backups")).entryList({"*.tssl"},QDir::Files).isEmpty());
+            } else {
+                const auto prefix = target == "webdav" ? QStringLiteral("/dav/backups/") : QStringLiteral("/bucket/backups/");
+                QCOMPARE(std::ranges::count_if(endpoint.files.keys(),[&](const QString& file) {
+                    return file.startsWith(prefix) && file.endsWith(".zip");
+                }),1);
+            }
             QCOMPARE(run({"tssl","remove",digest,"--yes"},directory.path()).code,0);
             auto restored = run(QStringList {"tssl","restore"} + options,directory.path());
             QCOMPARE(restored.code,0); QCOMPARE(restored.json.value("data").toObject().value("imported").toInt(),1);
             QVERIFY(!restored.output.contains("test-s3-secret"));
+            const auto legacy = run(QStringList {"tssl","backup","--format","files"} + options,directory.path());
+            QVERIFY2(legacy.code == 0,(target.toUtf8() + ": " + legacy.errors).constData());
+            QCOMPARE(run({"tssl","remove",digest,"--yes"},directory.path()).code,0);
+            const auto mixed = run(QStringList {"tssl","restore"} + options,directory.path());
+            QVERIFY2(mixed.code == 0,(target.toUtf8() + ": " + mixed.errors).constData());
+            QCOMPARE(mixed.json["data"].toObject()["imported"].toInt(),1);
+            QCOMPARE(mixed.json["data"].toObject()["duplicates"].toInt(),1);
         }
         QVERIFY(std::ranges::any_of(endpoint.requests,[](const Request& request) {
             return request.headers.value("authorization").contains("x-amz-security-token") &&
@@ -702,6 +721,62 @@ private slots:
         }));
         auto removed = run({"tssl","remove",digest,QString(64,'a'),"--yes"},directory.path());
         QCOMPARE(removed.code,6); QCOMPARE(removed.json["data"].toObject()["removed"].toInt(),1);
+    }
+
+    void tsslZipAndLegacyBackupCompatibility()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QStringList digests;
+        for (int index = 0; index < 2; ++index) {
+            TsslPackage package;
+            package.identifier = QByteArray(TsslPackage::identifierLength,static_cast<char>('A' + index));
+            package.rootManifestDigest = QByteArray(32,static_cast<char>('D' + index));
+            package.segmentKeys.insert("segments/one.ts",QByteArray(32,'K'));
+            const auto source = directory.filePath(QStringLiteral("密钥 %1.tssl").arg(index));
+            QVERIFY(write(source,package.toJson()));
+            QCOMPARE(run({"tssl","import",source},directory.path()).code,0);
+            digests += QString::fromLatin1(package.rootManifestDigest.toHex());
+        }
+        QCOMPARE(run({"config","get","tsslBackup/format"},directory.path()).json["data"].toObject()["tsslBackup/format"].toString(),QString("zip"));
+        QCOMPARE(run({"config","set","tsslBackup/format","tar"},directory.path()).code,2);
+        const auto backupPath = directory.filePath(QStringLiteral("备份 目录"));
+        const QStringList local {"--target","local","--local-path",backupPath};
+        const auto zipped = run(QStringList {"tssl","backup"} + local,directory.path());
+        QVERIFY2(zipped.code == 0,zipped.errors.constData());
+        QCOMPARE(zipped.json["data"].toObject()["backedUp"].toInt(),2);
+        QCOMPARE(zipped.json["data"].toObject()["format"].toString(),QString("zip"));
+        const auto archives = QDir(backupPath).entryList({"*.zip"},QDir::Files);
+        QCOMPARE(archives.size(),1);
+        QVERIFY(read(QDir(backupPath).filePath(archives.first())).startsWith("PK"));
+        QVERIFY(QDir(backupPath).entryList({"*.tssl"},QDir::Files).isEmpty());
+        // A temporary legacy override keeps saved defaults and coexists with ZIP snapshots.
+        const auto loose = run(QStringList {"tssl","backup","--format","files"} + local,directory.path());
+        QVERIFY2(loose.code == 0,loose.errors.constData());
+        QCOMPARE(loose.json["data"].toObject()["backedUp"].toInt(),2);
+        QCOMPARE(QDir(backupPath).entryList({"*.tssl"},QDir::Files).size(),2);
+        QCOMPARE(run({"config","get","tsslBackup/format"},directory.path()).json["data"].toObject()["tsslBackup/format"].toString(),QString("zip"));
+        QCOMPARE(run(QStringList {"tssl","remove"} + digests + QStringList {"--yes"},directory.path()).code,0);
+        const auto restored = run(QStringList {"tssl","restore"} + local,directory.path());
+        QVERIFY2(restored.code == 0,restored.errors.constData());
+        QCOMPARE(restored.json["data"].toObject()["imported"].toInt(),2);
+        QCOMPARE(restored.json["data"].toObject()["duplicates"].toInt(),2);
+        QCOMPARE(restored.json["data"].toObject()["failed"].toInt(),0);
+        const auto duplicate = run(QStringList {"tssl","restore"} + local,directory.path());
+        QCOMPARE(duplicate.code,0);
+        QCOMPARE(duplicate.json["data"].toObject()["duplicates"].toInt(),4);
+        // Saved files mode remains usable for old clients; snapshots are left in place.
+        QCOMPARE(run({"config","set","tsslBackup/format","files"},directory.path()).code,0);
+        const auto savedLoose = run(QStringList {"tssl","backup"} + local,directory.path());
+        QCOMPARE(savedLoose.code,0);
+        QCOMPARE(savedLoose.json["data"].toObject()["format"].toString(),QString("files"));
+        QCOMPARE(QDir(backupPath).entryList({"*.zip"},QDir::Files).size(),1);
+        QVERIFY(write(QDir(backupPath).filePath("tssl-backup-corrupt.zip"),"broken ZIP"));
+        const auto damaged = run(QStringList {"tssl","restore"} + local,directory.path());
+        QCOMPARE(damaged.code,6);
+        QCOMPARE(damaged.json["data"].toObject()["duplicates"].toInt(),4);
+        QVERIFY(damaged.json["data"].toObject()["failed"].toInt() > 0);
+        QVERIFY(!damaged.output.contains(QByteArray(32,'K').toBase64()));
     }
 
     void videoRoundTripAndFailures()

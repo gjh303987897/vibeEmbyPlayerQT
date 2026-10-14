@@ -1,4 +1,5 @@
 #include "services/backup/TsslBackupService.h"
+#include "services/backup/TsslBackupArchive.h"
 #include "network/SelfSignedTlsPolicy.h"
 
 #include <QAuthenticator>
@@ -23,6 +24,7 @@
 #include <QtConcurrentRun>
 
 #include <algorithm>
+#include <chrono>
 
 namespace {
 struct S3Listing final { QStringList files; bool truncated = false; QString nextToken; };
@@ -30,10 +32,20 @@ using S3ListingResult = std::expected<S3Listing, QString>;
 constexpr qint64 maxPackageBytes = 256LL * 1024LL * 1024LL;
 
 struct UploadPayload final {
-    QByteArray contents;
     QByteArray hash;
 };
 using UploadPayloadResult = std::expected<UploadPayload, QString>;
+
+bool backupFileName(const QString& name)
+{
+    return name.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive) || TsslBackupArchive::isArchiveName(name);
+}
+
+qint64 transferLimit(const QString& path)
+{
+    return TsslBackupArchive::isArchiveName(QFileInfo(path).fileName())
+        ? TsslBackupArchive::maximumArchiveBytes : maxPackageBytes;
+}
 
 QByteArray hmac(const QByteArray& key, const QByteArray& data)
 {
@@ -200,8 +212,16 @@ RemoteFilesResult parseWebDavFiles(const QByteArray& body, const QUrl& folderUrl
             }
         }
         if (directory) continue;
-        const auto name = displayName.isEmpty() ? webDavFileName(itemUrl) : displayName;
-        if (name.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive)) {
+        const auto name = webDavFileName(itemUrl);
+        if (backupFileName(name)) {
+            const auto defaultPort = [](const QUrl& url) { return url.scheme() == QStringLiteral("https") ? 443 : 80; };
+            const auto folderPath = normalizedFolder.endsWith(QLatin1Char('/'))
+                ? normalizedFolder : normalizedFolder + QLatin1Char('/');
+            if (!itemUrl.userInfo().isEmpty() || itemUrl.scheme() != folderUrl.scheme() ||
+                itemUrl.host() != folderUrl.host() || itemUrl.port(defaultPort(itemUrl)) != folderUrl.port(defaultPort(folderUrl)) ||
+                !itemPath.startsWith(folderPath) || itemPath.mid(folderPath.size()).contains(QLatin1Char('/'))) {
+                return std::unexpected(QStringLiteral("WebDAV listing contains a backup outside the configured folder"));
+            }
             files.append(itemUrl.toString(QUrl::FullyEncoded));
         }
     }
@@ -223,7 +243,7 @@ std::expected<QStringList, QString> parseS3Files(const QByteArray& body, bool* t
             const auto keyElement = child.toElement();
             if (!keyElement.isNull() && localName(keyElement).compare(QStringLiteral("Key"), Qt::CaseInsensitive) == 0) {
                 const auto key = keyElement.text();
-                if (key.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive)) {
+                if (backupFileName(key.section(QLatin1Char('/'), -1))) {
                     files.append(key);
                 }
                 break;
@@ -360,6 +380,53 @@ bool TsslBackupService::isRunning() const
     return m_running;
 }
 
+TsslBackupService::~TsslBackupService()
+{
+    if (m_workerCanceled) m_workerCanceled->store(true);
+}
+
+QFuture<TsslBackupResult> TsslBackupService::backupLocal(TsslStore store, QString directory,
+    TsslBackupTarget::Format format, const std::atomic_bool* canceled,
+    const std::function<void(const QString&, int, int)>& progress)
+{
+    return QtConcurrent::run([store = std::move(store), directory = std::move(directory), format, canceled, progress]() -> TsslBackupResult {
+        const auto stopped = [&] { return canceled && canceled->load(); };
+        if (stopped()) return std::unexpected(QStringLiteral("TSSL backup canceled"));
+        if (progress) progress(QStringLiteral("scanning"), 0, 0);
+        const auto summaries = store.listPackageSummaries();
+        if (!summaries) return std::unexpected(summaries.error());
+        QStringList files;
+        std::vector<QByteArray> digests;
+        int scanned = 0;
+        for (const auto& entry : *summaries) {
+            if (stopped()) return std::unexpected(QStringLiteral("TSSL backup canceled"));
+            const auto infos = store.packageInfosForPaths({entry.filePath});
+            if (!infos) return std::unexpected(infos.error());
+            if (!infos->empty() && infos->front().valid) {
+                files.append(entry.filePath);
+                digests.push_back(entry.rootManifestDigest);
+            }
+            if (progress) progress(QStringLiteral("scanning"), ++scanned, summaries->size());
+        }
+        if (files.isEmpty()) return std::unexpected(QStringLiteral("No valid TSSL packages are available to back up"));
+        if (stopped()) return std::unexpected(QStringLiteral("TSSL backup canceled"));
+        if (!QDir().mkpath(directory)) return std::unexpected(QStringLiteral("Unable to create the local TSSL backup directory"));
+        if (format == TsslBackupTarget::Format::Zip) {
+            return TsslBackupArchive::create(files, QDir(directory).filePath(TsslBackupArchive::newFileName()), canceled,
+                [&](int done, int total) { if (progress) progress(QStringLiteral("compressing"), done, total); });
+        }
+        int completed = 0;
+        for (const auto& digest : digests) {
+            if (stopped()) return std::unexpected(QStringLiteral("TSSL backup canceled"));
+            const auto result = store.exportByRootDigest(digest,
+                QDir(directory).filePath(QString::fromLatin1(digest.toHex()) + QStringLiteral(".tssl")));
+            if (!result) return std::unexpected(result.error());
+            if (progress) progress(QStringLiteral("copying"), ++completed, digests.size());
+        }
+        return completed;
+    });
+}
+
 QFuture<TsslBackupPackagesResult> TsslBackupService::preparePackages(TsslStore store)
 {
     return QtConcurrent::run([store = std::move(store)]() -> TsslBackupPackagesResult {
@@ -417,8 +484,43 @@ void TsslBackupService::backup(const TsslBackupTarget& target,
     m_completed = 0;
     m_cancelRequested = false;
     m_running = true;
-    emit progressChanged(0, m_localFiles.size());
-    uploadNext();
+    m_workerCanceled = std::make_shared<std::atomic_bool>(false);
+    m_packageCount = m_localFiles.size();
+    emit progressChanged(0, m_packageCount);
+    if (m_cancelRequested) { finish(std::unexpected(QStringLiteral("TSSL backup canceled"))); return; }
+    if (target.format == TsslBackupTarget::Format::Files) { uploadNext(); return; }
+
+    m_uploadDirectory = std::make_shared<QTemporaryDir>();
+    if (!m_uploadDirectory->isValid()) {
+        finish(std::unexpected(QStringLiteral("Unable to create a temporary TSSL archive directory")));
+        return;
+    }
+    const auto archivePath = QDir(m_uploadDirectory->path()).filePath(TsslBackupArchive::newFileName());
+    auto* watcher = new QFutureWatcher<TsslBackupResult>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, archivePath] {
+        auto result = watcher->future().takeResult();
+        watcher->deleteLater();
+        if (m_cancelRequested) { finish(std::unexpected(QStringLiteral("TSSL backup canceled"))); return; }
+        if (!result) { finish(std::unexpected(result.error())); return; }
+        m_packageCount = *result;
+        m_localFiles = {archivePath};
+        uploadNext();
+    });
+    const QPointer<TsslBackupService> owner(this);
+    watcher->setFuture(QtConcurrent::run([files = m_localFiles, archivePath, directory = m_uploadDirectory,
+                                         canceled = m_workerCanceled, owner] {
+        return TsslBackupArchive::create(files, archivePath, canceled.get(),
+            [owner, canceled, lastUpdate = std::chrono::steady_clock::time_point{}](int done, int total) mutable {
+            if (!owner) return;
+            const auto now = std::chrono::steady_clock::now();
+            if (done > 0 && done < total && now - lastUpdate < std::chrono::milliseconds(100)) return;
+            lastUpdate = now;
+            QMetaObject::invokeMethod(owner, [owner, canceled, done, total] {
+                if (owner && owner->m_workerCanceled == canceled && !owner->m_cancelRequested)
+                    emit owner->stageChanged(QStringLiteral("compressing"), done, total);
+            }, Qt::QueuedConnection);
+        });
+    }));
 }
 
 void TsslBackupService::restore(const TsslBackupTarget& target,
@@ -443,7 +545,7 @@ void TsslBackupService::restore(const TsslBackupTarget& target,
         return;
     }
 
-    if (!m_restoreDirectory.isValid()) {
+    if (!m_restoreDirectory->isValid()) {
         callback(std::unexpected(QStringLiteral("Unable to create a temporary TSSL restore directory")));
         return;
     }
@@ -459,7 +561,7 @@ void TsslBackupService::restore(const TsslBackupTarget& target,
     m_restoreMode = true;
     m_running = true;
 
-    m_restorePath = QDir(m_restoreDirectory.path()).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    m_restorePath = QDir(m_restoreDirectory->path()).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
     if (!QDir().mkpath(m_restorePath)) {
         finishRestore(std::unexpected(QStringLiteral("Unable to create a temporary TSSL restore directory")));
         return;
@@ -474,10 +576,16 @@ void TsslBackupService::cleanupRestoreFiles()
     m_restoreCleanupPath.clear();
 }
 
+std::shared_ptr<QTemporaryDir> TsslBackupService::restoreFilesLease() const
+{
+    return m_restoreDirectory;
+}
+
 void TsslBackupService::cancel()
 {
     if (!m_running) return;
     m_cancelRequested = true;
+    if (m_workerCanceled) m_workerCanceled->store(true);
     if (m_activeReply && !m_activeReply->isFinished()) {
         m_activeReply->abort();
     }
@@ -633,6 +741,7 @@ void TsslBackupService::restoreNext()
         return;
     }
     emit restoreProgressChanged(m_restoreCompleted, m_remoteFiles.size());
+    emit stageChanged(QStringLiteral("downloading"), m_restoreCompleted, m_remoteFiles.size());
     // A progress listener can cancel synchronously before the next request.
     if (m_cancelRequested) {
         finishRestore(std::unexpected(QStringLiteral("TSSL restore canceled")));
@@ -658,33 +767,7 @@ void TsslBackupService::downloadWebDav(const QUrl& url)
     auto* reply = m_manager.get(request);
     reply->setProperty("webdavUsername", m_target.webDavServer.username);
     reply->setProperty("webdavPassword", m_target.webDavPassword);
-    wireReply(reply);
-    connect(reply, &QNetworkReply::finished, reply, [this, reply, url]() {
-        const auto checked = checkReply(reply, QStringLiteral("WebDAV TSSL download"));
-        if (!checked) {
-            if (retryReply(reply, [this, url] { downloadWebDav(url); })) return;
-            reply->deleteLater();
-            finishRestore(std::unexpected(checked.error()));
-            return;
-        }
-        const auto payload = reply->readAll();
-        reply->deleteLater();
-        const auto name = webDavFileName(url);
-        if (name.isEmpty() || !name.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive) ||
-            payload.isEmpty() || payload.size() > maxPackageBytes) {
-            finishRestore(std::unexpected(QStringLiteral("The WebDAV TSSL backup file is invalid or too large")));
-            return;
-        }
-        const auto path = QDir(m_restorePath).filePath(QStringLiteral("%1-%2").arg(m_restoreNextIndex - 1).arg(name));
-        QSaveFile file(path);
-        if (!file.open(QIODevice::WriteOnly) || file.write(payload) != payload.size() || !file.commit()) {
-            finishRestore(std::unexpected(QStringLiteral("Unable to save the downloaded WebDAV TSSL backup")));
-            return;
-        }
-        m_downloadedFiles.append(path);
-        ++m_restoreCompleted;
-        restoreNext();
-    });
+    receiveDownload(reply, webDavFileName(url), [this, url] { downloadWebDav(url); });
 }
 
 void TsslBackupService::downloadS3(const QString& key)
@@ -693,29 +776,73 @@ void TsslBackupService::downloadS3(const QString& key)
     const auto emptyHash = hexHash(QByteArray());
     const auto request = signedS3Request(m_target, QStringLiteral("GET"), url, emptyHash, QDateTime::currentDateTimeUtc());
     auto* reply = m_manager.get(request);
+    receiveDownload(reply, key.section(QLatin1Char('/'), -1), [this, key] { downloadS3(key); });
+}
+
+void TsslBackupService::receiveDownload(QNetworkReply* reply, const QString& name, std::function<void()> retry)
+{
+    if (!backupFileName(name) || name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\')) ||
+        name.contains(QLatin1Char(':')) || name.contains(QChar::Null)) {
+        reply->abort();
+        reply->deleteLater();
+        finishRestore(std::unexpected(QStringLiteral("Invalid remote TSSL backup filename")));
+        return;
+    }
+    const auto path = QDir(m_restorePath).filePath(QStringLiteral("%1-%2").arg(m_restoreNextIndex - 1).arg(name));
+    auto* file = new QSaveFile(path, reply);
+    if (!file->open(QIODevice::WriteOnly)) {
+        reply->abort();
+        reply->deleteLater();
+        finishRestore(std::unexpected(QStringLiteral("Unable to save the downloaded TSSL backup")));
+        return;
+    }
+    const auto limit = transferLimit(name);
+    reply->setReadBufferSize(256 * 1024);
+    reply->setProperty("tsslResponseLimit", limit);
+    const auto received = std::make_shared<qint64>(0);
+    const auto drain = [reply, file, received, limit] {
+        if (reply->property("tsslLocalWriteError").toBool() || reply->property("tsslResponseTooLarge").toBool()) return;
+        while (reply->bytesAvailable() > 0) {
+            const auto block = reply->read(64 * 1024);
+            if (block.isEmpty()) break;
+            if (*received > limit - block.size()) {
+                reply->setProperty("tsslResponseTooLarge", true);
+                reply->abort();
+                return;
+            }
+            if (file->write(block) != block.size()) {
+                reply->setProperty("tsslLocalWriteError", true);
+                reply->abort();
+                return;
+            }
+            *received += block.size();
+        }
+    };
+    connect(reply, &QNetworkReply::readyRead, reply, drain);
+    connect(reply, &QNetworkReply::metaDataChanged, reply, [reply, limit] {
+        if (reply->header(QNetworkRequest::ContentLengthHeader).toLongLong() > limit) {
+            reply->setProperty("tsslResponseTooLarge", true);
+            reply->abort();
+        }
+    });
     wireReply(reply);
-    connect(reply, &QNetworkReply::finished, reply, [this, reply, key]() {
-        const auto checked = checkReply(reply, QStringLiteral("S3 TSSL download"));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, file, received, drain, path, retry = std::move(retry)] {
+        drain();
+        const auto checked = checkReply(reply, QStringLiteral("TSSL backup download"));
         if (!checked) {
-            if (retryReply(reply, [this, key] { downloadS3(key); })) return;
+            file->cancelWriting();
+            file->commit(); // Close the temporary file before a retry or cleanup on Windows.
+            if (retryReply(reply, retry)) return;
             reply->deleteLater();
             finishRestore(std::unexpected(checked.error()));
             return;
         }
-        const auto payload = reply->readAll();
+        if (*received == 0 || !file->commit()) {
+            reply->deleteLater();
+            finishRestore(std::unexpected(QStringLiteral("The downloaded TSSL backup is empty or could not be saved")));
+            return;
+        }
         reply->deleteLater();
-        const auto name = key.section(QLatin1Char('/'), -1);
-        if (name.isEmpty() || !name.endsWith(QStringLiteral(".tssl"), Qt::CaseInsensitive) ||
-            payload.isEmpty() || payload.size() > maxPackageBytes) {
-            finishRestore(std::unexpected(QStringLiteral("The S3 TSSL backup file is invalid or too large")));
-            return;
-        }
-        const auto path = QDir(m_restorePath).filePath(QStringLiteral("%1-%2").arg(m_restoreNextIndex - 1).arg(name));
-        QSaveFile file(path);
-        if (!file.open(QIODevice::WriteOnly) || file.write(payload) != payload.size() || !file.commit()) {
-            finishRestore(std::unexpected(QStringLiteral("Unable to save the downloaded S3 TSSL backup")));
-            return;
-        }
         m_downloadedFiles.append(path);
         ++m_restoreCompleted;
         restoreNext();
@@ -730,10 +857,12 @@ void TsslBackupService::uploadNext()
         return;
     }
     if (m_nextIndex >= m_localFiles.size()) {
-        finish(m_completed);
+        finish(m_packageCount);
         return;
     }
     const auto localPath = m_localFiles.at(m_nextIndex++);
+    emit stageChanged(QStringLiteral("preparing"), m_completed, m_localFiles.size());
+    if (m_cancelRequested) { finish(std::unexpected(QStringLiteral("TSSL backup canceled"))); return; }
     auto* watcher = new QFutureWatcher<UploadPayloadResult>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, localPath]() {
         auto result = watcher->future().takeResult();
@@ -745,87 +874,110 @@ void TsslBackupService::uploadNext()
         } else if (!result) {
             finish(std::unexpected(result.error()));
         } else if (m_target.type == TsslBackupTarget::Type::WebDav) {
-            uploadWebDav(localPath, result->contents);
+            uploadWebDav(localPath);
         } else {
-            uploadS3(localPath, result->contents, result->hash);
+            uploadS3(localPath, result->hash);
         }
     });
     watcher->setFuture(QtConcurrent::run(
-        [localPath, needsHash = m_target.type == TsslBackupTarget::Type::S3]() -> UploadPayloadResult {
+        [localPath, canceled = m_workerCanceled, needsHash = m_target.type == TsslBackupTarget::Type::S3]() -> UploadPayloadResult {
             QFile file(localPath);
             if (!file.open(QIODevice::ReadOnly)) {
                 return std::unexpected(QStringLiteral("Unable to read TSSL package: %1").arg(file.errorString()));
             }
             const auto size = file.size();
-            if (size <= 0 || size > maxPackageBytes) {
-                return std::unexpected(QStringLiteral("TSSL package size is invalid or exceeds 256 MiB"));
+            if (size <= 0 || size > transferLimit(localPath)) {
+                return std::unexpected(QStringLiteral("TSSL backup size is invalid or exceeds its transfer limit"));
             }
             UploadPayload payload;
-            payload.contents = file.read(size);
-            if (payload.contents.size() != size || !file.atEnd()) {
-                return std::unexpected(QStringLiteral("Unable to read the complete TSSL package"));
+            QCryptographicHash hash(QCryptographicHash::Sha256);
+            qint64 read = 0;
+            while (!file.atEnd()) {
+                if (canceled && canceled->load()) return std::unexpected(QStringLiteral("TSSL backup canceled"));
+                const auto block = file.read(64 * 1024);
+                if (block.isEmpty()) return std::unexpected(QStringLiteral("Unable to read the complete TSSL backup"));
+                read += block.size();
+                if (read > size) return std::unexpected(QStringLiteral("The TSSL backup changed during preparation"));
+                if (needsHash) hash.addData(block);
             }
-            if (needsHash) payload.hash = hexHash(payload.contents);
+            if (read != size) return std::unexpected(QStringLiteral("Unable to read the complete TSSL backup"));
+            if (needsHash) payload.hash = hash.result().toHex();
             return payload;
         }));
 }
 
-void TsslBackupService::uploadWebDav(const QString& localPath, const QByteArray& payload)
+void TsslBackupService::uploadWebDav(const QString& localPath)
 {
     QNetworkRequest request { QUrl(webDavDestination(m_target, fileNameFor(localPath))) };
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    auto* body = new QBuffer(this);
-    body->setData(payload);
-    body->open(QIODevice::ReadOnly);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, TsslBackupArchive::isArchiveName(fileNameFor(localPath))
+        ? QStringLiteral("application/zip") : QStringLiteral("application/json"));
+    auto* body = new QFile(localPath, this);
+    if (!body->open(QIODevice::ReadOnly)) {
+        body->deleteLater();
+        finish(std::unexpected(QStringLiteral("Unable to open the prepared TSSL backup")));
+        return;
+    }
+    request.setHeader(QNetworkRequest::ContentLengthHeader, body->size());
     auto* reply = m_manager.put(request, body);
     body->setParent(reply);
+    connect(body, &QObject::destroyed, [directory = m_uploadDirectory] {});
     reply->setProperty("webdavUsername", m_target.webDavServer.username);
     reply->setProperty("webdavPassword", m_target.webDavPassword);
     wireReply(reply);
-    connect(reply, &QNetworkReply::finished, reply, [this, reply, localPath, payload]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, body, localPath]() {
+        body->close();
         const auto checked = checkReply(reply, QStringLiteral("WebDAV upload"));
         if (!checked) {
-            if (retryReply(reply, [this, localPath, payload] { uploadWebDav(localPath, payload); })) return;
+            if (retryReply(reply, [this, localPath] { uploadWebDav(localPath); })) return;
             reply->deleteLater();
             finish(std::unexpected(checked.error()));
             return;
         }
         reply->deleteLater();
         ++m_completed;
-        emit progressChanged(m_completed, m_localFiles.size());
+        emit progressChanged(m_target.format == TsslBackupTarget::Format::Zip ? m_packageCount : m_completed, m_packageCount);
         uploadNext();
     });
+    emit stageChanged(QStringLiteral("uploading"), m_completed, m_localFiles.size());
 }
 
-void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& payload,
-                                const QByteArray& payloadHash)
+void TsslBackupService::uploadS3(const QString& localPath, const QByteArray& payloadHash)
 {
     const auto prefix = cleanPrefix(m_target.s3Prefix);
     QStringList keySegments;
     if (!prefix.isEmpty()) keySegments.append(prefix.split(QLatin1Char('/'), Qt::SkipEmptyParts));
     keySegments.append(fileNameFor(localPath));
     const auto url = appendPath(appendPath(m_target.s3Endpoint, { m_target.s3Bucket }), keySegments);
-    const auto request = signedS3Request(m_target, QStringLiteral("PUT"), url,
+    auto request = signedS3Request(m_target, QStringLiteral("PUT"), url,
                                         payloadHash, QDateTime::currentDateTimeUtc());
-    auto* body = new QBuffer(this);
-    body->setData(payload);
-    body->open(QIODevice::ReadOnly);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, TsslBackupArchive::isArchiveName(fileNameFor(localPath))
+        ? QStringLiteral("application/zip") : QStringLiteral("application/json"));
+    auto* body = new QFile(localPath, this);
+    if (!body->open(QIODevice::ReadOnly)) {
+        body->deleteLater();
+        finish(std::unexpected(QStringLiteral("Unable to open the prepared TSSL backup")));
+        return;
+    }
+    request.setHeader(QNetworkRequest::ContentLengthHeader, body->size());
     auto* reply = m_manager.put(request, body);
     body->setParent(reply);
+    connect(body, &QObject::destroyed, [directory = m_uploadDirectory] {});
     wireReply(reply);
-    connect(reply, &QNetworkReply::finished, reply, [this, reply, localPath, payload, payloadHash]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, body, localPath, payloadHash]() {
+        body->close();
         const auto checked = checkReply(reply, QStringLiteral("S3 upload"));
         if (!checked) {
-            if (retryReply(reply, [this, localPath, payload, payloadHash] { uploadS3(localPath, payload, payloadHash); })) return;
+            if (retryReply(reply, [this, localPath, payloadHash] { uploadS3(localPath, payloadHash); })) return;
             reply->deleteLater();
             finish(std::unexpected(checked.error()));
             return;
         }
         reply->deleteLater();
         ++m_completed;
-        emit progressChanged(m_completed, m_localFiles.size());
+        emit progressChanged(m_target.format == TsslBackupTarget::Format::Zip ? m_packageCount : m_completed, m_packageCount);
         uploadNext();
     });
+    emit stageChanged(QStringLiteral("uploading"), m_completed, m_localFiles.size());
 }
 
 void TsslBackupService::wireReply(QNetworkReply* reply)
@@ -878,6 +1030,8 @@ std::expected<void, QString> TsslBackupService::checkReply(QNetworkReply* reply,
     }
     if (reply->property("tsslResponseTooLarge").toBool())
         return std::unexpected(operation + QStringLiteral(" response exceeds its size limit"));
+    if (reply->property("tsslLocalWriteError").toBool())
+        return std::unexpected(QStringLiteral("Unable to write the downloaded TSSL backup"));
     if (reply->property("tsslTimedOut").toBool()) {
         return std::unexpected(operation + QStringLiteral(" exceeded its idle or total time limit"));
     }
@@ -899,7 +1053,8 @@ bool TsslBackupService::retryReply(QNetworkReply* reply, std::function<void()> r
         reply->property("tsslTimedOut").toBool() || (status < 400 &&
         (error == QNetworkReply::RemoteHostClosedError || error == QNetworkReply::ConnectionRefusedError ||
          error == QNetworkReply::TimeoutError || error == QNetworkReply::TemporaryNetworkFailureError));
-    if (!m_running || m_cancelRequested || !transient || m_retryCount >= m_networkPolicy.maximumRetries) return false;
+    if (!m_running || m_cancelRequested || reply->property("tsslLocalWriteError").toBool() ||
+        reply->property("tsslResponseTooLarge").toBool() || !transient || m_retryCount >= m_networkPolicy.maximumRetries) return false;
     const auto generation = m_operationGeneration;
     const auto delay = 200 * (1 << m_retryCount++);
     reply->deleteLater();
@@ -919,6 +1074,8 @@ void TsslBackupService::finish(TsslBackupResult result)
     m_running = false;
     m_restoreMode = false;
     m_localFiles.clear();
+    m_uploadDirectory.reset();
+    m_workerCanceled.reset();
     auto callback = std::move(m_callback);
     if (callback) callback(std::move(result));
 }

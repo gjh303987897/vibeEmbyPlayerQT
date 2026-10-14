@@ -30,6 +30,7 @@ set(VIBE_CORE_SOURCES
     src/services/encryptedhls/EncryptedHlsSourcePlanner.cpp
     src/services/ffmpeg/FfmpegCapability.cpp
     src/services/backup/TsslBackupService.cpp
+    src/services/backup/TsslBackupArchive.cpp
     src/services/backup/S3CredentialProvider.cpp
     src/services/backup/TsslImportWorkflow.cpp
     src/services/management/ServiceOperations.cpp
@@ -45,7 +46,7 @@ set(VIBE_CORE_SOURCES
 qt_add_library(vibeCore STATIC ${VIBE_CORE_SOURCES})
 target_include_directories(vibeCore PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(vibeCore PUBLIC Qt6::Core Qt6::Concurrent Qt6::Network Qt6::Sql Qt6::Xml
-    ${VIBE_CRYPTO_LIBRARIES})
+    vibeMiniz ${VIBE_CRYPTO_LIBRARIES})
 if(WIN32)
     target_link_libraries(vibeCore PUBLIC Advapi32 Mpr)
 elseif(APPLE)

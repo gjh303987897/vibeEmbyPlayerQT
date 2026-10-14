@@ -19415,6 +19415,21 @@ ApplicationWindow {
                 showTitle: false
 
                 SettingRow {
+                    label: t("tsslBackup.format")
+                    ModernComboBox {
+                        Layout.preferredWidth: 260
+                        textRole: "label"
+                        valueRole: "value"
+                        model: [
+                            { label: t("tsslBackup.formatZip"), value: "zip" },
+                            { label: t("tsslBackup.formatFiles"), value: "files" }
+                        ]
+                        currentIndex: appViewModel.tsslBackupFormat === "files" ? 1 : 0
+                        onActivated: appViewModel.tsslBackupFormat = model[index].value
+                    }
+                }
+
+                SettingRow {
                     label: t("tsslBackup.target")
                     ModernComboBox {
                         Layout.preferredWidth: 220

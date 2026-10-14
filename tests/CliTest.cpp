@@ -267,6 +267,12 @@ private slots:
         QVERIFY(!Cli::parse({"video","pack","a","--jobs","1","--jobs","2"}));
         QVERIFY(!Cli::parse({"service","login","one","--password","secret"}));
         QVERIFY(!Cli::parse({"tssl","export","--all"}));
+        QVERIFY(Cli::parse({"tssl","backup","--format","zip"}));
+        QVERIFY(Cli::parse({"tssl","backup","--format","files"}));
+        QVERIFY(!Cli::parse({"tssl","backup","--format","tar"}));
+        QVERIFY(!Cli::parse({"tssl","restore","--format","zip"}));
+        QVERIFY(Cli::help("tssl backup").contains("--format zip|files"));
+        QVERIFY(Cli::help("tssl restore").contains("legacy .tssl"));
         QVERIFY(!Cli::parse({"video","pack","a","--output","b","--webdav","one"}));
         auto words = Cli::splitLine(QStringLiteral(R"(upload "D:\中文 路径\影片.mp4" '/电影/影片.mp4')"));
         QVERIFY(words);
@@ -358,6 +364,9 @@ private slots:
     {
         QVariant jobs("0"); QVERIFY(!WorkflowSettings::validate("m3u8s/parallelJobs",jobs));
         QVariant format("mp4"); QVERIFY(WorkflowSettings::validate("encryptedHlsRestore/format",format));
+        QVariant zipBackup("zip"); QVERIFY(WorkflowSettings::validate("tsslBackup/format",zipBackup));
+        QVariant legacyBackup("files"); QVERIFY(WorkflowSettings::validate("tsslBackup/format",legacyBackup));
+        QVariant unknownBackup("tar"); QVERIFY(!WorkflowSettings::validate("tsslBackup/format",unknownBackup));
         QVariant secret("x"); QVERIFY(!WorkflowSettings::validate("tsslBackup/s3Secret",secret));
         QVariant boolValue("false"); QVERIFY(WorkflowSettings::validate("m3u8s/keepSuccessfulLocal",boolValue));
         QCOMPARE(boolValue.toBool(),false);

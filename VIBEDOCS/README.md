@@ -28,6 +28,8 @@
 - `CliVerification.md`：Windows 本地构建、25 项测试、真实终端、安装包与验收范围。
 - `SharedWorkflows.md`：服务管理、配置快照、文件夹上传规划、TSSL 导入的共享服务层。
 - `ServiceOperations.md`、`WorkflowSettings.md`、`WebDavUploadPlanner.md`、`TsslImportWorkflow.md`：各共享模块的接口与边界。
+- [TsslBackup.md](TsslBackup.md)：本地、WebDAV、S3 的备份传输、取消和新旧格式兼容。
+- [TsslBackupArchive.md](TsslBackupArchive.md)：TSSL ZIP 格式、清单校验、资源限制和独立压缩/解压模块。
 
 - `FileSelection.md`：统一的异步文件/文件夹选择控制器、原生优先策略、批量目录兼容实现与生命周期测试。
 - `EncryptedHlsRestore.md`：视频还原服务卡片、M3U8S/M3U8SP 批量解密重封装、原文件名恢复、完整性校验与取消清理。
