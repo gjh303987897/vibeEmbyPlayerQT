@@ -35,17 +35,16 @@ Subsequent calls in the same process reuse the first result. A new application p
 
 `PlayerController` is still the only module that calls libmpv APIs. Before `mpv_initialize()`, it supplies the generated path through libmpv's `tls-ca-file` option and enables `tls-verify` by default.
 
-For each playback request, `PlayerController::playUrl()` updates the runtime `options/tls-verify` property:
+Certificate verification remains enabled in libmpv. Playback for a server with
+explicit self-signed trust goes through the validating Qt playback proxy; an
+attempt to disable libmpv verification directly is rejected. Foreground, CLI and
+scheduled playback use this shared proxy policy.
 
-- normal server: certificate verification remains enabled
-- explicitly trusted self-signed server: verification is disabled only for that server's playback request
-
-Both foreground media playback and scheduled headless Emby playback pass the saved server certificate policy to `PlayerController`.
-
-Qt network requests use the same saved policy. When it is enabled, the reply ignores
-the concrete SSL errors delivered by Qt without opening a blocking confirmation loop.
-The setting is persistent per server and the UI labels it as allowing self-signed
-certificates; no request-scoped certificate callback is retained by the ViewModel.
+Qt network requests apply the saved per-server policy through
+`SelfSignedTlsPolicy`. Opting in permits only self-signed, missing-issuer and
+untrusted-chain errors for that reply. Hostname, expiry, revocation and signature
+errors remain fatal, including when mixed with chain trust errors. See
+[SelfSignedTlsPolicy.md](SelfSignedTlsPolicy.md) for the exact error list and tests.
 
 ## Failure Handling
 

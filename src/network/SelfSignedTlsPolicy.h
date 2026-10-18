@@ -6,13 +6,24 @@
 #include <algorithm>
 
 namespace SelfSignedTlsPolicy {
-// Trusting a self-signed issuer does not waive hostname, expiry, revocation,
-// signature, or missing-certificate checks. Error objects retain their certs.
+// A private CA or incomplete chain can report issuer/trust errors rather than
+// SelfSignedCertificate. Only waive chain trust for explicitly opted-in servers;
+// hostname, expiry, revocation, signature and missing-certificate checks remain.
+// Error objects retain their certificates for per-reply exceptions.
 inline bool allows(const QList<QSslError>& errors, bool enabled)
 {
     return enabled && !errors.isEmpty() && std::ranges::all_of(errors, [](const QSslError& error) {
-        return error.error() == QSslError::SelfSignedCertificate ||
-               error.error() == QSslError::SelfSignedCertificateInChain;
+        switch (error.error()) {
+        case QSslError::SelfSignedCertificate:
+        case QSslError::SelfSignedCertificateInChain:
+        case QSslError::UnableToGetIssuerCertificate:
+        case QSslError::UnableToGetLocalIssuerCertificate:
+        case QSslError::UnableToVerifyFirstCertificate:
+        case QSslError::CertificateUntrusted:
+            return true;
+        default:
+            return false;
+        }
     });
 }
 

@@ -338,7 +338,7 @@ Reference contracts:
 - Jellyfin stable OpenAPI: <https://api.jellyfin.org/openapi/jellyfin-openapi-stable.json>
 - mpv track selection and `track-list`: <https://mpv.io/manual/master/>
 
-For HTTPS playback, `PlayerController` configures libmpv with the PEM bundle produced by `TlsCertificateStore`. The bundle mirrors the operating-system trusted CA certificates exposed by Qt, allowing libmpv's FFmpeg/OpenSSL backend to validate the same public certificate authorities used by the application network layer. TLS verification remains enabled by default. A server saved with the explicit self-signed-certificate trust option disables verification only for that server's foreground or scheduled playback request.
+For HTTPS playback, `PlayerController` configures libmpv with the PEM bundle produced by `TlsCertificateStore`. The bundle mirrors the operating-system trusted CA certificates exposed by Qt, allowing libmpv's FFmpeg/OpenSSL backend to validate the same public certificate authorities used by the application network layer. TLS verification remains enabled. Foreground, CLI and scheduled playback for a server saved with explicit self-signed trust use a validating Qt proxy. The proxy accepts only the chain trust errors documented in [SelfSignedTlsPolicy.md](SelfSignedTlsPolicy.md); it still rejects hostname, expiry and other certificate failures.
 
 WebDAV Basic authentication is supplied through libmpv's supported runtime
 `options/http-header-fields` property as an `Authorization: Basic ...` header. The

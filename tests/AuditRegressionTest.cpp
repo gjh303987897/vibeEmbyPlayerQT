@@ -115,6 +115,9 @@ public:
     QSslCertificate certificate;
     QSslKey key;
     QList<QByteArray> requests;
+    QByteArray responseBody {"video-bytes"};
+    QByteArray responseStatus {"206 Partial Content"};
+    QByteArray responseHeaders {"Content-Range: bytes 0-10/11\r\n"};
 protected:
     void incomingConnection(qintptr descriptor) override
     {
@@ -130,8 +133,7 @@ protected:
             if (!bytes.contains("\r\n\r\n") || socket->property("handled").toBool()) return;
             socket->setProperty("handled", true);
             requests.append(bytes);
-            Endpoint::respond(socket, "video-bytes", "206 Partial Content",
-                              "Content-Range: bytes 0-10/11\r\n");
+            Endpoint::respond(socket, responseBody, responseStatus, responseHeaders);
         });
         socket->startServerEncryption();
     }
@@ -177,6 +179,10 @@ private slots:
         QTest::newRow("self-signed-enabled") << QString("valid") << true << true;
         QTest::newRow("wrong-host-rejected") << QString("wrong-host") << true << false;
         QTest::newRow("expired-rejected") << QString("expired") << true << false;
+        QTest::newRow("missing-issuer-disabled") << QString("private-ca-valid") << false << false;
+        QTest::newRow("missing-issuer-enabled") << QString("private-ca-valid") << true << true;
+        QTest::newRow("missing-issuer-wrong-host-rejected") << QString("private-ca-wrong-host") << true << false;
+        QTest::newRow("missing-issuer-expired-rejected") << QString("private-ca-expired") << true << false;
     }
     void playbackProxyValidatesRealCertificates()
     {
@@ -215,6 +221,45 @@ private slots:
         }
         reply->deleteLater();
         proxy.revoke(local.path().section('/', 1, 1));
+    }
+    void webDavLoginValidatesRealCertificates_data()
+    {
+        playbackProxyValidatesRealCertificates_data();
+    }
+    void webDavLoginValidatesRealCertificates()
+    {
+        QFETCH(QString, certificateName);
+        QFETCH(bool, trustSelfSigned);
+        QFETCH(bool, accepted);
+        QVERIFY(QSslSocket::supportsSsl());
+        const auto fixtureDirectory = QFileInfo(QFINDTESTDATA("data/tls/valid.pem")).absolutePath();
+        TlsEndpoint endpoint;
+        endpoint.certificate = QSslCertificate(readFile(QDir(fixtureDirectory).filePath(certificateName + ".pem")));
+        endpoint.key = QSslKey(readFile(QDir(fixtureDirectory).filePath("test-key.pem")), QSsl::Rsa);
+        QVERIFY(!endpoint.certificate.isNull());
+        QVERIFY(!endpoint.key.isNull());
+        endpoint.responseStatus = "207 Multi-Status";
+        endpoint.responseHeaders = "Content-Type: application/xml\r\n";
+        endpoint.responseBody = "<D:multistatus xmlns:D=\"DAV:\"><D:response><D:href>/dav/video.mp4</D:href>"
+            "<D:propstat><D:prop><D:displayname>video.mp4</D:displayname><D:resourcetype/>"
+            "</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>";
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        auto server = serverConfig();
+        server.serviceType = ServiceType::WebDAV;
+        server.baseUrl = QString("https://localhost:%1/dav/").arg(endpoint.serverPort());
+        server.trustSelfSignedCertificate = trustSelfSigned;
+        WebDavClient client;
+        std::optional<WebDavListResult> result;
+        client.listDirectory(server, "test-password", QUrl(server.baseUrl),
+                             [&](WebDavListResult value) { result = std::move(value); });
+        QTRY_VERIFY_WITH_TIMEOUT(result.has_value(), 5000);
+        QCOMPARE(result->has_value(), accepted);
+        QCOMPARE(endpoint.requests.size(), accepted ? 1 : 0);
+        if (accepted) {
+            QCOMPARE(result->value().size(), 1);
+            QCOMPARE(result->value().front().name, QString("video.mp4"));
+            QVERIFY(endpoint.requests.front().startsWith("PROPFIND /dav/"));
+        }
     }
     void playerRejectsDisablingCertificateValidation()
     {
@@ -370,13 +415,25 @@ private slots:
         QVERIFY(SelfSignedTlsPolicy::allows(selfSigned, true));
         QVERIFY(!SelfSignedTlsPolicy::allows(selfSigned, false));
         QVERIFY(!SelfSignedTlsPolicy::allows({}, true));
+        const QList<QSslError> missingIssuer {
+            QSslError(QSslError::UnableToGetLocalIssuerCertificate),
+            QSslError(QSslError::UnableToVerifyFirstCertificate)};
+        QVERIFY(SelfSignedTlsPolicy::allows(missingIssuer, true));
+        QVERIFY(!SelfSignedTlsPolicy::allows(missingIssuer, false));
+        QVERIFY(SelfSignedTlsPolicy::allows({QSslError(QSslError::UnableToGetIssuerCertificate),
+                                            QSslError(QSslError::CertificateUntrusted)}, true));
         for (auto error : {QSslError::HostNameMismatch, QSslError::CertificateExpired,
                            QSslError::CertificateNotYetValid, QSslError::CertificateRevoked,
                            QSslError::NoPeerCertificate, QSslError::CertificateSignatureFailed,
-                           QSslError::UnableToGetLocalIssuerCertificate}) {
+                           QSslError::InvalidCaCertificate, QSslError::CertificateRejected,
+                           QSslError::InvalidPurpose, QSslError::PathLengthExceeded,
+                           QSslError::CertificateBlacklisted, QSslError::UnspecifiedError}) {
             auto mixed = selfSigned;
             mixed.append(QSslError(error));
             QVERIFY(!SelfSignedTlsPolicy::allows(mixed, true));
+            auto mixedMissingIssuer = missingIssuer;
+            mixedMissingIssuer.append(QSslError(error));
+            QVERIFY(!SelfSignedTlsPolicy::allows(mixedMissingIssuer, true));
         }
     }
     void unchangedTracksPreserveTheModel()

@@ -544,7 +544,7 @@ if(BUILD_TESTING)
     target_link_libraries(audit_regression_test PRIVATE vibeCli Qt6::Test Qt6::Gui ${MPV_LINK_TARGET})
     add_test(NAME audit_regression COMMAND audit_regression_test
         -o "${CMAKE_CURRENT_BINARY_DIR}/audit-regression-results.txt,txt")
-    set_tests_properties(audit_regression PROPERTIES TIMEOUT 60
+    set_tests_properties(audit_regression PROPERTIES TIMEOUT 120
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     add_executable(iptv_multi_source_test tests/IptvMultiSourceTest.cpp)
     target_link_libraries(iptv_multi_source_test PRIVATE vibeCore Qt6::Test)
