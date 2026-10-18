@@ -63,9 +63,9 @@ constexpr auto mpvHostWindowClassName = L"VibePlayerMpvHostWindow";
 
 LRESULT CALLBACK mpvHostWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    if (message == WM_ERASEBKGND) {
-        return 1;
-    }
+    // Let DefWindowProc paint the class's black background. Claiming the erase
+    // succeeded without drawing exposes desktop/stale pixels before mpv's first
+    // frame. WS_CLIPCHILDREN keeps this fallback off mpv's active video surface.
     if (message == WM_NCHITTEST) {
         return HTTRANSPARENT;
     }
@@ -81,6 +81,7 @@ void registerMpvHostWindowClass()
         windowClass.lpfnWndProc = mpvHostWindowProc;
         windowClass.hInstance = GetModuleHandleW(nullptr);
         windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
         windowClass.lpszClassName = mpvHostWindowClassName;
         return RegisterClassExW(&windowClass) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
     }();
@@ -841,6 +842,12 @@ void MpvVideoItem::applyWindowGeometry(const QRect& geometry, qreal devicePixelR
                      flags)) {
         m_lastNativeGeometry = geometry;
         m_lastNativeDevicePixelRatio = devicePixelRatio;
+        if (!windowWasVisible) {
+            // Publish an opaque backing surface on first show, even while the
+            // upstream video is still loading. Do not force erases per resize.
+            RedrawWindow(hwnd, nullptr, nullptr,
+                         RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_NOCHILDREN);
+        }
     }
 #else
     if (!m_nativeWindow) return;

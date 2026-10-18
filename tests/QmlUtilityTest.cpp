@@ -17,6 +17,10 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QRegularExpression>
+#include <QScopeGuard>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <algorithm>
 #include <QtTest>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -27,6 +31,72 @@ class QmlUtilityTest final : public QObject {
 private:
     QUrl source(const QString& name) { return QUrl::fromLocalFile(QStringLiteral(VIBEPLAYER_SOURCE_DIR) + "/qml/" + name); }
 private slots:
+    void nativeHostPaintsOpaqueWhileLoading()
+    {
+#ifdef Q_OS_WIN
+        if (QGuiApplication::platformName() != "windows") QSKIP("Requires the native Windows platform");
+        QTcpServer endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        int requests = 0;
+        connect(&endpoint, &QTcpServer::newConnection, &endpoint, [&] {
+            while (auto* socket = endpoint.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                    socket->readAll();
+                    ++requests; // Deliberately withhold the response/first video frame.
+                });
+            }
+        });
+        QQuickWindow window;
+        window.setColor(Qt::black);
+        window.resize(320, 180);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        MpvVideoItem item;
+        item.setSize(QSizeF(320, 180));
+        item.setParentItem(window.contentItem());
+        item.setSource(QUrl(QString("http://127.0.0.1:%1/loading.mp4").arg(endpoint.serverPort())));
+        QTRY_VERIFY(requests > 0);
+        QVERIFY(item.loading());
+        HWND host = nullptr;
+        EnumChildWindows(reinterpret_cast<HWND>(window.winId()), [](HWND child, LPARAM data) -> BOOL {
+            wchar_t name[128] {};
+            GetClassNameW(child, name, 128);
+            if (QString::fromWCharArray(name) != "VibePlayerMpvHostWindow") return TRUE;
+            *reinterpret_cast<HWND*>(data) = child;
+            return FALSE;
+        }, reinterpret_cast<LPARAM>(&host));
+        QVERIFY(host);
+        QVERIFY(IsWindowVisible(host));
+        // Render the real HWND's erase request into a sentinel-filled surface.
+        // Returning success without painting used to expose stale/desktop pixels.
+        const auto dc = CreateCompatibleDC(nullptr);
+        QVERIFY(dc);
+        const auto releaseDc = qScopeGuard([&] { DeleteDC(dc); });
+        BITMAPINFO info {};
+        info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        info.bmiHeader.biWidth = 64;
+        info.bmiHeader.biHeight = -64;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        void* pixels = nullptr;
+        const auto bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+        QVERIFY(bitmap);
+        const auto oldBitmap = SelectObject(dc, bitmap);
+        const auto releaseBitmap = qScopeGuard([&] { SelectObject(dc, oldBitmap); DeleteObject(bitmap); });
+        auto* colors = static_cast<QRgb*>(pixels);
+        std::fill_n(colors, 64 * 64, qRgb(255, 0, 255));
+        QVERIFY(SendMessageW(host, WM_ERASEBKGND, reinterpret_cast<WPARAM>(dc), 0) != 0);
+        GdiFlush();
+        for (const auto index : {0, 32 * 64 + 32, 64 * 64 - 1})
+            QCOMPARE(colors[index] & 0x00ffffffu, 0u);
+        item.stop();
+        QVERIFY(!IsWindow(host));
+#else
+        QSKIP("Windows native host paint regression");
+#endif
+    }
     void nativePickerSurvivesVideoPlayback()
     {
 #ifdef Q_OS_WIN

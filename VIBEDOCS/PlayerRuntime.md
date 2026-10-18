@@ -215,6 +215,33 @@ The player view deliberately skips the application's translated/scaled page-entr
 
 Interactive window resizing uses a retargetable, critically damped native geometry animation. Qt Quick and `QWindow` geometry notifications update one continuously running target; the host follows at approximately 60 frames per second with a short 75 ms smoothing constant, then snaps to the final pixel when both distance and velocity are negligible. The motion has no overshoot or bounce, remains responsive when the user reverses direction, and uses a black QML backing surface so growth never exposes the normal page background. On Windows the host class deliberately omits `CS_HREDRAW` and `CS_VREDRAW`, and ordinary animation frames do not force invalidation; this lets mpv resize its own child surface without a full-window erase between frames. Initial visibility, file-load, and video-reconfiguration events retain the immediate refresh path needed for delayed video-output initialization.
 
+The Windows host also has its own opaque black class background brush.
+`WM_ERASEBKGND` delegates to `DefWindowProc` to actually paint that background;
+returning success without painting used to expose desktop/stale pixels between
+clicking Play and video-output initialization. The QML rectangle cannot fill
+this gap because native child-window clipping excludes the host area from its
+parent's painting. First show synchronously paints the host only, without
+invalidating mpv's children; ordinary resize frames retain the no-forced-erase
+path. `WS_CLIPCHILDREN` protects video already rendered by mpv. Other platforms
+retain the existing Qt child-window implementation. The native regression
+`QmlUtilityTest::nativeHostPaintsOpaqueWhileLoading` stalls an HTTP response and
+checks that the visible host paints real black pixels before a video frame is
+available. See [WM_ERASEBKGND](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-erasebkgnd)
+and [RedrawWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-redrawwindow).
+
+Additional local acceptance on 2026-10-18 used a generated video with two audio
+tracks through local files, HTTP and the authenticated WebDAV playback proxy.
+Playback, external subtitle selection, audio switching and resize assertions
+passed, but the standalone Qt test process subsequently crashed during exit in
+`qwindowsd.dll` (0xc0000005). A baseline build using the committed, unmodified
+`MpvVideoItem.cpp` reproduces the same exit crash. Its root cause remains open;
+it is not counted as a passing acceptance test and is not added to the regular
+CTest suite. The stable native background-paint regression and existing native
+IPTV/picker playback checks remain in CTest. Real SMB playback was not tested
+because this environment has no configured SMB test server. Local diagnostic
+logs are in `build-clang/native-playback-baseline*.txt` and
+`build-clang/native-playback-isolated.txt` (ignored build artifacts).
+
 Controls include:
 
 - exit playback

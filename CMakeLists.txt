@@ -520,7 +520,7 @@ if(BUILD_TESTING)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>;QT_QUICK_BACKEND=software"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     if(WIN32)
-        add_test(NAME native_player_host COMMAND qml_utility_test nativeHostMovesToTheNewWindow
+        add_test(NAME native_player_host COMMAND qml_utility_test nativeHostMovesToTheNewWindow nativeHostPaintsOpaqueWhileLoading
             -o "${CMAKE_CURRENT_BINARY_DIR}/native-player-host-results.txt,txt")
         set_tests_properties(native_player_host PROPERTIES TIMEOUT 30
             ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_QUICK_BACKEND=software"
