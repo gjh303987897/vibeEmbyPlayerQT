@@ -8020,12 +8020,12 @@ bool AppViewModel::createM3u8sFromSelectedSources()
         return false;
     }
     QFileInfo outputDirectory(m_m3u8sOutputDirectory);
-    const QFileInfo temporaryDirectory(m_m3u8sTemporaryDirectory);
-    if (!temporaryDirectory.exists() || !temporaryDirectory.isDir() || !temporaryDirectory.isWritable()) {
-        setError(trText(QStringLiteral("m3u8s.invalidTemporary")));
-        return false;
-    }
     if (m_m3u8sOutputMode == QStringLiteral("webdav")) {
+        const QFileInfo temporaryDirectory(m_m3u8sTemporaryDirectory);
+        if (!temporaryDirectory.exists() || !temporaryDirectory.isDir() || !temporaryDirectory.isWritable()) {
+            setError(trText(QStringLiteral("m3u8s.invalidTemporary")));
+            return false;
+        }
         if (!m_m3u8sWebDavCard || m_m3u8sWebDavServiceId.isEmpty() || m_m3u8sWebDavPath.isEmpty()) {
             setError(trText(QStringLiteral("m3u8s.invalidWebDavOutput")));
             return false;
@@ -8058,7 +8058,10 @@ bool AppViewModel::createM3u8sFromSelectedSources()
     workflowSettings["m3u8s/audioEncoding"] = m_m3u8sAudioEncoding;
     workflowSettings["m3u8s/videoQuality"] = m_m3u8sVideoQuality;
     workflowSettings["m3u8s/containerFormat"] = m_m3u8sContainerFormat;
-    workflowSettings["m3u8s/temporaryDirectory"] = m_m3u8sTemporaryDirectory;
+    // The temporary-directory control belongs to WebDAV output. Local jobs use
+    // the packager's output-directory fallback, including after switching modes.
+    workflowSettings["m3u8s/temporaryDirectory"] = m_m3u8sOutputMode == QStringLiteral("webdav")
+        ? m_m3u8sTemporaryDirectory : QString();
     const auto parallelJobs = m_m3u8sParallelJobs;
 
     m_m3u8sStatus = trText(QStringLiteral("m3u8s.discoveringStatus"));

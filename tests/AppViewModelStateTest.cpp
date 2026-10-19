@@ -84,7 +84,12 @@ private:
     {
         return {QStringLiteral("tsslBackup/format"), QStringLiteral("tsslBackup/target"),
             QStringLiteral("tsslBackup/localPath"), QStringLiteral("appearance/languageMode"),
-            QStringLiteral("updates/automaticCheck"), QStringLiteral("tsslBackup/webDavServiceId")};
+            QStringLiteral("updates/automaticCheck"), QStringLiteral("tsslBackup/webDavServiceId"),
+            QStringLiteral("m3u8s/outputMode"), QStringLiteral("m3u8s/outputDirectory"),
+            QStringLiteral("m3u8s/webDavServiceId"), QStringLiteral("m3u8s/webDavPath"),
+            QStringLiteral("m3u8s/temporaryDirectory"), QStringLiteral("m3u8s/fallbackDirectory"),
+            QStringLiteral("m3u8s/ffmpegExecutable"), QStringLiteral("m3u8s/containerFormat"),
+            QStringLiteral("m3u8s/videoEncoding"), QStringLiteral("m3u8s/audioEncoding")};
     }
     QString m_originalName;
     QString m_testName;
@@ -188,6 +193,70 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDirectory.path());
     }
     void cleanupTestCase() { QSettings::setDefaultFormat(m_originalFormat); }
+    void localM3u8sPackagingWithoutRemoteSettings_data()
+    {
+        QTest::addColumn<QString>("format");
+        QTest::addColumn<bool>("staleTemporary");
+        QTest::newRow("first-run-single-file") << QStringLiteral("m3u8sp") << false;
+        QTest::newRow("stale-webdav-directory-format") << QStringLiteral("m3u8s") << true;
+    }
+    void localM3u8sPackagingWithoutRemoteSettings()
+    {
+        QFETCH(QString, format);
+        QFETCH(bool, staleTemporary);
+        const auto ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+        if (ffmpeg.isEmpty()) QSKIP("Requires FFmpeg for local packaging");
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto output = directory.filePath(QStringLiteral("本地输出"));
+        QVERIFY(QDir().mkpath(output));
+        const auto video = directory.filePath(QStringLiteral("视频.mp4"));
+        QProcess generator;
+        generator.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=25",
+            "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", video});
+        QVERIFY(generator.waitForFinished(10000));
+        QCOMPARE(generator.exitCode(), 0);
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope,
+            QStringLiteral("vibePlayerQT"), QStringLiteral("vibePlayerQT"));
+        settings.setValue("m3u8s/outputMode", "local");
+        settings.setValue("m3u8s/outputDirectory", output);
+        settings.setValue("m3u8s/temporaryDirectory", staleTemporary ? directory.filePath("missing-remote-temp") : QString());
+        settings.setValue("m3u8s/webDavServiceId", QString());
+        settings.setValue("m3u8s/webDavPath", QString());
+        settings.setValue("m3u8s/fallbackDirectory", directory.filePath("missing-fallback"));
+        settings.setValue("m3u8s/ffmpegExecutable", ffmpeg);
+        settings.setValue("m3u8s/containerFormat", format);
+        settings.setValue("m3u8s/videoEncoding", "copy");
+        settings.setValue("m3u8s/audioEncoding", "copy");
+        settings.sync();
+
+        AppViewModel vm(nullptr, directory.filePath("packaging.db"));
+        vm.initialize();
+        vm.openM3u8sManager();
+        QTRY_VERIFY(vm.m3u8sFfmpegAvailable());
+        QVERIFY(vm.m3u8sWebDavServiceId().isEmpty());
+        QVERIFY(vm.m3u8sWebDavPath().isEmpty());
+        vm.addM3u8sVideoSource(QUrl::fromLocalFile(video));
+        QVERIFY2(vm.createM3u8sFromSelectedSources(), qPrintable(vm.errorMessage()));
+        QTRY_VERIFY_WITH_TIMEOUT(!vm.m3u8sPackaging(), 10000);
+        QVERIFY2(!vm.hasError(), qPrintable(vm.errorMessage()));
+        const auto packages = profile.store().listPackages();
+        QVERIFY(packages);
+        QCOMPARE(packages->size(), size_t(1));
+        const QDir outputDirectory(output);
+        if (format == "m3u8sp") QCOMPARE(outputDirectory.entryList({"*.m3u8sp"}, QDir::Files).size(), 1);
+        else QCOMPARE(outputDirectory.entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 1);
+        QVERIFY(outputDirectory.entryList({"vibe-m3u8s-*"}, QDir::Dirs).isEmpty());
+
+        vm.setM3u8sOutputMode("webdav");
+        vm.addM3u8sVideoSource(QUrl::fromLocalFile(video));
+        QVERIFY(!vm.createM3u8sFromSelectedSources());
+        QVERIFY(vm.hasError());
+        QVERIFY(!vm.m3u8sPackaging());
+        QCOMPARE(vm.m3u8sSelectedSources().size(), 1);
+        QTRY_VERIFY(!vm.tsslPackagesLoading());
+    }
     void tsslBackupFormatPersistsAndDefaultsToZip()
     {
         TsslViewModelProfile profile;

@@ -18339,10 +18339,10 @@ ApplicationWindow {
                         ModernButton {
                             visible: !appViewModel.m3u8sPackaging
                             enabled: appViewModel.m3u8sFfmpegAvailable
-                                && appViewModel.m3u8sTemporaryDirectory.length > 0
                                 && (appViewModel.m3u8sOutputMode === "local"
                                     ? appViewModel.m3u8sOutputDirectory.length > 0
                                     : appViewModel.m3u8sWebDavPath.length > 0
+                                        && appViewModel.m3u8sTemporaryDirectory.length > 0
                                         && appViewModel.m3u8sFallbackDirectory.length > 0)
                             text: t("m3u8s.createAction")
                             onClicked: {

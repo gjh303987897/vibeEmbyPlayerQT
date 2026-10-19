@@ -146,6 +146,15 @@ normalized path.
 selects the source, output folder, encoding options, quality, and segment
 duration, then renders progress. The selected output folder and encoding
 options are persisted with `SessionRepository` and restored on the next launch.
+Local output requires only a writable local output directory and FFmpeg; it
+does not require a saved WebDAV service, remote folder, fallback directory, or
+the WebDAV temporary-directory setting. Local jobs create their private staging
+directories beneath their output directory using the packager's existing
+fallback. A stale WebDAV temporary path is ignored after switching to local
+output. WebDAV output still validates its remote target, temporary directory
+and local fallback before starting. `AppViewModelStateTest::localM3u8sPackagingWithoutRemoteSettings`
+covers the ViewModel packaging flow to both container formats with an
+empty or unavailable WebDAV temporary directory.
 The manager can open the configured output root directly; after a package is
 created, a separate action opens that package's final digest-named directory.
 FFmpeg is started with separate program and argument values through `QProcess`.
