@@ -508,7 +508,8 @@ if(BUILD_TESTING)
         target_link_libraries(app_viewmodel_state_test PRIVATE dwmapi)
     endif()
     add_test(NAME app_viewmodel_state COMMAND app_viewmodel_state_test -o "${CMAKE_CURRENT_BINARY_DIR}/app-viewmodel-state-results.txt,txt")
-    set_tests_properties(app_viewmodel_state PROPERTIES TIMEOUT 30
+    # Includes ordered/delayed PlaybackInfo integration cases for both server types.
+    set_tests_properties(app_viewmodel_state PROPERTIES TIMEOUT 90
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=$<TARGET_FILE_DIR:Qt6::QOffscreenIntegrationPlugin>;QT_QUICK_BACKEND=software"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     add_executable(qml_utility_test tests/QmlUtilityTest.cpp src/app/ThemeSnapshotController.cpp src/app/FileDialogController.cpp

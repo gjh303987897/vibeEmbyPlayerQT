@@ -1043,6 +1043,7 @@ private:
     void loadSeriesSeasons();
     void loadSeasonEpisodes(const MediaItem& season);
     void clearCurrentPlayback(double stopPositionSeconds = -1.0);
+    void invalidateMediaServerPlaybackRequest();
     void syncSelectedPeople();
     void setCurrentView(QString view);
     void setLoading(bool value);
@@ -1165,6 +1166,8 @@ private:
     std::optional<MediaItem> m_selectedItem;
     std::optional<MediaItem> m_selectedSeason;
     QUrl m_currentPlaybackUrl;
+    quint64 m_mediaServerPlaybackRequestGeneration { 0 };
+    bool m_mediaServerPlaybackRequestPending { false };
     QString m_currentLocalPlaybackPath;
     QString m_currentMediaSourceId;
     QString m_currentPlaySessionId;

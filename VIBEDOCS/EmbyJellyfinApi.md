@@ -42,6 +42,41 @@ media-source/session identifiers and `static=true`; adaptive transcoding and an
 explicit live-source open/close lifecycle are outside its current implementation.
 The presence of a query string alone did not prove that GET had opened a live source.
 
+### GUI playback request ownership
+
+`AppViewModel` assigns a separate generation to each media-server playback
+request. A new request, playback cleanup, session replacement, or navigation
+invalidates the previous generation. Starting local encrypted playback or an
+encrypted WebDAV preparation also invalidates the old request immediately,
+before preparation finishes. Cancelling a history replay uses the same guard.
+
+PlaybackInfo callbacks validate their generation, server/user identity, and
+selected item before changing loading, foreground scheduling, errors, proxy
+streams, playback URL, MediaSourceId, PlaySessionId, or page navigation. Stale
+successes and failures return silently. Only the pending request's owner clears
+its loading/foreground reservation; an old response cannot clear a newer
+request's loading state or interrupt its playback. The successful callback
+releases ownership before entering the player, so that navigation does not
+cancel the playback it has just accepted.
+
+This is a UI lifetime rule, not a server API change. It does not call the shared
+client's `cancelRequests()`, which could abort unrelated browsing requests.
+`AppViewModelStateTest` uses a local HTTP endpoint with explicitly released
+responses to cover both Emby and Jellyfin: return/settings navigation, explicit
+cancellation, local and link playback replacement, held encrypted-local
+preparation, repeated requests for the same item, another media item, either
+completion order, stale success/error, current-request errors, and matching
+ItemId / MediaSourceId / PlaySessionId in playback-start reports.
+
+Windows validation on 2026-10-22 reproduced the navigation resurrection and URL
+overwrite against the pre-fix binary. All 46 added race cases passed with the
+fix, and all 10 selected CTest targets passed (desktop state, QML utilities,
+native player host, audit regression, CLI integration, local/link services,
+history, encrypted playback proxy, and media-server search). Offscreen runs
+skip their native-only UI cases; the native player host was checked separately.
+Server race coverage uses a local HTTP fixture, not a live Emby/Jellyfin account
+or an SMB share.
+
 Emby:
 
 - Endpoint: `POST /Users/AuthenticateByName`
@@ -153,6 +188,30 @@ Jellyfin:
 - Query: `userId`, `limit`, `includeItemTypes=Movie,Episode`, `fields`, `enableImages=true`, `enableUserData=true`
 
 Continue-watching items open the media details page. Direct play from this section is not part of the current implementation.
+
+`openContinueItem()` shares `m_episodeDetailRequestGeneration` with ordinary
+media details and episode switching. It captures a newly incremented generation
+when requesting details and checks it before changing loading, errors, the
+selected item, people, or season/episode models. Returning or opening another
+item invalidates the old generation through the existing `clearSeriesDetails()`
+path; both stale successes and stale failures are ignored.
+
+For an accepted response, a missing/non-positive playback position or played
+percentage still falls back to the original continue-watching card's progress.
+Positive progress from the detail response takes precedence. The shared local
+HTTP test fixture can hold item-detail responses as well as PlaybackInfo:
+`staleContinueDetails` covers late success/error after returning and switching to
+recommendation, search, library, or another continue-watching item, with the new
+request pending or completed. `continueDetailsPreservesResumeProgress` covers
+missing, zero, and positive server progress, the resulting playback start
+position, and errors from the current request, for both Emby and Jellyfin.
+
+Windows validation on 2026-10-22 reproduced the wrong selected item and premature
+loading completion before the fix. All 28 added continue-detail cases and the
+previous 46 PlaybackInfo race cases passed after the fix. The complete desktop
+state target reported 91 passes, no failures, and one native-only offscreen skip;
+playback-history and media-server-search targets also passed. These use local
+fixtures rather than a live media-server account.
 
 Emby results are requested with `SortBy=DatePlayed` and descending order. The
 client keeps only the first resumable episode for each series, so repeated

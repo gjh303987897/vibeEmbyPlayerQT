@@ -34,6 +34,12 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPointer>
+#include <QUrlQuery>
+#include <optional>
 
 namespace {
 // AppViewModel constructs its TSSL store from QStandardPaths. A unique test
@@ -180,6 +186,99 @@ public:
         });
     }
 };
+
+// PlaybackInfo replies are released explicitly so navigation and later playback
+// requests can overtake them without relying on network timing.
+class PlaybackInfoEndpoint final : public QTcpServer {
+public:
+    struct DetailRequest {
+        QPointer<QTcpSocket> socket;
+        QString id;
+        bool singleItem;
+    };
+    QList<QPointer<QTcpSocket>> pending;
+    QList<QJsonObject> reports;
+    bool holdDetails {false};
+    QList<DetailRequest> details;
+
+    PlaybackInfoEndpoint()
+    {
+        connect(this, &QTcpServer::newConnection, this, [this] {
+            while (auto* socket = nextPendingConnection()) {
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
+                    const auto bytes = socket->property("request").toByteArray() + socket->readAll();
+                    socket->setProperty("request", bytes);
+                    const auto end = bytes.indexOf("\r\n\r\n");
+                    if (end < 0 || socket->property("handled").toBool()) return;
+                    qint64 length = 0;
+                    for (const auto& line : bytes.first(end).split('\n'))
+                        if (line.toLower().startsWith("content-length:")) length = line.mid(15).trimmed().toLongLong();
+                    if (bytes.size() < end + 4 + length) return;
+                    socket->setProperty("handled", true);
+                    const QUrl url(QString::fromUtf8(bytes.split(' ').value(1)));
+                    if (url.path().endsWith("/PlaybackInfo")) {
+                        pending.append(socket);
+                        return;
+                    }
+                    if (url.path().startsWith("/Sessions/Playing")) {
+                        reports.append(QJsonDocument::fromJson(bytes.mid(end + 4, length)).object());
+                    }
+                    if (url.path().endsWith("/Views") || url.path() == "/UserViews") {
+                        reply(socket, R"({"Items":[{"Id":"library","Name":"Library","CollectionType":"movies"}],"TotalRecordCount":1})");
+                        return;
+                    }
+                    auto id = QUrlQuery(url).queryItemValue("Ids");
+                    const bool singleItem = url.path().startsWith("/Items/movie-");
+                    if (singleItem) id = url.path().section('/', -1);
+                    if (holdDetails && !id.isEmpty()) {
+                        details.append({socket, id, singleItem});
+                        return;
+                    }
+                    const QJsonObject item {{"Id", id}, {"Name", id}, {"Type", "Movie"}};
+                    const auto body = singleItem ? item : QJsonObject {
+                        {"Items", id.isEmpty() ? QJsonArray() : QJsonArray {item}}, {"TotalRecordCount", id.isEmpty() ? 0 : 1}};
+                    reply(socket, QJsonDocument(body).toJson(QJsonDocument::Compact));
+                });
+            }
+        });
+    }
+
+    void release(int index, bool fail = false)
+    {
+        const QJsonObject source {{"Id", QString("source-%1").arg(index)}};
+        const QJsonObject body {{"PlaySessionId", QString("session-%1").arg(index)},
+            {"MediaSources", QJsonArray {source}}};
+        reply(pending.at(index), QJsonDocument(body).toJson(QJsonDocument::Compact), fail);
+    }
+
+    void releaseDetails(int index, bool fail = false, const QJsonObject& userData = {})
+    {
+        const auto& request = details.at(index);
+        QJsonObject item {{"Id", request.id}, {"Name", request.id}, {"Type", "Movie"}};
+        if (!userData.isEmpty()) item.insert("UserData", userData);
+        const auto body = request.singleItem ? item : QJsonObject {{"Items", QJsonArray {item}}, {"TotalRecordCount", 1}};
+        reply(request.socket, QJsonDocument(body).toJson(QJsonDocument::Compact), fail);
+    }
+
+    UserSession session(const QString& type) const
+    {
+        return {.server = {.id = "playback-test", .name = "Playback test",
+                    .baseUrl = QString("http://127.0.0.1:%1").arg(serverPort()), .username = "tester",
+                    .serviceType = type == "Emby" ? ServiceType::Emby : ServiceType::Jellyfin, .autoLogin = true},
+            .userId = "user", .username = "tester", .accessToken = "test-token", .createdAt = QDateTime::currentDateTimeUtc()};
+    }
+
+private:
+    static void reply(QTcpSocket* socket, const QByteArray& body, bool fail = false)
+    {
+        if (!socket) return;
+        socket->write(QByteArray(fail ? "HTTP/1.1 400 Bad Request" : "HTTP/1.1 200 OK")
+            + "\r\nContent-Type: application/json\r\nContent-Length: " + QByteArray::number(body.size())
+            + "\r\nConnection: close\r\n\r\n" + body);
+        socket->disconnectFromHost();
+    }
+};
 }
 
 class AppViewModelStateTest final : public QObject {
@@ -194,6 +293,310 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDirectory.path());
     }
     void cleanupTestCase() { QSettings::setDefaultFormat(m_originalFormat); }
+    void staleContinueDetails_data()
+    {
+        QTest::addColumn<QString>("type");
+        QTest::addColumn<QString>("destination");
+        QTest::addColumn<bool>("fail");
+        for (const auto& type : {QString("Emby"), QString("Jellyfin")})
+            for (const auto& destination : {QString("back"), QString("recommended-pending"), QString("search-completed"),
+                     QString("library-completed"), QString("continue-pending")})
+                for (bool fail : {false, true})
+                    QTest::newRow(qPrintable(type + '-' + destination + (fail ? "-error" : "-success"))) << type << destination << fail;
+    }
+    void staleContinueDetails()
+    {
+        QFETCH(QString, type);
+        QFETCH(QString, destination);
+        QFETCH(bool, fail);
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        PlaybackInfoEndpoint endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        const auto path = directory.filePath("continue.db");
+        SessionRepository repository("continue-seed", path);
+        QVERIFY(repository.initialize());
+        QVERIFY(repository.saveSession(endpoint.session(type)));
+        AppViewModel vm(nullptr, path);
+        vm.initialize();
+        QTRY_COMPARE(vm.services()->count(), 1);
+        vm.selectServiceCard(0); vm.serviceCardTransitionExpanded();
+        QTRY_COMPARE(vm.currentView(), QString("home"));
+        QTRY_VERIFY(!vm.loading());
+        endpoint.holdDetails = true;
+        MediaItem item;
+        item.id = "movie-a"; item.name = "Movie A"; item.itemType = "Movie";
+        item.playbackPositionTicks = 120 * 10'000'000LL; item.playedPercentage = 25.0;
+        vm.continueItems()->setItems({item}); vm.openContinueItem(0);
+        QTRY_COMPARE(endpoint.details.size(), 1);
+        QVERIFY(vm.loading());
+        vm.mediaDetailsBack();
+        QTRY_VERIFY(!vm.loading());
+        const bool hasNewRequest = destination != "back";
+        const bool pending = destination.endsWith("-pending");
+        if (hasNewRequest) {
+            item.id = "movie-b"; item.name = "Movie B";
+            if (destination.startsWith("recommended")) {
+                vm.recommendedItems()->setItems({item}); vm.openRecommendedItem(0);
+            } else if (destination.startsWith("search")) {
+                vm.serverSearchResults()->setItems({item}); vm.openServerSearchItem(0);
+            } else if (destination.startsWith("continue")) {
+                vm.continueItems()->setItems({item}); vm.openContinueItem(0);
+            } else {
+                vm.items()->setItems({item}); vm.openItem(0);
+            }
+            QTRY_COMPARE(endpoint.details.size(), 2);
+            if (!pending) {
+                endpoint.releaseDetails(1);
+                QTRY_VERIFY(!vm.loading());
+            }
+        }
+        const auto view = vm.currentView();
+        const auto selectedId = vm.selectedItemId();
+        QSignalSpy selected(&vm, &AppViewModel::selectedItemChanged);
+        QSignalSpy loading(&vm, &AppViewModel::loadingChanged);
+        endpoint.releaseDetails(0, fail);
+        QTest::qWait(80);
+        QCOMPARE(vm.currentView(), view);
+        QCOMPARE(vm.selectedItemId(), selectedId);
+        QCOMPARE(vm.loading(), pending);
+        QCOMPARE(selected.count(), 0);
+        QCOMPARE(loading.count(), 0);
+        QVERIFY(!vm.hasError());
+        if (pending) {
+            endpoint.releaseDetails(1);
+            QTRY_VERIFY(!vm.loading());
+        }
+        if (hasNewRequest) {
+            QCOMPARE(vm.selectedItemId(), QString("movie-b"));
+            vm.playSelectedItem();
+            QTRY_COMPARE(endpoint.pending.size(), 1);
+            endpoint.release(0);
+            QTRY_COMPARE(vm.currentView(), QString("player"));
+            QVERIFY(vm.currentPlaybackUrl().path().contains("movie-b"));
+        }
+    }
+    void continueDetailsPreservesResumeProgress_data()
+    {
+        QTest::addColumn<QString>("type");
+        QTest::addColumn<QString>("progress");
+        for (const auto& type : {QString("Emby"), QString("Jellyfin")})
+            for (const auto& progress : {QString("missing"), QString("zero"), QString("server"), QString("failure")})
+                QTest::newRow(qPrintable(type + '-' + progress)) << type << progress;
+    }
+    void continueDetailsPreservesResumeProgress()
+    {
+        QFETCH(QString, type);
+        QFETCH(QString, progress);
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        PlaybackInfoEndpoint endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        const auto path = directory.filePath("continue.db");
+        SessionRepository repository("continue-seed", path);
+        QVERIFY(repository.initialize());
+        QVERIFY(repository.saveSession(endpoint.session(type)));
+        AppViewModel vm(nullptr, path);
+        vm.initialize();
+        QTRY_COMPARE(vm.services()->count(), 1);
+        vm.selectServiceCard(0); vm.serviceCardTransitionExpanded();
+        QTRY_COMPARE(vm.currentView(), QString("home"));
+        QTRY_VERIFY(!vm.loading());
+        endpoint.holdDetails = true;
+        MediaItem item;
+        item.id = "movie-a"; item.name = "Movie A"; item.itemType = "Movie";
+        item.playbackPositionTicks = 120 * 10'000'000LL; item.playedPercentage = 25.0;
+        vm.continueItems()->setItems({item}); vm.openContinueItem(0);
+        QTRY_COMPARE(endpoint.details.size(), 1);
+        const bool serverProgress = progress == "server";
+        const QJsonObject userData = progress == "missing" ? QJsonObject() : QJsonObject {
+            {"PlaybackPositionTicks", serverProgress ? 240 * 10'000'000.0 : 0.0}, {"PlayedPercentage", serverProgress ? 50.0 : 0.0}};
+        endpoint.releaseDetails(0, progress == "failure", userData);
+        QTRY_VERIFY(!vm.loading());
+        QCOMPARE(vm.selectedItemId(), item.id);
+        if (progress == "failure") {
+            QVERIFY(vm.hasError());
+            QCOMPARE(vm.currentView(), QString("details"));
+            return;
+        }
+        QVERIFY(!vm.hasError());
+        QCOMPARE(vm.selectedItemPlayedPercentage(), serverProgress ? 50.0 : 25.0);
+        vm.playSelectedItem();
+        QTRY_COMPARE(endpoint.pending.size(), 1);
+        endpoint.release(0);
+        QTRY_COMPARE(vm.currentView(), QString("player"));
+        QCOMPARE(vm.currentPlaybackStartSeconds(), serverProgress ? 240.0 : 120.0);
+    }
+    void stalePlaybackInfoAfterNavigation_data()
+    {
+        QTest::addColumn<QString>("type");
+        QTest::addColumn<QString>("destination");
+        QTest::addColumn<bool>("fail");
+        for (const auto& type : {QString("Emby"), QString("Jellyfin")})
+            for (const auto& destination : {QString("back"), QString("settings"), QString("cancel"), QString("local"), QString("encrypted-local"), QString("link"), QString("verification")})
+                for (bool fail : {false, true})
+                    QTest::newRow(qPrintable(type + '-' + destination + (fail ? "-error" : "-success"))) << type << destination << fail;
+    }
+    void stalePlaybackInfoAfterNavigation()
+    {
+        QFETCH(QString, type);
+        QFETCH(QString, destination);
+        QFETCH(bool, fail);
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        PlaybackInfoEndpoint endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        const auto session = endpoint.session(type);
+        const auto path = directory.filePath("playback.db");
+        SessionRepository repository("playback-seed", path);
+        QVERIFY(repository.initialize());
+        QVERIFY(repository.saveSession(session));
+        AppViewModel vm(nullptr, path);
+        vm.initialize();
+        QTRY_COMPARE(vm.services()->count(), 1);
+        vm.selectServiceCard(0);
+        vm.serviceCardTransitionExpanded();
+        QTRY_COMPARE(vm.currentView(), QString("home"));
+        QTRY_VERIFY(!vm.loading());
+        MediaItem item;
+        item.id = "movie-a"; item.name = "Movie A"; item.itemType = "Movie";
+        vm.items()->setItems({item});
+        vm.openItem(0);
+        QTRY_VERIFY(!vm.loading());
+        QCOMPARE(vm.selectedItemId(), item.id);
+        vm.playSelectedItem();
+        QVERIFY2(!vm.hasError(), qPrintable(vm.errorMessage()));
+        QTRY_COMPARE(endpoint.pending.size(), 1);
+        QVERIFY(vm.loading());
+        std::optional<TsslWorkerGate> workerGate;
+        if (destination == "back") vm.mediaDetailsBack();
+        else if (destination == "settings") vm.openSettings();
+        else if (destination == "cancel") vm.cancelPendingHistoryReplay();
+        else if (destination == "local" || destination == "encrypted-local") {
+            QFile file(directory.filePath(destination == "local" ? "local.mp4" : "encrypted.m3u8s"));
+            QVERIFY(file.open(QIODevice::WriteOnly)); file.write("fixture"); file.close();
+            if (destination == "encrypted-local") workerGate.emplace();
+            QVERIFY(vm.openDroppedLocalVideo(QUrl::fromLocalFile(file.fileName()), 0.0));
+        } else if (destination == "link") {
+            vm.setLinkPlaybackAddress("https://example.invalid/new.mp4");
+            QVERIFY(vm.playLink());
+        } else vm.openLocalPlaybackForVerification(QUrl::fromLocalFile(directory.filePath("verify.mp4")));
+        QCOMPARE(vm.loading(), destination == "encrypted-local");
+        const auto view = vm.currentView();
+        const auto playbackUrl = vm.currentPlaybackUrl();
+        const auto selectedId = vm.selectedItemId();
+        QSignalSpy changed(&vm, &AppViewModel::playbackChanged);
+        endpoint.release(0, fail);
+        QTest::qWait(80);
+        QCOMPARE(vm.currentView(), view);
+        QCOMPARE(vm.currentPlaybackUrl(), playbackUrl);
+        QCOMPARE(vm.selectedItemId(), selectedId);
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(vm.loading(), destination == "encrypted-local");
+        QVERIFY(!vm.hasError());
+        if (workerGate) {
+            workerGate->release();
+            QTRY_VERIFY(!vm.loading());
+            QVERIFY(vm.hasError()); // Only the new preparation may surface its invalid-file error.
+            QVERIFY(vm.currentPlaybackUrl().isEmpty());
+            return;
+        }
+        vm.reportPlaybackStarted();
+        QTest::qWait(20);
+        QVERIFY(endpoint.reports.isEmpty()); // A late media-server result must not change the origin.
+    }
+    void latestPlaybackInfoWins_data()
+    {
+        QTest::addColumn<QString>("type");
+        QTest::addColumn<bool>("oldFirst");
+        QTest::addColumn<bool>("sameItem");
+        QTest::addColumn<bool>("fail");
+        QTest::addColumn<bool>("latestFails");
+        for (const auto& type : {QString("Emby"), QString("Jellyfin")}) {
+            for (bool oldFirst : {false, true})
+                for (bool sameItem : {false, true})
+                    for (bool fail : {false, true})
+                        QTest::newRow(qPrintable(QString("%1-%2-%3-%4").arg(type).arg(oldFirst).arg(sameItem).arg(fail)))
+                            << type << oldFirst << sameItem << fail << false;
+            QTest::newRow(qPrintable(type + "-latest-error")) << type << false << false << false << true;
+        }
+    }
+    void latestPlaybackInfoWins()
+    {
+        QFETCH(QString, type);
+        QFETCH(bool, oldFirst);
+        QFETCH(bool, sameItem);
+        QFETCH(bool, fail);
+        QFETCH(bool, latestFails);
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        PlaybackInfoEndpoint endpoint;
+        QVERIFY(endpoint.listen(QHostAddress::LocalHost, 0));
+        const auto session = endpoint.session(type);
+        const auto path = directory.filePath("playback.db");
+        SessionRepository repository("playback-seed", path);
+        QVERIFY(repository.initialize());
+        QVERIFY(repository.saveSession(session));
+        AppViewModel vm(nullptr, path);
+        vm.initialize();
+        QTRY_COMPARE(vm.services()->count(), 1);
+        vm.selectServiceCard(0);
+        vm.serviceCardTransitionExpanded();
+        QTRY_COMPARE(vm.currentView(), QString("home"));
+        QTRY_VERIFY(!vm.loading());
+        MediaItem item;
+        item.id = "movie-a"; item.name = "Movie A"; item.itemType = "Movie";
+        vm.items()->setItems({item}); vm.openItem(0);
+        QTRY_VERIFY(!vm.loading());
+        vm.playSelectedItem();
+        QVERIFY2(!vm.hasError(), qPrintable(vm.errorMessage()));
+        QTRY_COMPARE(endpoint.pending.size(), 1);
+        if (!sameItem) {
+            item.id = "movie-b";
+            vm.items()->setItems({item}); vm.openItem(0);
+            QTRY_VERIFY(!vm.loading());
+        }
+        vm.playSelectedItem();
+        QTRY_COMPARE(endpoint.pending.size(), 2);
+        if (oldFirst) {
+            endpoint.release(0, fail);
+            QTest::qWait(80);
+            QVERIFY(vm.loading());
+            QCOMPARE(vm.currentView(), QString("details"));
+            QVERIFY(vm.currentPlaybackUrl().isEmpty());
+            QVERIFY(!vm.hasError());
+        }
+        endpoint.release(1, latestFails);
+        if (latestFails) {
+            QTRY_VERIFY(vm.hasError());
+            QVERIFY(!vm.loading());
+            const auto message = vm.errorMessage();
+            endpoint.release(0);
+            QTest::qWait(80);
+            QCOMPARE(vm.currentView(), QString("details"));
+            QVERIFY(vm.currentPlaybackUrl().isEmpty());
+            QCOMPARE(vm.errorMessage(), message);
+            QVERIFY(endpoint.reports.isEmpty());
+            return;
+        }
+        QTRY_COMPARE(vm.currentView(), QString("player"));
+        QVERIFY(!vm.loading());
+        const auto playbackUrl = vm.currentPlaybackUrl();
+        QVERIFY(playbackUrl.path().contains(item.id));
+        QCOMPARE(QUrlQuery(playbackUrl).queryItemValue("MediaSourceId"), QString("source-1"));
+        if (!oldFirst) {
+            endpoint.release(0, fail);
+            QTest::qWait(80);
+            QCOMPARE(vm.currentPlaybackUrl(), playbackUrl);
+            QVERIFY(!vm.hasError());
+        }
+        vm.reportPlaybackStarted();
+        QTRY_COMPARE(endpoint.reports.size(), 1);
+        const auto report = endpoint.reports.front();
+        QCOMPARE(report.value("ItemId").toString(), item.id);
+        QCOMPARE(report.value("MediaSourceId").toString(), QString("source-1"));
+        QCOMPARE(report.value("PlaySessionId").toString(), QString("session-1"));
+    }
     void localM3u8sPackagingWithoutRemoteSettings_data()
     {
         QTest::addColumn<QString>("format");

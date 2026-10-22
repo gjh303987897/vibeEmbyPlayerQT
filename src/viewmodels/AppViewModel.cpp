@@ -5317,6 +5317,7 @@ void AppViewModel::startLocalVideoPlayback(const QString& path,
                                            double replacedPositionSeconds,
                                            double startPositionSeconds)
 {
+    invalidateMediaServerPlaybackRequest();
     if (LocalMediaService::isEncryptedHlsManifest(path)) {
         const auto generation = ++m_encryptedHlsPrepareGeneration;
         m_encryptedHlsPreparing = true;
@@ -5832,6 +5833,7 @@ bool AppViewModel::webDavHistoryTargetIsValid(const ServerConfig& server, const 
 
 bool AppViewModel::playGlobalHistory(const QString& recordId)
 {
+    invalidateMediaServerPlaybackRequest();
     ++m_globalHistoryReplayGeneration;
     m_pendingHistoryReplay.reset();
     clearError();
@@ -6034,6 +6036,7 @@ void AppViewModel::loadGlobalHistoryManagementDate(const QString& date)
 
 void AppViewModel::cancelPendingHistoryReplay()
 {
+    invalidateMediaServerPlaybackRequest();
     ++m_globalHistoryReplayGeneration;
     m_pendingHistoryReplay.reset();
 }
@@ -6353,6 +6356,7 @@ void AppViewModel::openWebDavItem(int row)
         return;
     }
     if (item->encryptedHls) {
+        invalidateMediaServerPlaybackRequest();
         const auto generation = ++m_encryptedHlsPrepareGeneration;
         const auto serverId = m_currentWebDavCard->server.id;
         m_encryptedHlsPreparing = true;
@@ -6443,6 +6447,7 @@ void AppViewModel::startWebDavHistoryPlayback(const ServiceCard& card,
 
     if (remoteUrl.path().endsWith(QStringLiteral(".m3u8s"), Qt::CaseInsensitive) ||
         remoteUrl.path().endsWith(QStringLiteral(".m3u8sp"), Qt::CaseInsensitive)) {
+        invalidateMediaServerPlaybackRequest();
         const auto generation = ++m_encryptedHlsPrepareGeneration;
         m_encryptedHlsPreparing = true;
         setLoading(true);
@@ -9816,8 +9821,20 @@ void AppViewModel::loadSeasonEpisodes(const MediaItem& season)
     });
 }
 
+void AppViewModel::invalidateMediaServerPlaybackRequest()
+{
+    ++m_mediaServerPlaybackRequestGeneration;
+    if (!m_mediaServerPlaybackRequestPending) return;
+    m_mediaServerPlaybackRequestPending = false;
+    // Only the owner of the outstanding playback request may release its
+    // loading/foreground reservation. Late callbacks must not touch either.
+    setLoading(false);
+    setForegroundPlaybackActive(false);
+}
+
 void AppViewModel::clearCurrentPlayback(double stopPositionSeconds)
 {
+    invalidateMediaServerPlaybackRequest();
     setIptvStreamMenuVisible(false);
     ++m_iptvPlaybackGeneration;
     m_iptvStartupTimer.stop();
@@ -9939,9 +9956,11 @@ void AppViewModel::openContinueItem(int row)
     const auto resumePlayedPercentage = item->playedPercentage;
     auto* client = clientFor(m_session->server.serviceType);
     setLoading(true);
+    const auto generation = ++m_episodeDetailRequestGeneration;
     client->fetchItemDetails(*m_session,
                              item->id,
-                             [this, resumePositionTicks, resumePlayedPercentage](std::expected<MediaItem, NetworkError> result) {
+                             [this, generation, resumePositionTicks, resumePlayedPercentage](std::expected<MediaItem, NetworkError> result) {
+        if (generation != m_episodeDetailRequestGeneration) return;
         setLoading(false);
         if (!result) {
             setError(displayNetworkError(result.error()));
@@ -10112,23 +10131,27 @@ void AppViewModel::playSelectedItem()
         return;
     }
 
+    invalidateMediaServerPlaybackRequest();
+    const auto generation = m_mediaServerPlaybackRequestGeneration;
+    const auto itemId = m_selectedItem->id;
+    const auto itemName = m_selectedItem->name;
+    const auto playbackServer = m_session->server;
+    const auto userId = m_session->userId;
+    m_mediaServerPlaybackRequestPending = true;
     clearError();
     setForegroundPlaybackActive(true);
     setLoading(true);
-    const auto itemName = m_selectedItem->name;
-    const auto playbackServer = m_session->server;
-    const auto historyReplayGeneration = m_currentView == QStringLiteral("globalHistory")
-        ? m_globalHistoryReplayGeneration
-        : -1;
     AppLogger::info(QStringLiteral("player"), QStringLiteral("Fetching playback info for selected media item"));
     client->fetchPlaybackUrl(*m_session,
                              *m_selectedItem,
-                             [this, itemName, playbackServer, historyReplayGeneration](PlaybackUrlResult result) {
-        setLoading(false);
-        if (historyReplayGeneration >= 0 && historyReplayGeneration != m_globalHistoryReplayGeneration) {
-            setForegroundPlaybackActive(false);
+                             [this, generation, itemId, itemName, playbackServer, userId](PlaybackUrlResult result) {
+        if (generation != m_mediaServerPlaybackRequestGeneration || !m_session || !m_selectedItem
+            || m_session->server.id != playbackServer.id || m_session->userId != userId
+            || m_selectedItem->id != itemId) {
             return;
         }
+        m_mediaServerPlaybackRequestPending = false;
+        setLoading(false);
         if (!result) {
             setForegroundPlaybackActive(false);
             const auto message = displayNetworkError(result.error());
@@ -10518,6 +10541,7 @@ void AppViewModel::openLocalPlaybackForVerification(const QUrl& url)
     }
 
     clearError();
+    clearCurrentPlayback();
     setForegroundPlaybackActive(true);
     m_playbackOrigin = PlaybackOrigin::Local;
     m_currentPlaybackUrl = url;
@@ -11765,6 +11789,9 @@ void AppViewModel::setCurrentView(QString view)
     if (m_currentView == view) {
         return;
     }
+    // A successful PlaybackInfo callback relinquishes its pending flag before
+    // entering the player. Every other navigation invalidates pending work.
+    invalidateMediaServerPlaybackRequest();
     // A service-card activation is allowed to spend the opening transition
     // preparing data, but a toolbar navigation can leave the services page
     // before that work commits.  Invalidate the generation before publishing
@@ -12064,6 +12091,7 @@ void AppViewModel::setWebDavTsslStatus(QString message)
 
 void AppViewModel::setSession(UserSession session)
 {
+    invalidateMediaServerPlaybackRequest();
     m_session = std::move(session);
     emit loggedInChanged();
     emit currentUserChanged();
