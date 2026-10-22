@@ -40,12 +40,13 @@ Cli::Result Cli::rpc(const QString& kind, const QString& profile, const QJsonObj
         process.setStandardErrorFile(QProcess::nullDevice());
         QStringList arguments;
         QString program;
-        if (kind == "player") program = QDir(QCoreApplication::applicationDirPath()).filePath("vibePlayerPlayback"
+        if (kind == "player" || kind == "schedule") program = QDir(QCoreApplication::applicationDirPath()).filePath("vibePlayerPlayback"
 #ifdef Q_OS_WIN
             ".exe"
 #endif
         );
         else { program = QCoreApplication::applicationFilePath(); arguments = {"daemon","run"}; }
+        if (kind == "schedule") arguments += "--schedule-host";
         if (!profile.isEmpty()) arguments += QStringList {"--data-dir",QDir(profile).absolutePath()};
 #ifdef Q_OS_WIN
         process.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args) {

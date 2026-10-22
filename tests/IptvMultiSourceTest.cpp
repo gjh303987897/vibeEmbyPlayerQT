@@ -2,6 +2,7 @@
 #include "services/iptv/IptvParser.h"
 #include "services/iptv/IptvProbe.h"
 #include "services/iptv/IptvStreamSelector.h"
+#include "services/iptv/IptvStreamWorkflow.h"
 
 #include <QFile>
 #include <QSqlQuery>
@@ -57,6 +58,7 @@ public:
 class IptvMultiSourceTest final : public QObject {
     Q_OBJECT
 private slots:
+    void sharedWorkflowPreservesPlaybackAndVariantFailure();
     void mergesIdentityAndPreservesRoutes();
     void choosesQualityAndActualBitrate();
     void expiresAndDeprioritizesFailedRoutes();
@@ -68,6 +70,32 @@ private slots:
     void samplesHlsAndDirectStreams();
     void boundsHlsTraversalAndReportsFailures();
 };
+
+void IptvMultiSourceTest::sharedWorkflowPreservesPlaybackAndVariantFailure()
+{
+    IptvChannel channel {.id = "channel",.streamUrl = "https://example.test/master.m3u8"};
+    channel.streamUrls = {channel.streamUrl};
+    IptvProbeResult probe {.available = true,.width = 1920,.height = 1080,.codec = "h264",.state = "available"};
+    probe.variants = {{"https://example.test/hd.m3u8",1920,1080,5000000,"h264"},
+                      {"https://example.test/sd.m3u8",640,360,500000,"h264"}};
+    IptvStreamWorkflow::applyProbe(channel,channel.streamUrl,probe);
+    const auto selected = IptvStreamSelector::select(channel,"quality");
+    IptvStreamWorkflow::markFailed(channel,selected);
+    QVERIFY(IptvStreamSelector::select(channel,"quality").playbackUrl != selected.playbackUrl);
+    QVERIFY(IptvStreamWorkflow::applyPlayback(channel,selected.sourceUrl,selected.playbackUrl,"1280x720","hevc","2 Mbps"));
+    QCOMPARE(channel.width,1280); QCOMPARE(channel.bitrate,2000000);
+    IptvStreamWorkflow::applyProbe(channel,channel.streamUrl,probe);
+    QCOMPARE(channel.streamInfo.front().width,1280);
+    QVERIFY(!channel.streamInfo.front().variants.front().failedAt.isValid());
+    QVERIFY(!IptvStreamWorkflow::applyPlayback(channel,selected.sourceUrl,selected.playbackUrl,"","",""));
+    const auto rows = IptvStreamWorkflow::rows(channel,"quality");
+    QVERIFY(!rows.isEmpty());
+    QVERIFY(!rows.at(0).toObject().contains("url"));
+    const IptvStreamSelector::Selection master {.sourceUrl = channel.streamUrl,.playbackUrl = channel.streamUrl};
+    const auto actual = IptvStreamWorkflow::rows(channel,"quality",IptvStreamSelector::selectionId(master),&master);
+    QCOMPARE(actual.size(),rows.size() + 1);
+    QCOMPARE(std::ranges::count_if(actual,[](const auto& value) { return value.toObject()["current"].toBool(); }),1);
+}
 
 void IptvMultiSourceTest::mergesIdentityAndPreservesRoutes()
 {

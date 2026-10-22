@@ -46,6 +46,7 @@ The tutorial below is written in Chinese and includes PowerShell, CMD and GitHub
 | [Quick start](VIBEDOCS/CLI-Tutorial.md#quick-start) | Program entry point and your first WebDAV upload |
 | [TSSL and video encryption/restoration](VIBEDOCS/CLI-Tutorial.md#video) | Package, preserve keys and restore videos |
 | [Background tasks](VIBEDOCS/CLI-Tutorial.md#tasks) | Submit, pause, cancel and resume after restarting |
+| [Desktop workflows](VIBEDOCS/CLI-Tutorial.md#desktop-parity) | IPTV streams, local folders, playback history and scheduled playback |
 | [Automation and JSON](VIBEDOCS/CLI-Tutorial.md#automation) | Exit codes, scripts and GitHub Actions |
 | [CLI implementation reference](VIBEDOCS/CLI.md) | Shared modules and verification |
 

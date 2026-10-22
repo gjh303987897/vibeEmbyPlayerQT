@@ -97,8 +97,10 @@ PlayerController 在 loadfile 后读取 `playlist/0/id`，IPTV 的 START_FILE/EN
 加载失败分开处理：只有 loadfile 失败或 END_FILE error 驱动线路回退，字幕、音轨、
 播放器初始化等错误仍通过原有错误处理显示。失败事件完成旧播放记录后才排队换线。
 
-桌面自动回退不延伸到 CLI 的独立播放器；CLI 共用候选排名与失败缓存，仍使用其
-原有的独立播放会话错误行为。
+CLI 独立播放器也使用相同的候选排名、失败缓存、20 秒初始加载超时和真实画质校正；
+`iptv streams` / `player streams` 查询或探测，`player stream ID` 手动切换。
+共享数据变更接口见 [IptvStreamWorkflow.md](IptvStreamWorkflow.md)，
+CLI 生命周期与性能限制见 [CliDesktopParity.md](CliDesktopParity.md)。
 
 ## 验证
 

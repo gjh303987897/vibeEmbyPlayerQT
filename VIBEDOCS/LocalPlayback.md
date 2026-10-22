@@ -13,6 +13,10 @@ Local playback is intentionally a lightweight file player. It provides:
 
 It does not recursively index folders, scrape metadata, download posters, or create a local media library.
 
+The CLI exposes the same saved roots and service through `local list/add/remove/ls/play`.
+It retains canonical boundary validation and never deletes media when removing
+a configured root. See [CLI workflow parity](CliDesktopParity.md).
+
 ## Architecture
 
 The feature follows the existing UI/ViewModel/service/repository split:

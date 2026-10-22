@@ -558,7 +558,8 @@ if(BUILD_TESTING)
     target_compile_definitions(cli_integration_test PRIVATE CLI_EXECUTABLE="$<TARGET_FILE:vibePlayerCLI>")
     add_dependencies(cli_integration_test vibePlayerCLI vibePlayerPlayback)
     add_test(NAME cli COMMAND cli_test)
-    add_test(NAME cli_integration COMMAND cli_integration_test)
+    add_test(NAME cli_integration COMMAND cli_integration_test
+        -o "${CMAKE_CURRENT_BINARY_DIR}/cli-integration-results.txt,txt")
     set_tests_properties(cli cli_integration PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     set_tests_properties(cli_integration PROPERTIES TIMEOUT 240)

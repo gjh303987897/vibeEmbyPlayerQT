@@ -24,6 +24,8 @@
 #include <QUrlQuery>
 #include <QXmlStreamWriter>
 #include <memory>
+#include <QLockFile>
+#include <QElapsedTimer>
 #include <algorithm>
 #ifdef Q_OS_WIN
 #include <qt_windows.h>
@@ -406,6 +408,10 @@ private slots:
         QCOMPARE(empty.code,0); QCOMPARE(empty.json.value("schemaVersion").toInt(),1);
         QVERIFY(empty.json.value("data").toArray().isEmpty());
         QVERIFY(!QFileInfo::exists(directory.filePath("vibeplayer.sqlite3")));
+        QCOMPARE(run({"playback-history","list","--date","invalid"},directory.path()).code,2);
+        QCOMPARE(run({"playback-history","show","missing"},directory.path()).code,4);
+        QCOMPARE(run({"local","ls","missing"},directory.path()).code,4);
+        QCOMPARE(run({"schedule","show","missing"},directory.path()).code,4);
         auto invalid = run({"unknown"},directory.path());
         QCOMPARE(invalid.code,2); QVERIFY(invalid.json.contains("data")); QVERIFY(invalid.json.value("data").isNull());
         Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost));
@@ -779,6 +785,204 @@ private slots:
         QVERIFY(!damaged.output.contains(QByteArray(32,'K').toBase64()));
     }
 
+    void iptvProbeUsesBoundedSharedCache()
+    {
+        QTemporaryDir directory; Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost));
+        endpoint.files["/dav/playlist.m3u"] = "#EXTM3U\n#EXTINF:-1,Live\nmaster.m3u8\n";
+        endpoint.files["/dav/master.m3u8"] = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080,CODECS=\"avc1.640028\"\nhd.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=640x360\nsd.m3u8\n";
+        const auto service = run({"service","add","--type","iptv","--name","Live","--playlist",endpoint.root() + "playlist.m3u"},directory.path()).json["data"].toObject()["id"].toString();
+        QVERIFY(!service.isEmpty());
+        const auto probed = run({"iptv","streams",service,"Live","--probe"},directory.path());
+        QCOMPARE(probed.code,0);
+        QVERIFY(std::ranges::any_of(probed.json["data"].toArray(),[](const auto& row) { return row.toObject()["width"].toInt() == 1920; }));
+        QVERIFY(!probed.output.contains("master.m3u8"));
+        const auto requests = endpoint.requests.size();
+        QCOMPARE(run({"iptv","streams",service,"Live","--probe"},directory.path()).code,0);
+        QCOMPARE(endpoint.requests.size(),requests);
+        QCOMPARE(run({"iptv","streams",service,"Live","--refresh"},directory.path()).code,0);
+        QVERIFY(endpoint.requests.size() > requests);
+    }
+
+    void desktopFolderAndScheduleCommands()
+    {
+        QTemporaryDir directory;
+        const auto root = directory.filePath(QStringLiteral("本地 视频"));
+        QVERIFY(QDir().mkpath(root));
+        QVERIFY(write(QDir(root).filePath("sample.mp4"),"fixture"));
+        QVERIFY(write(QDir(root).filePath("ignore.txt"),"fixture"));
+        for (const auto& group : {"local","playback-history","schedule"}) {
+            const auto result = run({group,"list"},directory.path());
+            QCOMPARE(result.code,0); QVERIFY(result.json["data"].toArray().isEmpty());
+        }
+        QVERIFY(!QFileInfo::exists(directory.filePath("vibeplayer.sqlite3")));
+        const auto added = run({"local","add",root,"--name",QStringLiteral("电影")},directory.path());
+        QCOMPARE(added.code,0);
+        const auto rootId = added.json["data"].toObject()["id"].toString();
+        QCOMPARE(run({"local","add",root},directory.path()).code,5);
+        const auto listing = run({"local","ls",rootId},directory.path());
+        QCOMPARE(listing.code,0); QCOMPARE(listing.json["data"].toArray().size(),1);
+        QCOMPARE(run({"local","ls",rootId,".."},directory.path()).code,2);
+        QCOMPARE(run({"local","play",rootId,"../outside.mp4","--headless"},directory.path()).code,2);
+        QCOMPARE(run({"local","remove",rootId},directory.path()).code,2);
+        QCOMPARE(run({"local","remove",rootId,"--yes"},directory.path()).code,0);
+        QVERIFY(QFileInfo::exists(QDir(root).filePath("sample.mp4")));
+        QCOMPARE(run({"config","set","iptv/streamPreference","dataSaver"},directory.path()).code,0);
+        QCOMPARE(run({"config","get","iptv/streamPreference"},directory.path()).json["data"].toObject()["iptv/streamPreference"].toString(),QString("dataSaver"));
+        QCOMPARE(run({"config","set","iptv/streamPreference","invalid"},directory.path()).code,2);
+        QCOMPARE(run({"config","set","m3u8s/segmentDuration","2"},directory.path()).code,0);
+        QCOMPARE(run({"config","set","m3u8s/segmentDuration","1"},directory.path()).code,2);
+        Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost)); endpoint.mediaFixture = true;
+        const auto service = addService(directory.path(),endpoint,"Scheduled Emby","emby");
+        QCOMPARE(run({"service","login",service,"--password-env","CLI_TEST_PASSWORD"},directory.path()).code,0);
+        const auto task = run({"schedule","add","--service",service,"--schedule-type","weekly","--time","23:59","--days","1","--duration","5","--enabled","false"},directory.path());
+        QCOMPARE(task.code,0);
+        const auto id = task.json["data"].toObject()["id"].toString();
+        QCOMPARE(run({"schedule","update",id,"--days","8"},directory.path()).code,2);
+        QCOMPARE(run({"schedule","update",id,"--duration","4"},directory.path()).code,2);
+        QCOMPARE(run({"schedule","update",id,"--schedule-type","manual"},directory.path()).code,0);
+        QCOMPARE(run({"schedule","show",id},directory.path()).json["data"].toObject()["scheduleType"].toString(),QString("manual"));
+        QCOMPARE(run({"schedule","add","--service",service},directory.path()).code,5);
+        const auto stopHost = qScopeGuard([&] { run({"schedule","unwatch"},directory.path()); QTest::qWait(250); });
+        QCOMPARE(run({"schedule","watch"},directory.path()).code,0);
+        QCOMPARE(run({"schedule","status"},directory.path()).json["data"].toObject()["watching"].toBool(),true);
+        QCOMPARE(run({"schedule","resolve","--run","invalid"},directory.path()).code,2);
+        QCOMPARE(run({"schedule","resolve","--run","false"},directory.path()).code,0);
+        QLockFile execution(directory.filePath("vibeplayer.sqlite3.scheduled-playback.lock"));
+        execution.setStaleLockTime(0); QVERIFY(execution.tryLock());
+        QCOMPARE(run({"schedule","run",id},directory.path()).code,1);
+        execution.unlock();
+        QCOMPARE(run({"schedule","stop"},directory.path()).code,0);
+        QCOMPARE(run({"schedule","remove",id},directory.path()).code,2);
+        QCOMPARE(run({"schedule","remove",id,"--yes"},directory.path()).code,0);
+        QVERIFY(run({"schedule","list"},directory.path()).json["data"].toArray().isEmpty());
+        QCOMPARE(run({"schedule","unwatch"},directory.path()).code,0);
+        QTRY_VERIFY(!QFileInfo::exists(directory.filePath("cli-schedule.lock")));
+    }
+
+    void iptvFallbackSwitchingAndPlaybackHistory()
+    {
+        const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+        if (ffmpeg.isEmpty()) QSKIP("External FFmpeg is unavailable");
+        QTemporaryDir directory;
+        const auto video = directory.filePath(QStringLiteral("测试视频.mp4"));
+        QProcess generator;
+        generator.start(ffmpeg,{"-v","error","-f","lavfi","-i","testsrc2=size=320x180:rate=25",
+            "-f","lavfi","-i","sine=frequency=440","-f","lavfi","-i","sine=frequency=880",
+            "-map","0:v","-map","1:a","-map","2:a","-t","4","-c:v","libx264","-c:a","aac","-pix_fmt","yuv420p","-y",video});
+        QVERIFY(generator.waitForFinished(15000)); QCOMPARE(generator.exitCode(),0);
+        const auto backup = directory.filePath("backup.mp4"); QVERIFY(QFile::copy(video,backup));
+        const auto playlist = directory.filePath("channels.m3u");
+        QByteArray payload = "#EXTM3U\n";
+        for (const auto& path : {directory.filePath("missing.mp4"),video,backup})
+            payload += "#EXTINF:-1 tvg-id=\"same\",Merged channel\n" + QUrl::fromLocalFile(path).toString().toUtf8() + '\n';
+        QVERIFY(write(playlist,payload));
+        const auto added = run({"service","add","--type","iptv","--name","IPTV","--playlist",playlist},directory.path());
+        QCOMPARE(added.code,0);
+        const auto service = added.json["data"].toObject()["id"].toString();
+        const auto channels = run({"media","channels",service},directory.path()).json["data"].toArray();
+        QCOMPARE(channels.size(),1); QCOMPARE(channels[0].toObject()["streamCount"].toInt(),3);
+        const auto channel = channels[0].toObject()["id"].toString();
+        QCOMPARE(run({"privacy","set","--new-pin-env","CLI_TEST_PIN","--confirm-pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        const auto stopPlayer = qScopeGuard([&] {
+            run({"player","stop","--private","--pin-env","CLI_TEST_PIN"},directory.path());
+            run({"player","stop"},directory.path()); QTest::qWait(450);
+        });
+        const auto before = run({"iptv","streams",service,channel},directory.path());
+        QCOMPARE(before.code,0); QCOMPARE(before.json["data"].toArray().size(),3);
+        QVERIFY(!before.output.contains("missing.mp4"));
+        QCOMPARE(run({"play",service,channel,"--headless"},directory.path()).code,0);
+        QJsonArray streams;
+        QElapsedTimer timer; timer.start();
+        while (timer.elapsed() < 12000) {
+            streams = run({"player","streams"},directory.path()).json["data"].toArray();
+            if (std::ranges::any_of(streams,[](const auto& value) { const auto row = value.toObject(); return row["current"].toBool() && row["width"].toInt() == 320; })) break;
+            QTest::qWait(100);
+        }
+        QVERIFY(std::ranges::any_of(streams,[](const auto& value) { const auto row = value.toObject(); return row["current"].toBool() && row["width"].toInt() == 320; }));
+        QString other;
+        for (const auto& value : streams) if (value.toObject()["line"].toInt() == 3) other = value.toObject()["id"].toString();
+        QVERIFY(!other.isEmpty());
+        QCOMPARE(run({"player","stream",other},directory.path()).code,0);
+        const auto switched = run({"player","streams","--probe"},directory.path());
+        QCOMPARE(switched.code,0);
+        QVERIFY(std::ranges::any_of(switched.json["data"].toArray(),[&](const auto& value) { const auto row = value.toObject(); return row["id"].toString() == other && row["current"].toBool(); }));
+        QCOMPARE(run({"player","stream","invalid"},directory.path()).code,4);
+        QTest::qWait(150);
+        QCOMPARE(run({"player","audio","1"},directory.path()).code,0);
+        QTRY_VERIFY(std::ranges::any_of(run({"player","status"},directory.path()).json["data"].toObject()["audio"].toArray(),
+            [](const auto& value) { return value.toObject()["row"].toInt() == 1 && value.toObject()["selected"].toBool(); }));
+        const auto subtitle = directory.filePath(QStringLiteral("字幕.srt"));
+        QVERIFY(write(subtitle,"1\n00:00:00,000 --> 00:00:03,000\nCLI subtitle\n"));
+        QCOMPARE(run({"player","subtitle",subtitle},directory.path()).code,0);
+        QTRY_VERIFY(!run({"player","status"},directory.path()).json["data"].toObject()["subtitles"].toArray().isEmpty());
+        QTest::qWait(1200); // Accumulate at least one IPTV watch second in the shared statistics.
+        QCOMPARE(run({"service","update",service,"--private-mode","true","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        QCOMPARE(run({"player","status"},directory.path()).code,3);
+        QCOMPARE(run({"player","status","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        QCOMPARE(run({"service","update",service,"--private-mode","false","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        QCOMPARE(run({"player","stop"},directory.path()).code,0);
+        QTest::qWait(450);
+        const auto cached = run({"iptv","streams",service,channel},directory.path());
+        QCOMPARE(cached.code,0);
+        QVERIFY(std::ranges::any_of(cached.json["data"].toArray(),[](const auto& value) { return value.toObject()["width"].toInt() == 320; }));
+        const auto history = run({"playback-history","list","--source","IPTV"},directory.path());
+        QCOMPARE(history.code,0); QCOMPARE(history.json["data"].toArray().size(),1);
+        const auto record = history.json["data"].toArray()[0].toObject()["id"].toString();
+        QCOMPARE(run({"playback-history","show",record},directory.path()).code,0);
+        QCOMPARE(run({"playback-history","remove",record},directory.path()).code,2);
+        QCOMPARE(run({"playback-history","remove",record,"--yes"},directory.path()).code,0);
+        const auto root = run({"local","add",directory.path()},directory.path()).json["data"].toObject()["id"].toString();
+        QCOMPARE(run({"local","play",root,QFileInfo(video).fileName(),"--headless","--wait"},directory.path()).code,0);
+        const auto local = run({"playback-history","list","--source","Local","--limit","1"},directory.path());
+        QCOMPARE(local.json["data"].toArray().size(),1);
+        const auto localRecord = local.json["data"].toArray()[0].toObject()["id"].toString();
+        QVERIFY(local.json["data"].toArray()[0].toObject()["completed"].toBool());
+        QCOMPARE(run({"playback-history","play",localRecord,"--headless","--wait"},directory.path()).code,0);
+        QVERIFY(!run({"playback-history","stats"},directory.path()).json["data"].toArray().isEmpty());
+        QCOMPARE(run({"playback-history","clear","--date","invalid","--yes"},directory.path()).code,2);
+        QCOMPARE(run({"play",video,"--headless","--start","1"},directory.path()).code,0);
+        QTest::qWait(350);
+        QCOMPARE(run({"player","stop"},directory.path()).code,0); QTest::qWait(450);
+        const auto interrupted = run({"playback-history","list","--source","Local","--limit","1"},directory.path()).json["data"].toArray();
+        QCOMPARE(interrupted.size(),1);
+        QVERIFY(interrupted[0].toObject()["position"].toInteger() >= 1);
+        QVERIFY(interrupted[0].toObject()["duration"].toInteger() >= 3);
+        QCOMPARE(run({"play",video,"--headless","--wait","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        const auto hidden = run({"playback-history","list"},directory.path());
+        const auto unlocked = run({"playback-history","list","--private","--pin-env","CLI_TEST_PIN"},directory.path());
+        QVERIFY(unlocked.json["data"].toArray().size() > hidden.json["data"].toArray().size());
+        QCOMPARE(run({"playback-history","clear","--date",QDate::currentDate().toString(Qt::ISODate),"--yes","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        QVERIFY(run({"playback-history","list","--private","--pin-env","CLI_TEST_PIN"},directory.path()).json["data"].toArray().isEmpty());
+        Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost)); endpoint.mediaFixture = true; endpoint.mediaFile = read(video);
+        const auto emby = addService(directory.path(),endpoint,"Schedule playback","emby");
+        QCOMPARE(run({"service","login",emby,"--password-env","CLI_TEST_PASSWORD"},directory.path()).code,0);
+        const auto scheduled = run({"schedule","add","--service",emby,"--duration","5"},directory.path());
+        QCOMPARE(scheduled.code,0);
+        const auto taskId = scheduled.json["data"].toObject()["id"].toString();
+        const auto stopScheduler = qScopeGuard([&] { run({"schedule","unwatch"},directory.path()); QTest::qWait(300); });
+        QCOMPARE(run({"player","stop","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        QTest::qWait(450);
+        QCOMPARE(run({"schedule","run",taskId},directory.path()).code,0);
+        bool playing = false;
+        timer.restart();
+        while (timer.elapsed() < 10000) {
+            const auto status = run({"schedule","status"},directory.path());
+            if (status.json["data"].toObject()["state"].toString() == "playing") { playing = true; break; }
+            QTest::qWait(100);
+        }
+        QVERIFY(playing);
+        QCOMPARE(run({"service","update",emby,"--private-mode","true","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        const auto hiddenSchedule = run({"schedule","status"},directory.path());
+        QVERIFY(hiddenSchedule.code == 3 || (hiddenSchedule.code == 0 && hiddenSchedule.json["data"].toObject()["serviceName"].toString().isEmpty()));
+        QCOMPARE(run({"service","update",emby,"--private-mode","false","--private","--pin-env","CLI_TEST_PIN"},directory.path()).code,0);
+        QCOMPARE(run({"schedule","run",taskId},directory.path()).code,0);
+        QCOMPARE(run({"schedule","remove",taskId,"--yes"},directory.path()).code,0);
+        QTRY_VERIFY(run({"schedule","status"},directory.path()).json["data"].toObject()["state"].toString() == "idle");
+        QCOMPARE(run({"schedule","stop"},directory.path()).code,0);
+        QCOMPARE(run({"schedule","unwatch"},directory.path()).code,0);
+        QTRY_VERIFY(!QFileInfo::exists(directory.filePath("cli-schedule.lock")));
+    }
+
     void videoRoundTripAndFailures()
     {
         const auto ffmpeg = EncryptedHlsPackager::locateFfmpegExecutable();
@@ -795,6 +999,7 @@ private slots:
         fixture.start(ffmpeg,{"-v","error","-f","lavfi","-i","testsrc2=size=96x64:rate=12","-t","1",
             "-c:v","libx264","-preset","ultrafast",source});
         QVERIFY(fixture.waitForFinished(15000)); QCOMPARE(fixture.exitCode(),0);
+        QCOMPARE(run({"config","set","m3u8s/temporaryDirectory",directory.filePath("missing-old-webdav-temp")},directory.path()).code,0);
         auto played = run({"play",source,"--headless","--wait"},directory.path());
         QCOMPARE(played.code,0); QVERIFY(played.json["data"].toObject()["ended"].toBool());
         QCOMPARE(run({"player","volume","40"},directory.path()).code,0);
@@ -821,6 +1026,9 @@ private slots:
         QVERIFY(manifest.endsWith(".m3u8s"));
         QCOMPARE(run({"video","restore",manifest,"--output",directory.filePath("directory-restored"),"--ffmpeg",ffmpeg},directory.path()).code,0);
         QCOMPARE(run({"video","restore",directory.filePath("directory-pack"),"--output",directory.filePath("recursive-restored"),"--ffmpeg",ffmpeg},directory.path()).code,0);
+        QCOMPARE(run({"video","pack",source,"--output",directory.filePath("explicit-invalid-temp"),"--temp",directory.filePath("missing-explicit-temp"),"--ffmpeg",ffmpeg},directory.path()).code,1);
+        QCOMPARE(run({"video","pack",source,"--output",directory.filePath("invalid-segment"),"--segment-duration","31"},directory.path()).code,2);
+        QCOMPARE(run({"config","set","m3u8s/temporaryDirectory",""},directory.path()).code,0);
         Endpoint endpoint; QVERIFY(endpoint.listen(QHostAddress::LocalHost));
         const auto id = addService(directory.path(),endpoint);
         endpoint.files["/dav/plain.mp4"] = read(source);

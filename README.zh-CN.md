@@ -44,6 +44,7 @@ vibePlayerQT 是一个基于 Qt Quick、C++23 和 libmpv 的跨平台桌面媒�
 | [快速开始](VIBEDOCS/CLI-Tutorial.md#quick-start) | 运行入口和第一次 WebDAV 上传 |
 | [TSSL 与视频加密/解密](VIBEDOCS/CLI-Tutorial.md#video) | 加密打包、保管密钥和解密还原 |
 | [后台任务与重启恢复](VIBEDOCS/CLI-Tutorial.md#tasks) | 提交、暂停、取消和恢复 |
+| [桌面共享功能](VIBEDOCS/CLI-Tutorial.md#desktop-parity) | IPTV 换线、本地目录、播放历史与定时保号 |
 | [JSON 与脚本自动化](VIBEDOCS/CLI-Tutorial.md#automation) | 退出码、PowerShell/CMD 和 GitHub Actions 示例 |
 | [CLI 模块说明](VIBEDOCS/CLI.md) | 实现与验证信息 |
 

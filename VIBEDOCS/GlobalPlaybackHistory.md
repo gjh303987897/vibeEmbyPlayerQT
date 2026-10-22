@@ -17,6 +17,14 @@ consistently.
 
 An occurrence is persisted only after libmpv reports that playback actually started. A URL validation attempt, media-details request, password prompt, or playback request that fails before that point does not create history. Replaying the same stable media target replaces its previous global-history row, so only the latest occurrence remains.
 
+The CLI playback host now writes the same history table after actual playback
+starts; `playback-history list/show/remove/clear/stats/play` queries and replays
+desktop and CLI records. WebDAV targets retain the canonical remote URL for
+desktop replay; output omits these addresses. Stop/reset cleanup cannot overwrite
+the final real position with a zeroed player state. Private records require PIN
+verification, and live service privacy is rechecked for player control. Shell
+`history` continues to mean input history. See [CliDesktopParity.md](CliDesktopParity.md).
+
 ## Architecture
 
 The module follows the existing layer boundaries:

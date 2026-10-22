@@ -13,6 +13,9 @@ set(VIBE_CORE_SOURCES
     src/services/iptv/IptvParser.cpp
     src/services/iptv/IptvProbe.cpp
     src/services/iptv/IptvStreamSelector.cpp
+    src/services/iptv/IptvStreamWorkflow.cpp
+    src/services/local/LocalMediaService.cpp
+    src/services/scheduler/ScheduledPlaybackSchedule.cpp
     src/services/iptv/IptvPlaylistStore.cpp
     src/services/webdav/WebDavClient.cpp
     src/services/webdav/WebDavPlaybackProxy.cpp
@@ -67,14 +70,16 @@ target_link_libraries(vibePlayerQT PRIVATE vibeCore)
 qt_add_library(vibeCli STATIC
     src/cli/CliCommand.cpp src/cli/CliConsole.cpp src/cli/CliOutput.cpp src/cli/CliEngine.cpp
     src/cli/CliTssl.cpp src/cli/CliVideo.cpp src/cli/CliPrivacy.cpp src/cli/CliSmb.cpp
-    src/cli/CliIpc.cpp src/cli/CliMedia.cpp src/cli/CliDaemon.cpp src/cli/CliTasks.cpp src/cli/CliShell.cpp)
+    src/cli/CliIpc.cpp src/cli/CliMedia.cpp src/cli/CliDaemon.cpp src/cli/CliTasks.cpp src/cli/CliShell.cpp
+    src/cli/CliDesktop.cpp src/cli/CliIptvPlayback.cpp)
 target_link_libraries(vibeCli PUBLIC vibeCore)
 target_compile_definitions(vibeCli PRIVATE VIBEPLAYER_VERSION="${VIBEPLAYER_SEMVER_FULL}")
 qt_add_executable(vibePlayerCLI src/cli/main.cpp)
 target_link_libraries(vibePlayerCLI PRIVATE vibeCli)
 target_compile_definitions(vibePlayerCLI PRIVATE VIBEPLAYER_VERSION="${VIBEPLAYER_SEMVER_FULL}")
 include(GNUInstallDirs)
-qt_add_executable(vibePlayerPlayback src/cli/PlaybackMain.cpp src/player/PlayerController.cpp)
+qt_add_executable(vibePlayerPlayback src/cli/PlaybackMain.cpp src/player/PlayerController.cpp
+    src/cli/CliScheduleHost.cpp src/services/scheduler/ScheduledPlaybackManager.cpp)
 target_link_libraries(vibePlayerPlayback PRIVATE vibeCli Qt6::Gui ${MPV_LINK_TARGET})
 target_compile_definitions(vibePlayerPlayback PRIVATE VIBEPLAYER_MPV_BUILD_INFO="${VIBEPLAYER_MPV_BUILD_INFO}")
 if(WIN32)

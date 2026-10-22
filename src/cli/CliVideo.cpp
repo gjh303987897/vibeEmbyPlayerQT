@@ -21,6 +21,7 @@ Cli::Result Cli::Engine::video(const Invocation& invocation, SessionRepository& 
         {"audio","m3u8s/audioEncoding"}, {"quality","m3u8s/videoQuality"}, {"jobs","m3u8s/parallelJobs"},
         {"ffmpeg","m3u8s/ffmpegExecutable"}, {"temp","m3u8s/temporaryDirectory"},
         {"auto-codecs","m3u8s/autoVideoCodecs"}, {"auto-target","m3u8s/autoVideoTarget"},
+        {"segment-duration","m3u8s/segmentDuration"},
         {"format","encryptedHlsRestore/format"},
     };
     for (auto it = overrides.begin(); it != overrides.end(); ++it) if (invocation.has(it.key())) {
@@ -101,6 +102,7 @@ Cli::Result Cli::Engine::video(const Invocation& invocation, SessionRepository& 
         return failed ? failure(succeeded ? ExitCode::Partial : ExitCode::Failed, "Videos could not be restored; inspect the item results", data) : success(data);
     }
     const bool remote = invocation.has("webdav") || (!invocation.has("output") && settings.value("m3u8s/outputMode") == "webdav");
+    if (!remote && !invocation.has("temp")) settings["m3u8s/temporaryDirectory"] = QString();
     std::optional<ServiceCard> destination;
     QString credential;
     QUrl remoteRoot;

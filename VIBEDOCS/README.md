@@ -23,6 +23,8 @@
 - [CLI-Tutorial.md](CLI-Tutorial.md)：完整用户教程，覆盖全部 CLI 命令、参数、配置键、视频加密/还原、后台任务，以及 PowerShell/CMD/GitHub Actions 自动化示例。
 - `CLI.md`：控制台入口、全部命令、Shell、隐私/凭据、JSON/退出码和自动化示例。
 - `CliMedia.md`、`CliBackgroundTasks.md`、`CliShell.md`：媒体宿主、持久任务续传、交互表达式。
+- [CliDesktopParity.md](CliDesktopParity.md)：本地目录、全局播放历史、日历调度与 CLI IPTV 播放宿主。
+- [IptvStreamWorkflow.md](IptvStreamWorkflow.md)：桌面/CLI 共用探测结果、实际画质与失败缓存变更。
 - `SmbClient.md`、`S3CredentialProvider.md`：Windows SMB、S3 临时凭据与 STS 角色。
 - `CliOutput.md`：终端表格、完整 ID/路径、中文宽度、批量明细、JSON 兼容与重定向。
 - `CliVerification.md`：Windows 本地构建、25 项测试、真实终端、安装包与验收范围。

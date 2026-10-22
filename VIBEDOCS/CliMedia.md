@@ -3,6 +3,9 @@
 CliMedia 复用 MediaServiceClient、EmbyClient/JellyfinClient 和 SessionRepository。
 libraries 返回媒体库；ls SERVICE [PARENT_ID] 浏览目录；ls/search 支持
 offset>=0、limit 1..1000；show 返回详情/续播位置，不输出带 Token 的播放 URL。
+CLI 现已补齐 IPTV 多线路探测/回退、全局播放历史、本地目录与定时播放；
+命令与生命周期见 [CliDesktopParity.md](CliDesktopParity.md) 和
+[教程第 17 节](CLI-Tutorial.md#desktop-parity)。
 Emby/Jellyfin 先 service login。IPTV channels 返回 ID/名称/组，play 支持
 完整 ID 或唯一名称。远程播放列表保存托管副本，相对地址基于原 URL 解析。
 

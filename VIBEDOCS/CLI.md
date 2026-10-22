@@ -73,6 +73,11 @@ Windows 会话 Token 由用户范围 DPAPI 加密；旧会话在写模式初始�
 | `video restore PACKAGE_OR_FOLDER... [--service WEBDAV]` | 递归发现本地或远程包并还原 |
 | `media libraries/ls/search/show SERVICE ...` | Emby/Jellyfin 查询；列表支持 offset/limit |
 | `media channels SERVICE` | IPTV 频道 |
+| `iptv streams SERVICE CHANNEL [--probe] [--refresh]` | 线路元数据、共享画质探测与缓存 |
+| `player streams [--probe]` / `player stream ID` | 当前频道探测与手动换线；失败自动回退 |
+| `local list/add/remove/ls/play` | 桌面本地目录管理与受限浏览/播放 |
+| `playback-history list/show/remove/clear/stats/play` | 桌面播放历史、统计与续播 |
+| `schedule list/show/add/update/remove/run/status/stop/watch/unwatch/resolve` | 共享 Emby 定时保号任务及独立调度宿主 |
 | `play FILE_OR_URL` / `play SERVICE ITEM_OR_PATH_OR_CHANNEL` | 文件、HTTP、服务媒体播放 |
 | `player status/pause/resume/stop/seek/volume/speed/subtitle/audio` | CLI 播放宿主状态、控制和轨道 |
 | `task list/show/pause/resume/retry/cancel/remove` | CLI 后台任务 |
@@ -121,12 +126,15 @@ Windows 会话 Token 由用户范围 DPAPI 加密；旧会话在写模式初始�
 | `--audio` | `copy` / `aac` |
 | `--quality` | `high` / `balanced` / `compact` |
 | `--jobs N` | 1 至当前允许的并行数（最大 4） |
+| `--segment-duration N` | 分片目标时长 2..30 秒，默认读取 `m3u8s/segmentDuration` |
 | `--ffmpeg FILE` / `--temp DIR` | FFmpeg 和临时目录 |
 | `--auto-codecs h264,h265 --auto-target h264` | 自动编码规则 |
 | `--keep-local` | WebDAV 上传成功后也保留本地包 |
 | `video restore --format` | `original` / `mkv` / `mp4` |
 
 只有 `config set` 持久修改设置。还原保留现有模块的同名自动编号行为。
+本地打包忽略保存的 WebDAV 临时目录；显式 `--temp` 仍会验证并应用。
+`config set iptv/streamPreference quality|dataSaver` 与桌面共享线路偏好。
 上传失败或取消会保留本地打包结果，并在结果中返回保留目录。
 视频 WebDAV 输出可准备祖先；普通 mkdir 使用 --parents 时同样支持。
 video restore 使用 --service 从 WebDAV 下载包；远程 .m3u8s 下载其父目录的分段。

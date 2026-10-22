@@ -89,7 +89,8 @@ private:
             QStringLiteral("m3u8s/webDavServiceId"), QStringLiteral("m3u8s/webDavPath"),
             QStringLiteral("m3u8s/temporaryDirectory"), QStringLiteral("m3u8s/fallbackDirectory"),
             QStringLiteral("m3u8s/ffmpegExecutable"), QStringLiteral("m3u8s/containerFormat"),
-            QStringLiteral("m3u8s/videoEncoding"), QStringLiteral("m3u8s/audioEncoding")};
+            QStringLiteral("m3u8s/videoEncoding"), QStringLiteral("m3u8s/audioEncoding"),
+            QStringLiteral("m3u8s/segmentDuration"), QStringLiteral("iptv/streamPreference")};
     }
     QString m_originalName;
     QString m_testName;
@@ -275,6 +276,23 @@ private slots:
         QCOMPARE(WorkflowSettings::snapshot().value(QStringLiteral("tsslBackup/format")).toString(), QStringLiteral("zip"));
         QTRY_VERIFY(!reopened.tsslPackagesLoading());
         QVERIFY(!reopened.hasError());
+    }
+    void desktopAndCliShareStreamPreferenceAndSegmentDuration()
+    {
+        TsslViewModelProfile profile;
+        QTemporaryDir directory;
+        QVERIFY(WorkflowSettings::set("m3u8s/segmentDuration","4"));
+        QVERIFY(WorkflowSettings::set("iptv/streamPreference","dataSaver"));
+        AppViewModel vm(nullptr,directory.filePath("shared-settings.db"));
+        vm.initialize();
+        QCOMPARE(vm.m3u8sSegmentDuration(),4);
+        QCOMPARE(vm.iptvStreamPreference(),QString("dataSaver"));
+        vm.setM3u8sSegmentDuration(8);
+        vm.setIptvStreamPreference("quality");
+        const auto snapshot = WorkflowSettings::snapshot();
+        QCOMPARE(snapshot.value("m3u8s/segmentDuration").toInt(),8);
+        QCOMPARE(snapshot.value("iptv/streamPreference").toString(),QString("quality"));
+        QTRY_VERIFY(!vm.tsslPackagesLoading());
     }
     void tsslLocalZipBackupAndMixedLegacyRestore()
     {

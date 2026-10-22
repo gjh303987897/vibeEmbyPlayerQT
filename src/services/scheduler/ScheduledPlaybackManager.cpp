@@ -365,6 +365,20 @@ QString ScheduledPlaybackManager::currentServerName() const
     return {};
 }
 
+QString ScheduledPlaybackManager::currentServerId() const
+{
+    if (m_currentTask) return m_currentTask->serverId;
+    if (m_pendingTask) return m_pendingTask->serverId;
+    return {};
+}
+
+QString ScheduledPlaybackManager::currentTaskId() const
+{
+    if (m_currentTask) return m_currentTask->id;
+    if (m_pendingTask) return m_pendingTask->id;
+    return {};
+}
+
 QString ScheduledPlaybackManager::currentMediaName() const
 {
     return m_currentItem ? m_currentItem->name : QString {};
@@ -428,6 +442,14 @@ void ScheduledPlaybackManager::startTask(ScheduledPlaybackTask task)
     }
     if (!sessionResult->has_value()) {
         failTask(QStringLiteral("The selected Emby source has no saved session"));
+        return;
+    }
+    if (!m_executionLock) {
+        m_executionLock = std::make_unique<QLockFile>(m_repository.scheduledPlaybackLockPath());
+        m_executionLock->setStaleLockTime(0);
+    }
+    if (!m_executionLock->isLocked() && !m_executionLock->tryLock(0)) {
+        failTask(QStringLiteral("Another application process is running scheduled playback"));
         return;
     }
 
@@ -706,6 +728,7 @@ void ScheduledPlaybackManager::finishTask()
 {
     ++m_generation;
     stopCurrentItem(false);
+    if (m_executionLock) m_executionLock->unlock();
     m_progressTimer.stop();
     m_completedSeconds = m_targetSeconds;
     m_currentSession.reset();
@@ -720,6 +743,7 @@ void ScheduledPlaybackManager::failTask(QString message)
 {
     ++m_generation;
     stopCurrentItem(false);
+    if (m_executionLock) m_executionLock->unlock();
     m_progressTimer.stop();
     m_currentSession.reset();
     m_currentTask.reset();
@@ -738,6 +762,7 @@ void ScheduledPlaybackManager::setStatus(QString status, QString error)
 
 void ScheduledPlaybackManager::clearRunState()
 {
+    if (m_executionLock) m_executionLock->unlock();
     m_progressTimer.stop();
     m_candidates.clear();
     m_recentItemIds.clear();

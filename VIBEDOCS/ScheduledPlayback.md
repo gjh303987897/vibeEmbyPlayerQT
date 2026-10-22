@@ -4,6 +4,12 @@
 
 保号任务模块为已保存登录会话的 Emby 播放源执行无窗口、无声音的后台播放。用户可以手动启动，也可以保存按本机时间重复运行的策略。
 
+CLI 的 `schedule` 命令与桌面使用同一组策略和本模块；`schedule watch` 在独立
+宿主中保持自动调度，`run/status/stop/unwatch/resolve` 提供运行控制。共享管理器
+执行任务期间持有 `<database>.scheduled-playback.lock`，避免桌面和 CLI 同时
+进行保号播放；完成、失败、停止和析构均释放锁。当前任务/来源 ID 可供宿主
+重新校验策略删除和隐私变化，不暴露凭据。详见 [CliDesktopParity.md](CliDesktopParity.md)。
+
 支持的策略：
 
 - `manual`：仅手动运行。

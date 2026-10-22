@@ -15,6 +15,12 @@
 验证拒绝未注册键、非法枚举和并行数，转换布尔/CSV 编码列表，规范化本地路径；
 保存同步检查 QSettings 状态。配置不会在临时命令覆盖时写回。
 
+线路偏好 `iptv/streamPreference` 默认为 `quality`，允许 `quality/dataSaver`。
+分片时长 `m3u8s/segmentDuration` 默认为 6，范围为 2..30 秒。桌面读取和保存
+同一分片时长，`applyPackaging` 将快照值写入请求；CLI `--segment-duration`
+只覆盖当前任务。本地 CLI 打包会清除从 WebDAV 设置继承的临时路径，显式
+`--temp` 仍保留，避免失效的远端处理配置阻止本地任务。
+
 TSSL 备份格式键 `tsslBackup/format` 默认 `zip`，允许 `zip/files`。桌面选择框
 和 CLI `config set` 使用相同验证与保存接口；`tssl backup --format` 只覆盖
 本次任务，恢复忽略格式设置并同时发现新旧备份。

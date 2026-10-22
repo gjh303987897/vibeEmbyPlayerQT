@@ -27,6 +27,7 @@ const QVariantMap& defaults()
         {"m3u8s/autoVideoCodecs", QStringList {"h264", "h265"}}, {"m3u8s/autoVideoTarget", "h264"},
         {"m3u8s/audioEncoding", "aac"}, {"m3u8s/videoQuality", "balanced"},
         {"m3u8s/containerFormat", "m3u8sp"}, {"m3u8s/parallelJobs", 1},
+        {"m3u8s/segmentDuration", 6}, {"iptv/streamPreference", "quality"},
         {"encryptedHlsRestore/outputDirectory", ""}, {"encryptedHlsRestore/format", "original"},
         {"tsslBackup/target", "none"}, {"tsslBackup/format", "zip"}, {"tsslBackup/localPath", ""}, {"tsslBackup/webDavServiceId", ""},
         {"tsslBackup/webDavPath", "vibePlayerQT/tssl"}, {"tsslBackup/s3Endpoint", ""},
@@ -69,6 +70,7 @@ std::expected<void, QString> WorkflowSettings::validate(const QString& key, QVar
         {"m3u8s/autoVideoTarget", {"h264", "h265"}}, {"m3u8s/audioEncoding", {"copy", "aac"}},
         {"m3u8s/videoQuality", {"high", "balanced", "compact"}},
         {"m3u8s/containerFormat", {"m3u8s", "m3u8sp"}},
+        {"iptv/streamPreference", {"quality", "dataSaver"}},
         {"encryptedHlsRestore/format", {"original", "mkv", "mp4"}},
         {"tsslBackup/target", {"none", "local", "webdav", "s3"}},
         {"tsslBackup/format", {"zip", "files"}},
@@ -81,6 +83,11 @@ std::expected<void, QString> WorkflowSettings::validate(const QString& key, QVar
         if (!ok || number < 1 || number > EncryptedHlsBatchPackager::maximumParallelJobs())
             return std::unexpected(QStringLiteral("Invalid parallel job count"));
         value = number;
+    } else if (key == QStringLiteral("m3u8s/segmentDuration")) {
+        bool ok = false;
+        const auto seconds = value.toInt(&ok);
+        if (!ok || seconds < 2 || seconds > 30) return std::unexpected(QStringLiteral("Segment duration must be 2..30 seconds"));
+        value = seconds;
     } else if (defaults().value(key).metaType().id() == QMetaType::Bool) {
         const auto text = value.toString().toLower();
         if (text != "true" && text != "false") return std::unexpected(QStringLiteral("Expected true or false"));
@@ -132,6 +139,7 @@ std::expected<void, QString> WorkflowSettings::set(const QString& key, const QSt
 
 void WorkflowSettings::applyPackaging(const QVariantMap& values, EncryptedHlsPackageRequest& request)
 {
+    request.segmentDurationSeconds = values.value("m3u8s/segmentDuration", 6).toInt();
     const auto video = values.value("m3u8s/videoEncoding").toString();
     request.videoEncoding = video == "copy" ? EncryptedHlsVideoEncoding::Copy :
         video == "h265" ? EncryptedHlsVideoEncoding::H265 :

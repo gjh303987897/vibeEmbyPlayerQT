@@ -18,6 +18,8 @@
 #include <deque>
 #include <optional>
 #include <vector>
+#include <QLockFile>
+#include <memory>
 
 class ScheduledPlaybackManager final : public QObject {
     Q_OBJECT
@@ -35,6 +37,8 @@ public:
 
     QString status() const;
     QString currentServerName() const;
+    QString currentServerId() const;
+    QString currentTaskId() const;
     QString currentMediaName() const;
     QString errorMessage() const;
     qint64 elapsedSeconds() const;
@@ -78,6 +82,7 @@ private:
 
     EmbyClient& m_embyClient;
     SessionRepository& m_repository;
+    std::unique_ptr<QLockFile> m_executionLock;
     PlayerController m_player;
     QTimer m_progressTimer;
     QTimer m_scheduleTimer;

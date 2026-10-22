@@ -113,6 +113,7 @@ public:
     std::expected<void, QString> clearSession();
     std::expected<void, QString> clearServerSession(const QString& serverId);
     bool databaseExists() const;
+    QString scheduledPlaybackLockPath() const { return databasePath() + QStringLiteral(".scheduled-playback.lock"); }
 
     bool privacyPinConfigured() const;
     QString privacyPinSalt() const;

@@ -24,6 +24,7 @@
 - [14. 持续交互终端 Shell](#shell)
 - [15. JSON、退出码与自动化脚本](#automation)
 - [16. 常见问题与当前边界](#troubleshooting)
+- [17. 桌面功能同步：线路、历史、本地目录与定时播放](#desktop-parity)
 
 <a name="quick-start"></a>
 
@@ -837,6 +838,8 @@ WebDAV 下载有强 ETag 时可恢复当前文件，并校验已完成文件；S
 | `m3u8s/videoQuality` | `balanced` | `high/balanced/compact` |
 | `m3u8s/containerFormat` | `m3u8sp` | `m3u8s/m3u8sp` |
 | `m3u8s/parallelJobs` | `1` | 正整数，不能超过当前允许上限，最多 `4` |
+| `m3u8s/segmentDuration` | `6` | 分片目标时长，整数 `2..30` 秒；与桌面共享 |
+| `iptv/streamPreference` | `quality` | `quality/dataSaver`，与桌面共享 |
 | `encryptedHlsRestore/outputDirectory` | 空 | 还原输出目录；还原前必须配置或传 `--output` |
 | `encryptedHlsRestore/format` | `original` | `original/mkv/mp4` |
 
@@ -1179,3 +1182,110 @@ $taskId = $job.data.id
 - [S3 临时凭据](S3CredentialProvider.md)
 - [加密视频还原](EncryptedHlsRestore.md)
 - [Windows 验收记录](CliVerification.md)
+
+<a name="desktop-parity"></a>
+
+## 17. 桌面功能同步：线路、历史、本地目录与定时播放
+
+这些命令与桌面使用同一服务、配置和 SQLite；`--data-dir` 仍可隔离配置。
+隐私操作使用 `--private --pin-env PLAYER_PIN`，脚本删除使用 `--yes`。
+
+### 17.1 IPTV 画质、探测和线路切换
+
+```powershell
+.\vibePlayerQT config set iptv/streamPreference quality
+# 或者：dataSaver（省流优先）
+.\vibePlayerQT media channels "我的 IPTV"
+.\vibePlayerQT iptv streams "我的 IPTV" "CCTV1" --probe
+.\vibePlayerQT play "我的 IPTV" "CCTV1" --preference dataSaver
+.\vibePlayerQT player streams --probe
+.\vibePlayerQT player streams --json
+.\vibePlayerQT player stream "上一步返回的线路ID"
+```
+
+`iptv streams SERVICE CHANNEL` 接受频道完整 ID 或唯一名称，不加参数只读缓存。
+`--probe` 按需探测并复用有效缓存，`--refresh` 强制重新探测；返回线路 ID、
+原始线路编号、宽高、码率、编码、可用状态和检查时间，不返回源 URL。
+显式 `iptv streams --probe` 等待当前频道探测完成。
+`player streams --probe` 在播放器内异步探测，随后再次查询可见更新。
+
+`play --stream ID` 可以直接指定初始线路；`--preference quality|dataSaver` 仅覆盖
+本次播放，只有 `config set` 修改保存偏好。实际播放失败或首次加载超过 20 秒时
+自动换到尚未尝试的线路，全部失败才结束。手动换线启动新一轮回退。
+播放成功的真实宽高/编码会更新缓存，不会为无法测量的流编造分辨率。
+
+### 17.2 视频分片与本地临时目录
+
+```powershell
+.\vibePlayerQT config set m3u8s/segmentDuration 6
+.\vibePlayerQT video pack "D:\视频\影片.mp4" --output "D:\视频包" --segment-duration 4
+```
+
+分片时长为 2..30 秒，流复制仍受原始关键帧约束。保存值与桌面共享，命令参数
+只影响本次处理。本地打包不依赖 WebDAV 服务、远程目录或保存的 WebDAV 临时
+目录；显式 `--temp DIR` 仍会应用并要求目录可写。
+
+### 17.3 本地目录
+
+```powershell
+.\vibePlayerQT local add "D:\电影" --name "本地电影"
+.\vibePlayerQT local list
+.\vibePlayerQT local ls "本地电影" "合集"
+.\vibePlayerQT local play "本地电影" "合集/影片.mkv" --start 30
+.\vibePlayerQT local remove "本地电影" --yes
+```
+
+根目录支持完整 ID 或唯一名称。浏览和播放不能通过 `..` 或链接逃出根目录。
+删除只移除目录配置，保留磁盘文件。`local play` 也支持 `--wait`、`--headless`。
+与桌面一样只浏览当前目录，不递归创建媒体索引或刮削元数据。
+
+### 17.4 全局播放历史与统计
+
+```powershell
+.\vibePlayerQT playback-history list --source Local --limit 50 --offset 0
+.\vibePlayerQT playback-history list --date "2026-10-22"
+.\vibePlayerQT playback-history show "记录ID"
+.\vibePlayerQT playback-history play "记录ID" --wait
+.\vibePlayerQT playback-history stats
+.\vibePlayerQT playback-history remove "记录ID" --yes
+.\vibePlayerQT playback-history clear --date "2026-10-22" --yes
+```
+
+`--source` 支持 Emby/Jellyfin/IPTV/WebDAV/Local/Link，列表最大每页 1000 条。
+记录只在真正开始播放后生成，CLI 与桌面都可查询、续播和删除；完成的视频从头
+重播，IPTV 重新接入直播。`playback-history play` 可使用 `--start` 临时指定位置。
+统计返回按日期/服务的观看时间、收发字节和保号流量。隐私记录需要解锁，知道
+记录 ID 也不能绕过。Shell 的 `history` 仍仅显示当前会话输入的命令。
+
+### 17.5 Emby 定时保号播放
+
+```powershell
+.\vibePlayerQT service login "我的 Emby" --password-env EMBY_PASSWORD
+.\vibePlayerQT schedule add --service "我的 Emby" --schedule-type daily --time "12:00" --duration 90
+.\vibePlayerQT schedule list
+.\vibePlayerQT schedule show "任务ID"
+.\vibePlayerQT schedule update "任务ID" --schedule-type custom_monthly --days "14,21,28" --time "12:00" --duration 120
+.\vibePlayerQT schedule watch
+.\vibePlayerQT schedule status
+.\vibePlayerQT schedule run "任务ID"
+.\vibePlayerQT schedule stop
+.\vibePlayerQT schedule resolve --run false
+.\vibePlayerQT schedule unwatch
+.\vibePlayerQT schedule remove "任务ID" --yes
+```
+
+命令与桌面管理同一份 Emby 保号策略，要求保存过登录。`--schedule-type` 支持
+manual/daily/weekly/monthly/custom_monthly；自动策略需要 `--time HH:mm`。
+weekly 的 `--days` 是一个 ISO 星期值（1..7），monthly 是一个日期（1..31），
+custom_monthly 可为多个日期；不存在该日期的月份跳过。`--duration` 为 5..720 分钟，
+`--enabled true|false` 控制自动触发。未指定的 update 字段保持原值。
+
+`watch` 启动独立调度宿主，之后 CLI 命令可以退出；新保存的策略在十秒内重载。
+`run` 手动执行，`stop` 停止当前运行和等待队列，`unwatch` 退出调度宿主。
+`status` 返回当前状态和漏跑数量；`resolve --run true` 补跑，false 忽略。
+隐私宿主检查 PIN 变更，变更后停止原有私密任务。共享执行锁阻止桌面和 CLI
+同时进行保号播放。CLI 前台播放优先，调度器会等待其结束。
+
+自动调度需要桌面应用或 `schedule watch` 宿主保持运行，不安装系统服务、
+不唤醒休眠电脑。文件处理的 `task` 与日历保号的 `schedule` 是两个命令组。
+模块边界与性能细节见 [桌面共享流程](CliDesktopParity.md)。

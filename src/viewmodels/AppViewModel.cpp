@@ -10,6 +10,7 @@
 #include "services/backup/TsslBackupArchive.h"
 #include "services/iptv/IptvParser.h"
 #include "services/iptv/IptvStreamSelector.h"
+#include "services/iptv/IptvStreamWorkflow.h"
 #include "services/link/LinkPlaybackService.h"
 #include "services/scheduler/ScheduledPlaybackSchedule.h"
 #include "utils/AppLogger.h"
@@ -2120,30 +2121,7 @@ AppViewModel::AppViewModel(QObject* parent, QString databasePath)
             m_iptvProbeActiveUrl.clear();
             const auto channel = std::ranges::find(m_allIptvChannels, channelId, &IptvChannel::id);
             if (channel != m_allIptvChannels.end()) {
-                auto info = std::ranges::find(channel->streamInfo, url.toString(), &IptvStreamInfo::url);
-                if (info == channel->streamInfo.end()) {
-                    channel->streamInfo.push_back({.url = url.toString()});
-                    info = std::prev(channel->streamInfo.end());
-                }
-                // Actual playback wins over a late background answer.
-                if ((info->state != QStringLiteral("playback") && info->state != QStringLiteral("playback-failed")) || !IptvStreamSelector::fresh(*info)) {
-                    *info = {.url = url.toString(), .available = result.available,
-                        .width = result.width, .height = result.height, .bitrate = result.bitrate,
-                        .codec = result.codec, .state = result.state,
-                        .checkedAt = QDateTime::currentDateTimeUtc(), .variants = result.variants,
-                        .qualityCheckedAt = result.detailed ? QDateTime::currentDateTimeUtc() : QDateTime {}};
-                } else if (result.detailed) {
-                    info->qualityCheckedAt = QDateTime::currentDateTimeUtc();
-                    for (auto& variant : info->variants) {
-                        if (variant.width > 0 && variant.height > 0) continue;
-                        const auto measured = std::ranges::find(result.variants, variant.url, &IptvStreamVariant::url);
-                        if (measured != result.variants.end()) {
-                            const auto failedAt = variant.failedAt;
-                            variant = *measured;
-                            variant.failedAt = failedAt;
-                        }
-                    }
-                }
+                IptvStreamWorkflow::applyProbe(*channel, url.toString(), result);
                 const auto selected = IptvStreamSelector::select(*channel, m_iptvStreamPreference);
                 if (selected.info.available && channelId != m_currentIptvChannelId) {
                     channel->width = selected.info.width;
@@ -3096,6 +3074,7 @@ void AppViewModel::setM3u8sSegmentDuration(int value)
         return;
     }
     m_m3u8sSegmentDuration = normalized;
+    static_cast<void>(WorkflowSettings::set(QStringLiteral("m3u8s/segmentDuration"), QString::number(normalized)));
     emit m3u8sSegmentDurationChanged();
 }
 
@@ -4633,6 +4612,8 @@ void AppViewModel::initialize()
     EncryptedHlsPackager::setConfiguredExecutablePath(m_m3u8sFfmpegPath);
     m_m3u8sOutputMode = m_repository.m3u8sOutputMode() == QStringLiteral("webdav")
         ? QStringLiteral("webdav") : QStringLiteral("local");
+    m_m3u8sSegmentDuration = std::clamp(WorkflowSettings::snapshot().value("m3u8s/segmentDuration").toInt(), 2, 30);
+    emit m3u8sSegmentDurationChanged();
     m_m3u8sWebDavServiceId = m_repository.m3u8sWebDavServiceId();
     m_m3u8sWebDavPath = m_repository.m3u8sWebDavPath();
     const auto savedFallbackDirectory = m_repository.m3u8sFallbackDirectory();
@@ -6340,52 +6321,9 @@ void AppViewModel::reportIptvPlaybackInfo(const QString& channelId,
     auto it = std::ranges::find(m_allIptvChannels, channelId, &IptvChannel::id);
     if (it == m_allIptvChannels.end()) return;
 
-    int width = 0;
-    int height = 0;
-    const auto parts = resolution.split(QLatin1Char('x'));
-    if (parts.size() == 2) {
-        width = parts.at(0).toInt();
-        height = parts.at(1).toInt();
-    }
-    QString normalizedBitrate = bitrate.trimmed().toLower();
-    normalizedBitrate.remove(QLatin1Char(','));
-    qint64 bitrateValue = 0;
-    if (normalizedBitrate.endsWith(QStringLiteral("mbps"))) {
-        bitrateValue = static_cast<qint64>(normalizedBitrate.left(normalizedBitrate.size() - 4).toDouble() * 1'000'000.0);
-    } else if (normalizedBitrate.endsWith(QStringLiteral("kbps"))) {
-        bitrateValue = static_cast<qint64>(normalizedBitrate.left(normalizedBitrate.size() - 4).toDouble() * 1'000.0);
-    } else {
-        bitrateValue = normalizedBitrate.toLongLong();
-    }
-    if (width <= 0 || height <= 0) return;
-    it->width = width;
-    it->height = height;
-    it->bitrate = std::max<qint64>(0, bitrateValue);
-    it->codec = codec;
-    it->probeState = QStringLiteral("playback");
-    if (m_currentPlaybackUrl.isValid()) {
-        auto info = std::ranges::find(it->streamInfo, m_currentIptvSourceUrl, &IptvStreamInfo::url);
-        if (info == it->streamInfo.end()) {
-            it->streamInfo.push_back({.url = m_currentIptvSourceUrl});
-            info = std::prev(it->streamInfo.end());
-        }
-        info->available = true;
-        info->width = width;
-        info->height = height;
-        if (bitrateValue > 0) info->bitrate = bitrateValue;
-        if (!codec.isEmpty()) info->codec = codec;
-        info->state = QStringLiteral("playback");
-        info->checkedAt = QDateTime::currentDateTimeUtc();
-        for (auto& variant : info->variants) {
-            if (variant.url != m_currentPlaybackUrl.toString()) continue;
-            variant.failedAt = {};
-            variant.width = width;
-            variant.height = height;
-            if (bitrateValue > 0) variant.bitrate = bitrateValue;
-            if (!codec.isEmpty()) variant.codec = codec;
-        }
-    }
-    m_iptvChannels.updateChannelProbe(channelId, width, height, it->bitrate, codec, it->probeState);
+    if (!IptvStreamWorkflow::applyPlayback(*it, m_currentIptvSourceUrl,
+            m_currentPlaybackUrl.toString(), resolution, codec, bitrate)) return;
+    m_iptvChannels.updateChannelProbe(channelId, it->width, it->height, it->bitrate, codec, it->probeState);
     persistIptvMetadata(*it);
     emit iptvPlaybackStreamsChanged();
 }

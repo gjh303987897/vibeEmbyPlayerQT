@@ -52,6 +52,7 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
     QJsonObject request {{"action",invocation.command},{"pin",m_private ? m_pin : QString()},
                          {"arguments",QJsonArray::fromStringList(invocation.arguments)}};
     if (invocation.command.startsWith("player ")) {
+        request["probe"] = invocation.has("probe"); request["refresh"] = invocation.has("refresh");
         if (QStringList {"player seek","player volume","player speed"}.contains(invocation.command)) {
             bool ok = false; const auto value = invocation.arguments[0].toDouble(&ok);
             if (!ok || !std::isfinite(value) || value < 0 ||
@@ -65,7 +66,7 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
     const auto start = invocation.option("start","0").toDouble(&startOk);
     if (!startOk || !std::isfinite(start) || start < 0) return failure(ExitCode::Usage,"--start must be a nonnegative number");
     request["start"] = start; request["headless"] = invocation.has("headless");
-    request["private"] = false;
+    request["private"] = m_private;
     if (invocation.command == "play" && invocation.arguments.size() == 1) {
         const auto source = invocation.arguments[0];
         QUrl url(source);
@@ -74,13 +75,19 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
             !url.userInfo().isEmpty() || (url.isLocalFile() && !QFileInfo(url.toLocalFile()).isFile()))
             return failure(ExitCode::NotFound,"Expected an existing media file or an HTTP(S) URL without embedded credentials");
         request["url"] = url.toString();
+        request["historySource"] = url.isLocalFile() ? "Local" : "Link";
+        request["historyTarget"] = url.isLocalFile() ? url.toLocalFile() : url.toString();
+        request["title"] = QFileInfo(url.path()).fileName();
         return startPlayback(invocation,request);
     }
     auto card = resolve(repository,invocation.arguments[0]);
     if (!card) return failure(card.error());
     const auto server = card->server;
-    request["private"] = server.privateMode;
+    request["private"] = server.privateMode || m_private;
     request["serviceId"] = server.id;
+    request["serviceName"] = server.name;
+    request["historySource"] = serviceTypeToString(server.serviceType);
+    request["historyTarget"] = invocation.arguments.value(1);
     request["title"] = server.name;
     if (server.serviceType == ServiceType::IPTV) {
         auto channels = repository.loadIptvChannels(server.id);
@@ -101,7 +108,12 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
             selected = channel;
         }
         if (!selected) return failure(ExitCode::NotFound,"IPTV channel not found");
+        const auto preference = invocation.option("preference",repository.iptvStreamPreference());
+        if (preference != "quality" && preference != "dataSaver") return failure(ExitCode::Usage,"Preference must be quality or dataSaver");
         request["url"] = IptvStreamSelector::select(*selected,repository.iptvStreamPreference()).playbackUrl;
+        request["channelId"] = selected->id; request["preference"] = preference;
+        request["streamId"] = invocation.option("stream");
+        request["historyTarget"] = selected->id;
         request["title"] = selected->name;
         return startPlayback(invocation,request);
     }
@@ -116,6 +128,7 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
             auto url = remoteUrl(server,invocation.arguments[1]);
             if (!url) return failure(url.error());
             request["url"] = url->toString();
+            request["historyTarget"] = url->toString(QUrl::FullyEncoded);
         } else {
             auto connected = awaitFuture(QtConcurrent::run([server,credential = *credential] { return SmbClient::connect(server,credential); }));
             if (CliConsole::pollCancellation()) return failure(ExitCode::Canceled,"Canceled");
@@ -123,6 +136,7 @@ Cli::Result Cli::Engine::media(const Invocation& invocation, SessionRepository& 
             auto path = SmbClient::path(server,invocation.arguments[1]);
             if (!path) return failure(ExitCode::Usage,path.error());
             request["url"] = QUrl::fromLocalFile(*path).toString();
+            request["historySource"] = "Local"; request["historyTarget"] = *path;
         }
         return startPlayback(invocation,request);
     }

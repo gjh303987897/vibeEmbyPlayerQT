@@ -274,7 +274,11 @@ Cli::Result Cli::Engine::executeCommand(const Invocation& invocation)
     if (invocation.command == "version") return success(QStringLiteral(VIBEPLAYER_VERSION));
     const bool write = invocation.command == "service add" || invocation.command == "service update" ||
         invocation.command == "service login" || invocation.command == "service remove" ||
-        invocation.command == "service logout" || invocation.command == "service move";
+        invocation.command == "service logout" || invocation.command == "service move" ||
+        invocation.command == "local add" || invocation.command == "local remove" ||
+        invocation.command == "playback-history remove" || invocation.command == "playback-history clear" ||
+        invocation.command == "schedule add" || invocation.command == "schedule update" || invocation.command == "schedule remove" ||
+        (invocation.command == "iptv streams" && (invocation.has("probe") || invocation.has("refresh")));
     SessionRepository repository("cli-" + QUuid::createUuid().toString(QUuid::WithoutBraces), databasePath(),
                                  write ? SessionRepository::OpenMode::ReadWrite : SessionRepository::OpenMode::ReadOnly);
     const bool wasPrivate = m_private;
@@ -341,6 +345,8 @@ Cli::Result Cli::Engine::executeCommand(const Invocation& invocation)
         return success(QJsonObject {{key, QJsonValue::fromVariant(values.value(key))}});
     }
     if (write) if (auto result = repository.initialize(); !result) return failure(ExitCode::Failed, result.error());
+    if (invocation.command.startsWith("local ") || invocation.command.startsWith("playback-history ") ||
+        invocation.command.startsWith("schedule ") || invocation.command == "iptv streams") return desktop(invocation,repository);
     if (invocation.command.startsWith("service ")) return service(invocation, repository);
     if (invocation.command.startsWith("webdav ")) return webdav(invocation, repository);
     if (invocation.command.startsWith("tssl ")) return tssl(invocation, repository);

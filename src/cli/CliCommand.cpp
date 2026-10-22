@@ -39,7 +39,7 @@ const QMap<QString, Spec>& specs()
             "tssl backup [--target local|webdav|s3] [--format zip|files] [--local-path DIR | --service ID --path PATH]"}},
         {"tssl restore", {0,0, {"target","local-path","service","path","s3-endpoint","s3-bucket","s3-region","s3-prefix","s3-access-key"},
             "tssl restore [--target local|webdav|s3] [--local-path DIR | --service ID --path PATH]"}},
-        {"video pack", {1,-1, {"output","webdav","path","container","video","audio","quality","jobs","ffmpeg","temp","keep-local","auto-codecs","auto-target"},
+        {"video pack", {1,-1, {"output","webdav","path","container","video","audio","quality","jobs","ffmpeg","temp","keep-local","auto-codecs","auto-target","segment-duration"},
             "video pack <source...> [--output DIR | --webdav SERVICE --path PATH] [--container m3u8s|m3u8sp]"}},
         {"video restore", {1,-1, {"output","format","ffmpeg","service","temp"},
             "video restore <package or folder...> [--service WEBDAV] [--output DIR] [--format original|mkv|mp4]"}},
@@ -60,7 +60,32 @@ const QMap<QString, Spec>& specs()
         {"media search", {2,2, {"offset","limit"}, "media search <service> <query>"}},
         {"media show", {2,2, {}, "media show <service> <item ID>"}},
         {"media channels", {1,1, {}, "media channels <IPTV service>"}},
-        {"play", {1,2, {"headless","start","wait"}, "play <file or URL> | play <service> <item ID/path/channel ID> [--wait]"}},
+        {"play", {1,2, {"headless","start","wait","stream","preference"}, "play <file or URL> | play <service> <item ID/path/channel ID> [--wait] [--stream ID --preference quality|dataSaver]"}},
+        {"iptv streams", {2,2, {"probe","refresh"}, "iptv streams <service> <channel ID/name> [--probe] [--refresh]"}},
+        {"player streams", {0,0, {"probe","refresh"}, "player streams [--probe] [--refresh]"}},
+        {"player stream", {1,1, {}, "player stream <stream ID>"}},
+        {"local list", {0,0, {}, "local list"}},
+        {"local add", {1,1, {"name"}, "local add <directory> [--name NAME]"}},
+        {"local remove", {1,1, {}, "local remove <root ID/name> --yes"}},
+        {"local ls", {1,2, {}, "local ls <root ID/name> [relative path]"}},
+        {"local play", {2,2, {"start","headless","wait"}, "local play <root ID/name> <relative file> [--start SECONDS] [--wait]"}},
+        {"playback-history list", {0,0, {"source","date","offset","limit"}, "playback-history list [--source TYPE --date YYYY-MM-DD --offset N --limit N]"}},
+        {"playback-history show", {1,1, {}, "playback-history show <ID>"}},
+        {"playback-history remove", {1,1, {}, "playback-history remove <ID> --yes"}},
+        {"playback-history clear", {0,0, {"date"}, "playback-history clear --date YYYY-MM-DD --yes"}},
+        {"playback-history stats", {0,0, {}, "playback-history stats"}},
+        {"playback-history play", {1,1, {"start","headless","wait"}, "playback-history play <ID> [--start SECONDS] [--wait]"}},
+        {"schedule list", {0,0, {}, "schedule list"}},
+        {"schedule show", {1,1, {}, "schedule show <ID>"}},
+        {"schedule add", {0,0, {"service","schedule-type","time","days","duration","enabled"}, "schedule add --service SERVICE [--schedule-type manual|daily|weekly|monthly|custom_monthly --time HH:mm --days 1,7 --duration MINUTES --enabled true|false]"}},
+        {"schedule update", {1,1, {"service","schedule-type","time","days","duration","enabled"}, "schedule update <ID> [--service SERVICE --schedule-type TYPE --time HH:mm --days DAYS --duration MINUTES --enabled true|false]"}},
+        {"schedule remove", {1,1, {}, "schedule remove <ID> --yes"}},
+        {"schedule run", {1,1, {}, "schedule run <ID>"}},
+        {"schedule status", {0,0, {}, "schedule status"}},
+        {"schedule stop", {0,0, {}, "schedule stop"}},
+        {"schedule watch", {0,0, {}, "schedule watch"}},
+        {"schedule unwatch", {0,0, {}, "schedule unwatch"}},
+        {"schedule resolve", {0,0, {"run"}, "schedule resolve --run true|false"}},
         {"player status", {0,0, {}, "player status"}},
         {"player pause", {0,0, {}, "player pause"}},
         {"player resume", {0,0, {}, "player resume"}},
@@ -96,7 +121,7 @@ const QMap<QString, Spec>& specs()
 const QStringList globalOptions {"json","private","pin-env","password-env","s3-secret-env","s3-session-token-env",
     "s3-credentials","s3-profile","s3-role-arn","s3-role-session-name","s3-external-id","yes","data-dir","background","fail-fast","clear"};
 const QSet<QString> booleanOptions {"json","private","yes","overwrite","all","keep-local","parents","resume",
-    "background","fail-fast","headless","clear","wait"};
+    "background","fail-fast","headless","clear","wait","probe","refresh"};
 
 }
 
@@ -135,7 +160,8 @@ std::expected<Cli::Invocation, Cli::Error> Cli::parse(const QStringList& input)
     const auto group = args.takeFirst();
     if (group == "service" || group == "webdav" || group == "tssl" || group == "video" ||
         group == "config" || group == "privacy" || group == "media" || group == "player" ||
-        group == "task" || group == "daemon" || group == "smb") {
+        group == "task" || group == "daemon" || group == "smb" || group == "iptv" ||
+        group == "local" || group == "playback-history" || group == "schedule") {
         if (args.isEmpty()) return std::unexpected(Error {ExitCode::Usage, QStringLiteral("Missing subcommand for %1").arg(group)});
         command.command = group + ' ' + args.takeFirst();
     } else command.command = group;
@@ -189,7 +215,9 @@ QString Cli::help(const QString& command)
     const QList<QPair<QString,QString>> groups {{"service","Services"}, {"webdav","WebDAV files"},
         {"tssl","TSSL packages and backups"}, {"video","Video packaging and restore"},
         {"config","Configuration"}, {"privacy","Privacy PIN"}, {"media","Media browsing"}, {"player","Playback controls"},
-        {"task","Background tasks"}, {"daemon","Task daemon"}, {"smb","SMB files"}, {"","Interactive shell"}};
+        {"task","Background tasks"}, {"daemon","Task daemon"}, {"smb","SMB files"},
+        {"iptv","IPTV streams"}, {"local","Local folders"}, {"playback-history","Playback history"},
+        {"schedule","Scheduled playback"}, {"","Interactive shell"}};
     for (const auto& [group, heading] : groups) {
         QString usages;
         for (auto it = specs().cbegin(); it != specs().cend(); ++it) {
@@ -237,6 +265,19 @@ QString Cli::help(const QString& command)
         "list is an alias for service list. No arguments opens the desktop application.\n"
         "Shell shortcuts: ls, mkdir, upload, download (after use <service>).\n"
         "Commands wait until completion. No plaintext password/PIN arguments are accepted.\n");
+    if (command.isEmpty() || command == "video" || command == "video pack")
+        text += QStringLiteral("\nVideo overrides (not persisted)\n"
+            "  --segment-duration 2..30   HLS segment duration in seconds\n"
+            "  --video copy|h264|h265|auto  --audio copy|aac  --quality high|balanced|compact\n"
+            "  --jobs N  --ffmpeg FILE  --temp DIR  --keep-local\n"
+            "  --auto-codecs h264,h265  --auto-target h264|h265\n"
+            "  Local output ignores a saved WebDAV temporary directory; explicit --temp is honored.\n");
+    if (command.isEmpty() || command == "iptv" || command == "player" || command == "play")
+        text += QStringLiteral("\nIPTV streams\n"
+            "  --probe reuses fresh quality data; --refresh forces bounded sequential probing.\n"
+            "  iptv streams waits for probes; player streams starts probes asynchronously.\n"
+            "  Use returned stream IDs with player stream or play --stream. URLs are not printed.\n"
+            "  Preference defaults to config iptv/streamPreference; --preference overrides one play.\n");
     return text;
 }
 

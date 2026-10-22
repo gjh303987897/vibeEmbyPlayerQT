@@ -1,6 +1,7 @@
 #include "cli/CliCommand.h"
 #include "cli/CliConsole.h"
 #include "cli/CliEngine.h"
+#include "cli/CliIptvPlayback.h"
 #include "cli/CliOutput.h"
 #include "cli/CliShell.h"
 #include "services/backup/S3CredentialProvider.h"
@@ -259,6 +260,44 @@ private slots:
         QCOMPARE(failure.standardError,QString("Already exists\n"));
     }
 
+    void iptvFallbackRoundsCancelStaleSwitches()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("iptv.db");
+        SessionRepository repository("cli-iptv-rounds",path);
+        QVERIFY(repository.initialize());
+        ServerConfig server {.id = "iptv",.name = "IPTV",.baseUrl = "fixture.m3u",.serviceType = ServiceType::IPTV};
+        IptvPlaylist playlist {.id = "playlist",.serviceId = "iptv",.name = "IPTV",.sourceType = "file",
+            .sourcePath = "fixture.m3u",.importedPath = "fixture.m3u",.importedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate)};
+        IptvChannel channel {.id = "channel",.playlistId = "playlist",.name = "Channel",.groupName = "Test",.streamUrl = "file:///first.mp4"};
+        channel.streamUrls = {channel.streamUrl,"file:///second.mp4","file:///third.mp4"};
+        QVERIFY(repository.saveIptvPlaylist(server,playlist,{channel}));
+        QStringList loaded;
+        {
+            Cli::IptvPlayback playback(repository,path);
+            QVERIFY(playback.start(server.id,channel.id,"quality",{},[&](const auto& url) { loaded += url; }));
+            QCOMPARE(loaded.size(),1);
+            QVERIFY(playback.retry(true));
+            const auto rows = playback.streams();
+            QString third;
+            for (const auto& row : rows) if (row.toObject()["line"].toInt() == 3) third = row.toObject()["id"].toString();
+            QVERIFY(!third.isEmpty());
+            QVERIFY(playback.switchStream(third));
+            QTest::qWait(50);
+            QCOMPARE(loaded.size(),2); QCOMPARE(loaded.back(),QString("file:///third.mp4"));
+            QVERIFY(!playback.retry(false)); // Normal EOF/user stop does not trigger failover.
+            playback.stop(); loaded.clear();
+            QVERIFY(playback.start(server.id,channel.id,"quality",{},[&](const auto& url) { loaded += url; }));
+            QVERIFY(playback.retry(true)); QTRY_COMPARE(loaded.size(),2);
+            QVERIFY(playback.retry(true)); QTRY_COMPARE(loaded.size(),3);
+            QVERIFY(!playback.retry(true));
+            QCOMPARE(QSet<QString>(loaded.begin(),loaded.end()).size(),3);
+            playback.stop();
+        }
+        const auto saved = repository.loadIptvChannels(server.id);
+        QVERIFY(saved); QVERIFY(!saved->front().streamInfo.empty());
+    }
+
     void parserAndQuoting()
     {
         auto alias = Cli::parse({"list","--json"});
@@ -274,6 +313,14 @@ private slots:
         QVERIFY(Cli::help("tssl backup").contains("--format zip|files"));
         QVERIFY(Cli::help("tssl restore").contains("legacy .tssl"));
         QVERIFY(!Cli::parse({"video","pack","a","--output","b","--webdav","one"}));
+        QVERIFY(Cli::parse({"video","pack","a","--segment-duration","2"}));
+        QVERIFY(Cli::parse({"iptv","streams","service","channel","--probe"}));
+        QVERIFY(Cli::parse({"player","streams","--refresh"}));
+        QVERIFY(Cli::parse({"player","stream","id"}));
+        QVERIFY(Cli::parse({"local","ls","root","subfolder"}));
+        QVERIFY(Cli::parse({"playback-history","list","--date","2026-10-22","--source","IPTV"}));
+        QVERIFY(Cli::parse({"schedule","add","--service","emby","--schedule-type","daily","--time","12:00"}));
+        QVERIFY(Cli::help("schedule").contains("schedule watch"));
         auto words = Cli::splitLine(QStringLiteral(R"(upload "D:\中文 路径\影片.mp4" '/电影/影片.mp4')"));
         QVERIFY(words);
         QCOMPARE(*words, (QStringList {"upload",QStringLiteral("D:\\中文 路径\\影片.mp4"),QStringLiteral("/电影/影片.mp4")}));

@@ -37,6 +37,7 @@ private:
     Result startPlayback(const Invocation& invocation, const QJsonObject& request);
     Result smb(const Invocation& invocation, SessionRepository& repository);
     Result tasks(const Invocation& invocation, SessionRepository& repository);
+    Result desktop(const Invocation& invocation, SessionRepository& repository);
     Result transferUpload(const Invocation& invocation, const ServerConfig& server, const QString& password,
                           const QString& source, const QUrl& target);
     QString databasePath() const;
